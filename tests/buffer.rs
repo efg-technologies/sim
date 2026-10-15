@@ -1,0 +1,90 @@
+//! SAFE-3: opening and saving without editing gives the same bytes.
+mod common;
+use common::*;
+use proptest::prelude::*;
+use si::core::buffer::Buffer;
+
+fn round_trip(b: &[u8]) {
+    assert_eq!(Buffer::decode(b).encode(), b, "{:?}", String::from_utf8_lossy(b));
+}
+
+#[test]
+fn safe_3_fixed_cases_round_trip() {
+    let cases = [
+        "",
+        "\n",
+        "\n\n",
+        "a",
+        "a\n",
+        "a\r\n",
+        "a\r\nb",
+        "a\r\nb\r\n",
+        "a\r\nb\n",
+        "a\nb\r\n",
+        "\r",
+        "\r\n",
+    ];
+    let more = [
+        "\r\n\r\n",
+        "\r\r\n",
+        "a\rb",
+        "\u{feff}",
+        "\u{feff}\n",
+        "\u{feff}a\r\n",
+        "x\u{feff}y",
+        "\u{feff}\u{feff}",
+        "日本語\n",
+    ];
+    for s in cases.iter().chain(&more) {
+        round_trip(s.as_bytes());
+    }
+}
+
+#[test]
+fn safe_3_line_endings_and_final_newline() {
+    let b = Buffer::decode(b"a\r\nb\r\n");
+    assert_eq!(b.text.to_string(), "a\nb", "CRLF files hold LF, without the final newline");
+    let b = Buffer::decode(b"a\r\nb\n");
+    assert_eq!(b.text.to_string(), "a\r\nb", "a mix is kept as it is (the \\r is a char)");
+    assert_eq!(Buffer::decode(b"\xEF\xBB\xBFa").text.to_string(), "a", "the BOM is not text");
+}
+
+#[test]
+fn safe_3_crlf_bom_and_missing_final_newline_survive_edits() {
+    let mut a = app_with(Some("f"), b"\xEF\xBB\xBFa\r\nb\r\n", (40, 8));
+    feed(&mut a, "ox\x1b");
+    assert_eq!(a.buf.encode(), b"\xEF\xBB\xBFa\r\nx\r\nb\r\n");
+    let mut a = app_with(Some("f"), b"a\nb", (40, 8));
+    feed(&mut a, "jix\x1b");
+    assert_eq!(a.buf.encode(), b"a\nxb", "no final newline stays that way");
+}
+
+#[test]
+fn safe_3_an_empty_file_gets_a_final_newline_once_it_has_text() {
+    let mut a = app_with(Some("f"), b"", (40, 8));
+    assert_eq!(a.buf.encode(), b"");
+    feed(&mut a, "ihi\x1b");
+    assert_eq!(a.buf.encode(), b"hi\n");
+    let mut a = app_with(Some("f"), b"\n", (40, 8));
+    feed(&mut a, "x");
+    assert_eq!(a.buf.encode(), b"\n", "an existing file keeps its newline");
+}
+
+/// Strings heavy in the chars that matter: `\r`, `\n` and the BOM.
+fn tricky() -> impl Strategy<Value = String> {
+    let ch = prop_oneof![
+        3 => Just('\r'),
+        3 => Just('\n'),
+        1 => Just('\u{feff}'),
+        3 => prop::char::range('a', 'c'),
+        1 => any::<char>().prop_filter("no NUL", |c| *c != '\0'),
+    ];
+    prop::collection::vec(ch, 0..24).prop_map(|v| v.into_iter().collect())
+}
+
+proptest! {
+    #[test]
+    fn safe_3_encode_is_the_inverse_of_decode(s in tricky()) {
+        round_trip(s.as_bytes());
+    }
+}

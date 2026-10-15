@@ -1,0 +1,311 @@
+//! VI-4, VI-7, PERF-4
+//! The command line: ex commands with their ranges, `:s`, and search.
+use super::app::{App, Effect};
+use regex_lite::{Captures, Regex, escape};
+use std::{borrow::Cow, ops::Range, thread};
+
+/// The replacement of `:s`: `&` and `\1`-`\9` are parts of the match, `\x` is `x`.
+fn expand(rep: &str, caps: &Captures) -> String {
+    let (mut out, mut it) = (String::new(), rep.chars());
+    while let Some(c) = it.next() {
+        match c {
+            '&' => out.push_str(&caps[0]),
+            '\\' => match it.next() {
+                Some(d @ '1'..='9') => {
+                    out += caps.get(d as usize - '0' as usize).map_or("", |m| m.as_str())
+                }
+                Some(d) => out.push(d),
+                None => out.push('\\'),
+            },
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// A buffer of this many bytes or more is searched on 8 threads. Starting and joining them takes
+/// about 60 µs (p99 120 µs, measured). At 512 KiB a search takes 1.1 ms (literal) to 11.5 ms
+/// (regex) on one thread and 0.3 to 2.5 ms on eight, so start-up is small there, while below it
+/// even the slowest one-thread search stays under a quarter of PERF-4's 50 ms.
+const PAR_MIN: usize = 512 << 10;
+/// The first steps of a search run before any thread starts, so a match near the cursor costs none.
+const HEAD: usize = 256;
+
+/// A literal that every match of `pat` contains ("" if none is found): the longest run of plain
+/// chars that no quantifier binds. Alternation, groups, classes and hex escapes give up, so a
+/// line without it can never match, and needs no regex (PERF-4).
+fn literal(pat: &str) -> String {
+    let (mut run, mut it) = (String::new(), pat.chars());
+    while let Some(c) = it.next() {
+        match c {
+            '|' | '(' | '[' => return String::new(),
+            '\\' => match it.next() {
+                Some(e) if "\\.+*?()|[]{}^$#&-~".contains(e) => run.push(e),
+                Some('x' | 'u' | 'U') | None => return String::new(),
+                _ => run.push('\0'),
+            },
+            '*' | '+' | '?' | '{' => {
+                run.pop();
+                run.push('\0');
+                if c == '{' {
+                    it.by_ref().find(|&d| d == '}');
+                }
+            }
+            '.' | '^' | '$' => run.push('\0'),
+            _ => run.push(c),
+        }
+    }
+    run.split('\0').max_by_key(|s| s.chars().count()).unwrap_or_default().into()
+}
+
+impl App {
+    fn regex(&mut self, pat: &str, cs: bool) -> Option<Regex> {
+        let ci = !cs && !pat.chars().any(char::is_uppercase); // smartcase
+        let re = Regex::new(&if ci { format!("(?i){pat}") } else { pat.to_string() });
+        re.map_err(|e| {
+            self.say(format!("bad pattern: {}", e.to_string().lines().next().unwrap_or("")))
+        })
+        .ok()
+    }
+
+    /// A submitted command line, with its `:`, `/` or `?`.
+    pub(super) fn submit(&mut self, line: &str) {
+        let mut cs = line.chars();
+        match cs.next() {
+            Some(':') => self.ex(cs.as_str()),
+            Some(c) => {
+                let (pat, fwd) = (cs.as_str(), c == '/');
+                match (pat, &mut self.search) {
+                    ("", Some(s)) => s.2 = fwd,
+                    ("", None) => return self.say("no previous pattern"),
+                    _ => self.search = Some((pat.into(), false, fwd)),
+                }
+                if let Some(t) = self.find_match(fwd) {
+                    (self.buf.cursor, self.buf.want) = (t, None);
+                }
+            }
+            None => {}
+        }
+    }
+
+    /// One line address (0-based) at the start of `s`, and the rest.
+    fn addr<'a>(&self, s: &'a str) -> Option<(usize, &'a str)> {
+        let (b, last) = (&self.buf, self.buf.lines() - 1);
+        Some(match s.chars().next()? {
+            '.' => (b.line_of(b.cursor), &s[1..]),
+            '$' => (last, &s[1..]),
+            '\'' if s[1..].starts_with('<') => (self.marks.0.min(last), &s[2..]),
+            '\'' if s[1..].starts_with('>') => (self.marks.1.min(last), &s[2..]),
+            '0'..='9' => {
+                let d = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+                ((s[..d].parse::<usize>().ok()?.max(1) - 1).min(last), &s[d..])
+            }
+            _ => return None,
+        })
+    }
+
+    /// The range at the start of `s` (0-based lines, first <= last) and the rest.
+    fn range<'a>(&self, s: &'a str) -> (Option<(usize, usize)>, &'a str) {
+        if let Some(rest) = s.strip_prefix('%') {
+            return (Some((0, self.buf.lines() - 1)), rest);
+        }
+        let Some((a, rest)) = self.addr(s) else { return (None, s) };
+        match rest.strip_prefix(',').and_then(|r| self.addr(r)) {
+            Some((z, rest)) => (Some((a.min(z), a.max(z))), rest),
+            None => (Some((a, a)), rest),
+        }
+    }
+
+    /// Runs an ex command, without its `:`.
+    pub(super) fn ex(&mut self, line: &str) {
+        let (range, rest) = self.range(line.trim());
+        let rest = rest.trim_start();
+        if rest.starts_with('!') {
+            return self.say("not available yet");
+        }
+        let (name, arg) =
+            rest.split_at(rest.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(rest.len()));
+        let (bang, arg) = arg.strip_prefix('!').map_or((false, arg), |a| (true, a));
+        let (arg, dirty) = (arg.trim(), self.buf.dirty());
+        let line = self.buf.line_of(self.buf.cursor);
+        match name {
+            "" => {
+                if let Some((_, last)) = range {
+                    let b = &mut self.buf;
+                    (b.cursor, b.want, self.center) = (b.nonblank(last), None, true);
+                }
+            }
+            "w" => self.write(arg, bang, false),
+            "wq" => self.write(arg, bang, true),
+            "x" if dirty => self.write(arg, bang, true),
+            "x" => self.fx.push(Effect::Quit(0)),
+            "q" if dirty && !bang => self.say("no write since last change (:q! to override)"),
+            "q" => self.fx.push(Effect::Quit(0)),
+            "cq" => self.fx.push(Effect::Quit(1)),
+            "e" if dirty && !bang => self.say("no write since last change (:e! to discard)"),
+            "e" => match if arg.is_empty() { self.path.clone() } else { Some(arg.into()) } {
+                Some(path) => self.fx.push(Effect::Open(path)),
+                None => self.say("no file name"),
+            },
+            "s" => self.subst(range.unwrap_or((line, line)), arg),
+            "seen" | "ref" => self.say("not available yet"),
+            _ => self.say(format!("not an editor command: {name}")),
+        }
+        self.clamp();
+    }
+
+    /// `:s/re/rep/[g]` on the lines `l1..=l2`.
+    fn subst(&mut self, (l1, l2): (usize, usize), arg: &str) {
+        if let Some(why) = self.buf.readonly.clone() {
+            return self.say(why);
+        }
+        let Some(body) = arg.strip_prefix('/') else { return self.say("usage: :s/re/rep/[g]") };
+        let (mut parts, mut i, mut it) =
+            ([String::new(), String::new(), String::new()], 0, body.chars());
+        while let Some(c) = it.next() {
+            match (c, it.clone().next()) {
+                ('/', _) if i < 2 => i += 1,
+                ('\\', Some('/')) => {
+                    parts[i].push('/');
+                    it.next();
+                }
+                ('\\', Some(d)) => {
+                    parts[i].extend(['\\', d]);
+                    it.next();
+                }
+                _ => parts[i].push(c),
+            }
+        }
+        let [mut pat, rep, flags] = parts;
+        let global = match flags.as_str() {
+            "" => false,
+            "g" => true,
+            f => return self.say(format!("unknown flag: {f}")),
+        };
+        if pat.is_empty() {
+            pat = self.search.as_ref().map(|s| s.0.clone()).unwrap_or_default();
+        }
+        let Some(re) = self.regex(&pat, false) else { return };
+        let (mut subs, mut lines, mut at) = (0, 0, None);
+        self.buf.checkpoint();
+        for l in l1..=l2 {
+            let b = &mut self.buf;
+            let text = b.text.line(l).to_string();
+            let (mut n, text) = (0, text.trim_end_matches('\n'));
+            let out = re.replacen(text, usize::from(!global), |caps: &Captures| {
+                n += 1;
+                expand(&rep, caps)
+            });
+            if n > 0 {
+                b.replace(b.start(l)..b.end(l), &out);
+                (subs, lines, at) = (subs + n, lines + 1, Some(l));
+            }
+        }
+        match at {
+            Some(l) => {
+                (self.buf.cursor, self.buf.want) = (self.buf.nonblank(l), None);
+                let s = |n: usize| if n == 1 { "" } else { "s" };
+                self.say(format!("{subs} substitution{} on {lines} line{}", s(subs), s(lines)));
+            }
+            None => self.say(format!("not found: {pat}")),
+        }
+    }
+
+    /// `n N * #`: where the search goes from the cursor. `*` and `#` search from the word's start.
+    pub(super) fn search_key(&mut self, k: char) -> Option<usize> {
+        let from = self.buf.cursor;
+        if matches!(k, '*' | '#') {
+            let (word, start) = self.word_here()?;
+            self.search = Some((word, true, k == '*'));
+            self.buf.cursor = start;
+        }
+        let found = self.find_match(self.search.as_ref().is_none_or(|s| s.2) == (k != 'N'));
+        self.buf.cursor = from;
+        found
+    }
+
+    /// The word at or after the cursor as a pattern, and where it starts: `\b` where the word starts or ends with a
+    /// char that `\b` understands (regex-lite's word chars are ASCII).
+    fn word_here(&mut self) -> Option<(String, usize)> {
+        let b = &self.buf;
+        let (l, w) = (b.line_of(b.cursor), |c: char| c.is_alphanumeric() || c == '_');
+        let Some(i) = (b.cursor..b.end(l)).find(|&i| w(b.ch(i))) else {
+            self.msg = Some("no word under the cursor".into());
+            return None;
+        };
+        let a = (b.start(l)..=i).rev().take_while(|&j| w(b.ch(j))).last().unwrap_or(i);
+        let z = (i..b.end(l)).take_while(|&j| w(b.ch(j))).last().unwrap_or(i) + 1;
+        let edge = |c: char| if c.is_ascii_alphanumeric() || c == '_' { "\\b" } else { "" };
+        let word: String = b.text.slice(a..z).chars().collect();
+        Some((format!("{}{}{}", edge(b.ch(a)), escape(&word), edge(b.ch(z - 1))), a))
+    }
+
+    /// The next match of the last search from the cursor, wrapping around the file. Step `i` of
+    /// the search is one line: step 0 the rest of the cursor line, step n (after a full turn) its
+    /// other part. A big buffer is searched in 8 chunks of steps on as many threads, which only
+    /// read the text; the first chunk with a match wins, so the result is the sequential one.
+    fn find_match(&mut self, fwd: bool) -> Option<usize> {
+        let Some((pat, cs, _)) = self.search.clone() else {
+            self.say("no previous pattern");
+            return None;
+        };
+        let re = self.regex(&pat, cs)?;
+        let ci = !cs && !pat.chars().any(char::is_uppercase);
+        let lit = if ci { literal(&pat).to_ascii_lowercase() } else { literal(&pat) };
+        let (b, text) = (&self.buf, &self.buf.text);
+        let (l0, c0, n) = (b.line_of(b.cursor), b.col(), b.lines());
+        let step = |re: &Regex, i: usize| {
+            let l = if fwd { (l0 + i) % n } else { (l0 + n - i % n) % n };
+            let line = Cow::from(text.line(l));
+            let line = line.trim_end_matches('\n');
+            let has =
+                |t: &str| if ci { t.to_ascii_lowercase().contains(&lit) } else { t.contains(&lit) };
+            if !lit.is_empty() && !has(line) {
+                return None;
+            }
+            let ok = |c: usize| match i {
+                0 if fwd => c > c0,
+                0 => c < c0,
+                i if i == n && fwd => c <= c0,
+                i if i == n => c >= c0,
+                _ => true,
+            };
+            let mut starts =
+                re.find_iter(line).map(|m| line[..m.start()].chars().count()).filter(|&c| ok(c));
+            (if fwd { starts.next() } else { starts.last() }).map(|c| (i, text.line_to_char(l) + c))
+        };
+        let scan = |re: &Regex, mut r: Range<usize>| r.find_map(|i| step(re, i));
+        let rest = HEAD.min(n + 1)..n + 1;
+        let found = scan(&re, 0..rest.start).or_else(|| {
+            if text.len_bytes() < self.par_min.unwrap_or(PAR_MIN) {
+                return scan(&re, rest);
+            }
+            let size = rest.len().div_ceil(8).max(1);
+            let at = |k: usize| (rest.start + k * size).min(rest.end);
+            let (scan, re) = (&scan, &re);
+            thread::scope(|s| {
+                // Each thread gets its own copy of the regex: they would queue on one cache pool's lock.
+                // A chunk whose thread could not start (or died) is searched here instead.
+                let all: Vec<_> = (0..8)
+                    .map(|k| {
+                        let (x, y) = (at(k), at(k + 1));
+                        let h =
+                            thread::Builder::new().spawn_scoped(s, move || scan(&re.clone(), x..y));
+                        (x..y, h.ok())
+                    })
+                    .collect();
+                all.into_iter()
+                    .find_map(|(r, h)| h.and_then(|h| h.join().ok()).unwrap_or_else(|| scan(re, r)))
+            })
+        });
+        let Some((i, t)) = found else {
+            self.msg = Some(format!("not found: {pat}"));
+            return None;
+        };
+        if if fwd { l0 + i >= n } else { i > l0 } {
+            self.msg = Some("search wrapped".into());
+        }
+        self.center = true;
+        Some(t)
+    }
+}

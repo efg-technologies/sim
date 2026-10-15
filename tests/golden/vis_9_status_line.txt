@@ -1,0 +1,90 @@
+== open
+36x4 cursor 5,0 Block
+|   1 fn main() {                    |
+|.---............                    |
+|   2 }                              |
+|.---..                              |
+|                                    |
+|                                    |
+|src/main.rs  1:1  NORMAL            |
+|........................            |
+== modified
+36x4 cursor 5,1 Block
+|   1 fn main() {                    |
+|.---............                    |
+|   2                                |
+|.---.                               |
+|                                    |
+|                                    |
+|src/main.rs  2:1  NORMAL  modified  |
+|..................................  |
+== insert
+36x4 cursor 7,1 Bar
+|   1 fn main() {                    |
+|.---............                    |
+|   2 hi                             |
+|.---...                             |
+|                                    |
+|                                    |
+|src/main.rs  2:3  INSERT  modified  |
+|..................................  |
+== command line
+36x4 cursor 3,3 Bar
+|   1 fn main() {                    |
+|.---............                    |
+|   2 hi                             |
+|.---...                             |
+|                                    |
+|                                    |
+|:wq                                 |
+|...                                 |
+== message replaces the status line
+36x4 cursor 5,1 Block
+|   1 fn main() {                    |
+|.---............                    |
+|   2 }                              |
+|.---..                              |
+|                                    |
+|                                    |
+|nothing to undo                     |
+|...............                     |
+== until the next key
+36x4 cursor 5,1 Block
+|   1 fn main() {                    |
+|.---............                    |
+|   2 }                              |
+|.---..                              |
+|                                    |
+|                                    |
+|src/main.rs  2:1  NORMAL            |
+|........................            |
+== unnamed
+36x4 cursor 5,0 Block
+|   1                                |
+|.---.                               |
+|                                    |
+|                                    |
+|                                    |
+|                                    |
+|[no name]  1:1  NORMAL              |
+|......................              |
+== read-only
+60x4 cursor 5,0 Block
+|   1 ��a                                                    |
+|.---....                                                    |
+|                                                            |
+|                                                            |
+|                                                            |
+|                                                            |
+|blob  1:1  NORMAL  read-only: not valid UTF-8               |
+|.............................................               |
+== unreadable
+60x4 cursor 5,0 Block
+|   1                                                        |
+|.---.                                                       |
+|                                                            |
+|                                                            |
+|                                                            |
+|                                                            |
+|dir  1:1  NORMAL  read-only: cannot read: Is a directory    |
+|........................................................    |

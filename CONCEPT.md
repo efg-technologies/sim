@@ -15,7 +15,7 @@ Lower numbers take priority. When two principles conflict, the lower number wins
 | P2 | Understanding | Make what changed obvious at a glance. Color is used only for change |
 | P3 | Speed | 5 ms to start, 1 ms per key. Anything that would make you wait runs asynchronously |
 | P4 | Minimal | src/ stays within 3,000 lines. Every feature is judged by "can we cut it?" |
-| P5 | vi | Operations follow vi grammar. The only new concept is the Proposal |
+| P5 | Keys | The best key for each job, not vi for its own sake: keep the vi grammar the hands already know, and depart from it wherever vi is worse than modern editors. The only new concept is the Proposal |
 
 ## The core abstraction: Proposal
 
