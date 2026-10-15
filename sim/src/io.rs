@@ -10,10 +10,9 @@ use si::core::app::{Effect, Event};
 use si::io::file::{self, Saved, why};
 use si::io::journal::{self, NO_STATE, Snapshot};
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -153,90 +152,30 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
 /// run commands.
 pub const GIT_SKIPPED: &str = "git skipped: this repository's config could run commands";
 
-/// MARK-1: whether the text of a repository's config defines something git would run as a command
-/// in `status` or `ls-files`: a `filter` driver, `core.fsmonitor`, `core.hooksPath`, or an
-/// `include`/`includeIf` (which can bring in any of them). Section and key names are not case
-/// sensitive; a key after the header on the same line, and a BOM, count. It reads too much into
-/// a line continued with a backslash, never too little.
-pub fn runs_commands(config: &str) -> bool {
-    let mut section = String::new();
-    let lines = config.strip_prefix('\u{feff}').unwrap_or(config).lines();
-    lines.map(str::trim_start).any(|line| {
-        let mut rest = line;
-        if let Some(head) = line.strip_prefix('[') {
-            let end = |c: char| c.is_whitespace() || matches!(c, '"' | '.' | ']');
-            section = head.trim_start().split(end).next().unwrap_or_default().to_lowercase();
-            rest = head.split_once(']').map_or("", |(_, tail)| tail.trim_start());
-            if matches!(section.as_str(), "filter" | "include" | "includeif") {
-                return true;
-            }
-        }
-        let key = rest.split(|c: char| !c.is_ascii_alphanumeric() && c != '-').next();
-        section == "core"
-            && matches!(key.map(str::to_lowercase).as_deref(), Some("fsmonitor" | "hookspath"))
-    })
-}
-
-/// Whether `g` is a git directory by git's rule (and stricter: a `HEAD` that is not a ref or an
-/// object id is not one), where `common` holds the objects and refs.
-fn is_git_dir(g: &Path, common: &Path) -> bool {
-    let head = fs::read_to_string(g.join("HEAD")).unwrap_or_default();
-    let id =
-        matches!(head.trim().len(), 40 | 64) && head.trim().bytes().all(|b| b.is_ascii_hexdigit());
-    (id || head.starts_with("ref: refs/"))
-        && common.join("objects").is_dir()
-        && common.join("refs").is_dir()
-}
-
-/// A path that a file of the git directory holds (`gitdir: {path}` in a `.git` file, the path in
-/// `commondir`), resolved against `base`. The bytes are kept as they are: a name need not be UTF-8.
-fn path_in(file: &Path, key: &[u8], base: &Path) -> Option<PathBuf> {
-    let bytes = fs::read(file).ok()?;
-    let line = bytes.split(|&b| b == b'\n').find_map(|l| l.strip_prefix(key))?;
-    Some(base.join(OsStr::from_bytes(line.trim_ascii())))
-}
-
-/// MARK-1: the files of the config git would read in the repository around `dir`: of every `.git`
-/// on the way up (a directory, or a file that names one: a worktree's, a submodule's) and of a
-/// bare repository's own directory, down to the first that is a git directory, which is where git
-/// stops. A worktree adds the config of the repository it belongs to (`commondir`).
-pub fn git_configs(dir: &Path) -> Vec<PathBuf> {
-    let mut out = vec![];
-    for d in dir.ancestors() {
-        let dot = d.join(".git");
-        let inner = if dot.is_dir() { Some(dot) } else { path_in(&dot, b"gitdir:", d) };
-        // The `.git` of this directory counts whether or not it is valid (git may pass it by); the
-        // directory itself only if it is a bare repository.
-        for (g, bare) in [(inner, false), (Some(d.to_path_buf()), true)] {
-            let Some(g) = g else { continue };
-            let common = path_in(&g.join("commondir"), b"", &g).unwrap_or_else(|| g.clone());
-            let valid = is_git_dir(&g, &common);
-            if valid || !bare {
-                out.extend([g.join("config"), g.join("config.worktree"), common.join("config")]);
-            }
-            if valid {
-                return out;
-            }
+/// MARK-1: whether the config that git lists for a repository (`git config --list --show-scope
+/// -z`: `scope NUL key [NL value] NUL` for each entry, section and variable names in lower case)
+/// has an entry of the repository's own that makes git run a command in `status`, `ls-files` or
+/// `rev-parse`: a `filter` driver, `core.fsmonitor`, `core.hooksPath`, `core.alternateRefsCommand`,
+/// or an `include`/`includeIf` (which can bring in any of them). An included file has the scope of
+/// the file that includes it. The user's own scopes (system, global, the command line) are
+/// trusted; any other scope, and a listing that does not parse, counts as the repository's.
+pub fn runs_commands(listing: &[u8]) -> bool {
+    let mut fields = listing.split(|&b| b == 0);
+    while let Some(scope) = fields.next() {
+        let Some(entry) = fields.next() else { return !scope.is_empty() };
+        let key = entry.split(|&b| b == b'\n').next().unwrap_or_default();
+        let runs =
+            matches!(key, b"core.fsmonitor" | b"core.hookspath" | b"core.alternaterefscommand")
+                || [&b"filter."[..], b"include.", b"includeif."].iter().any(|p| key.starts_with(p));
+        if runs && !matches!(scope, b"system" | b"global" | b"command") {
+            return true;
         }
     }
-    out
+    false
 }
 
-/// MARK-1: whether the config of the repository around `dir` could run commands. A config that
-/// cannot be read counts as one that could. The user's own config is not looked at: it is trusted.
-fn unsafe_repo(dir: &Path) -> bool {
-    git_configs(dir).iter().any(|c| match fs::read(c) {
-        Ok(text) => runs_commands(&String::from_utf8_lossy(&text)),
-        Err(e) => e.kind() != io::ErrorKind::NotFound,
-    })
-}
-
-/// Runs git in `dir`. In English, so that "not a git repository" can be told from other failures.
-/// It is not run at all where the repository's config could run commands (MARK-1).
-fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    if unsafe_repo(dir) {
-        return Err(GIT_SKIPPED.into());
-    }
+/// Runs git in `dir`, in English so that "not a git repository" can be told from other failures.
+fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     let out = Command::new("git")
         .args(["-c", "core.fsmonitor=false", "--no-optional-locks"])
         .args(args)
@@ -256,6 +195,22 @@ fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     })
 }
 
+/// Runs git in `dir`, unless the repository's config could make it run a command (MARK-1). The
+/// config is read by git itself, so that sim cannot read it differently from git. Listing config
+/// runs nothing: `builtin/config.c` only parses it and prints (the one command it can start is
+/// `config --edit`'s editor); hooks, filters and the monitor belong to commands that use the index
+/// or the work tree. In a directory that is no repository the list is the user's own and git then
+/// says so itself. An unreadable or invalid config makes `config` fail, which counts as unsafe.
+fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let list = run(dir, &["config", "--list", "--show-scope", "-z"]);
+    let list =
+        list.map_err(|e| if e.starts_with("git config:") { GIT_SKIPPED.into() } else { e })?;
+    if runs_commands(&list) {
+        return Err(GIT_SKIPPED.into());
+    }
+    run(dir, args)
+}
+
 /// FIND-3: the files of the repository, NUL-separated and relative to `dir`: tracked ones and
 /// untracked ones that are not ignored.
 pub fn git_files(dir: &Path) -> Result<Vec<u8>, String> {
@@ -263,9 +218,14 @@ pub fn git_files(dir: &Path) -> Result<Vec<u8>, String> {
 }
 
 /// MARK-1: `git status --porcelain=v1 -z`, with every untracked file listed (not just its
-/// directory). Its paths are relative to the top of the repository, not to `dir`.
+/// directory). Its paths are relative to the top of the repository, not to `dir`. Submodules are
+/// ignored: git would run a child git in each, which reads the submodule's own config (and runs
+/// its filters), and the guard looked at the repository's alone.
 pub fn git_status(dir: &Path) -> Result<Vec<u8>, String> {
-    git(dir, &["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+    git(
+        dir,
+        &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=all"],
+    )
 }
 
 /// Where `dir` lies below the top of its repository: empty at the top, else `sub/dir/`.
