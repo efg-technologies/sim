@@ -152,22 +152,34 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
 /// run commands.
 pub const GIT_SKIPPED: &str = "git skipped: this repository's config could run commands";
 
+/// MARK-1: whether a key (`section.[subsection.]variable`, section and variable in lower case) can
+/// hold a command: the section is `filter`, `include` or `includeif`, or the variable is one of
+/// the names below, or ends with `command` (`sshcommand`, `alternaterefscommand`), `cmd`,
+/// `program` or `hook`. `core.fsmonitor` is one by its variable. It is a class, not a list of
+/// what git runs today, so that a setting git adds later is in it too; `status`, `ls-files` and
+/// `rev-parse` use few of them. A key that has no section is not one git writes.
+fn holds_command(key: &[u8]) -> bool {
+    let (section, var) = (key.split(|&b| b == b'.').next(), key.rsplit(|&b| b == b'.').next());
+    let (section, var) = (section.unwrap_or_default(), var.unwrap_or_default());
+    let names = b"driver textconv helper process clean smudge askpass editor pager gitproxy \
+                  hookspath fsmonitor";
+    section.len() == key.len()
+        || matches!(section, b"filter" | b"include" | b"includeif")
+        || names.split(|&b| b == b' ').any(|name| name == var)
+        || [&b"command"[..], b"cmd", b"program", b"hook"].iter().any(|end| var.ends_with(end))
+}
+
 /// MARK-1: whether the config that git lists for a repository (`git config --list --show-scope
-/// -z`: `scope NUL key [NL value] NUL` for each entry, section and variable names in lower case)
-/// has an entry of the repository's own that makes git run a command in `status`, `ls-files` or
-/// `rev-parse`: a `filter` driver, `core.fsmonitor`, `core.hooksPath`, `core.alternateRefsCommand`,
-/// or an `include`/`includeIf` (which can bring in any of them). An included file has the scope of
-/// the file that includes it. The user's own scopes (system, global, the command line) are
-/// trusted; any other scope, and a listing that does not parse, counts as the repository's.
+/// -z`: `scope NUL key [NL value] NUL` for each entry) has an entry of the repository's own whose
+/// key can hold a command (`holds_command`). An included file has the scope of the file that
+/// includes it. The user's own scopes (system, global, the command line) are trusted; any other
+/// scope, and a listing that does not parse, counts as the repository's.
 pub fn runs_commands(listing: &[u8]) -> bool {
     let mut fields = listing.split(|&b| b == 0);
     while let Some(scope) = fields.next() {
         let Some(entry) = fields.next() else { return !scope.is_empty() };
         let key = entry.split(|&b| b == b'\n').next().unwrap_or_default();
-        let runs =
-            matches!(key, b"core.fsmonitor" | b"core.hookspath" | b"core.alternaterefscommand")
-                || [&b"filter."[..], b"include.", b"includeif."].iter().any(|p| key.starts_with(p));
-        if runs && !matches!(scope, b"system" | b"global" | b"command") {
+        if holds_command(key) && !matches!(scope, b"system" | b"global" | b"command") {
             return true;
         }
     }
