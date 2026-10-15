@@ -18,6 +18,7 @@ sim/
   src/
     main.rs        the event loop: several si Apps, the panel, the threads, running Effects
     lib.rs         exposes the modules to main.rs and tests/
+    sim.rs         the state: open files (si Apps), the panel, events in and effects out (pure)
     tree.rs        the tree: entries, stable order, expansion, the visible rows (pure)
     find.rs        fuzzy matching of paths and ranking (pure)
     rank.rs        recency/frequency likelihood from the open history (pure)

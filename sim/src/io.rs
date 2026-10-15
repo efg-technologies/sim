@@ -1,14 +1,143 @@
-//! FIND-3, MARK-1, MARK-2
-//! The impure helpers: directory listings, git, and the history file in sim's state directory.
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2
+//! The impure helpers: reading files and directories, the threads that save and keep snapshots,
+//! git, and the history file in sim's state directory.
 use crate::rank::History;
+use crate::sim::{Found, Id, Opened, SimEvent};
 use crate::tree::Entry;
-use si::io::file::why;
+use si::core::app::{Effect, Event, Read};
+use si::io::file::{self, Saved, why};
+use si::io::journal::{self, Snapshot};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{env, thread};
+
+/// How long a diff may take before it gives up (PROP-7).
+pub const MERGE: Duration = Duration::from_millis(50);
+
+/// `Ok(None)`: no such file yet.
+pub fn read(path: &str) -> Read {
+    match fs::metadata(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(why(&e)),
+        Ok(m) if !m.is_file() => Err("not a regular file".into()),
+        Ok(_) => fs::read(path).map(Some).map_err(|e| why(&e)),
+    }
+}
+
+/// Where snapshots go: si's directory, so that si and sim recover each other's files (SAFE-6).
+pub fn snapshot_dir() -> PathBuf {
+    let var = |k| env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    var("XDG_STATE_HOME")
+        .or_else(|| var("HOME").map(|h| h.join(".local/state")))
+        .unwrap_or_else(env::temp_dir)
+        .join("si")
+}
+
+pub fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// The journal key of a file (SAFE-6): its canonical path.
+fn key(path: &Path) -> String {
+    file::resolve(&path.to_string_lossy()).to_string_lossy().into_owned()
+}
+
+/// The shell's answer to `SimEffect::Open` (BUF-1): `at` is where the file is, `shown` the name
+/// its App will show. A directory is shown in the panel; a file is read, and the snapshot that a
+/// dead session left for it (SAFE-6) is looked up.
+pub fn open(state: &Path, id: Id, shown: &str, at: &Path) -> SimEvent {
+    if at.is_dir() {
+        return SimEvent::Dir(shown.into());
+    }
+    let key = key(at);
+    let found = journal::find(state, &key, std::process::id()).map(|s| {
+        let (file, age) =
+            (journal::file(state, &s.path, s.pid), now_ms().saturating_sub(s.time_ms));
+        Found(s, file.display().to_string(), age, Instant::now() + MERGE)
+    });
+    SimEvent::Opened(Opened {
+        id,
+        path: shown.into(),
+        key,
+        file: read(&at.to_string_lossy()),
+        found,
+    })
+}
+
+/// A job for the journal thread.
+pub enum Job {
+    /// A snapshot that a dead session left for this file, to delete when ours replaces it.
+    Hold(Id, String, u32),
+    /// A `Snapshot` or an `Unsnapshot` of this file's App.
+    Snap(Id, Effect),
+}
+
+/// The journal thread (SAFE-6) runs snapshots and removals of every file in order, so no key
+/// waits for a disk. The receiver reports `Disconnected` once the thread has finished what was
+/// sent. The first snapshot that cannot be written is told to the user through `tell`.
+pub fn journal_thread(state: PathBuf, tell: Sender<SimEvent>) -> (Sender<Job>, Receiver<()>) {
+    let (jobs, rx) = mpsc::channel();
+    let (done, finished) = mpsc::channel();
+    thread::spawn(move || {
+        let (pid, _done) = (std::process::id(), done);
+        let rm = |h: (String, u32)| journal::remove(&state, &h.0, h.1);
+        // The snapshot of each file that is ours to delete: a recovered one, then our own.
+        let (mut held, mut told) = (HashMap::<Id, (String, u32)>::new(), false);
+        for job in rx {
+            match job {
+                Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
+                Job::Snap(id, Effect::Snapshot { path, base, text }) => {
+                    let [base, text] = [base, text].map(|r| r.to_string().into_bytes());
+                    let path = path.map_or(String::new(), |p| key(Path::new(&p)));
+                    let snap = Snapshot { path, pid, time_ms: now_ms(), base, text };
+                    let mine = (snap.path.clone(), pid);
+                    let wrote = journal::write(&state, &snap);
+                    if wrote.is_ok() {
+                        held.insert(id, mine.clone()).filter(|old| *old != mine).map(rm);
+                    }
+                    if let Err(e) = wrote
+                        && !std::mem::replace(&mut told, true)
+                    {
+                        drop(tell.send(SimEvent::Notice(format!(
+                            "cannot write snapshots: {}",
+                            why(&e)
+                        ))));
+                    }
+                }
+                Job::Snap(id, _) => drop(held.remove(&id).map(rm)),
+            }
+        }
+    });
+    (jobs, finished)
+}
+
+/// A save: file, path, bytes, and the hash the disk must still have (SAFE-5).
+pub type Save = (Id, String, Vec<u8>, Option<u64>);
+
+/// The save thread: one for all files, in order. Each answer is tagged with the file's id.
+pub fn save_thread(state: PathBuf, answers: Sender<SimEvent>) -> Sender<Save> {
+    let (jobs, rx) = mpsc::channel::<Save>();
+    thread::spawn(move || {
+        for (id, path, bytes, expect) in rx {
+            let ev = match file::save(&path, &bytes, expect, &state) {
+                Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn))),
+                Ok(Saved::Conflict(disk)) => Event::SaveConflict(disk, Instant::now() + MERGE),
+                Err(e) => Event::Saved(Err(e)),
+            };
+            if answers.send(SimEvent::App(id, ev)).is_err() {
+                return;
+            }
+        }
+    });
+    jobs
+}
 
 /// The entries of a directory. A symlink to a directory counts as one, unless it leads back to
 /// the directory itself or to one above it (a loop); a link that cannot be followed is a file.
@@ -33,7 +162,7 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
 /// Runs git in `dir`. In English, so that "not a git repository" can be told from other failures.
 fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     let out = Command::new("git")
-        .arg("--no-optional-locks")
+        .args(["-c", "core.fsmonitor=false", "--no-optional-locks"])
         .args(args)
         .current_dir(dir)
         .env("LC_ALL", "C")

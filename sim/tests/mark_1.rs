@@ -140,3 +140,26 @@ fn mark_1_a_clean_repository_has_no_marks_and_a_plain_directory_is_an_error() {
     let err = io::git_status(&plain.0).unwrap_err();
     assert!(err.starts_with("not a git repository"), "{err}");
 }
+
+#[test]
+fn mark_1_git_never_runs_the_monitor_that_a_repository_configures() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = temp_dir("mark1-monitor");
+    repo(&d.0, &["a.txt"]);
+    let witness = std::env::temp_dir().join(format!("sim-it-{}-monitor-ran", std::process::id()));
+    let _ = std::fs::remove_file(&witness);
+    let hook = d.0.join(".git/monitor.sh");
+    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\necho\n", witness.display())).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(&d.0, &["config", "core.fsmonitor", &hook.display().to_string()]);
+    // The control: git as the user runs it does run the monitor, so this test can tell.
+    git(&d.0, &["status", "--porcelain"]);
+    assert!(witness.exists(), "the repository's monitor runs under plain git");
+    std::fs::remove_file(&witness).unwrap();
+    io::git_status(&d.0).unwrap();
+    io::git_files(&d.0).unwrap();
+    io::git_prefix(&d.0).unwrap();
+    let ran = witness.exists();
+    let _ = std::fs::remove_file(&witness);
+    assert!(!ran, "sim's git runs with core.fsmonitor=false");
+}

@@ -681,9 +681,12 @@ dependencies = [
 name = "sim"
 version = "0.1.0"
 dependencies = [
+ "crossterm",
  "proptest",
  "si",
+ "signal-hook",
  "syntect",
+ "unicode-width",
 ]
 
 [[package]]
