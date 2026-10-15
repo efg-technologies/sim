@@ -46,7 +46,7 @@ fn msg(a: &mut App) -> String {
 }
 
 fn recover(a: &mut App, base: &str, text: &str, ms: u64) -> Vec<Effect> {
-    a.update(Event::Recover(base.into(), text.into(), ms, "/s/f.snap".into()))
+    a.update(Event::Recover(base.into(), text.into(), ms, "/s/f.snap".into(), far()))
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn safe_6_a_successful_save_forgets_the_snapshot() {
     feed(&mut a, ":w\n");
     assert_eq!(journal(&a.update(Event::Saved(Err("disk full".into())))), [], "a failed save");
     feed(&mut a, ":w\n");
-    assert_eq!(journal(&a.update(Event::SaveConflict(b"other\n".to_vec()))), []);
+    assert_eq!(journal(&a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far()))), []);
     feed(&mut a, ":w!\n");
     assert_eq!(journal(&a.update(Event::Saved(Ok((1, None))))), [J::Unsnap]);
     assert_eq!(tick(&mut a, 2000), [], "clean");
@@ -222,17 +222,45 @@ fn safe_6_recovered_text_is_snapshotted_again_after_the_next_edit() {
 }
 
 #[test]
-fn safe_6_a_snapshot_of_another_disk_state_is_kept_and_not_applied() {
-    let mut a = named("changed on disk\n");
-    let fx = recover(&mut a, "old", "mine", 5000);
+fn safe_6_a_snapshot_of_another_disk_state_is_merged() {
+    // The snapshot changed line 2 and added a line; the file changed line 4 meanwhile.
+    let mut a = named("one\ntwo\nthree\nFOUR\n");
+    let fx = recover(&mut a, "one\ntwo\nthree\nfour", "one\nTWO\nthree\nfour\nfive", 5000);
     assert_eq!(
         status(last_frame(&fx)),
-        "kept unsaved changes from 5 seconds ago, not applied: /s/f.snap"
+        "recovered changes from 5 seconds ago, merged with disk · u to undo"
     );
-    assert_eq!((text(&a).as_str(), a.buf.dirty()), ("changed on disk", false));
-    assert_eq!(journal(&fx), [], "nothing is asked of the journal: the file stays");
-    assert_eq!((tick(&mut a, 1000), tick(&mut a, 2000)), (vec![], vec![]));
-    assert_eq!(typed_keys(&mut a, ":q\n"), [J::Unsnap, J::Quit(0)]);
+    assert_eq!(text(&a), "one\nTWO\nthree\nFOUR\nfive", "both sides are there");
+    assert!(a.buf.dirty() && a.buf.base == "one\ntwo\nthree\nFOUR", "disk is the base");
+    assert_eq!(a.buf.marks.iter().map(|m| (m.line, m.kind)).collect::<Vec<_>>(), [(3, '~')]);
+    assert_eq!(
+        journal(&fx),
+        [],
+        "nothing is asked of the journal: it forgets at the next snapshot"
+    );
+    assert_eq!(typed_keys(&mut a, "u"), [J::Unsnap], "one undo step brings the disk text back");
+    assert_eq!((text(&a).as_str(), a.buf.dirty()), ("one\ntwo\nthree\nFOUR", false));
+    assert!(a.buf.marks.is_empty());
+}
+
+#[test]
+fn safe_6_a_snapshot_that_conflicts_with_the_disk_leaves_a_hunk() {
+    let mut a = named("one\nTWO!\n");
+    let fx = recover(&mut a, "one\ntwo", "one\nTWO?", 1000);
+    assert_eq!(
+        status(last_frame(&fx)),
+        "recovered changes from 1 second ago, merged with disk · u to undo"
+    );
+    assert_eq!(text(&a), "one\nTWO?", "the snapshot's text stays in the buffer");
+    let h = &a.buf.hunks[0];
+    assert_eq!((h.mine.clone(), &*h.theirs, h.disk), (1..2, "TWO!\n", true));
+}
+
+#[test]
+fn safe_6_a_snapshot_that_the_disk_already_has_makes_a_clean_buffer() {
+    let mut a = named("one\nTWO\n");
+    recover(&mut a, "one\ntwo", "one\nTWO", 1000);
+    assert_eq!((text(&a).as_str(), a.buf.dirty()), ("one\nTWO", false));
 }
 
 #[test]

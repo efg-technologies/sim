@@ -3,6 +3,7 @@ mod common;
 use common::*;
 use si::core::app::Event;
 use si::core::view::{Frame, Shape, Style};
+use unicode_width::UnicodeWidthStr;
 
 /// The text of a screen row without its gutter (marker, 3 digits, space).
 fn body(f: &Frame, row: usize) -> &str {
@@ -24,7 +25,8 @@ fn vis_1_only_two_text_levels() {
         }
     }
     let f = show(Some("f.rs"), "one\ntwo", (30, 6));
-    assert_eq!(f.rows[0].spans, [(1..4, Style::Secondary)], "only the line number is Secondary");
+    assert_eq!(f.rows[1].spans, [(1..4, Style::Secondary)], "only the line number is Secondary");
+    assert!(f.rows[0].spans.is_empty(), "except the cursor line's (VIS-11)");
     assert!(f.rows[5].spans.is_empty(), "the status line is Primary");
 }
 
@@ -94,9 +96,12 @@ fn vis_9_status_line_golden() {
     snap("message replaces the status line", &mut a);
     feed(&mut a, "l");
     snap("until the next key", &mut a);
-    snap("unnamed", &mut app_with(None, b"", (36, 4)));
+    let mut a = app_with(None, b"", (36, 4));
+    feed(&mut a, "l"); // the intro of CLI-5 goes with the first key
+    snap("unnamed", &mut a);
     snap("read-only", &mut app_with(Some("blob"), &[0xff, 0xfe, b'a'], (60, 4)));
-    let mut a = si::core::app::App::new(Some("dir".into()), Err("Is a directory".into()), (60, 4));
+    let mut a =
+        si::core::app::App::new(Some("dir".into()), Err("dir is a directory".into()), (60, 4));
     snap("unreadable", &mut a);
     golden("vis_9_status_line", &out);
 }
@@ -122,10 +127,41 @@ fn vis_11_no_decoration_golden() {
         !all.chars().any(|c| ('\u{2500}'..='\u{257f}').contains(&c) || c == '\u{2022}'),
         "no box drawing or icons"
     );
-    assert!(f.rows[1].spans == f.rows[2].spans, "the cursor line is not highlighted");
+    assert!(f.rows[1].spans.is_empty(), "the cursor line has no highlight, only a primary number");
+    assert_eq!(f.rows[2].spans, [(1..4, Style::Secondary)], "and the others a secondary one");
     assert!(
         f.rows[1].underline.is_empty() && f.rows[4..7].iter().all(|r| *r == Default::default())
     );
+}
+
+/// VIS-11: the cue to where the cursor is: its line's number is primary, every other one secondary,
+/// wherever the cursor goes, and a wrapped row (which has no number) never has one.
+#[test]
+fn vis_11_the_cursor_lines_number_is_primary_and_the_others_secondary() {
+    let mut a = app_with(
+        Some("f.rs"),
+        b"one
+two
+three
+four
+",
+        (30, 8),
+    );
+    for (keys, cursor_row) in [("", 0), ("j", 1), ("jj", 3), ("gg", 0), ("G", 3)] {
+        feed(&mut a, keys);
+        let f = screen(&mut a);
+        for r in 0..4 {
+            let number = f.rows[r].spans.contains(&(1..4, Style::Secondary));
+            assert_eq!(number, r != cursor_row, "{keys:?} row {r}");
+        }
+    }
+    let mut a = app_with(Some("f.rs"), "x".repeat(50).as_bytes(), (20, 6));
+    let f = screen(&mut a);
+    assert!(f.rows.iter().all(|r| r.spans.is_empty()), "wrapped rows have no number to dim");
+    // The whole screen, with the cursor on the third line: only that number is not secondary.
+    let mut a = app_with(Some("f.rs"), b"one\ntwo\nthree\nfour\n", (20, 6));
+    feed(&mut a, "jj");
+    golden("vis_11_cursor_line_number", &dump(&screen(&mut a)));
 }
 
 #[test]
@@ -177,4 +213,92 @@ fn safe_8_the_status_line_and_command_line_are_safe_too() {
     let f = screen(&mut a);
     assert_eq!(status(&f), ":a^[b");
     assert_eq!((f.cursor, f.shape), ((5, 3), Shape::Bar));
+}
+
+#[test]
+fn safe_8_the_arabic_letter_mark_is_shown_like_the_other_bidi_controls() {
+    let f = show(Some("a.txt"), "a\u{61c}b\n", (30, 4));
+    assert_eq!(body(&f, 0), "a<U+061C>b");
+    assert!(f.rows.iter().all(|r| !r.text.contains('\u{61c}')));
+}
+
+/// No row is ever wider than the screen, even where the gutter, a tab, a wide char or a
+/// `<U+202E>` token is wider than the text area.
+#[test]
+fn vis_6_rows_never_exceed_the_screen_width() {
+    for w in 1..=40u16 {
+        for path in ["f.rs", "f.md"] {
+            for text in [
+                "a\tb\n",
+                "日本語\n",
+                "a\u{202e}b\n",
+                "plain text here\n",
+                "⚠\u{fe0f}x\n",
+                "\x01\x02\n",
+            ] {
+                let mut a = app_with(Some(path), text.as_bytes(), (w, 4));
+                for keys in ["", "$", "i", "\x1bA", "\x1b:abc日本語", "\x1b"] {
+                    feed(&mut a, keys);
+                    let f = screen(&mut a);
+                    for (i, r) in f.rows.iter().enumerate() {
+                        assert!(
+                            r.text.width() <= usize::from(w),
+                            "w={w} {text:?} {keys:?}: row {i} {:?}",
+                            r.text
+                        );
+                    }
+                    assert!(f.cursor.0 < w && f.cursor.1 < 4);
+                }
+            }
+        }
+    }
+}
+
+/// Where the cursor and the text after a cluster are, in columns (the gutter is 5).
+fn cursor_after(text: &str, keys: &str, size: (u16, u16)) -> (u16, u16) {
+    let mut a = app_with(Some("f.md"), text.as_bytes(), size);
+    feed(&mut a, keys);
+    screen(&mut a).cursor
+}
+
+#[test]
+fn vis_7_an_emoji_presentation_sequence_takes_two_columns() {
+    // `a` is the char after the cluster: its column is the gutter plus the cluster plus a space.
+    for (text, cols) in [
+        ("⚠\u{fe0f} abc\n", 3),
+        ("✔\u{fe0f}✔\u{fe0f} abc\n", 5),
+        ("👨\u{200d}👩\u{200d}👧 abc\n", 3),
+        ("❤\u{fe0f}\u{200d}🔥 abc\n", 3),
+        ("1\u{fe0f}\u{20e3} abc\n", 3),
+        ("😀 abc\n", 3),
+        ("⚠ abc\n", 2),
+        // Only an emoji joins an emoji, as `unicode-width` reads such a string (never less).
+        ("⚠\u{200d}⚠ abc\n", 3),
+        ("👨\u{fe0f}\u{200d}😀 abc\n", 5),
+        ("❤\u{200d}🔥 abc\n", 4),
+        ("a\u{200d}👩 abc\n", 4),
+    ] {
+        assert_eq!(cursor_after(text, "fa", (40, 6)), (5 + cols, 0), "{text:?}");
+    }
+    // A ZWJ joins the next char into the cluster, and only when it is there.
+    assert_eq!(cursor_after("a\u{200d}b\n", "$", (40, 6)), (5 + 1, 0), "joined chars have width 0");
+    assert_eq!(cursor_after("a\u{200d}\n", "$", (40, 6)), (5 + 1, 0));
+}
+
+#[test]
+fn vis_7_a_row_never_breaks_inside_a_cluster() {
+    let rows = |text: &str, cols: u16| -> Vec<String> {
+        let f = show(Some("a.rs"), text, (5 + cols, 8));
+        (0..6).map(|r| body(&f, r).to_string()).filter(|r| !r.is_empty()).collect()
+    };
+    assert_eq!(rows("ab⚠\u{fe0f}cd", 3), ["ab", "⚠\u{fe0f}c", "d"]);
+    assert_eq!(rows("👨\u{200d}👩ab", 3), ["👨\u{200d}👩a", "b"]);
+    assert_eq!(rows("a👨\u{200d}👩\u{200d}👧b", 3), ["a👨\u{200d}👩\u{200d}👧", "b"]);
+    assert_eq!(rows("ab👨\u{200d}👩\u{200d}👧c", 3), ["ab", "👨\u{200d}👩\u{200d}👧c"]);
+    for f in [
+        show(Some("a.rs"), "⚠\u{fe0f}⚠\u{fe0f}⚠\u{fe0f}\n", (9, 6)),
+        show(Some("a.rs"), "a⚠\u{fe0f}\n", (7, 6)),
+    ] {
+        assert!(f.rows.iter().all(|r| r.text.width() <= usize::from(f.width)));
+    }
 }

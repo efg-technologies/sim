@@ -122,3 +122,52 @@ fn vi_12_the_command_line_cursor_follows_wide_characters() {
     feed(&mut a, "<Left>");
     assert_eq!(screen(&mut a).cursor, (3, 23));
 }
+
+/// A command line longer than the screen scrolls to keep its cursor on it; the part before is
+/// not shown, and moving left or home brings it back.
+#[test]
+fn vi_12_a_long_command_line_scrolls_with_its_cursor() {
+    let mut a = app_with(Some("f.rs"), b"x\n", (40, 6));
+    feed(&mut a, &format!(":s/{}/Z", "a".repeat(60)));
+    let f = screen(&mut a);
+    assert!(status(&f).ends_with("aa/Z"), "{:?}", status(&f));
+    assert_eq!(f.cursor, (status(&f).chars().count() as u16, 5), "just after the last char");
+    assert!(status(&f).chars().count() < 40);
+    // Home shows the start again, End the end.
+    feed(&mut a, "<Home>");
+    let f = screen(&mut a);
+    assert!(
+        status(&f).starts_with(":s/aaa") && f.cursor == (1, 5),
+        "{:?} {:?}",
+        status(&f),
+        f.cursor
+    );
+    feed(&mut a, "<End>");
+    assert!(status(&screen(&mut a)).ends_with("aa/Z"));
+    // Moving left inside the scrolled part moves the cursor, not the text, until the edge.
+    let before = screen(&mut a).cursor.0;
+    feed(&mut a, "<Left><Left><Left>");
+    let f = screen(&mut a);
+    assert!(
+        status(&f).ends_with("aa/Z") && f.cursor.0 == before - 3,
+        "{:?} {:?}",
+        status(&f),
+        f.cursor
+    );
+    // The cursor is on the char it stands for when typing in the middle of a scrolled line.
+    feed(&mut a, "<C-c>");
+    let mut a = app_with(Some("f.rs"), b"x\n", (10, 6));
+    feed(&mut a, ":0123456789abcdef");
+    let f = screen(&mut a);
+    assert_eq!((status(&f), f.cursor.0), ("789abcdef", 9));
+    feed(&mut a, "<Left><Left><Left><Left><Left><Left><Left><Left><Left><Left>");
+    let f = screen(&mut a);
+    assert_eq!(f.cursor.0, 1, "{:?}", status(&f));
+    assert_eq!(status(&f).chars().next(), Some('5'), "the char before the cursor stays on screen");
+    // Wide chars are never cut in half.
+    let mut a = app_with(Some("f.rs"), b"x\n", (10, 6));
+    feed(&mut a, ":日本語日本語日本語");
+    let f = screen(&mut a);
+    assert!(unicode_width::UnicodeWidthStr::width(status(&f)) <= 9, "{:?}", status(&f));
+    assert_eq!(f.cursor.0 as usize, unicode_width::UnicodeWidthStr::width(status(&f)));
+}

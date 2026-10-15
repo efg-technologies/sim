@@ -137,7 +137,6 @@ fn vi_7_commands_that_come_later_are_parsed_now() {
         ":%!sort\n",
         ":1,2!sort\n",
         ":.,$!tr a b\n",
-        ":seen\n",
         ":ref\n",
         ":%ref\n",
         ":'<,'>ref\n",
@@ -219,7 +218,7 @@ fn vi_7_a_file_is_not_loaded_over_edits_made_while_it_was_read() {
 fn vi_7_a_newly_opened_file_starts_fresh() {
     let mut a = named("abc\ndef\n");
     feed(&mut a, "jlxvl<Esc>");
-    feed(&mut a, "/e<CR>");
+    feed(&mut a, "/e<CR>:e! g<CR>");
     a.update(Event::Opened("g".into(), Ok(Some(b"one\ntwo\nthree\n".to_vec()))));
     assert_eq!((a.path.as_deref(), text(&a).as_str()), (Some("g"), "one\ntwo\nthree"));
     assert_eq!((a.buf.cursor, a.top, a.buf.dirty()), (0, 0, false));
@@ -235,7 +234,7 @@ fn vi_7_a_newly_opened_file_starts_fresh() {
     assert_eq!(w, Some(("g", Some(si::core::buffer::hash(b"one\ntwo\nthree\n")))));
     // Marks restart too: `'<` is line 1 again.
     let mut a = named("a\nb\nc\n");
-    feed(&mut a, "jjV<Esc>");
+    feed(&mut a, "jjV<Esc>:e! g<CR>");
     a.update(Event::Opened("g".into(), Ok(Some(b"x\ny\nz\n".to_vec()))));
     feed(&mut a, ":'<,'>s/./Q/\n");
     assert_eq!(text(&a), "Q\ny\nz");
@@ -244,6 +243,7 @@ fn vi_7_a_newly_opened_file_starts_fresh() {
 #[test]
 fn vi_7_opening_a_missing_or_unreadable_file_works_like_at_startup() {
     let mut a = named("abc\n");
+    feed(&mut a, ":e new.txt<CR>");
     a.update(Event::Opened("new.txt".into(), Ok(None)));
     assert_eq!(
         (a.path.as_deref(), text(&a).as_str(), a.buf.readonly.clone()),
@@ -254,8 +254,9 @@ fn vi_7_opening_a_missing_or_unreadable_file_works_like_at_startup() {
         |e| matches!(e, Effect::Write { path, expect_hash: Some(0), .. } if path == "new.txt")
     ));
     let mut a = named("abc\n");
-    a.update(Event::Opened("d".into(), Err("Is a directory".into())));
-    assert_eq!(a.buf.readonly.as_deref(), Some("read-only: cannot read: Is a directory"));
+    feed(&mut a, ":e d<CR>");
+    a.update(Event::Opened("d".into(), Err("d is a directory".into())));
+    assert_eq!(a.buf.readonly.as_deref(), Some("read-only: d is a directory"));
 }
 
 #[test]
@@ -283,4 +284,103 @@ fn vi_7_w_q_wq_x_and_cq_are_still_there() {
     assert_eq!(quit(&feed(&mut named("a\n"), "x:q\n")), None);
     let fx = feed(&mut named("a\n"), "x:wq!\n");
     assert!(fx.iter().any(|e| matches!(e, Effect::Write { expect_hash: None, .. })), ":wq! forces");
+}
+
+/// `:w` is refused while the file is on its way (and `:e` while a save runs), so no save is running
+/// when the file arrives. An answer that comes anyway (from a thread that outlived its buffer)
+/// must not touch the new buffer: it would read as modified, with the wrong text as its base.
+#[test]
+fn vi_7_a_late_saved_does_not_touch_a_reloaded_buffer() {
+    let mut a = named("a\n");
+    feed(&mut a, "x:e! g\n"); // `:e!` asked for the file ...
+    let fx = feed(&mut a, ":w\n"); // ... and a save is refused until it arrives
+    assert!(!fx.iter().any(|e| matches!(e, Effect::Write { .. })));
+    a.update(Event::Opened("g".into(), Ok(Some(b"g text\n".to_vec()))));
+    a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None))));
+    assert_eq!(
+        (a.path.as_deref(), a.buf.dirty()),
+        (Some("g"), false),
+        "a just-read buffer is clean"
+    );
+    assert_eq!(a.buf.base.to_string(), "g text");
+    assert_eq!(quit(&feed(&mut a, ":q\n")), Some(0), "`:q` works on the unmodified buffer");
+    // And the answer of a save that fails is not told about the new buffer either.
+    let mut a = named("a\n");
+    feed(&mut a, "x:e! g\n");
+    a.update(Event::Opened("g".into(), Ok(Some(b"g text\n".to_vec()))));
+    a.update(Event::Saved(Err("disk full".into())));
+    assert_eq!(msg(&mut a), "g  1:1  NORMAL");
+}
+
+#[test]
+fn vi_7_e_is_refused_while_a_save_runs() {
+    // A modified buffer is refused anyway unless it is `:e!`; a clean one is refused for the save.
+    for (before, cmd) in
+        [("x:w\n", ":e! g\n"), ("x:w\n", ":e!\n"), (":w\n", ":e g\n"), (":w\n", ":e\n")]
+    {
+        let mut a = named("a\n");
+        feed(&mut a, before);
+        let fx = feed(&mut a, cmd);
+        assert_eq!(
+            (open_of(&fx), msg(&mut a).as_str()),
+            (None, "a save is already running"),
+            "{cmd}"
+        );
+        // Once it has ended the command works.
+        a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None))));
+        assert!(open_of(&feed(&mut a, cmd)).is_some(), "{cmd}");
+    }
+}
+
+#[test]
+fn vi_7_w_bang_cmd_is_refused_because_filters_are_range_bang_cmd() {
+    for cmd in [":w !cat\n", ":wq !cat\n", ":x !cat\n", ":w! !cat\n", ":wq! !cat\n"] {
+        let mut a = named("a\n");
+        feed(&mut a, "x");
+        let fx = feed(&mut a, cmd);
+        let acted = fx.iter().any(|e| matches!(e, Effect::Write { .. } | Effect::Quit(_)));
+        assert!(!acted, "{cmd}: no file named !cat, no filter");
+        assert_eq!(msg(&mut a), "filters are :{range}!cmd", "{cmd}");
+    }
+}
+
+/// The other file is written, but the buffer's own file still differs, so nothing quits.
+#[test]
+fn vi_7_wq_and_x_with_another_name_do_not_quit_while_the_own_file_differs() {
+    for cmd in [":wq other\n", ":x other\n", ":wq! other\n"] {
+        let mut a = named("a\n");
+        feed(&mut a, "x");
+        let fx = feed(&mut a, cmd);
+        assert!(fx.iter().any(|e| matches!(e, Effect::Write { path, .. } if path == "other")));
+        let fx = a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None))));
+        assert_eq!(quit(&fx), None, "{cmd}");
+        assert_eq!(msg(&mut a), "saved other; not quitting: f has unsaved changes", "{cmd}");
+        assert!(a.buf.dirty() && a.path.as_deref() == Some("f"));
+    }
+    // With nothing unsaved in the own file, writing a copy and quitting is fine.
+    let mut a = named("a\n");
+    feed(&mut a, ":wq other\n");
+    assert_eq!(quit(&a.update(Event::Saved(Ok((1, None))))), Some(0));
+    // An unnamed buffer takes the name, which is its own file then.
+    let mut a = app("a\n");
+    feed(&mut a, "x:wq new\n");
+    assert_eq!(quit(&a.update(Event::Saved(Ok((1, None))))), Some(0));
+}
+
+#[test]
+fn vi_7_a_range_that_does_not_parse_is_an_error() {
+    for line in [":,$s/./X/", ":.+1", ":3,", ":'a", ":1;2", ":,$!sort", ":3,x", ":%%", ":12 34"] {
+        let mut a = named("a\nb\nc\n");
+        feed(&mut a, &format!("{line}\n"));
+        assert_eq!((text(&a).as_str(), a.buf.cursor), ("a\nb\nc", 0), "{line}");
+        assert!(msg(&mut a).starts_with("bad range: "), "{line}: {}", msg(&mut a));
+    }
+    // The ranges that do parse are as before.
+    table(&[
+        ("|a\nb\nc", ":2,3s/./X/<CR>", "a\nX\n|X"),
+        ("|a\nb\nc", ":$<CR>", "a\nb\n|c"),
+        ("|a\nb\nc", ":%s/./X/<CR>", "X\nX\n|X"),
+        ("|a\nb\nc", ":<CR>", "|a\nb\nc"),
+        ("|a\nb\nc", ": <CR>", "|a\nb\nc"),
+    ]);
 }

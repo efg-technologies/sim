@@ -1,9 +1,10 @@
 //! SAFE-6: snapshots survive a crash, never collide between sessions, and never leak a live one.
 // Helpers outside `#[test]` fns are not covered by clippy.toml, so allow it for the file.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use si::io::journal::{Snapshot, find, remove, write};
+use si::io::journal::{Snapshot, find, remove, state_dir, write};
+use std::ffi::OsString;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -262,4 +263,79 @@ fn safe_6_write_to_an_unusable_directory_is_an_error_not_a_panic() {
     assert!(write(&blocker, &snap("/a", DEAD, 1)).is_err());
     assert!(write(&blocker.join("sub"), &snap("/a", DEAD, 1)).is_err());
     assert_eq!(find(&blocker, "/a", 1), None);
+}
+
+/// A directory with the given mode inside `t`, holding a snapshot written before it was opened up.
+fn state_with_mode(t: &Tmp, mode: u32) -> PathBuf {
+    let state = t.state();
+    write(&state, &snap("/a", DEAD, 1)).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(mode)).unwrap();
+    state
+}
+
+#[test]
+fn safe_6_a_state_dir_that_group_or_others_can_use_is_not_used() {
+    for mode in [0o750, 0o705, 0o770, 0o707, 0o755, 0o777] {
+        let t = Tmp::new();
+        let state = state_with_mode(&t, mode);
+        let e = write(&state, &snap("/b", DEAD, 2)).unwrap_err();
+        assert!(e.to_string().contains("not private"), "{mode:o}: {e}");
+        assert_eq!(find(&state, "/a", 1), None, "{mode:o}: its snapshots are not read either");
+        assert_eq!(files(&state).len(), 1, "{mode:o}: nothing was written");
+    }
+    let t = Tmp::new();
+    let state = state_with_mode(&t, 0o700);
+    assert!(write(&state, &snap("/b", DEAD, 2)).is_ok());
+    assert!(find(&state, "/a", 1).is_some());
+    // The probe file that tells our uid is gone again.
+    assert!(
+        files(&state).iter().all(|f| !f.file_name().unwrap().to_string_lossy().starts_with('.'))
+    );
+}
+
+#[test]
+fn safe_6_a_symlink_is_not_a_state_dir() {
+    let t = Tmp::new();
+    let real = t.0.join("real");
+    fs::create_dir_all(&real).unwrap();
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o700)).unwrap();
+    symlink(&real, t.0.join("link")).unwrap();
+    let link = t.0.join("link");
+    assert!(write(&link, &snap("/a", DEAD, 1)).is_err());
+    write(&real, &snap("/a", DEAD, 1)).unwrap();
+    assert_eq!(find(&link, "/a", 1), None);
+    assert!(find(&real, "/a", 1).is_some());
+}
+
+#[test]
+fn safe_6_snapshots_that_are_not_ours_are_skipped() {
+    let t = Tmp::new();
+    let state = t.state();
+    write(&state, &snap("/a", DEAD, 1)).unwrap();
+    let file = files(&state).pop().unwrap();
+    assert!(find(&state, "/a", 1).is_some());
+    // A link to a snapshot somewhere else is not a snapshot file of ours.
+    let outside = t.0.join("outside.snap");
+    fs::rename(&file, &outside).unwrap();
+    symlink(&outside, &file).unwrap();
+    assert_eq!(find(&state, "/a", 1), None);
+    // Owned by someone else (only a root can arrange that).
+    fs::remove_file(&file).unwrap();
+    write(&state, &snap("/a", DEAD, 1)).unwrap();
+    let root = fs::metadata(&state).unwrap().uid() == 0;
+    if root && std::os::unix::fs::chown(&file, Some(65534), None).is_ok() {
+        assert_eq!(find(&state, "/a", 1), None, "a snapshot of another user is ignored");
+    }
+}
+
+#[test]
+fn safe_6_without_xdg_state_home_and_home_there_is_no_state_dir() {
+    let os = |s: &str| Some(OsString::from(s));
+    assert_eq!(state_dir(None, None), None, "never a shared fallback such as /tmp");
+    assert_eq!(state_dir(os(""), os("")), None);
+    assert_eq!(state_dir(os("relative"), None), None, "a relative path is not a state directory");
+    assert_eq!(state_dir(os("/x"), None), Some(PathBuf::from("/x/si")));
+    assert_eq!(state_dir(os("/x"), os("/h")), Some(PathBuf::from("/x/si")));
+    assert_eq!(state_dir(None, os("/h")), Some(PathBuf::from("/h/.local/state/si")));
+    assert_eq!(state_dir(os(""), os("/h")), Some(PathBuf::from("/h/.local/state/si")));
 }

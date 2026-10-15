@@ -104,7 +104,10 @@ run_one() {
           echo "---------------------------"
         fi
         panes=$(tm list-panes -a -F "#{pane_pid}" 2> /dev/null || true)
+        sock=$(tm display-message -p "#{socket_path}" 2> /dev/null || true)
         tm kill-server 2> /dev/null || true
+        # a killed server leaves its socket file behind: remove it, or /tmp/tmux-UID fills up
+        rm -f "${sock:-${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$SOCKET}"
         # si saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
         for pid in $panes; do
           tries=100
@@ -365,17 +368,195 @@ safe_6_an_unnamed_buffer_is_recovered_too() {
   screen | grep -F -q "  1 lost words"
 }
 
-safe_6_a_file_changed_meanwhile_keeps_the_snapshot_and_says_where() {
-  printf 'one\ntwo\n' > "$CASE_DIR/f"
+safe_6_a_file_changed_meanwhile_is_merged_with_the_snapshot() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
   wrap
   edit_and_kill_9 f
-  printf 'changed elsewhere\n' > "$CASE_DIR/f"
+  printf 'one\ntwo\nTHREE\n' > "$CASE_DIR/f"
   start f
-  wait_for "kept unsaved changes from"
-  wait_for "not applied"
-  screen | grep -F -q "  1 changed elsewhere"
+  wait_for "recovered changes from"
+  wait_for "merged with disk"
+  screen | grep -F -q "  2 TWO"
+  screen | grep -F -q "~  3 THREE"
+  printf 'one\ntwo\nTHREE\n' | cmp - "$CASE_DIR/f"
+  typed ":q!"
+  keys Enter
+  wait_for "exit=0"
+  # the stale snapshot went with the one of this session
+  [ -z "$(ls -A "$XDG_STATE_HOME/si")" ]
+}
+
+# Another process rewrites the open file the way an AI does: a new file moved over the old one.
+prop_1_an_external_edit_appears_and_is_marked() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  printf 'one\nTWO\nthree\n' > "$CASE_DIR/f.new"
+  t0=$(now_ms)
+  mv "$CASE_DIR/f.new" "$CASE_DIR/f"
+  wait_for "1 change on disk"
+  t1=$(now_ms)
+  # The 30 ms debounce, the read, the merge and the draw, plus tmux's own round trip and the
+  # 50 ms steps of wait_for: about 55 ms measured, 100 ms in PROP-1, and slack for a busy machine.
+  echo "rename to marked: $((t1 - t0)) ms"
+  [ $((t1 - t0)) -le 200 ]
+  screen | grep -F -q "~  2 TWO"
   gone modified
-  [ "$(ls "$XDG_STATE_HOME/si" | wc -l)" -eq 1 ]
+  # PROP-9: the mark stays until the cursor enters its line.
+  typed j
+  wait_for "   2 TWO"
+  gone "1 change on disk"
+}
+
+prop_2_a_conflicting_external_edit_becomes_a_proposal_and_loses_nothing() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed "jcwMINE"
+  keys Escape
+  wait_for "modified"
+  printf 'one\ntwo!\nthree\n' > "$CASE_DIR/f.new"
+  mv "$CASE_DIR/f.new" "$CASE_DIR/f"
+  wait_for "1 proposal"
+  screen | grep -F -q "~  2 MINE"
+  printf 'one\ntwo!\nthree\n' | cmp - "$CASE_DIR/f" # si wrote nothing
+}
+
+# Mine has three edits and the file is rewritten under them: three proposals. Going through them
+# with ]c, y, n and u, :w is refused until they are decided, and :w! keeps mine.
+prop_8_review_accepts_and_rejects_hunks() {
+  printf 'a1\nb\na2\nc\na3\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed "rAjjrAjjrAgg"
+  wait_for "modified"
+  printf 'X1\nb\nX2\nc\nX3\n' > "$CASE_DIR/f.new"
+  mv "$CASE_DIR/f.new" "$CASE_DIR/f"
+  wait_for "3 proposals"
+  # :w is refused and writes nothing.
+  typed ":w"
+  keys Enter
+  wait_for "unresolved conflicts with the disk: ]c to review, :w! keeps yours"
+  printf 'X1\nb\nX2\nc\nX3\n' | cmp - "$CASE_DIR/f"
+  # ]c starts REVIEW on the first proposal: mine and theirs are woven into one line.
+  typed "]c"
+  wait_for "f  1:1  REVIEW 1/3  y accept · n reject · Y all · N none · Esc back"
+  screen | grep -F -q "~  1 A1X1"
+  screen | grep -F -q "   2 b"
+  # y accepts it and goes on to the next; n rejects that one.
+  typed y
+  wait_for "REVIEW 1/2"
+  screen | grep -F -q "   1 X1"
+  typed n
+  wait_for "REVIEW 1/1"
+  screen | grep -F -q "   3 A2"
+  # u leaves REVIEW and brings the rejected proposal back.
+  typed u
+  wait_for "2 proposals"
+  gone REVIEW
+  typed ":w"
+  keys Enter
+  wait_for "unresolved conflicts with the disk"
+  printf 'X1\nb\nX2\nc\nX3\n' | cmp - "$CASE_DIR/f"
+  # :w! saves mine as it is (X1 accepted, the others mine) and settles the rest.
+  typed ":w!"
+  keys Enter
+  wait_for "saved f"
+  printf 'X1\nb\nA2\nc\nA3\n' | cmp - "$CASE_DIR/f"
+  gone "proposal"
+}
+
+# Y accepts every proposal, and then :w works like any save.
+prop_8_capital_y_accepts_all_and_the_file_can_be_saved() {
+  printf 'a1\nb\na2\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed "rAjjrA"
+  wait_for "modified"
+  printf 'X1\nb\nX2\n' > "$CASE_DIR/f.new"
+  mv "$CASE_DIR/f.new" "$CASE_DIR/f"
+  wait_for "2 proposals"
+  typed "ggjjgg]cY"
+  wait_for "2 proposals accepted"
+  typed ":w"
+  keys Enter
+  wait_for "saved f"
+  printf 'X1\nb\nX2\n' | cmp - "$CASE_DIR/f"
+}
+
+# Quitting with a proposal open is refused; :q! discards it.
+safe_7_quit_is_refused_with_open_proposals() {
+  printf 'a1\nb\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed "rA"
+  wait_for "modified"
+  printf 'X1\nb\n' > "$CASE_DIR/f.new"
+  mv "$CASE_DIR/f.new" "$CASE_DIR/f"
+  wait_for "1 proposal"
+  typed "q"
+  wait_for "unresolved proposals: ]c to review, :q! discards"
+  typed ":q"
+  keys Enter
+  wait_for "unresolved proposals: ]c to review, :q! discards"
+  typed "ZZ"
+  wait_for "unresolved conflicts with the disk: ]c to review, :w! keeps yours"
+  [ ! -s "$CASE_DIR/.exit_code" ] # still running
+  printf 'X1\nb\n' | cmp - "$CASE_DIR/f"
+  typed ":q!"
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+  printf 'X1\nb\n' | cmp - "$CASE_DIR/f"
+}
+
+prop_1_a_deleted_file_is_told_and_save_makes_it_again() {
+  printf 'one\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  rm "$CASE_DIR/f"
+  wait_for "modified · deleted on disk"
+  typed ":w"
+  keys Enter
+  wait_for "saved f"
+  printf 'one\n' | cmp - "$CASE_DIR/f"
+  gone "deleted on disk"
+}
+
+# The other process saves while we have unsaved changes, and we save right after. Typing the Enter
+# after the rename wins against the 30 ms debounce of the watcher, so the save usually finds the
+# file changed (SAFE-5); if the watcher is quicker, the change is merged first. Both must end
+# with both edits in the file.
+safe_5_external_change_before_save_is_merged_not_overwritten() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed "cwONE"
+  keys Escape
+  wait_for "modified"
+  typed ":w"
+  printf 'one\ntwo\nTHREE\n' > "$CASE_DIR/f.new"
+  mv "$CASE_DIR/f.new" "$CASE_DIR/f"
+  keys Enter
+  wait_for "THREE"
+  # Nothing was overwritten: the other process's edit is there, and so is ours on screen.
+  grep -q THREE "$CASE_DIR/f"
+  screen | grep -F -q "  1 ONE"
+  typed ":w"
+  keys Enter
+  wait_for "saved f"
+  printf 'ONE\ntwo\nTHREE\n' | cmp - "$CASE_DIR/f"
+}
+
+safe_6_a_snapshot_that_cannot_be_written_is_told() {
+  printf 'one\n' > "$CASE_DIR/f"
+  # The state directory cannot be made: a file stands where it should be.
+  rm -rf "$XDG_STATE_HOME"
+  : > "$XDG_STATE_HOME"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed x
+  wait_for "cannot write snapshots"
 }
 
 vi_8_yank_reaches_the_clipboard() {
@@ -452,6 +633,105 @@ vi_13_zz_saves_and_quits() {
   wait_exit
   [ "$(exit_code)" = 0 ]
   printf 'one two\n' | cmp - "$CASE_DIR/f"
+}
+
+cli_5_the_intro_shows_until_the_first_key() {
+  start
+  wait_for "A vi for reading, where only the changes light up."
+  for k in "si 0." "i / Esc" "Ctrl-s" "ZZ" "ZQ" "]c then y / n"; do
+    screen | grep -F -q -- "$k"
+  done
+  [ "$(screen | grep -c .)" -le 12 ]
+  typed l
+  tries=100
+  while screen | grep -F -q "A vi for reading"; do
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ] || { echo "the intro is still there" >&2; return 1; }
+    sleep 0.05
+  done
+  screen | grep -F -q "[no name]  1:1  NORMAL"
+  # With a file there is none.
+  restart
+  printf 'one\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  gone "A vi for reading"
+}
+
+# Without the kitty protocol (tmux does not pass it on) Esc and the next key arrive in one write,
+# which looks like Alt+key: si reads it as Esc, then the key.
+vi_9_esc_and_the_next_key_in_one_write_are_two_keys() {
+  printf 'one\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed ix
+  wait_for INSERT
+  keys Escape :
+  typed wq
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+  printf 'xone\n' | cmp - "$CASE_DIR/f"
+}
+
+vi_1_japanese_words_split_where_the_script_changes() {
+  printf '日本語のテスト abc\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed dw
+  wait_for "  1 のテスト abc"
+  typed 2dw
+  wait_for "  1 abc"
+  typed ":wq"
+  keys Enter
+  wait_exit
+  printf 'abc\n' | cmp - "$CASE_DIR/f"
+}
+
+# The cell under tmux's cursor.
+cursor_char() {
+  x=$(tm display-message -p -t "$SESSION" '#{cursor_x}')
+  y=$(tm display-message -p -t "$SESSION" '#{cursor_y}')
+  screen | sed -n "$((y + 1))p" | cut -c"$((x + 1))"
+}
+
+# One line of 1,700 chars wraps into more rows than the screen has: the cursor is still on its char.
+vis_12_the_cursor_is_visible_in_a_line_taller_than_the_screen() {
+  i=0
+  while [ "$i" -lt 600 ]; do printf 'word '; i=$((i + 1)); done > "$CASE_DIR/a.md"
+  printf 'END\n' >> "$CASE_DIR/a.md"
+  start a.md
+  wait_for "a.md  1:1  NORMAL"
+  typed '$'
+  wait_for "a.md  1:3003"
+  [ "$(cursor_char)" = D ]
+  typed 70h
+  wait_for "a.md  1:2933"
+  [ "$(cursor_char)" = r ]
+  typed 0
+  wait_for "a.md  1:1  NORMAL"
+  [ "$(cursor_char)" = w ]
+}
+
+safe_6_without_a_state_directory_snapshots_are_off_and_it_says_so() {
+  printf 'one\ntwo\n' > "$CASE_DIR/f"
+  ln "$CASE_DIR/f" "$CASE_DIR/g" # two links: a save goes in place, and needs a recovery copy
+  real=$SI_BIN
+  SI_BIN=$CASE_DIR/nostate.sh
+  printf '#!/bin/sh\nunset HOME XDG_STATE_HOME\nexec %s "$@"\n' "$(shq "$real")" > "$SI_BIN"
+  chmod +x "$SI_BIN"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed x
+  wait_for "cannot write snapshots: no state directory"
+  # It says so once: the next ticks stay quiet.
+  typed jx
+  sleep 2.5
+  gone "cannot write snapshots"
+  typed ":w"
+  keys Enter
+  wait_for "no recovery copy possible"
+  printf 'one\ntwo\n' | cmp - "$CASE_DIR/f"
 }
 
 main "$@"

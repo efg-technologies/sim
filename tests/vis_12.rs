@@ -177,3 +177,81 @@ fn vis_12_a_huge_file_costs_what_the_screen_costs() {
         "G keeps the view when the last line is visible"
     );
 }
+
+/// The cell that starts at display column `col`.
+fn cell_at(row: &str, col: usize) -> Option<char> {
+    let mut x = 0;
+    for c in row.chars() {
+        let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+        if x == col && w > 0 {
+            return Some(c);
+        }
+        x += w;
+    }
+    None
+}
+
+/// A prose paragraph in one line of about 1,700 chars (a pasted prompt) is taller than a 24-row
+/// screen once it wraps at 72 columns.
+fn paragraph() -> App {
+    app_with(Some("a.md"), format!("{}END", "word ".repeat(600)).as_bytes(), (80, 24))
+}
+
+#[test]
+fn vis_12_a_wrapped_line_taller_than_the_screen_shows_the_cursor() {
+    for (keys, want) in
+        [("$", 'D'), ("$h", 'N'), ("0", 'w'), ("$ix", 'D'), ("0/END\n", 'E'), ("$0$", 'D')]
+    {
+        let mut a = paragraph();
+        feed(&mut a, keys);
+        let f = screen(&mut a);
+        let row = &f.rows[f.cursor.1 as usize].text;
+        assert_eq!(cell_at(row, f.cursor.0 as usize), Some(want), "{keys}: {row:?} {:?}", f.cursor);
+    }
+}
+
+/// The view scrolls by rows inside the line (a row offset into the top line), and moving up in it
+/// keeps going up the screen instead of sticking to the bottom edge.
+#[test]
+fn vis_12_moving_inside_a_tall_line_keeps_the_context_and_does_not_stick() {
+    let mut a = paragraph();
+    feed(&mut a, "$");
+    let mut rows = vec![screen(&mut a).cursor.1];
+    // Rows hold 14 words (70 columns): 70 chars back is one row up. The last row of the line is
+    // the last row of the screen (nothing follows it), and the context is 8 rows.
+    for _ in 0..45 {
+        feed(&mut a, "70h");
+        rows.push(screen(&mut a).cursor.1);
+    }
+    assert_eq!(rows[..15], [22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8], "{rows:?}");
+    assert!(rows[15..35].iter().all(|&r| r == 8), "8 rows stay above the cursor: {rows:?}");
+    assert_eq!(
+        rows[35..],
+        [7, 6, 5, 4, 3, 2, 1, 0, 0, 0, 0],
+        "the line's own first row, from the top: {rows:?}"
+    );
+    // And back down: 8 rows stay below it.
+    let mut down = vec![];
+    for _ in 0..30 {
+        feed(&mut a, "70l");
+        down.push(screen(&mut a).cursor.1);
+    }
+    assert_eq!(down[..14], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14], "{down:?}");
+    assert!(down[14..].iter().all(|&r| r == 14), "{down:?}");
+}
+
+#[test]
+fn vis_12_a_short_screen_scrolls_a_tall_line_by_rows_too() {
+    for h in [2u16, 3, 5, 8] {
+        let mut a =
+            app_with(Some("a.md"), format!("{}END", "word ".repeat(300)).as_bytes(), (40, h));
+        for keys in ["$", "30h", "30h", "0", "$", "10l", "5h"] {
+            feed(&mut a, keys);
+            let f = screen(&mut a);
+            let c = a.buf.ch(a.buf.cursor);
+            let row = &f.rows[f.cursor.1 as usize].text;
+            let ok = cell_at(row, f.cursor.0 as usize);
+            assert!(ok == Some(c) || c == ' ', "{h} {keys}: {c:?} {row:?} {:?}", f.cursor);
+        }
+    }
+}

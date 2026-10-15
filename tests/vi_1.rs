@@ -220,3 +220,93 @@ fn vi_12_the_page_keys_in_normal_mode() {
     feed(&mut a, "<PageUp>");
     assert_eq!(line(&a), 0);
 }
+
+/// On the empty last line the cursor is at the end of the text: there is no word ahead, and
+/// nothing reaches back for the line break before it.
+#[test]
+fn vi_1_de_and_cw_on_the_empty_last_line_keep_the_line_break() {
+    for keys in ["de", "dE", "dw", "dW", "yw", "ye", "db"] {
+        let mut a = app("foo\n\n");
+        feed(&mut a, &format!("G{keys}"));
+        let want = if keys == "db" { "" } else { "foo\n" }; // nvim: `db` takes the line above
+        assert_eq!(text(&a), want, "{keys}");
+    }
+    for keys in ["cwx", "cex", "cWx", "cEx"] {
+        let mut a = app("foo\n\n");
+        feed(&mut a, &format!("G{keys}<Esc>"));
+        assert_eq!(text(&a), "foo\nx", "{keys}");
+    }
+}
+
+#[test]
+fn vi_1_a_huge_count_on_a_word_motion_returns() {
+    for k in ["w", "W", "b", "B", "e", "E", "dw", "cw", "de", "db", "cb", "ce", "yw"] {
+        let keys = format!("$18446744073709551615{k}<Esc>");
+        let done = within(5, move || feed(&mut app("foo bar\nbaz\n"), &keys).len());
+        assert!(done.is_some(), "{k} with a huge count spins");
+    }
+    // Stopping when a step makes no progress must not break the counted `cw` on the last char.
+    table(&[
+        ("|foo\n ", "2dw", "|"),
+        ("a|b", "c2wX<Esc>", "a|X"),
+        ("ab c|d", "3dw", "ab |c"),
+        ("|foo bar", "99dw", "|"),
+        ("foo ba|r", "99w", "foo ba|r"),
+        ("foo ba|r", "99b", "|foo bar"),
+    ]);
+}
+
+/// Han, Hiragana, Katakana and other wide characters are classes of their own. Every row is what
+/// `nvim --headless` gives (vim's utf_class).
+#[test]
+fn vi_1_word_motions_split_japanese_text_where_the_script_changes() {
+    table(&[
+        ("|日本語のテスト abc", "dw", "|のテスト abc"),
+        ("|日本語のテスト abc", "2dw", "|テスト abc"),
+        ("|日本語のテスト abc", "3dw", "|abc"),
+        ("|日本語のテスト abc", "de", "|のテスト abc"),
+        ("|abc日本語def", "dw", "|日本語def"),
+        ("|日本語のテスト abc", "w", "日本語|のテスト abc"),
+        ("日本語のテスト |abc", "b", "日本語の|テスト abc"),
+        ("日本語の|テスト abc", "b", "日本語|のテスト abc"),
+        ("|ひらがなカタカナ", "w", "ひらがな|カタカナ"),
+        ("|カタカナーひらがな", "w", "カタカナー|ひらがな"),
+        ("|日本語、のテスト", "w", "日本語|、のテスト"),
+        ("|한국어日本語", "w", "한국어|日本語"),
+        ("|ＡＢＣabc", "w", "ＡＢＣ|abc"),
+        ("|日本語のテスト abc", "W", "日本語のテスト |abc"),
+        ("日|本語のテスト", "diw", "|のテスト"),
+        ("日本語|のテスト", "daw", "日本語|テスト"),
+        ("日本語の|テスト", "ciwX<Esc>", "日本語の|X"),
+    ]);
+}
+
+/// vim's `:help exclusive` rules 1 and 2. Every row is what `nvim --headless` gives.
+#[test]
+fn vi_1_an_exclusive_motion_that_ends_in_column_one_stops_at_the_line_before() {
+    table(&[
+        // Rule 2: from the first non-blank or before, the motion is linewise.
+        ("a\n|\nb", "dw", "a\n|b"),
+        ("a\n|\nb", "dW", "a\n|b"),
+        ("a\n|\n  b", "dw", "a\n  |b"),
+        ("a\n|\nb", "cwX<Esc>", "a\n|X\nb"),
+        ("foo\n|bar", "db", "|bar"),
+        ("  foo\n|bar", "db", "|bar"),
+        // Rule 1: otherwise it ends at the end of the line before.
+        ("baz_1 one,two\n|bar", "db", "baz_1 one|,\nbar"),
+        ("x foo\n|bar", "db", "x| \nbar"),
+        ("a b\n|c", "d2b", "|c"),
+        // `dw` on a last word still stops at the end of the line.
+        ("a |b\nc", "dw", "a| \nc"),
+        ("|a\nb", "d2w", "|"),
+    ]);
+    let mut a = app("a.b\n(a, b) foo(bar)\n\n");
+    a.buf.cursor = text(&a).chars().count(); // the empty last line
+    feed(&mut a, "dB");
+    assert_eq!(text(&a), "a.b\n(a, b) \n");
+    let mut a = app("a\n\nb");
+    feed(&mut a, "jyw");
+    assert_eq!(a.buf.cursor, 2);
+    feed(&mut a, "P");
+    assert_eq!(text(&a), "a\n\n\nb", "the empty line was yanked as a line");
+}

@@ -1,10 +1,9 @@
-//! PERF-3, VIS-10, CLI-4, VI-8, VI-9, VI-12
+//! PERF-3, VIS-7, VIS-10, CLI-4, VI-8, VI-9, VI-12
 //! crossterm: diffed Frame output, OSC 52, cursor shape.
 use crate::core::app::{Event, Key};
-use crate::core::view::{Frame, Row, Shape, Style};
-use crossterm::event::{Event as Ev, KeyCode, KeyEventKind, KeyModifiers};
+use crate::core::view::{Frame, Row, Shape, Style, width};
+use crossterm::event::{Event as Ev, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::io::{self, Write};
-use unicode_width::UnicodeWidthChar;
 
 /// Alternate screen, bracketed paste, kitty keyboard protocol (disambiguate escape codes).
 pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?2004h\x1b[>1u";
@@ -54,6 +53,23 @@ pub fn convert(ev: Ev) -> Option<Event> {
         Ev::Resize(w, h) => Some(Event::Resize(w, h)),
         _ => None,
     }
+}
+
+/// `convert` for the event loop. Without the kitty protocol Alt+x is sent as ESC x, which is also
+/// Esc followed at once by x (a fast typist, tmux send-keys, a slow link that batches bytes). si
+/// has no Alt commands: it is Esc, then the key (VI-9).
+pub fn convert_all(ev: Ev) -> Vec<Event> {
+    if let Ev::Key(k) = ev
+        && k.modifiers.contains(KeyModifiers::ALT)
+        && matches!(k.code, KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace | KeyCode::Tab)
+    {
+        let plain = KeyEvent { modifiers: k.modifiers - KeyModifiers::ALT, ..k };
+        return [Some(Event::Key(Key::Esc)), convert(Ev::Key(plain))]
+            .into_iter()
+            .flatten()
+            .collect();
+    }
+    convert(ev).into_iter().collect()
 }
 
 /// Draws Frames, rewriting only the rows that differ from the previous one.
@@ -134,7 +150,8 @@ impl<W: Write> Term<W> {
 /// The text of a row with an SGR sequence wherever the style changes.
 fn paint(b: &mut Vec<u8>, row: &Row) {
     let (mut now, mut col) = (None, 0u16);
-    for c in row.text.chars() {
+    let cs: Vec<char> = row.text.chars().collect();
+    for (i, &c) in cs.iter().enumerate() {
         let style =
             row.spans.iter().find(|(r, _)| r.contains(&col)).map_or(Style::Primary, |s| s.1);
         let underline = row.underline.iter().any(|r| r.contains(&col));
@@ -146,6 +163,6 @@ fn paint(b: &mut Vec<u8>, row: &Row) {
             now = Some((style, underline));
         }
         b.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
-        col += c.width().unwrap_or(0) as u16;
+        col += width(&cs, i, usize::from(col)) as u16;
     }
 }

@@ -1,6 +1,7 @@
-//! VI-4, VI-7, PERF-4
+//! VI-4, VI-7, PROP-9, PERF-4, SAFE-7
 //! The command line: ex commands with their ranges, `:s`, and search.
-use super::app::{App, Effect};
+use super::app::{App, Effect, plural};
+use super::review::PROPOSALS;
 use regex_lite::{Captures, Regex, escape};
 use std::{borrow::Cow, ops::Range, thread};
 
@@ -58,14 +59,35 @@ fn literal(pat: &str) -> String {
     run.split('\0').max_by_key(|s| s.chars().count()).unwrap_or_default().into()
 }
 
+/// Whether a search ignores case: smartcase, which looks at letters only, so an escape such as
+/// `\W` or `\x4A` does not count (VI-4). `cs`: it was asked to be case-sensitive.
+fn folds(pat: &str, cs: bool) -> bool {
+    let mut it = pat.chars();
+    while let Some(c) = it.next() {
+        if c == '\\'
+            && let Some(e) = it.next()
+            && let Some(n) = "xuU".find(e).map(|i| [2, 4, 8][i])
+        {
+            if it.as_str().starts_with('{') {
+                it.find(|&d| d == '}'); // `\x{4A}`
+            } else {
+                it.by_ref().take(n).for_each(drop); // `\x4A`
+            }
+        } else if c.is_uppercase() {
+            return false;
+        }
+    }
+    !cs
+}
+
 impl App {
     fn regex(&mut self, pat: &str, cs: bool) -> Option<Regex> {
-        let ci = !cs && !pat.chars().any(char::is_uppercase); // smartcase
+        let ci = folds(pat, cs);
         let re = Regex::new(&if ci { format!("(?i){pat}") } else { pat.to_string() });
-        re.map_err(|e| {
-            self.say(format!("bad pattern: {}", e.to_string().lines().next().unwrap_or("")))
-        })
-        .ok()
+        re.map_or_else(
+            |e| self.fail(format!("bad pattern: {}", e.to_string().lines().next().unwrap_or(""))),
+            Some,
+        )
     }
 
     /// A submitted command line, with its `:`, `/` or `?`.
@@ -82,6 +104,7 @@ impl App {
                 }
                 if let Some(t) = self.find_match(fwd) {
                     (self.buf.cursor, self.buf.want) = (t, None);
+                    self.clamp();
                 }
             }
             None => {}
@@ -129,29 +152,33 @@ impl App {
         let (arg, dirty) = (arg.trim(), self.buf.dirty());
         let line = self.buf.line_of(self.buf.cursor);
         match name {
+            "" if !rest.is_empty() => self.say(format!("bad range: {rest}")),
             "" => {
                 if let Some((_, last)) = range {
                     let b = &mut self.buf;
                     (b.cursor, b.want, self.center) = (b.nonblank(last), None, true);
                 }
             }
+            "w" | "wq" | "x" if arg.starts_with('!') => self.say("filters are :{range}!cmd"),
             "w" => self.write(arg, bang, false),
             "wq" => self.write(arg, bang, true),
             "x" if dirty => self.write(arg, bang, true),
-            "x" => self.fx.push(Effect::Quit(0)),
+            "q" | "x" if !bang && !self.buf.hunks.is_empty() => self.say(PROPOSALS),
             "q" if dirty && !bang => self.say("no write since last change (:q! to override)"),
-            "q" => self.fx.push(Effect::Quit(0)),
+            "x" | "q" => self.fx.push(Effect::Quit(0)),
             "cq" => self.fx.push(Effect::Quit(1)),
             "e" if dirty && !bang => self.say("no write since last change (:e! to discard)"),
+            "e" if self.saving.is_some() => self.say("a save is already running"),
             "e" => match if arg.is_empty() { self.path.clone() } else { Some(arg.into()) } {
                 Some(path) => {
-                    self.opening = Some(self.buf.version());
+                    self.opening.push_back(self.buf.version());
                     self.fx.push(Effect::Open(path));
                 }
                 None => self.say("no file name"),
             },
             "s" => self.subst(range.unwrap_or((line, line)), arg),
-            "seen" | "ref" => self.say("not available yet"),
+            "seen" => self.buf.marks = Default::default(),
+            "ref" => self.say("not available yet"),
             _ => self.say(format!("not an editor command: {name}")),
         }
         self.clamp();
@@ -163,19 +190,15 @@ impl App {
             return self.say(why);
         }
         let Some(body) = arg.strip_prefix('/') else { return self.say("usage: :s/re/rep/[g]") };
-        let (mut parts, mut i, mut it) =
-            ([String::new(), String::new(), String::new()], 0, body.chars());
+        let (mut parts, mut i, mut it) = (<[String; 3]>::default(), 0, body.chars());
         while let Some(c) = it.next() {
-            match (c, it.clone().next()) {
-                ('/', _) if i < 2 => i += 1,
-                ('\\', Some('/')) => {
-                    parts[i].push('/');
-                    it.next();
-                }
-                ('\\', Some(d)) => {
-                    parts[i].extend(['\\', d]);
-                    it.next();
-                }
+            match c {
+                '/' if i < 2 => i += 1,
+                '\\' => match it.next() {
+                    Some('/') => parts[i].push('/'),
+                    Some(d) => parts[i].extend(['\\', d]),
+                    None => parts[i].push('\\'),
+                },
                 _ => parts[i].push(c),
             }
         }
@@ -207,8 +230,9 @@ impl App {
         match at {
             Some(l) => {
                 (self.buf.cursor, self.buf.want) = (self.buf.nonblank(l), None);
-                let s = |n: usize| if n == 1 { "" } else { "s" };
-                self.say(format!("{subs} substitution{} on {lines} line{}", s(subs), s(lines)));
+                let (subs, lines) =
+                    (plural(subs, "substitution", "substitutions"), plural(lines, "line", "lines"));
+                self.say(format!("{subs} on {lines}"));
             }
             None => self.say(format!("not found: {pat}")),
         }
@@ -233,8 +257,7 @@ impl App {
         let b = &self.buf;
         let (l, w) = (b.line_of(b.cursor), |c: char| c.is_alphanumeric() || c == '_');
         let Some(i) = (b.cursor..b.end(l)).find(|&i| w(b.ch(i))) else {
-            self.msg = Some("no word under the cursor".into());
-            return None;
+            return self.fail("no word under the cursor");
         };
         let a = (b.start(l)..=i).rev().take_while(|&j| w(b.ch(j))).last().unwrap_or(i);
         let z = (i..b.end(l)).take_while(|&j| w(b.ch(j))).last().unwrap_or(i) + 1;
@@ -249,11 +272,10 @@ impl App {
     /// read the text; the first chunk with a match wins, so the result is the sequential one.
     fn find_match(&mut self, fwd: bool) -> Option<usize> {
         let Some((pat, cs, _)) = self.search.clone() else {
-            self.say("no previous pattern");
-            return None;
+            return self.fail("no previous pattern");
         };
         let re = self.regex(&pat, cs)?;
-        let ci = !cs && !pat.chars().any(char::is_uppercase);
+        let ci = folds(&pat, cs);
         let lit = if ci { literal(&pat).to_ascii_lowercase() } else { literal(&pat) };
         let (b, text) = (&self.buf, &self.buf.text);
         let (l0, c0, n) = (b.line_of(b.cursor), b.col(), b.lines());
@@ -302,8 +324,7 @@ impl App {
             })
         });
         let Some((i, t)) = found else {
-            self.msg = Some(format!("not found: {pat}"));
-            return None;
+            return self.fail(format!("not found: {pat}"));
         };
         if if fwd { l0 + i >= n } else { i > l0 } {
             self.msg = Some("search wrapped".into());

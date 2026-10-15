@@ -3,7 +3,8 @@
 //! `Term::draw` into a buffer: everything between the key and the write to the terminal.
 //!
 //!   cargo test --release --test perf_2 -- --ignored bench --nocapture
-#![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
+// Helpers may unwrap; expected values are written as `vec![a..b]` on purpose: a list holding one range.
+#![allow(clippy::unwrap_used, clippy::single_range_in_vec_init)]
 mod common;
 use common::*;
 use si::core::app::{App, Effect, Event, Key};
@@ -169,5 +170,107 @@ fn perf_2_bench_percent_on_an_unmatched_bracket_reports_the_worst_key() {
             t[0],
             t[3]
         );
+    }
+}
+
+// ---- marks and hunks: the keys typed after a big change came in ------------------------------------
+
+const LINES: usize = 100_000;
+
+fn statement(i: usize, name: &str) -> String {
+    format!("    let {name}_{i} = compute({i}, \"some text on the line\");\n")
+}
+
+/// The median of the slowest key of `keys`, over 20 runs, with the cursor in the middle.
+fn worst_key(r: &mut Rig, keys: &str) -> Duration {
+    r.time("50000G");
+    let mut t: Vec<Duration> =
+        (0..20).map(|_| r.time(keys).iter().map(|k| k.0).max().unwrap()).collect();
+    t.sort();
+    t[10]
+}
+
+/// Keys that move marks and hunks to other lines (and make an undo step that holds them), and the
+/// ones that do not.
+const MOVING: [&str; 6] = ["o<Esc>", "dd", "J", "yyp", "5dd", "A!<Esc>"];
+const STAYING: [&str; 6] = ["j", "x", "u", "<C-r>", "<C-d>", "zz"];
+
+/// Types every key, prints the worst key of each and returns the slowest of the `MOVING` ones and
+/// of the others.
+fn report(what: &str, r: &mut Rig) -> (Duration, Duration) {
+    let mut worst = (Duration::ZERO, Duration::ZERO);
+    for (moving, keys) in MOVING.iter().map(|k| (true, k)).chain(STAYING.iter().map(|k| (false, k)))
+    {
+        let t = worst_key(r, keys);
+        eprintln!("PERF-2 {what:24} {keys:8} {t:>9.1?}");
+        if moving { worst.0 = worst.0.max(t) } else { worst.1 = worst.1.max(t) }
+    }
+    worst
+}
+
+/// A formatter rewrites every line of a 100,000-line file: every line is marked. An edit that
+/// moves the marks copies them for its undo step, and a copy of a mark is a count, not a clone of
+/// its words, whatever the file looks like (a word diff is made for the first 256 KiB only).
+#[test]
+#[ignore]
+fn perf_2_bench_keys_after_a_rewrite_of_every_line_have_100k_marks_to_carry() {
+    release_only();
+    let old: String = (0..LINES).map(|i| statement(i, "value")).collect();
+    let mut r = Rig::on(&old, (80, 24));
+    let new: String = (0..LINES).map(|i| statement(i, "renamed")).collect();
+    let t = Instant::now();
+    r.a.update(Event::Disk {
+        bytes: Some(new.into_bytes()),
+        hash: None,
+        deadline: t + Duration::from_secs(1),
+    });
+    eprintln!("PERF-2 the rewrite took {:?}: {} marks", t.elapsed(), r.a.buf.marks.len());
+    assert_eq!(r.a.buf.marks.len(), LINES);
+    let (moving, staying) = report("100,000 marks", &mut r);
+    assert!(staying < P99, "a key took {staying:?}");
+    assert!(moving < Duration::from_micros(500), "a key that moves the marks took {moving:?}");
+}
+
+/// Conflicts pile up (nothing is dropped, PROP-2) when a tool keeps rewriting what mine changed.
+/// The frame looks at the hunks of the screen only.
+#[test]
+#[ignore]
+fn perf_2_bench_keys_with_many_hunks_to_carry() {
+    release_only();
+    for (hunks, size) in [(3_000usize, (80u16, 24u16)), (20_000, (80, 24)), (3_000, (240, 60))] {
+        let text: String = (0..LINES).map(|i| statement(i, "value")).collect();
+        let mut r = Rig::on(&text, size);
+        r.a.buf.hunks = (0..hunks)
+            .map(|k| {
+                let start = k * (LINES / hunks);
+                hunk(start..start + 1, &format!("theirs {k}\n"), Some((vec![0..1], vec![0..1])))
+            })
+            .collect::<Vec<_>>()
+            .into();
+        let (moving, staying) = report(&format!("{hunks} hunks {}x{}", size.0, size.1), &mut r);
+        assert!(moving.max(staying) < P99, "a key took {:?}", moving.max(staying));
+    }
+}
+
+/// A long list of marks is copied by every edit that moves it, so only the last 4 undo steps
+/// keep theirs: the memory of a session stays bounded and the copies reuse what was let go. A short
+/// list is kept by every step.
+#[test]
+fn perf_2_a_long_list_of_marks_is_kept_by_the_last_4_undo_steps_only() {
+    for (marks, kept) in [(2000usize, 4usize), (1000, 20)] {
+        let text: String = (0..marks).map(|i| format!("L{i}\n")).collect();
+        let mut b = si::core::buffer::Buffer::decode(text.as_bytes());
+        b.marks = (0..marks).map(|l| mark(l, '~', vec![])).collect::<Vec<_>>().into();
+        for _ in 0..20 {
+            b.checkpoint();
+            b.replace(b.start(0)..b.start(1), "");
+        }
+        // The first edit took one mark, the second another: step k (1..=20) starts from marks - k + 1.
+        for k in (1..=20).rev() {
+            assert!(b.travel(true));
+            let want = if 20 - k < kept { marks - k + 1 } else { 0 };
+            assert_eq!(b.marks.len(), want, "after undoing step {k}");
+        }
+        assert_eq!(b.text.to_string(), text.trim_end());
     }
 }

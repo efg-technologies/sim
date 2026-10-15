@@ -1,10 +1,14 @@
-//! CLI-1, CLI-3, SAFE-1, SAFE-4, SAFE-6, VI-9, VI-12, VI-13
+//! CLI-1, CLI-3, SAFE-1, SAFE-4, SAFE-6, SAFE-7, PROP-1, PROP-9, VI-2, VI-7, VI-9, VI-12, VI-13
 //! `App::update(&mut self, Event) -> Vec<Effect>`: the state, and what each Event does to it.
-use super::buffer::{ABSENT, Buffer, hash};
+use super::buffer::{ABSENT, Buffer, Format, hash};
+use super::review::{CONFLICTS, PROPOSALS};
 use super::vi::{Mode, Parser};
 use super::view::{self, Frame};
 use ropey::Rope;
+use std::collections::VecDeque;
 use std::mem::take;
+use std::sync::Arc;
+use std::time::Instant;
 
 #[rustfmt::skip]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -23,14 +27,23 @@ pub enum Event {
     Resize(u16, u16),
     /// The hash of what was written and a warning, or why it could not be written.
     Saved(Result<(u64, Option<String>), String>),
-    /// The save was refused because the disk holds this instead.
-    SaveConflict(Vec<u8>),
+    /// The save was refused because the disk holds this instead (`None`: no file). The diff of
+    /// the merge gives up at the instant, as for `Disk` (PROP-7).
+    SaveConflict(Option<Vec<u8>>, Instant),
+    /// The file changed on disk (PROP-1): its new content, `None` if it is gone. The shell stamps
+    /// each one with the time its diff must be done by (PROP-7), since the core reads no clock, and
+    /// with the hash of the content when the thread that read the file has made it: 10 MB take 8 ms
+    /// to hash, which no key should wait for (P3). `None`: App makes it.
+    #[rustfmt::skip]
+    Disk { bytes: Option<Vec<u8>>, hash: Option<u64>, deadline: Instant },
+    /// A thread has something to tell the user, e.g. that snapshots cannot be written (SAFE-6).
+    Notice(String),
     /// The result of reading the file an `Effect::Open` asked for.
     Opened(String, Read),
     /// Unsaved text left by a session that ended abnormally (SAFE-6): the base it was edited
-    /// from, the text, its age in ms, and the file that holds it. It is applied (as one undo
-    /// step) only if the disk still holds the base.
-    Recover(Vec<u8>, Vec<u8>, u64, String),
+    /// from, the text, its age in ms, the file that holds it, and the instant its diff gives up
+    /// at. It is applied (as one undo step) if the disk still holds the base, merged otherwise.
+    Recover(Vec<u8>, Vec<u8>, u64, String, Instant),
     /// Milliseconds on the shell's tick clock. The shell sends one at least every second
     /// however busy the keys keep it, and its ticks are 1000 apart.
     Tick(u64),
@@ -44,6 +57,8 @@ pub enum Effect {
     Write { path: String, bytes: Vec<u8>, expect_hash: Option<u64> },
     /// Read this file and answer with `Event::Opened`.
     Open(String),
+    /// Watch this file from now on, and no other (PROP-1): answers come as `Event::Disk`.
+    Watch(String),
     /// Text for the system clipboard (OSC 52).
     Clipboard(String),
     /// Unsaved text for the journal (SAFE-6), keyed by `path` (`None`: an unnamed buffer).
@@ -54,12 +69,8 @@ pub enum Effect {
 }
 
 /// A write in flight: what it saved and what to do when it is done.
-struct Pending {
-    version: u64,
-    text: Rope,
-    path: String,
-    quit: bool,
-}
+#[rustfmt::skip]
+pub(super) struct Pending { version: u64, pub(super) hash: u64, text: Rope, fmt: Format, path: String, quit: bool, force: bool }
 
 #[derive(Default)]
 pub struct App {
@@ -67,11 +78,17 @@ pub struct App {
     pub path: Option<String>,
     pub vi: Parser,
     pub msg: Option<String>,
-    /// First buffer line on the screen.
+    /// First buffer line on the screen, and how many of its rows are above the screen when it is
+    /// taller than the screen (VIS-12).
     pub top: usize,
+    pub skip: usize,
+    /// Whether the intro (CLI-5) may show: an unnamed buffer until the first key.
+    pub intro: bool,
     pub size: (u16, u16),
     /// Whether the next render puts the cursor line in the middle (VIS-12).
     pub center: bool,
+    /// The hunk REVIEW is on (PROP-8); `review::current` checks it against the cursor.
+    pub(super) rev: usize,
     /// The other end of the Visual selection.
     pub(super) anchor: usize,
     /// The lines of `'<` and `'>`.
@@ -86,25 +103,36 @@ pub struct App {
     /// `PAR_MIN`. Tests set it to search a small buffer in parallel, or a big one in one thread.
     pub par_min: Option<usize>,
     pub(super) unit: Option<String>,
+    /// The line whose indent autoindent made and nothing was typed after (VI-6).
+    pub(super) ai: Option<usize>,
     pub(super) fx: Vec<Effect>,
     /// The keys of the change being typed, and of the last one (for `.`).
-    rec: Vec<Key>,
+    pub(super) rec: Vec<Key>,
     pub(super) last: Vec<Key>,
+    /// Set while a Visual-mode operation, and the Insert session it may start, is typed: none of
+    /// it is a Normal-mode change, so `.` must not replay it.
+    no_rec: bool,
     changed: bool,
+    /// `.` is replaying keys: another `.` among them does nothing.
+    pub(super) replaying: bool,
     /// Set when an operator found nothing to act on.
     pub(super) failed: bool,
     /// Hash of the file as last read or written; `None` for a file that does not exist.
-    disk: Option<u64>,
-    saving: Option<Pending>,
-    /// The buffer version when `:e` ran: the load is refused if the buffer changed since.
-    pub(super) opening: Option<u64>,
+    pub(super) disk: Option<u64>,
+    /// The file was there and has been deleted (PROP-1).
+    pub gone: bool,
+    pub(super) saving: Option<Pending>,
+    /// The buffer version when each `:e` ran, oldest first: a load is refused if the buffer changed
+    /// since. An `Opened` nobody asked for is ignored.
+    pub(super) opening: VecDeque<u64>,
     /// The version whose text the journal holds, and the tick that asked for it.
     snap: Option<(u64, u64)>,
 }
 
 impl App {
     pub fn new(path: Option<String>, file: Read, size: (u16, u16)) -> App {
-        let mut app = App { size: (size.0.max(1), size.1.max(2)), ..Default::default() };
+        let size = (size.0.max(1), size.1.max(2));
+        let mut app = App { size, intro: path.is_none(), ..Default::default() };
         app.load(path, file);
         app
     }
@@ -115,10 +143,15 @@ impl App {
         self.buf = Buffer::decode(bytes.unwrap_or_default());
         self.disk = bytes.map(hash);
         if let Err(e) = &file {
-            self.buf.readonly = Some(format!("read-only: cannot read: {e}"));
+            self.buf.readonly = Some(format!("read-only: {e}"));
         }
-        (self.path, self.vi, self.top, self.marks, self.unit) =
-            (path, Parser::default(), 0, (0, 0), None);
+        (self.path, self.vi, self.top, self.skip, self.marks, self.unit, self.gone) =
+            (path, Parser::default(), 0, 0, (0, 0), None, false);
+        // A save for the old buffer that is still running must not touch this one when it ends, and a
+        // change that was being typed is not one to repeat. A `:e` that is still to be answered was
+        // typed before this load: it expects the new buffer to be as it is now (versions restart).
+        (self.saving, self.rec, self.changed) = (None, vec![], false);
+        self.opening.iter_mut().for_each(|v| *v = 0);
     }
 
     /// The first frame, then the effects of typing `keys` (`\n` is Enter).
@@ -131,6 +164,7 @@ impl App {
     }
 
     pub fn update(&mut self, ev: Event) -> Vec<Effect> {
+        let answer = matches!(ev, Event::Saved(_) | Event::SaveConflict(..));
         match ev {
             Event::Tick(now) => {
                 let (b, v) = (&self.buf, self.buf.version());
@@ -148,11 +182,16 @@ impl App {
                 return fx;
             }
             Event::Key(k) => {
-                self.msg = None;
+                (self.msg, self.intro) = (None, false);
                 self.key(k);
+                self.buf.see();
             }
             Event::Paste(s) => {
                 self.msg = None;
+                self.vi.reset();
+                if self.vi.mode == Mode::Review {
+                    self.vi.mode = Mode::Normal;
+                }
                 let s = s.replace("\r\n", "\n").replace('\r', "\n");
                 if self.vi.mode == Mode::Cmd {
                     self.vi.insert_str(&s.replace('\n', " "));
@@ -166,14 +205,28 @@ impl App {
             }
             Event::Resize(w, h) => self.size = (w.max(1), h.max(2)),
             Event::Saved(r) => self.saved(r),
-            Event::SaveConflict(_) => self.conflict(),
-            Event::Opened(path, file) => match self.opening.take() {
+            Event::SaveConflict(disk, by) => self.conflict(disk, by),
+            Event::Disk { bytes, hash, deadline } => self.disk(bytes, hash, deadline),
+            Event::Notice(m) => self.say(m),
+            Event::Opened(path, file) => match self.opening.pop_front() {
+                None => {}
                 Some(v) if v != self.buf.version() => self.say("not opened: edited meanwhile"),
-                _ => self.load(Some(path), file),
+                Some(_) => {
+                    self.load(Some(path.clone()), file);
+                    self.fx.push(Effect::Watch(path));
+                }
             },
-            Event::Recover(base, text, ms, file) => self.recover(&base, &text, ms, &file),
+            Event::Recover(base, text, ms, file, by) => self.recover(&base, &text, ms, &file, by),
         }
         // The snapshots go when the buffer is clean again, and before we quit (a signal keeps them).
+        if answer {
+            // What the watcher said while the save was in flight cannot be ordered against its rename:
+            // the shell reads the file once more, and `Watch` does (PROP-1).
+            self.fx.extend(self.path.clone().map(Effect::Watch));
+        }
+        if self.buf.hunks.is_empty() && self.vi.mode == Mode::Review {
+            self.vi.mode = Mode::Normal; // a save of mine settled the conflicts (SAFE-7)
+        }
         let quit = self.fx.iter().position(|e| matches!(e, Effect::Quit(_)));
         let clean = !self.buf.dirty() && self.snap.take().is_some();
         if let Some(at) = quit.or(clean.then_some(self.fx.len())) {
@@ -188,18 +241,40 @@ impl App {
         self.msg = Some(m.into());
     }
 
-    /// Applies a snapshot as one undo step if the disk still holds its base (SAFE-6).
-    fn recover(&mut self, base: &[u8], text: &[u8], ms: u64, file: &str) {
+    /// Says why nothing was found, and finds nothing.
+    pub(super) fn fail<T>(&mut self, m: impl Into<String>) -> Option<T> {
+        self.say(m);
+        None
+    }
+
+    /// Applies a snapshot as one undo step if the disk still holds its base, merges it with the
+    /// disk otherwise (SAFE-6).
+    fn recover(&mut self, base: &[u8], text: &[u8], ms: u64, file: &str, by: Instant) {
         #[rustfmt::skip]
         let (n, unit) = match ms / 1000 { s @ 0..60 => (s, "second"), s @ 60..3600 => (s / 60, "minute"), s @ 3600..86400 => (s / 3600, "hour"), s => (s / 86400, "day") };
         let ago = format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" });
-        if self.buf.readonly.is_some() || base != self.buf.base.to_string().as_bytes() {
+        if self.buf.readonly.is_some() {
             return self.say(format!("kept unsaved changes from {ago}, not applied: {file}"));
         }
-        self.buf.checkpoint();
-        self.buf.replace(0..usize::MAX, &String::from_utf8_lossy(text));
+        // A file that is gone holds nothing to merge with, and the snapshot is the only copy of its
+        // text: it is applied whole (a merge would take the missing file for a deletion of every
+        // line) and counts as unsaved.
+        let missing = self.disk.is_none() && !base.is_empty();
+        let same = missing || base == self.buf.base.to_string().as_bytes();
+        if same {
+            self.buf.checkpoint();
+            self.buf.replace(0..usize::MAX, &String::from_utf8_lossy(text));
+            if missing {
+                self.vanished();
+            }
+        } else {
+            let [b, t] = [base, text].map(|s| String::from_utf8_lossy(s) + "\n");
+            self.merge_in(&b, &t, Buffer::decode(&self.buf.encode()), by);
+        }
         self.snap = Some((self.buf.version(), 0));
-        self.say(format!("recovered unsaved changes from {ago} · u to undo"));
+        let (what, with) =
+            if same { ("unsaved changes", "") } else { ("changes", ", merged with disk") };
+        self.say(format!("recovered {what} from {ago}{with} · u to undo"));
     }
 
     /// A key in any mode. Ctrl-s saves in all of them; the keys of a change are recorded for `.`.
@@ -207,12 +282,24 @@ impl App {
         if k == Key::Ctrl('s') {
             return self.ex("w");
         }
+        // REVIEW: its keys decide, `]` and `[` wait for their `c`, any other key ends it (PROP-8).
+        if self.vi.mode == Mode::Review && !self.vi.waiting() {
+            match k {
+                Key::Char(c @ ('y' | 'n' | 'Y' | 'N')) => {
+                    return self.decide(c.eq_ignore_ascii_case(&'y'), c.is_ascii_uppercase());
+                }
+                Key::Esc => return self.vi.mode = Mode::Normal,
+                Key::Char('[' | ']') => {}
+                _ => self.vi.mode = Mode::Normal,
+            }
+        }
         let (mode, version) = (self.vi.mode, self.buf.version());
         let typing = matches!(mode, Mode::Normal | Mode::Insert);
-        if self.vi.idle() {
-            self.rec.clear();
+        let visual = mode.visual();
+        if self.vi.idle() || visual {
+            (self.rec, self.no_rec) = (vec![], visual);
         }
-        if typing {
+        if typing && !self.no_rec {
             self.rec.push(k);
         }
         match mode {
@@ -237,21 +324,30 @@ impl App {
     /// `:w`. Without `force` the write is refused if the disk changed since it was read, and
     /// `:w {other}` is refused if `other` exists.
     pub(super) fn write(&mut self, arg: &str, force: bool, quit: bool) {
-        if let Some(why) = self.buf.readonly.clone() {
+        let busy =
+            self.saving.as_ref().map(|_| "a save").or(self.opening.front().map(|_| "a reload"));
+        if let Some(why) =
+            self.buf.readonly.clone().or(busy.map(|b| format!("{b} is already running")))
+        {
             return self.say(why);
-        }
-        if self.saving.is_some() {
-            return self.say("a save is already running");
         }
         let Some(path) = (if arg.is_empty() { self.path.clone() } else { Some(arg.to_string()) })
         else {
             return self.say("no file name");
         };
         let same = self.path.as_deref() == Some(path.as_str());
+        // SAFE-7: my version does not go over the disk's, nor out of the door, with a hunk open.
+        let (open, disk) = (self.buf.hunks.len(), self.buf.hunks.iter().any(|h| h.disk));
+        if !force && same && disk {
+            return self.say(CONFLICTS);
+        } else if !force && quit && open > 0 {
+            return self.say(PROPOSALS);
+        }
         let expect_hash = (!force).then(|| if same { self.disk.unwrap_or(ABSENT) } else { ABSENT });
-        let text = self.buf.text.clone();
-        self.saving = Some(Pending { version: self.buf.version(), text, path: path.clone(), quit });
-        self.fx.push(Effect::Write { path, bytes: self.buf.encode(), expect_hash });
+        let (text, bytes) = (self.buf.text.clone(), self.buf.encode());
+        let (version, hash, fmt) = (self.buf.version(), hash(&bytes), self.buf.format());
+        self.saving = Some(Pending { version, hash, text, fmt, path: path.clone(), quit, force });
+        self.fx.push(Effect::Write { path, bytes, expect_hash });
     }
 
     fn saved(&mut self, r: Result<(u64, Option<String>), String>) {
@@ -261,25 +357,53 @@ impl App {
             Err(e) => return self.say(e),
         };
         self.path.get_or_insert_with(|| p.path.clone());
-        if self.path.as_deref() == Some(p.path.as_str()) {
-            self.buf.mark_saved(p.version, p.text);
-            self.disk = Some(h);
+        let own = self.path.as_deref() == Some(p.path.as_str());
+        if own {
+            self.buf.mark_saved(p.version, p.text, p.fmt);
+            (self.disk, self.gone) = (Some(h), false);
+            if p.force {
+                // Mine is the file now: the conflicts with the disk are settled. Filters' stay.
+                Arc::make_mut(&mut self.buf.hunks).retain(|h| !h.disk);
+            }
         }
         let note = warn.map_or(String::new(), |w| format!(" (warning: {w})"));
         match (p.quit, self.buf.dirty()) {
+            // A hunk may have come back (undo) while the save was running: SAFE-7 holds for the wait too.
+            (true, false) if !p.force && !self.buf.hunks.is_empty() => {
+                self.say(format!("saved {}; {PROPOSALS}", p.path));
+            }
             (true, false) => self.fx.push(Effect::Quit(0)),
-            (true, true) => self.say("saved, but edited since: not quitting"),
+            (true, true) if own => self.say("saved, but edited since: not quitting"),
+            (true, true) => {
+                let name = self.path.as_deref().unwrap_or("[no name]");
+                self.say(format!("saved {}; not quitting: {name} has unsaved changes", p.path));
+            }
             _ => self.say(format!("saved {}{note}", p.path)),
         }
     }
 
-    fn conflict(&mut self) {
+    /// The save found something else on disk (SAFE-5): that is merged, and nothing is saved.
+    fn conflict(&mut self, disk: Option<Vec<u8>>, by: Instant) {
         let Some(p) = self.saving.take() else { return };
-        let what = if self.path.as_deref() == Some(p.path.as_str()) {
-            "file changed on disk".into()
-        } else {
-            format!("{} exists", p.path)
+        if self.path.as_deref() != Some(p.path.as_str()) {
+            return self.say(format!("not saved: {} exists (:w! to overwrite)", p.path));
+        }
+        let Some(bytes) = disk else {
+            self.vanished();
+            return self.say("not saved: the file was deleted on disk (:w to create it again)");
         };
-        self.say(format!("not saved: {what} (:w! to overwrite)"));
+        if let Some(n) = self.take_disk(&bytes, hash(&bytes), by) {
+            let tail = if n == 0 {
+                "(:w to save)".into()
+            } else {
+                format!("· {} to review", plural(n, "conflict", "conflicts"))
+            };
+            self.say(format!("not saved: the file changed on disk; merged its changes {tail}"));
+        }
     }
+}
+
+/// `1 conflict`, `2 conflicts`.
+pub(super) fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
 }

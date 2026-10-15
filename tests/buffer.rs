@@ -88,3 +88,48 @@ proptest! {
         round_trip(s.as_bytes());
     }
 }
+
+#[test]
+fn safe_3_deleting_all_the_text_writes_an_empty_file_and_undo_brings_the_newline_back() {
+    let bom = b"\xEF\xBB\xBF";
+    for (file, bom) in
+        [(&b"a\nb\n"[..], &b""[..]), (b"a\nb", b""), (b"\xEF\xBB\xBFa\r\nb\r\n", bom)]
+    {
+        for keys in ["ggdG", "ggVGd", "ggvGd", "999dd"] {
+            let mut a = app_with(Some("f"), file, (40, 8));
+            feed(&mut a, keys);
+            assert_eq!(text(&a), "", "{file:?} {keys}");
+            assert_eq!(a.buf.encode(), bom, "{file:?} {keys}: an empty file, not a lone newline");
+            feed(&mut a, "u");
+            assert_eq!(a.buf.encode(), file, "{file:?} {keys}: undo brings the final newline back");
+            feed(&mut a, "<C-r>");
+            assert_eq!(a.buf.encode(), bom, "{file:?} {keys}: and redo takes it away again");
+        }
+    }
+    // Typing again ends the file as it ended before; one that had no final newline has none.
+    for (file, want) in
+        [(&b"abc"[..], &b"hi"[..]), (b"abc\n", b"hi\n"), (b"", b"hi\n"), (b"a\r\n", b"hi\r\n")]
+    {
+        let mut a = app_with(Some("f"), file, (40, 8));
+        feed(&mut a, "ddihi<Esc>");
+        assert_eq!(a.buf.encode(), want, "{file:?}");
+    }
+    // The text may go and come back inside one change without the file noticing.
+    for keys in ["ccxyz<Esc>", "0Dixyz<Esc>", "xxxixyz<Esc>", "ddixyz<Esc>", "Vcxyz<Esc>"] {
+        let mut a = app_with(Some("f"), b"abc", (40, 8));
+        feed(&mut a, keys);
+        assert_eq!(a.buf.encode(), b"xyz", "{keys}: a file without a final newline keeps that");
+    }
+    // An emptied file that was saved stays empty when it is saved again.
+    let mut a = app_with(Some("f"), b"a\n", (40, 8));
+    feed(&mut a, "dd:w\n");
+    a.update(si::core::app::Event::Saved(Ok((si::core::buffer::hash(b""), None))));
+    let fx = feed(&mut a, ":w\n");
+    let bytes = fx.iter().find_map(|e| match e {
+        si::core::app::Effect::Write { bytes, .. } => Some(bytes.clone()),
+        _ => None,
+    });
+    assert_eq!(bytes, Some(vec![]), "a second save writes the same empty file");
+    // A file that holds one empty line is not an empty file, until its text goes.
+    assert_eq!(app_with(Some("f"), b"\n", (40, 8)).buf.encode(), b"\n");
+}

@@ -218,3 +218,40 @@ fn vi_4_the_command_line_of_a_search_is_edited_like_any_other() {
     feed(&mut a, "<Esc>");
     assert_eq!(status(&screen(&mut a)), "[no name]  1:1  NORMAL");
 }
+
+#[test]
+fn vi_4_a_search_leaves_the_normal_cursor_on_a_char() {
+    for pat in ["$", "x*", "^", "\\s*$"] {
+        let mut a = app("ab\ncd\n");
+        feed(&mut a, &format!("/{pat}\n"));
+        let b = &a.buf;
+        let l = b.line_of(b.cursor);
+        assert!(b.cursor < b.end(l) || b.line_len(l) == 0, "/{pat}: {:?}", marked(&a));
+    }
+    let mut a = app("ab\ncd\n");
+    feed(&mut a, "/$\n");
+    assert_eq!(marked(&a), "a|b\ncd", "Normal mode rests on the last char, not on the line break");
+    feed(&mut a, "aZ<Esc>");
+    assert_eq!(text(&a), "abZ\ncd");
+}
+
+#[test]
+fn vi_4_smartcase_ignores_escapes() {
+    for (text, pat) in [
+        ("x\na-FOO\n", "\\Wfoo"),
+        ("x\nfoo-\n", "foo\\D"),
+        ("x\nj\n", "\\x4A"),
+        ("x\nj\n", "\\x{4A}"),
+        ("x\nAB\n", "\\x{61}b"),
+        ("x\nJ\n", "\\u004A"),
+    ] {
+        let mut a = app_with(None, text.as_bytes(), (80, 24));
+        feed(&mut a, &format!("/{pat}\n"));
+        assert_eq!(a.buf.line_of(a.buf.cursor), 1, "/{pat} must find {text:?}");
+    }
+    // An uppercase letter outside an escape still makes the search case-sensitive.
+    let mut a = app("x\nfoo\nFoo\n");
+    feed(&mut a, "/\\wFoo\n");
+    assert_eq!(a.buf.line_of(a.buf.cursor), 0, "no match: the cursor stays");
+    assert_eq!(status(&screen(&mut a)), "not found: \\wFoo");
+}

@@ -125,3 +125,36 @@ fn vi_6_ctrl_s_saves_and_stays_in_insert_mode() {
     assert_eq!(text(&a), "xya");
     a.update(Event::Saved(Ok((1, None))));
 }
+
+/// Every row is what `nvim --headless` (autoindent on) gives for the same text and keys.
+#[test]
+fn vi_6_an_indent_that_nothing_was_typed_after_is_removed() {
+    table(&[
+        ("    |foo", "o<Esc>", "    foo\n|"),
+        ("    |foo", "O<Esc>", "|\n    foo"),
+        ("    |foo", "A<CR><Esc>", "    foo\n|"),
+        ("    |foo", "o<CR><Esc>", "    foo\n\n|"),
+        ("    |foo", "ccx<CR><Esc>", "    x\n|"),
+        ("    |foo", "cc<Esc>", "|"),
+        ("    |foo", "o<BS><Esc>", "    foo\n|"),
+        // Leaving the line by the cursor keys counts as well; the others stay on it.
+        ("    |foo", "o<Up><Esc>", "   | foo\n"),
+        ("    |foo\nbar", "o<Down>x<Esc>", "    foo\n\nbar|x"),
+        ("    |foo\nbar", "o<C-c>", "    foo\n|\nbar"),
+        // Something typed, even a space, makes it text.
+        ("    |foo", "ox<BS><Esc>", "    foo\n   | "),
+        ("    |foo", "o <Esc>", "    foo\n    | "),
+        ("    |foo", "ox<Esc>", "    foo\n    |x"),
+        ("    |foo", "o<Tab><Esc>", "    foo\n       | "),
+        // An indent the text had already is not the editor's to remove.
+        ("   | ", "i<Esc>", "  |  "),
+        ("|a\n    ", "jA<Esc>", "a\n   | "),
+    ]);
+    // The indent goes in the same undo unit as the session, and `.` does the same again.
+    let mut a = typed("    |foo", "o<Esc>.");
+    assert_eq!(text(&a), "    foo\n\n");
+    feed(&mut a, "u");
+    assert_eq!(text(&a), "    foo\n");
+    feed(&mut a, "u");
+    assert_eq!(text(&a), "    foo");
+}

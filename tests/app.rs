@@ -131,8 +131,9 @@ fn safe_1_a_save_is_refused_when_the_disk_changed() {
     let mut a = app_with(Some("f"), b"a\n", (80, 8));
     let w = |fx: &[Effect]| write(fx).map(|w| w.2);
     assert_eq!(w(&feed(&mut a, ":w\n")), Some(Some(hash(b"a\n"))));
-    a.update(Event::SaveConflict(b"other\n".to_vec()));
-    assert_eq!(msg(&mut a), "not saved: file changed on disk (:w! to overwrite)");
+    a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far()));
+    assert_eq!(msg(&mut a), "not saved: the file changed on disk; merged its changes (:w to save)");
+    assert_eq!(text(&a), "other", "SAFE-5: the disk content is merged, and nothing is saved");
     assert_eq!(w(&feed(&mut a, ":w!\n")), Some(None), "`:w!` overwrites");
     assert_eq!(w(&feed(&mut a, ":w other\n")), None, "a save is already running");
     a.update(Event::Saved(Ok((1, None))));
@@ -186,10 +187,10 @@ fn safe_4_a_read_only_buffer_refuses_every_edit_and_write() {
         app_with(Some("f"), &nul_late, (60, 8)).buf.readonly.is_none(),
         "only the first 8 KB count"
     );
-    let mut a = App::new(Some("d".into()), Err("Is a directory".into()), (60, 8));
+    let mut a = App::new(Some("d".into()), Err("d is a directory".into()), (60, 8));
     assert_eq!(
         (text(&a).as_str(), a.buf.readonly.as_deref()),
-        ("", Some("read-only: cannot read: Is a directory"))
+        ("", Some("read-only: d is a directory"))
     );
     assert!(write(&feed(&mut a, ":w\n")).is_none());
 }

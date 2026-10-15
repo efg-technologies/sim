@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-12, VI-13
+//! VI-1, VI-2, VI-3, VI-12, VI-13, PROP-8
 //! Key sequence to Command: counts, operators and prefixes in Normal and Visual mode, and the
 //! editing of the command line.
 use super::app::Key;
@@ -12,6 +12,14 @@ pub enum Mode {
     /// The command line of `:`, `/` and `?`.
     Cmd,
     Visual, VLine,
+    /// Reviewing the proposals (PROP-8): Normal mode where `y n Y N` decide them.
+    Review,
+}
+
+impl Mode {
+    pub fn visual(self) -> bool {
+        matches!(self, Mode::Visual | Mode::VLine)
+    }
 }
 
 /// A command as keys: `k` is the final key (a motion, a command, or `i` / `a` of a text
@@ -51,6 +59,8 @@ pub struct Parser {
     /// The command line being typed, with its `:`, `/` or `?`, and the cursor in it (chars).
     pub line: String,
     pub pos: usize,
+    /// The first char of the line on the screen, once it is longer than the screen (VI-12).
+    pub off: usize,
     n: usize,
     /// The count typed before the pending operator.
     n0: usize,
@@ -65,8 +75,14 @@ impl Parser {
         self.mode == Mode::Normal && self.n + self.n0 == 0 && self.op.or(self.pre).is_none()
     }
 
+    /// A prefix key (the `]` of `]c`) waits for the key that completes it.
+    pub fn waiting(&self) -> bool {
+        self.pre.is_some()
+    }
+
     pub fn open(&mut self, init: &str) {
-        (self.mode, self.line, self.pos) = (Mode::Cmd, init.into(), init.chars().count());
+        (self.mode, self.line, self.pos, self.off) =
+            (Mode::Cmd, init.into(), init.chars().count(), 0);
     }
 
     fn at(&self, pos: usize) -> usize {
@@ -78,7 +94,8 @@ impl Parser {
         self.pos += s.chars().count();
     }
 
-    fn reset(&mut self) -> Option<Cmd> {
+    /// Forgets a half-typed command (a count, an operator, a prefix).
+    pub fn reset(&mut self) -> Option<Cmd> {
         (self.n, self.n0, self.op, self.pre) = (0, 0, None, None);
         None
     }
@@ -92,12 +109,12 @@ impl Parser {
 
     /// Feeds a key in Normal or Visual mode.
     pub fn key(&mut self, k: Key) -> Option<Cmd> {
-        let (c, vis) = (ch(k), self.mode != Mode::Normal);
+        let (c, vis) = (ch(k), self.mode.visual());
         if let Some(p) = self.pre.take() {
             #[rustfmt::skip]
             return match (k, p) {
                 (Key::Char('g'), 'g') | (Key::Char('z'), 'z') | (Key::Char('Z' | 'Q'), 'Z')
-                | (Key::Char(_), 'f' | 'F' | 't' | 'T' | 'r' | 'i' | 'a') => self.emit(self.op, p, Some(c)),
+                | (Key::Char('c'), '[' | ']') | (Key::Char(_), 'f' | 'F' | 't' | 'T' | 'r' | 'i' | 'a') => self.emit(self.op, p, Some(c)),
                 _ => self.reset(),
             };
         }
@@ -124,7 +141,7 @@ impl Parser {
             return self.reset();
         }
         match c {
-            'f' | 'F' | 't' | 'T' | 'g' | 'r' | 'z' | 'Z' => self.pre = Some(c),
+            'f' | 'F' | 't' | 'T' | 'g' | 'r' | 'z' | 'Z' | '[' | ']' => self.pre = Some(c),
             'i' | 'a' if vis || self.op.is_some() => self.pre = Some(c),
             'D' | 'C' | 'Y' if !vis => return self.emit(Some(c.to_ascii_lowercase()), '$', None),
             'x' if !vis => return self.emit(Some('d'), 'l', None),
@@ -148,9 +165,7 @@ impl Parser {
                 self.pos -= 1;
                 self.line.remove(self.at(self.pos));
             }
-            Key::Delete if self.pos < n => {
-                self.line.remove(self.at(self.pos));
-            }
+            Key::Delete if self.pos < n => drop(self.line.remove(self.at(self.pos))),
             Key::Left => self.pos = (self.pos - 1).max(1),
             Key::Right => self.pos = (self.pos + 1).min(n),
             Key::Home => self.pos = 1,
