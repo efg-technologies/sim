@@ -439,6 +439,22 @@ buf_1_a_change_on_disk_is_merged_into_the_file_it_belongs_to() {
   screen | grep -F -q "fn LIB() {}"
 }
 
+buf_1_a_change_on_disk_after_a_save_is_still_merged() {
+  project
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed "A // edit"
+  keys Escape
+  typed ":w"
+  keys Enter
+  wait_content "$W/src/lib.rs" "fn lib() {} // edit"
+  wait_for "saved src/lib.rs"
+  sleep 0.3 # the save's answer has replaced the watcher by now
+  printf 'fn lib() {} // edit\nfn more() {}\n' > "$W/src/lib.new"
+  mv "$W/src/lib.new" "$W/src/lib.rs"
+  wait_for "+  2 fn more() {}" # taken in and marked, though the message of the save still shows
+}
+
 buf_1_kill_9_leaves_a_snapshot_for_every_modified_file() {
   project
   wrap
@@ -527,6 +543,28 @@ buf_3_qa_names_the_modified_files_and_qa_bang_discards_them() {
   [ "$(exit_code)" = 0 ]
   printf 'fn lib() {}\n' | cmp - "$W/src/lib.rs"
   printf 'fn main() {}\n' | cmp - "$W/src/main.rs"
+}
+
+buf_3_qa_and_wa_respect_unresolved_conflicts_with_the_disk() {
+  project
+  start src/lib.rs
+  two_files_modified
+  printf 'fn LIB() {}\n' > "$W/src/lib.new"
+  mv "$W/src/lib.new" "$W/src/lib.rs" # the disk changes the line that lib.rs has changed too
+  wait_for "1 proposal"
+  typed ":wa"
+  keys Enter
+  wait_for "not saved: conflicts with the disk in src/lib.rs"
+  wait_content "$W/src/main.rs" "fn main() {} // MAIN" # the other file was saved
+  printf 'fn LIB() {}\n' | cmp - "$W/src/lib.rs" # and this one was not
+  typed ":qa"
+  keys Enter
+  wait_for "unresolved proposals in src/lib.rs (]c to review, :qa! discards)"
+  [ ! -s "$CASE_DIR/.exit_code" ]
+  typed ":qa!"
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
 }
 
 buf_3_cq_exits_with_1() {
@@ -720,6 +758,21 @@ mark_1_changed_files_have_the_change_color_and_their_directories_a_tilde() {
   screen_esc | grep 'main\.rs' | grep -v -q '7mmain\.rs'
 }
 
+mark_1_git_is_skipped_where_the_repositorys_config_could_run_commands() {
+  gitproject
+  printf 'more\n' >> "$W/src/lib.rs"
+  git -C "$W" config filter.canary.clean "touch $W/witness; cat"
+  printf '* filter=canary\n' > "$W/.gitattributes"
+  start
+  wait_for "git skipped: this repository's config could run commands"
+  keys C-n
+  keys C-n
+  wait_for "▸ src/"
+  gone "~" # no marks
+  gone "git skipped" # said once
+  [ ! -e "$W/witness" ] # and nothing ran
+}
+
 mark_1_a_file_that_changes_on_disk_while_sim_runs_is_marked_without_git() {
   project
   start src/main.rs
@@ -896,9 +949,9 @@ buf_1_snapshots_are_off_when_the_state_directory_is_not_private() {
   mkdir -p "$XDG_STATE_HOME/si"
   chmod 755 "$XDG_STATE_HOME/si"
   start src/lib.rs
-  wait_for "snapshots are off"
+  wait_for "src/lib.rs  1:1  NORMAL"
   typed x
-  wait_for modified
+  wait_for "cannot write snapshots: $XDG_STATE_HOME/si is not private" # the first tick says so, once
   typed ":w"
   keys Enter
   wait_content "$W/src/lib.rs" "n lib() {}" # saving works all the same

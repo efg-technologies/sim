@@ -1,13 +1,17 @@
 //! TREE-5, FIND-3, BUF-1: reading a directory, listing the files of a repository, and the
-//! private directory that snapshots go to.
+//! threads that keep snapshots and save with si's private state directory (SAFE-6).
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
+use si::core::app::Effect;
+use si::io::journal::{self, Snapshot};
 use sim::io;
+use sim::sim::SimEvent;
 use sim::tree::Entry;
-use std::ffi::OsString;
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::Path;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Duration;
 
 fn sorted(mut v: Vec<Entry>) -> Vec<(String, bool)> {
     v.sort_by(|a, b| a.name.cmp(&b.name));
@@ -111,117 +115,133 @@ fn find_3_not_a_repository_is_a_clear_error_and_so_is_a_missing_directory() {
     assert!(err.starts_with("cannot run git in "), "{err}");
 }
 
-// ---- BUF-1: the directory of snapshots (SAFE-6) ----
+// ---- BUF-1: the state directory is si's (SAFE-6) ----
 
-fn os(s: &str) -> Option<OsString> {
-    Some(OsString::from(s))
+const WAIT: Duration = Duration::from_secs(5);
+
+/// The journal key of a file: its canonical path.
+fn key_of(p: &Path) -> String {
+    si::io::file::resolve(&p.to_string_lossy()).to_string_lossy().into_owned()
 }
 
 fn mode(p: &Path, m: u32) {
     std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap();
 }
 
+/// A `Snapshot` effect of the file `name` holding `text`.
+fn snapshot(name: &str, text: &str) -> io::Job {
+    let rope = ropey::Rope::from_str;
+    let (base, text, path) = (rope(""), rope(text), Some(name.to_string()));
+    io::Job::Snap(1, Effect::Snapshot { path, base, text })
+}
+
+/// Runs the journal thread on `state` over `jobs` to its end; what it told the user.
+fn journal(state: Option<&Path>, jobs: Vec<io::Job>) -> Vec<String> {
+    let (tx, rx) = mpsc::channel();
+    let (send, finished) = io::journal_thread(state.map(Path::to_path_buf), None, tx);
+    jobs.into_iter().for_each(|j| send.send(j).unwrap());
+    drop(send);
+    assert_eq!(finished.recv_timeout(WAIT), Err(RecvTimeoutError::Disconnected));
+    let notices =
+        rx.try_iter().filter_map(|e| if let SimEvent::Notice(m) = e { Some(m) } else { None });
+    notices.collect()
+}
+
 #[test]
 fn buf_1_the_snapshot_directory_is_si_s_and_it_is_made_private() {
     let d = temp_dir("snap-ok");
-    let got = io::snapshot_dir(Some(d.0.clone().into()), os("/home/nobody")).unwrap();
-    assert_eq!(got, d.0.join("si"));
-    let m = std::fs::metadata(&got).unwrap();
-    assert_eq!(m.mode() & 0o777, 0o700);
-    assert_eq!(io::private(&got).unwrap(), m.uid(), "the uid of the probe is the owner's");
-    assert!(std::fs::read_dir(&got).unwrap().next().is_none(), "the probe is gone");
-    // From $HOME when there is no $XDG_STATE_HOME; the same directory the second time.
-    let home = temp_dir("snap-home");
-    let got = io::snapshot_dir(None, Some(home.0.clone().into())).unwrap();
-    assert_eq!(got, home.0.join(".local/state/si"));
-    assert_eq!(io::snapshot_dir(None, Some(home.0.clone().into())).unwrap(), got);
+    let state = journal::state_dir(Some(d.0.clone().into()), None).unwrap();
+    assert_eq!(state, d.0.join("si"), "the directory of si, so that si and sim recover each other");
+    assert_eq!(io::state_dir(Some(d.0.clone().into()), None), Some(d.0.join("sim")), "the history");
+    assert!(journal(Some(&state), vec![snapshot("a.txt", "x")]).is_empty());
+    assert_eq!(std::fs::metadata(&state).unwrap().mode() & 0o777, 0o700, "made 0700");
+    let key = key_of(Path::new("a.txt"));
+    let file = journal::file(&state, &key, std::process::id());
+    assert_eq!(std::fs::metadata(&file).unwrap().mode() & 0o777, 0o600);
 }
 
 #[test]
 fn buf_1_without_a_state_directory_there_are_no_snapshots_and_never_a_shared_fallback() {
-    for (xdg, home) in
-        [(None, None), (os("rel/state"), os("rel/home")), (os(""), os("")), (os("rel"), None)]
-    {
-        let err = io::snapshot_dir(xdg.clone(), home.clone()).unwrap_err();
-        assert!(err.contains("neither $XDG_STATE_HOME nor $HOME"), "{xdg:?} {home:?}: {err}");
+    // si's rule, which sim calls: no absolute $XDG_STATE_HOME or $HOME, no directory.
+    for (xdg, home) in [(None, None), (Some("rel/state"), Some("rel/home")), (Some(""), Some(""))] {
+        assert_eq!(journal::state_dir(xdg.map(Into::into), home.map(Into::into)), None);
+        assert_eq!(io::state_dir(xdg.map(Into::into), home.map(Into::into)), None);
     }
-    // A relative $XDG_STATE_HOME is ignored (the XDG rule), and $HOME is used.
-    let home = temp_dir("snap-rel");
-    let got = io::snapshot_dir(os("relative"), Some(home.0.clone().into())).unwrap();
-    assert!(got.starts_with(&home.0));
-    assert!(!std::env::temp_dir().join("si").starts_with(&got));
+    // The journal thread tells it once, however many snapshots it is asked for, and writes nothing.
+    let told = journal(None, vec![snapshot("a.txt", "x"), snapshot("a.txt", "y")]);
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(told[0].starts_with("cannot write snapshots: no state directory"), "{told:?}");
+    // A save that needs a recovery copy (SAFE-2: a file with two hard links) fails instead of
+    // writing one anywhere; a save that does not need one works.
+    let d = temp_dir("snap-off");
+    let (tx, rx) = mpsc::channel();
+    let saves = io::save_thread(None, tx);
+    let (plain, linked) = (d.0.join("plain.txt"), d.0.join("linked.txt"));
+    std::fs::write(&plain, "old\n").unwrap();
+    std::fs::write(&linked, "old\n").unwrap();
+    std::fs::hard_link(&linked, d.0.join("other.txt")).unwrap();
+    for (id, f) in [(1, &plain), (2, &linked)] {
+        saves.send((id, f.to_string_lossy().into_owned(), b"new\n".to_vec(), None)).unwrap();
+    }
+    let answers: Vec<_> = (0..2).map(|_| rx.recv_timeout(WAIT).unwrap()).collect();
+    match &answers[..] {
+        [
+            SimEvent::App(1, si::core::app::Event::Saved(Ok(_))),
+            SimEvent::App(2, si::core::app::Event::Saved(Err(e))),
+        ] => {
+            assert!(e.contains("no recovery copy possible"), "{e}");
+        }
+        a => panic!("{a:?}"),
+    }
+    assert_eq!(std::fs::read_to_string(&plain).unwrap(), "new\n");
+    assert_eq!(std::fs::read_to_string(&linked).unwrap(), "old\n", "nothing was written");
 }
 
 #[test]
-fn buf_1_a_directory_that_others_can_enter_or_that_is_a_link_is_refused() {
+fn buf_1_a_directory_that_others_can_enter_or_that_is_a_link_is_never_used() {
     let d = temp_dir("snap-open");
     let si = d.0.join("si");
     std::fs::create_dir_all(&si).unwrap();
+    // A snapshot of a.txt, made while the directory was private.
+    let key = key_of(&d.0.join("a.txt"));
+    let dead = u32::MAX / 2; // a snapshot of a process that still runs is not offered
+    let snap = Snapshot { path: key, pid: dead, time_ms: 1, base: vec![], text: b"t".to_vec() };
+    mode(&si, 0o700);
+    journal::write(&si, &snap).unwrap();
+    let found = |state: &Path| match io::open(Some(state), 0, "a.txt", &d.0.join("a.txt")) {
+        SimEvent::Opened(o) => o.found.is_some(),
+        e => panic!("{e:?}"),
+    };
+    assert!(found(&si), "private: offered");
     for m in [0o755, 0o710, 0o701, 0o777] {
         mode(&si, m);
-        let err = io::snapshot_dir(Some(d.0.clone().into()), None).unwrap_err();
-        assert!(err.contains("is not private"), "{m:o}: {err}");
+        assert!(!found(&si), "{m:o}: not looked at");
+        let told = journal(Some(&si), vec![snapshot("b.txt", "x")]);
+        assert!(told.len() == 1 && told[0].contains("is not private"), "{m:o}: {told:?}");
+        let names = std::fs::read_dir(&si).unwrap().count();
+        assert_eq!(names, 1, "{m:o}: nothing was written there");
+        // A save that needs a recovery copy (two hard links) fails rather than put one there.
+        let (tx, rx) = mpsc::channel();
+        let saves = io::save_thread(Some(si.clone()), tx);
+        let (f, other) = (d.0.join("linked.txt"), d.0.join("other.txt"));
+        let _ = std::fs::remove_file(&other);
+        std::fs::write(&f, "old\n").unwrap();
+        std::fs::hard_link(&f, &other).unwrap();
+        saves.send((1, f.to_string_lossy().into_owned(), b"new\n".to_vec(), None)).unwrap();
+        match rx.recv_timeout(WAIT).unwrap() {
+            SimEvent::App(1, si::core::app::Event::Saved(Err(e))) => {
+                assert!(e.contains("no recovery copy possible"), "{m:o}: {e}");
+            }
+            e => panic!("{m:o}: {e:?}"),
+        }
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "old\n");
+        assert_eq!(std::fs::read_dir(&si).unwrap().count(), 1, "{m:o}: still nothing there");
     }
+    // A link to a private directory is still a link, not a real directory.
     mode(&si, 0o700);
-    assert!(io::snapshot_dir(Some(d.0.clone().into()), None).is_ok());
-    // A symlink to a directory that is private is still a link: not a real directory.
-    let d = temp_dir("snap-link");
-    let real = d.0.join("real");
-    std::fs::create_dir_all(&real).unwrap();
-    mode(&real, 0o700);
-    symlink(&real, d.0.join("si")).unwrap();
-    let err = io::snapshot_dir(Some(d.0.clone().into()), None).unwrap_err();
-    assert!(err.contains("is not private"), "{err}");
-    // And a plain file in the way.
-    let d = temp_dir("snap-file");
-    make(&d.0, &["si"]);
-    assert!(io::snapshot_dir(Some(d.0.clone().into()), None).is_err());
-}
-
-#[test]
-fn buf_1_a_snapshot_file_of_someone_else_is_never_read() {
-    let d = temp_dir("snap-foreign");
-    let state = io::snapshot_dir(Some(d.0.clone().into()), None).unwrap();
-    let uid = std::fs::metadata(&state).unwrap().uid();
-    let key = "/p/a.txt";
-    assert!(!io::foreign(&state, key, uid), "nothing there");
-    let snap = si::io::journal::Snapshot {
-        path: key.into(),
-        pid: 1,
-        time_ms: 1,
-        base: b"b".to_vec(),
-        text: b"t".to_vec(),
-    };
-    si::io::journal::write(&state, &snap).unwrap();
-    assert!(!io::foreign(&state, key, uid), "ours");
-    assert!(io::foreign(&state, key, uid + 1), "had it been someone else's");
-    assert!(!io::foreign(&state, "/p/other.txt", uid + 1), "other files have their own");
-}
-
-#[test]
-fn buf_1_with_snapshots_off_saves_still_work_and_nothing_is_written_anywhere_shared() {
-    let d = temp_dir("snap-off");
-    let (tx, rx) = std::sync::mpsc::channel();
-    let saves = io::save_thread(None, tx.clone());
-    let (jobs, finished) = io::journal_thread(None, None, tx);
-    let target = d.0.join("f.txt");
-    std::fs::write(&target, "old\n").unwrap();
-    saves.send((1, target.to_string_lossy().into_owned(), b"new\n".to_vec(), None)).unwrap();
-    match rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() {
-        sim::sim::SimEvent::App(1, si::core::app::Event::Saved(Ok(_))) => {}
-        e => panic!("{e:?}"),
-    }
-    assert_eq!(std::fs::read_to_string(&target).unwrap(), "new\n");
-    // The journal thread takes its jobs and does nothing with them.
-    jobs.send(io::Job::Snap(1, si::core::app::Effect::Unsnapshot)).unwrap();
-    drop(jobs);
-    assert!(matches!(
-        finished.recv_timeout(std::time::Duration::from_secs(5)),
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
-    ));
-    assert!(!Path::new(io::DEAD_STATE).exists());
-    assert!(
-        std::fs::create_dir_all(io::DEAD_STATE).is_err(),
-        "recovery copies cannot be made there"
-    );
+    let link = d.0.join("link");
+    symlink(&si, &link).unwrap();
+    assert!(!found(&link), "a link is not looked through");
+    let told = journal(Some(&link), vec![snapshot("b.txt", "x")]);
+    assert!(told.len() == 1 && told[0].contains("is not private"), "{told:?}");
 }

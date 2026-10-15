@@ -50,6 +50,48 @@ fn syn_1_tabs_wide_chars_and_control_chars_do_not_shift_the_colors() {
 }
 
 #[test]
+fn syn_1_emoji_sequences_and_every_bidirectional_control_keep_the_colors_in_place() {
+    // U+061C and U+202E are written as `<U+XXXX>`, a U+FE0F after such a token or after a control
+    // char is not written, and an emoji presentation sequence or a ZWJ sequence takes the columns
+    // si's `width` gives it (VIS-7, SAFE-8): the string must start and end where the text says.
+    let s = "\u{61c}\u{202e}\u{2764}\u{fe0f}\u{1}\u{fe0f}\u{a9}\u{fe0f}\u{1f468}\u{200d}\u{1f469}\t\u{85}";
+    let text = format!("let s = \"{s}\"; let n = 1;\n");
+    let r = rig_sized("hl-emoji", &[&format!("main.rs={text}")], &["main.rs"], (70, 4));
+    let row: Vec<char> = r.screen.rows[0].text.chars().collect();
+    let col = |at: usize| (0..at).fold(0, |col, i| col + si::core::view::width(&row, i, col));
+    let quotes: Vec<usize> = (0..row.len()).filter(|&i| row[i] == '"').collect();
+    let strings: Vec<_> = r.shot.looks[0].iter().filter(|l| l.1 == Look::Str).collect();
+    let want = col(quotes[0])..col(quotes[1]) + 1;
+    assert_eq!(strings.len(), 1, "{:?}", r.shot.looks[0]);
+    assert_eq!(
+        (usize::from(strings[0].0.start), usize::from(strings[0].0.end)),
+        (want.start, want.end)
+    );
+    let one = (0..row.len()).rfind(|&i| row[i] == '1').unwrap();
+    let num: Vec<_> = r.shot.looks[0].iter().filter(|l| l.1 == Look::Num).collect();
+    assert_eq!(num.len(), 1);
+    assert_eq!(usize::from(num[0].0.start), col(one), "the number after it");
+}
+
+#[test]
+fn syn_1_review_weaves_mine_and_theirs_into_its_rows_so_it_has_no_syntax_colors() {
+    let mut r =
+        rig_sized("hl-review", &["main.rs=let a = 1;\nfn main() {}\n"], &["main.rs"], (50, 8));
+    assert!(colored(&r, Look::Kw) == 2, "colored before: {:?}", r.shot.looks);
+    r.keys("jx"); // mine: `n main() {}`
+    let id = r.sim.bufs[0].id;
+    r.send(SimEvent::App(id, disk(b"let a = 1;\nfn main() { 1 }\n")));
+    assert_eq!(r.app().buf.hunks.len(), 1, "a conflict");
+    assert!(colored(&r, Look::Kw) >= 1, "outside REVIEW the text is the buffer's: still colored");
+    r.keys("]c");
+    assert_eq!(r.app().vi.mode, si::core::vi::Mode::Review);
+    assert!(!any_color(&r), "no color in REVIEW: {:?}", r.shot.looks);
+    assert!(r.screen.rows.iter().any(|row| row.spans.iter().any(|s| s.1 == Style::Change)));
+    r.keys("<Esc>");
+    assert!(colored(&r, Look::Kw) >= 1, "and back when it ends");
+}
+
+#[test]
 fn syn_1_a_wrapped_line_is_colored_on_every_row() {
     let text = "let long = \"aaaa bbbb cccc dddd eeee ffff gggg\"; // hhhh iiii jjjj\n";
     let r = rig_sized("hl-wrap", &[&format!("main.rs={text}")], &["main.rs"], (24, 8));
@@ -114,6 +156,38 @@ fn syn_1_the_painter_writes_sgr_31_to_36_without_a_palette_and_never_blue() {
         assert!(out.contains(sgr), "{sgr:?} in {out:?}");
     }
     assert!(!out.contains(";34m") && !out.contains(";44m"), "blue is never used");
+}
+
+#[test]
+fn syn_1_the_painter_counts_columns_by_si_s_rule_so_spans_stay_on_their_chars() {
+    // `❤` + U+FE0F is an emoji presentation sequence: two columns (VIS-7), where unicode-width
+    // says one. The change style after it, and the color after a ZWJ sequence, start where si's
+    // own terminal output starts them.
+    let text = "a\u{2764}\u{fe0f}b \u{1f468}\u{200d}\u{1f469}c";
+    let cs: Vec<char> = text.chars().collect();
+    let col = |at: usize| (0..at).fold(0, |col, i| col + si::core::view::width(&cs, i, col)) as u16;
+    let (b, c) = (col(cs.iter().position(|&x| x == 'b').unwrap()), col(cs.len() - 1));
+    assert_eq!(b, 3, "a is 1, the sequence 2");
+    let row = Row { text: text.into(), spans: vec![(b..b + 1, Style::Change)], ..Row::default() };
+    let frame =
+        Frame { width: 20, height: 1, rows: vec![row], cursor: (0, 0), shape: Shape::Block };
+    let looks = vec![vec![(c..c + 1, Look::Kw)]];
+    let mut p = Painter::new(Vec::new());
+    p.draw(Screen { frame, looks, pal: Palette::default() }).unwrap();
+    let out = String::from_utf8(p.out).unwrap();
+    // A zero-width char (the selector, the joiner) goes with the column it stands on, as in si's Term.
+    assert!(out.contains("\x1b[0;7m\u{fe0f}b\x1b[0m"), "the change style covers b only: {out:?}");
+    assert!(
+        out.contains("\x1b[0;1;31m\u{200d}\u{1f469}c"),
+        "the color starts at c's column: {out:?}"
+    );
+    // The panel counts the same way, so its rows are as wide as it says.
+    assert_eq!(sim::layout::fit("a\u{2764}\u{fe0f}b", 10), ("a\u{2764}\u{fe0f}b".into(), 4));
+    assert_eq!(
+        sim::layout::fit("a\u{2764}\u{fe0f}b", 2),
+        ("a".into(), 1),
+        "a wide char is not cut in two"
+    );
 }
 
 #[test]

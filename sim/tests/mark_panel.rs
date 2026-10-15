@@ -72,6 +72,29 @@ fn mark_1_changed_and_untracked_files_get_the_change_color_and_their_directories
 }
 
 #[test]
+fn mark_1_where_git_is_skipped_the_status_line_says_so_once_and_the_files_come_from_a_walk() {
+    let skip = sim::io::GIT_SKIPPED;
+    let files = ["a.rs", "b.rs", ".gitignore=target/\n", "target/x.o"];
+    let mut r = rig_env("m1-skip", &files, &[], (60, 12), |e| {
+        init_git(&e.cwd);
+        std::fs::write(e.cwd.join("a.rs"), "changed\n").unwrap();
+        let config = std::fs::read_to_string(e.cwd.join(".git/config")).unwrap();
+        std::fs::write(e.cwd.join(".git/config"), config + "[filter \"x\"]\n\tclean = cat\n")
+            .unwrap();
+    });
+    assert_eq!(r.status(), skip);
+    assert_eq!(changed(&r), Vec::<String>::new(), "git said nothing: no marks");
+    assert!(!r.panel().iter().any(|row| row.contains('~')), "{:?}", r.panel());
+    // The walk lists what git would not (target/ is ignored).
+    r.keys("/x.o");
+    assert!(r.status().ends_with("1 match"), "{}", r.status());
+    r.keys("<Esc><Esc>q<C-n>"); // the panel closes and opens again: git is asked again, and skipped
+    assert!(r.panel().len() >= 4);
+    assert!(r.status().ends_with("  TREE") && !r.status().contains(skip), "{}", r.status());
+    assert_eq!(r.jobs.iter().filter(|j| **j == "status").count(), 2, "it was asked twice");
+}
+
+#[test]
 fn mark_1_a_directory_whose_change_is_deeper_is_marked_all_the_way_down() {
     let mut r = rig_env("m1-deep", &["a/b/c/d.rs", "a/x.rs", "z/y.rs"], &[], (80, 24), |e| {
         init_git(&e.cwd);
@@ -139,7 +162,7 @@ fn mark_1_after_a_save_and_on_a_change_on_disk_git_is_asked_again() {
     assert!(asked(&r) > start, "after a save");
     let start = asked(&r);
     let id = r.sim.bufs[0].id;
-    r.send(SimEvent::App(id, Event::Disk { bytes: Some(b"other\n".to_vec()), deadline: far() }));
+    r.send(SimEvent::App(id, disk(b"other\n")));
     assert!(asked(&r) > start, "on a change on disk");
 }
 
@@ -149,7 +172,7 @@ fn mark_1_a_file_that_changed_on_disk_while_sim_runs_is_marked_even_without_git(
     r.keys("<C-n>");
     assert_eq!(changed(&r), Vec::<String>::new());
     let id = r.sim.bufs[0].id;
-    r.send(SimEvent::App(id, Event::Disk { bytes: Some(b"TWO\n".to_vec()), deadline: far() }));
+    r.send(SimEvent::App(id, disk(b"TWO\n")));
     r.keys("l"); // sub/ is the first row: open it
     assert_eq!(r.panel()[0], "▾ sub/ ~");
     assert_eq!(changed(&r), ["b.txt"]);

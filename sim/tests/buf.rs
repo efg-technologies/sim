@@ -3,7 +3,8 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::{Effect, Event};
+use si::core::app::Effect;
+use si::core::vi::Mode;
 use si::io::journal::{self, Snapshot};
 use sim::sim::{SimEffect, SimEvent};
 use std::fs;
@@ -17,6 +18,18 @@ fn two(name: &str) -> Rig {
     r.keys("<CR>");
     r.keys("<C-n>j<CR>");
     assert_eq!(r.open_files(), ["a.txt", "b.txt"]);
+    r
+}
+
+/// `two` with b.txt and then a.txt modified ("ne", and "1" in b.txt) and a conflict with the disk
+/// in a.txt: mine is "ne", the disk's is "ONE". a.txt is the current file, with one hunk open.
+fn conflicted(name: &str) -> Rig {
+    let mut r = two(name);
+    r.keys("x<Tab>x");
+    fs::write(r.cwd.join("a.txt"), "ONE\ntwo\n").unwrap();
+    let a = r.sim.bufs[0].id;
+    r.send(SimEvent::App(a, disk(b"ONE\ntwo\n")));
+    assert_eq!((r.sim.cur, r.app().buf.hunks.len()), (0, 1));
     r
 }
 
@@ -134,7 +147,7 @@ fn buf_1_a_disk_change_to_a_file_that_is_not_on_screen_is_merged_there() {
     let mut r = two("b1-bg");
     let (a, b) = (r.sim.bufs[0].id, r.sim.bufs[1].id);
     let before = r.screen.clone();
-    r.send(SimEvent::App(a, Event::Disk { bytes: Some(b"ONE\ntwo\n".to_vec()), deadline: far() }));
+    r.send(SimEvent::App(a, disk(b"ONE\ntwo\n")));
     assert_eq!(r.sim.cur, 1, "the file on screen is still b.txt");
     assert_eq!(r.text(), "B1\nB2");
     assert_eq!(r.sim.bufs[0].app.buf.text.to_string(), "ONE\ntwo", "a.txt took it in");
@@ -145,10 +158,7 @@ fn buf_1_a_disk_change_to_a_file_that_is_not_on_screen_is_merged_there() {
     assert_eq!(after, before.rows, "nothing on screen moved");
     assert!(r.screen.rows[0].spans.iter().any(|s| s.1 == si::core::view::Style::Change));
     // A change to the file on screen merges there, and only there.
-    r.send(SimEvent::App(
-        b,
-        Event::Disk { bytes: Some(b"B1\nB2\nB3\n".to_vec()), deadline: far() },
-    ));
+    r.send(SimEvent::App(b, disk(b"B1\nB2\nB3\n")));
     assert_eq!(r.text(), "B1\nB2\nB3");
     assert_eq!(r.sim.bufs[0].app.buf.text.to_string(), "ONE\ntwo");
     // Switching shows the merged file and its marks.
@@ -178,6 +188,33 @@ fn buf_1_a_save_in_the_background_is_checked_against_the_disk_of_its_own_file() 
             .unwrap()
             .starts_with("not saved: the file changed on disk")
     );
+}
+
+#[test]
+fn buf_1_the_answer_of_a_save_or_a_reload_asks_for_the_watch_of_its_own_file() {
+    // PROP-1: what a watcher said while a save was in flight cannot be ordered against it, so
+    // the shell is asked to watch (and read) the file again after the answer.
+    let mut r = two("b1-watch");
+    let watched = |r: &Rig| -> Vec<(usize, String)> {
+        let w = r.log.iter();
+        w.filter_map(|e| match e {
+            SimEffect::App(id, Effect::Watch(p)) => Some((*id, p.clone())),
+            _ => None,
+        })
+        .collect()
+    };
+    r.log.clear();
+    r.keys("x:w\n"); // b.txt
+    assert_eq!(watched(&r), [(1, "b.txt".to_string())], "one file, once");
+    r.log.clear();
+    r.keys("<Tab>x:w!\n"); // a.txt
+    assert_eq!(watched(&r), [(0, "a.txt".to_string())]);
+    r.log.clear();
+    r.keys("x:e!\n"); // a reload is read again and watched
+    assert_eq!(watched(&r), [(0, "a.txt".to_string())]);
+    r.log.clear();
+    r.keys(":e c.txt\n"); // a new file is watched by the shell when it opens it: `Open`, not `Watch`
+    assert!(watched(&r).is_empty() && r.open_files().len() == 3);
 }
 
 #[test]
@@ -463,4 +500,102 @@ fn buf_3_a_search_or_a_substitute_is_not_mistaken_for_an_all_command() {
     r.keys(":e\n");
     assert!(r.quit.is_none());
     assert_eq!(r.open_files(), ["a.txt", "b.txt"]);
+}
+
+#[test]
+fn buf_2_tab_and_shift_tab_do_not_switch_in_review() {
+    let mut r = conflicted("b2-review");
+    r.keys("]c");
+    assert_eq!(r.app().vi.mode, Mode::Review);
+    r.send(SimEvent::BackTab);
+    assert_eq!((r.sim.cur, r.app().vi.mode), (0, Mode::Review), "dropped, and REVIEW stays");
+    r.keys("<Tab>");
+    assert_eq!(r.sim.cur, 0, "Tab went to the App, and not to the other file");
+    assert_eq!(r.app().vi.mode, Mode::Normal, "where any key but y n Y N ends REVIEW (PROP-8)");
+    // From the panel, with the App in REVIEW: the same.
+    r.keys("]c<C-n>");
+    assert!(r.sim.panel.focus && r.app().vi.mode == Mode::Review);
+    r.keys("<Tab>");
+    r.send(SimEvent::BackTab);
+    assert_eq!((r.sim.cur, r.app().vi.mode), (0, Mode::Review));
+    // A hunk that is open does not stop Tab: only REVIEW (and a pending key) does.
+    r.keys("<Esc><Esc>");
+    assert_eq!((r.app().vi.mode, r.app().buf.hunks.len()), (Mode::Normal, 1));
+    r.keys("<Tab>");
+    assert_eq!(r.sim.cur, 1);
+    // The other file is not in REVIEW, so it switches back.
+    r.send(SimEvent::BackTab);
+    assert_eq!(r.sim.cur, 0);
+}
+
+#[test]
+fn buf_3_wa_leaves_out_a_file_with_a_conflict_with_the_disk_names_it_and_saves_the_rest() {
+    let mut r = conflicted("b3-wa-conflict");
+    r.keys(":wa\n");
+    assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "1\nB2\n", "the rest was saved");
+    assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ONE\ntwo\n", "mine was not");
+    assert_eq!(
+        r.status(),
+        "not saved: conflicts with the disk in a.txt (]c, :w! keeps yours)  1/2"
+    );
+    assert!(r.sim.bufs[0].app.buf.dirty() && !r.sim.bufs[1].app.buf.dirty());
+    assert_eq!(r.sim.bufs[0].app.buf.hunks.len(), 1, "and the hunk is still there");
+    // Both files in conflict: both are named, in the order they are open, and nothing is saved.
+    r.keys("<Tab>x");
+    let b = r.sim.bufs[1].id;
+    fs::write(r.cwd.join("b.txt"), "B1!\nB2\n").unwrap();
+    r.send(SimEvent::App(b, disk(b"B1!\nB2\n")));
+    assert!(r.sim.bufs.iter().all(|b| b.app.buf.hunks.len() == 1));
+    r.keys(":wa\n");
+    assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "B1!\nB2\n");
+    assert!(r.status().starts_with("not saved: conflicts with the disk in a.txt, b.txt"));
+    // `:w!` keeps mine in the current file; then `:wa` has only the other one to refuse.
+    r.keys(":w!\n");
+    assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "\nB2\n", "mine");
+    r.keys("<Tab>:wa\n");
+    assert!(r.status().contains("conflicts with the disk in a.txt ("), "{}", r.status());
+    r.keys(":w!\n:wa\n");
+    assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ne\ntwo\n");
+    assert_eq!(r.status(), "no modified files  1/2");
+}
+
+#[test]
+fn buf_3_qa_stays_while_a_file_has_unresolved_proposals_names_them_and_qa_bang_discards() {
+    let mut r = conflicted("b3-qa-hunks");
+    r.keys(":qa\n");
+    assert!(r.quit.is_none());
+    assert_eq!(r.status(), "unresolved proposals in a.txt (]c to review, :qa! discards)  1/2");
+    // Deciding the hunk opens the door a little: what is modified is told next (SAFE-7, BUF-3).
+    r.keys("]cn");
+    assert!(r.sim.bufs.iter().all(|b| b.app.buf.hunks.is_empty()));
+    r.keys(":qa\n");
+    assert!(r.quit.is_none());
+    assert_eq!(r.status(), "no write since last change in a.txt, b.txt (:qa! to discard)  1/2");
+    // `:qa!` leaves with proposals open too, and writes nothing.
+    let mut r = conflicted("b3-qa-bang");
+    r.log.clear();
+    r.keys(":qa!\n");
+    assert_eq!(r.quit, Some(0));
+    assert!(r.log.iter().any(|e| is_unsnapshot(e, 0)) && r.log.iter().any(|e| is_unsnapshot(e, 1)));
+    assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ONE\ntwo\n");
+    assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "B1\nB2\n");
+}
+
+#[test]
+fn buf_3_each_file_keeps_si_s_rules_for_proposals_when_it_is_closed() {
+    let mut r = conflicted("b3-q-hunks");
+    for quit in [":q\n", "q", ":x\n", "ZZ", ":wq\n"] {
+        r.keys(quit);
+        assert_eq!(r.open_files(), ["a.txt", "b.txt"], "{quit:?} must not close it");
+    }
+    assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ONE\ntwo\n", "and not save");
+    r.keys(":q\n");
+    assert_eq!(
+        r.status(),
+        "unresolved proposals: ]c to review, :q! discards  1/2",
+        "said instead of `no write since last change`"
+    );
+    r.keys(":q!\n");
+    assert_eq!(r.open_files(), ["b.txt"], ":q! discards the proposals and closes only this file");
+    assert!(r.quit.is_none());
 }

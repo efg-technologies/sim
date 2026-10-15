@@ -6,14 +6,15 @@ use crate::sim::{Found, Hl, Id, Opened, Req, SimEvent};
 use crate::syn::{Spans, Syn};
 use crate::tree::Entry;
 use ropey::Rope;
-use si::core::app::{Effect, Event, Read};
+use si::core::app::{Effect, Event};
 use si::io::file::{self, Saved, why};
-use si::io::journal::{self, Snapshot};
+use si::io::journal::{self, NO_STATE, Snapshot};
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -22,64 +23,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// How long a diff may take before it gives up (PROP-7).
 pub const MERGE: Duration = Duration::from_millis(50);
-
-/// `Ok(None)`: no such file yet.
-pub fn read(path: &str) -> Read {
-    match fs::metadata(path) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(why(&e)),
-        Ok(m) if !m.is_file() => Err("not a regular file".into()),
-        Ok(_) => fs::read(path).map(Some).map_err(|e| why(&e)),
-    }
-}
-
-/// Where recovery copies go when snapshots are off: a path nothing can be made under.
-pub const DEAD_STATE: &str = "/dev/null/sim-no-state";
-
-/// `$XDG_STATE_HOME`, else `$HOME/.local/state`; a relative path is ignored, as the XDG spec says.
-fn state_base(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
-    let abs = |v: Option<OsString>| v.map(PathBuf::from).filter(|p| p.is_absolute());
-    abs(xdg).or_else(|| abs(home).map(|h| h.join(".local/state")))
-}
-
-/// SAFE-6: `dir` must be private to us: a real directory (not a symlink) that we own and that
-/// group and others cannot enter. Returns our uid, which libc is not needed for: it is the owner
-/// of a file we create there (the probe). This is si's `file::private`, which this tree's si
-/// does not have yet.
-pub fn private(dir: &Path) -> io::Result<u32> {
-    let m = fs::symlink_metadata(dir)?;
-    let probe = dir.join(format!(".owner-{}-{}", std::process::id(), now_ms()));
-    let mine = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&probe);
-    let mine = mine.and_then(|f| f.metadata());
-    drop(fs::remove_file(&probe));
-    let uid = mine?.uid();
-    let ok = m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0;
-    ok.then_some(uid).ok_or_else(|| {
-        io::Error::other(format!("{} is not private (yours, mode 700)", dir.display()))
-    })
-}
-
-/// Where snapshots go: si's directory, so that si and sim recover each other's files (SAFE-6).
-/// With neither variable set (or no absolute path in them) there is none, never a shared place
-/// such as /tmp; and it must be private (see `private`). `Err` says why snapshots are off.
-pub fn snapshot_dir(xdg: Option<OsString>, home: Option<OsString>) -> Result<PathBuf, String> {
-    let dir = state_base(xdg, home)
-        .ok_or("no state directory: neither $XDG_STATE_HOME nor $HOME is set")?
-        .join("si");
-    let make = DirBuilder::new().recursive(true).mode(0o700).create(&dir);
-    make.map_err(|e| format!("cannot make {}: {}", dir.display(), why(&e)))?;
-    private(&dir).map(|_| dir).map_err(|e| why(&e))
-}
-
-/// SAFE-6: whether a snapshot file of `key` in `state` belongs to someone other than `uid`.
-/// This tree's `journal::find` does not look at owners, so sim does not call it then.
-pub fn foreign(state: &Path, key: &str, uid: u32) -> bool {
-    let name = journal::file(state, key, 0);
-    let stem = name.file_name().and_then(|n| n.to_str()).and_then(|n| n.split('-').next());
-    let named = |e: &fs::DirEntry| e.file_name().to_string_lossy().starts_with(stem.unwrap_or("-"));
-    let mut entries = fs::read_dir(state).into_iter().flatten().flatten();
-    entries.any(|e| named(&e) && !e.metadata().is_ok_and(|m| m.uid() == uid))
-}
 
 pub fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
@@ -99,14 +42,12 @@ pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
     }
     let key = key(at);
     let found = state.and_then(|state| {
-        let uid = fs::metadata(state).ok()?.uid();
-        let s = journal::find(state, &key, std::process::id())
-            .filter(|_| !foreign(state, &key, uid))?;
+        let s = journal::find(state, &key, std::process::id())?;
         let (file, age) =
             (journal::file(state, &s.path, s.pid), now_ms().saturating_sub(s.time_ms));
         Some(Found(s, file.display().to_string(), age, Instant::now() + MERGE))
     });
-    let file = read(&at.to_string_lossy());
+    let file = file::read(&at.to_string_lossy());
     SimEvent::Opened(Opened { id, path: shown.into(), key, file, found })
 }
 
@@ -148,12 +89,12 @@ pub fn journal_thread(
                 }
                 Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
                 Job::Snap(id, Effect::Snapshot { path, base, text }) => {
-                    let Some(state) = &state else { continue }; // snapshots are off
                     let [base, text] = [base, text].map(|r| r.to_string().into_bytes());
                     let path = path.map_or(String::new(), |p| key(Path::new(&p)));
                     let snap = Snapshot { path, pid, time_ms: now_ms(), base, text };
                     let mine = (snap.path.clone(), pid);
-                    match journal::write(state, &snap) {
+                    let wrote = state.as_deref().ok_or_else(|| io::Error::other(NO_STATE));
+                    match wrote.and_then(|d| journal::write(d, &snap)) {
                         Ok(()) => {
                             held.insert(id, mine.clone()).filter(|old| *old != mine).map(rm);
                         }
@@ -174,9 +115,8 @@ pub type Save = (Id, String, Vec<u8>, Option<u64>);
 pub fn save_thread(state: Option<PathBuf>, answers: Sender<SimEvent>) -> Sender<Save> {
     let (jobs, rx) = mpsc::channel::<Save>();
     thread::spawn(move || {
-        let state = state.unwrap_or_else(|| DEAD_STATE.into()); // no recovery copies then (SAFE-2)
         for (id, path, bytes, expect) in rx {
-            let ev = match file::save(&path, &bytes, expect, &state) {
+            let ev = match file::save(&path, &bytes, expect, state.as_deref()) {
                 Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn))),
                 Ok(Saved::Conflict(disk)) => Event::SaveConflict(disk, Instant::now() + MERGE),
                 Err(e) => Event::Saved(Err(e)),
@@ -209,8 +149,94 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
         .collect())
 }
 
+/// MARK-1: what is said (once) when git is not run because the repository's config could make it
+/// run commands.
+pub const GIT_SKIPPED: &str = "git skipped: this repository's config could run commands";
+
+/// MARK-1: whether the text of a repository's config defines something git would run as a command
+/// in `status` or `ls-files`: a `filter` driver, `core.fsmonitor`, `core.hooksPath`, or an
+/// `include`/`includeIf` (which can bring in any of them). Section and key names are not case
+/// sensitive; a key after the header on the same line, and a BOM, count. It reads too much into
+/// a line continued with a backslash, never too little.
+pub fn runs_commands(config: &str) -> bool {
+    let mut section = String::new();
+    let lines = config.strip_prefix('\u{feff}').unwrap_or(config).lines();
+    lines.map(str::trim_start).any(|line| {
+        let mut rest = line;
+        if let Some(head) = line.strip_prefix('[') {
+            let end = |c: char| c.is_whitespace() || matches!(c, '"' | '.' | ']');
+            section = head.trim_start().split(end).next().unwrap_or_default().to_lowercase();
+            rest = head.split_once(']').map_or("", |(_, tail)| tail.trim_start());
+            if matches!(section.as_str(), "filter" | "include" | "includeif") {
+                return true;
+            }
+        }
+        let key = rest.split(|c: char| !c.is_ascii_alphanumeric() && c != '-').next();
+        section == "core"
+            && matches!(key.map(str::to_lowercase).as_deref(), Some("fsmonitor" | "hookspath"))
+    })
+}
+
+/// Whether `g` is a git directory by git's rule (and stricter: a `HEAD` that is not a ref or an
+/// object id is not one), where `common` holds the objects and refs.
+fn is_git_dir(g: &Path, common: &Path) -> bool {
+    let head = fs::read_to_string(g.join("HEAD")).unwrap_or_default();
+    let id =
+        matches!(head.trim().len(), 40 | 64) && head.trim().bytes().all(|b| b.is_ascii_hexdigit());
+    (id || head.starts_with("ref: refs/"))
+        && common.join("objects").is_dir()
+        && common.join("refs").is_dir()
+}
+
+/// A path that a file of the git directory holds (`gitdir: {path}` in a `.git` file, the path in
+/// `commondir`), resolved against `base`. The bytes are kept as they are: a name need not be UTF-8.
+fn path_in(file: &Path, key: &[u8], base: &Path) -> Option<PathBuf> {
+    let bytes = fs::read(file).ok()?;
+    let line = bytes.split(|&b| b == b'\n').find_map(|l| l.strip_prefix(key))?;
+    Some(base.join(OsStr::from_bytes(line.trim_ascii())))
+}
+
+/// MARK-1: the files of the config git would read in the repository around `dir`: of every `.git`
+/// on the way up (a directory, or a file that names one: a worktree's, a submodule's) and of a
+/// bare repository's own directory, down to the first that is a git directory, which is where git
+/// stops. A worktree adds the config of the repository it belongs to (`commondir`).
+pub fn git_configs(dir: &Path) -> Vec<PathBuf> {
+    let mut out = vec![];
+    for d in dir.ancestors() {
+        let dot = d.join(".git");
+        let inner = if dot.is_dir() { Some(dot) } else { path_in(&dot, b"gitdir:", d) };
+        // The `.git` of this directory counts whether or not it is valid (git may pass it by); the
+        // directory itself only if it is a bare repository.
+        for (g, bare) in [(inner, false), (Some(d.to_path_buf()), true)] {
+            let Some(g) = g else { continue };
+            let common = path_in(&g.join("commondir"), b"", &g).unwrap_or_else(|| g.clone());
+            let valid = is_git_dir(&g, &common);
+            if valid || !bare {
+                out.extend([g.join("config"), g.join("config.worktree"), common.join("config")]);
+            }
+            if valid {
+                return out;
+            }
+        }
+    }
+    out
+}
+
+/// MARK-1: whether the config of the repository around `dir` could run commands. A config that
+/// cannot be read counts as one that could. The user's own config is not looked at: it is trusted.
+fn unsafe_repo(dir: &Path) -> bool {
+    git_configs(dir).iter().any(|c| match fs::read(c) {
+        Ok(text) => runs_commands(&String::from_utf8_lossy(&text)),
+        Err(e) => e.kind() != io::ErrorKind::NotFound,
+    })
+}
+
 /// Runs git in `dir`. In English, so that "not a git repository" can be told from other failures.
+/// It is not run at all where the repository's config could run commands (MARK-1).
 fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    if unsafe_repo(dir) {
+        return Err(GIT_SKIPPED.into());
+    }
     let out = Command::new("git")
         .args(["-c", "core.fsmonitor=false", "--no-optional-locks"])
         .args(args)
@@ -300,10 +326,11 @@ pub fn status(root: &Path) -> Result<(Vec<u8>, String), String> {
     Ok((git_status(root)?, git_prefix(root)?))
 }
 
-/// MARK-2: `$XDG_STATE_HOME/sim`, else `$HOME/.local/state/sim` (see `state_base`). There is no
-/// fallback to a temporary directory: the history must not sit where others can read it.
+/// MARK-2: `$XDG_STATE_HOME/sim`, else `$HOME/.local/state/sim`: next to si's directory, by si's
+/// own rule (`journal::state_dir`), so with no fallback to a temporary directory: the history
+/// must not sit where others can read it.
 pub fn state_dir(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
-    Some(state_base(xdg_state_home, home)?.join("sim"))
+    journal::state_dir(xdg_state_home, home).map(|d| d.with_file_name("sim"))
 }
 
 /// The history saved in `dir`; empty if there is none, or it cannot be read.
