@@ -2,6 +2,7 @@
 //! Rows are (before, keys, after); `|` is the cursor.
 mod common;
 use common::*;
+use si::core::app::Effect;
 use si::core::vi::Mode;
 
 #[test]
@@ -169,8 +170,13 @@ fn vi_3_bang_opens_the_command_line_with_the_line_numbers() {
         let mut a = typed(before, keys);
         assert_eq!(a.vi.mode, Mode::Cmd, "{keys}");
         assert_eq!(status(&screen(&mut a)), want, "{keys}");
-        feed(&mut a, "sort<CR>");
-        assert_eq!(status(&screen(&mut a)), "not available yet");
-        assert_eq!(text(&a), before.replace('|', ""), "nothing runs yet");
+        let fx = feed(&mut a, "sort<CR>");
+        let runs = fx.iter().any(|e| matches!(e, Effect::Spawn { cmd, .. } if cmd == "sort"));
+        assert!(runs, "{keys}: the command runs (PROP-5)");
+        assert_eq!(
+            text(&a),
+            before.replace('|', ""),
+            "nothing changes until the result is reviewed"
+        );
     }
 }

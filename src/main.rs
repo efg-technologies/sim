@@ -1,9 +1,10 @@
-//! CLI-4, SAFE-6, PROP-1, VI-7, VI-8, VI-9, PERF-1, PERF-5
+//! CLI-4, CLI-6, SAFE-6, PROP-1, PROP-5, VI-7, VI-8, VI-9, VI-11, PERF-1, PERF-5
 //! The event loop, and running Effects.
 use notify::RecommendedWatcher;
 use si::core::app::{App, Effect, Event};
 use si::core::cli::parse;
 use si::io::file::{self, Saved, read};
+use si::io::filter;
 use si::io::journal::{self, NO_STATE, Snapshot};
 use si::io::term::{self, Term};
 use si::io::watch::watch;
@@ -26,6 +27,11 @@ fn now_ms() -> u64 {
 /// The journal key of a buffer (SAFE-6): the canonical path of its file, `""` without one.
 fn key(path: Option<&str>) -> String {
     path.map_or(String::new(), |p| file::resolve(p).to_string_lossy().into_owned())
+}
+
+/// Tells App the filter ended (PROP-6). The diff of its result gives up after `MERGE` (PROP-7).
+fn filter_done(tx: &Sender<Event>, status: Option<i32>, out: Vec<u8>, err: Vec<u8>) {
+    drop(tx.send(Event::FilterDone(status, out, err, Instant::now() + MERGE)));
 }
 
 /// Watches `path` (PROP-1) from now on. The deadline of each change is stamped when the watcher
@@ -59,7 +65,18 @@ fn journal_thread(
         let rm = |h: &(String, u32)| state.iter().for_each(|d| journal::remove(d, &h.0, h.1));
         let mut told = false;
         for job in rx {
-            if let Effect::Snapshot { path, base, text } = job {
+            if let Effect::Remember { path, line, col } = job {
+                // Read again, so that another session's places are kept (CLI-6).
+                for d in state.iter() {
+                    let mut all = journal::places(d);
+                    journal::touch(&mut all, key(Some(&path)), line, col);
+                    drop(journal::save_places(d, &all));
+                }
+            } else if let Effect::Open(path) = job {
+                // The place of the file `:e` opens, asked after the place of the one it leaves.
+                let at = state.as_deref().and_then(|d| journal::place(d, &key(Some(&path))));
+                at.into_iter().for_each(|(l, c)| drop(tell.send(Event::Place(path.clone(), l, c))));
+            } else if let Effect::Snapshot { path, base, text } = job {
                 let [base, text] = [base, text].map(|r| r.to_string().into_bytes());
                 let snap =
                     Snapshot { path: key(path.as_deref()), pid, time_ms: now_ms(), base, text };
@@ -109,15 +126,22 @@ fn main() -> ExitCode {
     let state = journal::state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
     let mut app = App::new(cli.file.clone(), file, size);
     let (mut fx, mut held) = (vec![], vec![]);
-    let found = state.as_deref().and_then(|d| {
-        journal::find(d, &key(cli.file.as_deref()), std::process::id()).map(|s| (d, s))
-    });
+    let k = key(cli.file.as_deref());
+    let found =
+        state.as_deref().and_then(|d| journal::find(d, &k, std::process::id()).map(|s| (d, s)));
     if let Some((dir, s)) = found {
         let file = journal::file(dir, &s.path, s.pid).display().to_string();
         let (v, age, by) =
             (app.buf.version(), now_ms().saturating_sub(s.time_ms), Instant::now() + MERGE);
         fx = app.update(Event::Recover(s.base, s.text, age, file, by));
         held.extend((app.buf.version() != v).then_some((s.path, s.pid))); // used: ours to delete
+    }
+    app.hook = env::var("SI_ON_NORMAL").ok().filter(|h| !h.is_empty());
+    app.cwd = env::current_dir().ok().map(|d| d.to_string_lossy().into_owned());
+    // A `+cmd` or `file:line` says where to go; otherwise it is where the file was closed (CLI-6).
+    let at = state.as_deref().and_then(|d| journal::place(d, &k)).filter(|_| cli.keys.is_empty());
+    if let (Some(f), Some((l, c))) = (&cli.file, at) {
+        fx.extend(app.update(Event::Place(f.clone(), l, c)));
     }
 
     let prev = std::panic::take_hook();
@@ -152,7 +176,7 @@ fn main() -> ExitCode {
     let (jobs, finished) = journal_thread(state.clone(), held, tx.clone());
     let mut term = Term::new(io::stdout(), env::var_os("TMUX").is_some());
     fx.extend(app.start(&cli.keys));
-    let mut first = true;
+    let (mut first, mut pgid) = (true, None::<u32>);
     loop {
         let mut frame = None;
         for e in fx.drain(..) {
@@ -171,7 +195,28 @@ fn main() -> ExitCode {
                         drop(tx.send(ev));
                     });
                 }
-                Effect::Open(path) => drop(tx.send(Event::Opened(path.clone(), read(&path)))),
+                Effect::Open(path) => {
+                    drop(tx.send(Event::Opened(path.clone(), read(&path))));
+                    drop(jobs.send(Effect::Open(path)));
+                }
+                Effect::Spawn { cmd, input } => {
+                    let t = tx.clone();
+                    let done =
+                        move |o: filter::Output| filter_done(&t, o.status, o.stdout, o.stderr);
+                    pgid = filter::spawn(&cmd, input, done)
+                        .inspect_err(|e| {
+                            filter_done(
+                                &tx,
+                                Some(127),
+                                vec![],
+                                format!("cannot run: {e}").into_bytes(),
+                            )
+                        })
+                        .ok();
+                }
+                // `kill` waits for a process: not on this thread.
+                Effect::Kill => drop(pgid.map(|g| thread::spawn(move || filter::cancel(g)))),
+                Effect::Hook(cmd) => drop(filter::spawn(&cmd, vec![], |_| {})),
                 Effect::Watch(path) => {
                     drop(watcher.take()); // the old watcher's thread ends before the new one starts
                     // The new watcher's first read is ordered after everything sent so far: the App
@@ -179,9 +224,12 @@ fn main() -> ExitCode {
                     watcher = watching(&tx, &path, true);
                 }
                 Effect::Clipboard(text) => drop(term.clipboard(&text)),
-                Effect::Snapshot { .. } | Effect::Unsnapshot => drop(jobs.send(e)),
+                Effect::Snapshot { .. } | Effect::Unsnapshot | Effect::Remember { .. } => {
+                    drop(jobs.send(e))
+                }
                 Effect::Quit(code) => {
                     term::leave(&mut io::stdout());
+                    pgid.into_iter().for_each(filter::cancel); // a filter nobody waits for
                     drop(jobs); // the journal thread ends once its queue is done: wait for that
                     let _ = finished.recv_timeout(Duration::from_secs(2));
                     return ExitCode::from(code as u8);
@@ -197,9 +245,15 @@ fn main() -> ExitCode {
             e2e_panic();
         }
         let Ok(ev) = rx.recv() else { return ExitCode::FAILURE };
-        fx = app.update(ev);
-        while let Ok(ev) = rx.try_recv() {
-            fx.extend(app.update(ev));
-        }
+        fx = [ev]
+            .into_iter()
+            .chain(rx.try_iter())
+            .flat_map(|ev| {
+                if matches!(ev, Event::FilterDone { .. }) {
+                    pgid = None; // its group is gone: the id could be somebody else's
+                }
+                app.update(ev)
+            })
+            .collect();
     }
 }

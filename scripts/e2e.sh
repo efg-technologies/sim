@@ -331,7 +331,7 @@ safe_6_recovers_after_kill_9() {
   keys Enter
   wait_for "exit=0"
   # quitting forgot the snapshot: nothing is left to offer next time
-  [ -z "$(ls -A "$XDG_STATE_HOME/si")" ]
+  [ -z "$(ls -A "$XDG_STATE_HOME/si" | grep -v '^positions$')" ]
 }
 
 safe_6_sigterm_keeps_the_last_edit() {
@@ -383,7 +383,7 @@ safe_6_a_file_changed_meanwhile_is_merged_with_the_snapshot() {
   keys Enter
   wait_for "exit=0"
   # the stale snapshot went with the one of this session
-  [ -z "$(ls -A "$XDG_STATE_HOME/si")" ]
+  [ -z "$(ls -A "$XDG_STATE_HOME/si" | grep -v '^positions$')" ]
 }
 
 # Another process rewrites the open file the way an AI does: a new file moved over the old one.
@@ -733,5 +733,279 @@ safe_6_without_a_state_directory_snapshots_are_off_and_it_says_so() {
   wait_for "no recovery copy possible"
   printf 'one\ntwo\n' | cmp - "$CASE_DIR/f"
 }
+
+# How many processes run `sleep N` (their command line starts with it; the shell that started them does not).
+alive() { ps -A -o args= | grep -c "^sleep $1" || true; }
+
+# `sleep` is started twice in one process group (one in the background): Ctrl-c on the filter stops
+# both, and si goes on, with the text as it was. A number only this case uses names the sleeps.
+prop_5_a_filter_runs_while_you_edit_and_can_be_cancelled() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  n=4$$
+  typed ":%!sleep $n & sleep $n"
+  keys Enter
+  wait_for "filter 0s · Ctrl-c cancel"
+  [ "$(alive "$n")" = 2 ]
+  # Editing and moving go on meanwhile, and the seconds are counted.
+  typed "jx"
+  wait_for "modified · filter"
+  wait_for "filter 2s · Ctrl-c cancel" 5
+  screen | grep -F -q "   2 wo"
+  keys C-c
+  wait_for "filter cancelled"
+  gone "Ctrl-c cancel"
+  tries=100
+  while [ "$(alive "$n")" != 0 ] && [ "$tries" -gt 0 ]; do
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+  [ "$(alive "$n")" = 0 ]
+  # Nothing came of it but the edit: the text is mine, and the file is as it was.
+  screen | grep -F -q "   2 wo"
+  gone "proposal"
+  printf 'one\ntwo\nthree\n' | cmp - "$CASE_DIR/f"
+  # Ctrl-c with nothing to cancel says what it always said.
+  keys C-c
+  wait_for "q to quit"
+}
+
+# Upper-casing the letters of a range comes back as three proposals, reviewed with ]c y n.
+prop_6_a_filter_result_becomes_proposals() {
+  printf 'one\n1\ntwo\n2\nthree\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed ":%!tr a-z A-Z"
+  keys Enter
+  wait_for "3 proposals from the filter"
+  gone modified
+  screen | grep -F -q "~  1 one"
+  typed ":q"
+  keys Enter
+  wait_for "unresolved proposals: ]c to review, :q! discards"
+  typed "]c"
+  wait_for "f  1:1  REVIEW 1/3  y accept"
+  screen | grep -F -q "~  1 oneONE"
+  typed y
+  wait_for "REVIEW 1/2"
+  screen | grep -F -q "   1 ONE"
+  typed n
+  wait_for "REVIEW 1/1"
+  typed y
+  wait_for "1 proposal accepted"
+  screen | grep -F -q "   5 THREE"
+  screen | grep -F -q "   3 two" # rejected
+  # The file is untouched until the user saves.
+  printf 'one\n1\ntwo\n2\nthree\n' | cmp - "$CASE_DIR/f"
+  typed ":w"
+  keys Enter
+  wait_for "saved f"
+  printf 'ONE\n1\ntwo\n2\nTHREE\n' | cmp - "$CASE_DIR/f"
+}
+
+# A filter that fails shows the first line of its stderr and changes nothing.
+prop_6_a_failing_filter_shows_its_stderr() {
+  printf 'one\ntwo\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed ":%!echo boom >&2; echo ignored; exit 3"
+  keys Enter
+  wait_for "boom"
+  gone "proposal"
+  gone modified
+  typed ":%!nosuchcommand_si_e2e"
+  keys Enter
+  wait_for "nosuchcommand_si_e2e"
+  gone "proposal"
+}
+
+ai_1_ref_copies_the_location() {
+  printf 'one\ntwo\nthree\nfour\n' > "$CASE_DIR/f"
+  tm_clip() { tm show-buffer 2> /dev/null; }
+  start f
+  wait_for "f  1:1  NORMAL"
+  tm set-option -sg set-clipboard on
+  typed ":2,3ref"
+  keys Enter
+  wait_for "copied f:2-3"
+  want_clip "f:2-3"
+  typed "jVjj:ref"
+  keys Enter
+  wait_for "copied f:2-4"
+  want_clip "f:2-4"
+  typed "gg:ref"
+  keys Enter
+  wait_for "copied f:1-1"
+  want_clip "f:1-1"
+  # A file outside the current directory is given by its absolute path.
+  restart
+  outside=$(mktemp -d "${TMPDIR:-/tmp}/si-e2e-out.XXXXXX")
+  printf 'x\ny\n' > "$outside/g"
+  start "$outside/g"
+  wait_for "g  1:1  NORMAL"
+  tm set-option -sg set-clipboard on
+  typed ":ref"
+  keys Enter
+  wait_for "copied $outside/g:1-1"
+  want_clip "$outside/g:1-1"
+  rm -rf "$outside"
+}
+
+# Waits until tmux's paste buffer holds TEXT.
+want_clip() {
+  tries=100
+  until [ "$(tm show-buffer 2> /dev/null)" = "$1" ]; do
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ] || { echo "tmux's buffer holds: $(tm show-buffer 2>&1), not: $1" >&2; return 1; }
+    sleep 0.05
+  done
+}
+
+# The hook runs at the start and at every entry into Normal mode, leaves no zombie, and a failing
+# one is silent.
+vi_11_on_normal_runs_the_hook() {
+  printf 'one\n' > "$CASE_DIR/f"
+  real=$SI_BIN
+  wrap "SI_ON_NORMAL=echo x >> $CASE_DIR/hook.log"
+  start f
+  wait_for "f  1:1  NORMAL"
+  hook_lines 1
+  typed i
+  wait_for INSERT
+  keys Escape
+  hook_lines 2
+  typed "ihello"
+  keys Escape
+  hook_lines 3
+  typed ":s/h/H/"
+  keys Enter
+  hook_lines 4
+  typed jjk # moving in Normal mode runs nothing
+  sleep 0.3
+  hook_lines 4
+  # Reaped: no child of si is left as a zombie.
+  pid=$(cat "$CASE_DIR/si.pid")
+  [ -z "$(ps -A -o ppid=,stat= | awk -v p="$pid" '$1 == p && $2 ~ /^Z/')" ]
+  typed ":q!"
+  keys Enter
+  wait_for "exit=0"
+  # A hook that fails says nothing.
+  restart
+  rm -f "$CASE_DIR/hook.log"
+  SI_BIN=$real
+  wrap "SI_ON_NORMAL=nosuchcommand_si_e2e"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed i
+  keys Escape
+  sleep 0.3
+  screen | grep -F -q "NORMAL"
+  gone "not found"
+  gone "nosuchcommand"
+}
+
+hook_lines() {
+  tries=100
+  until [ "$(wc -l < "$CASE_DIR/hook.log" 2> /dev/null | tr -d ' ')" = "$1" ]; do
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ] || { echo "hook.log has $(wc -l < "$CASE_DIR/hook.log" 2>&1) lines, not $1" >&2; return 1; }
+    sleep 0.05
+  done
+}
+
+cli_6_reopening_returns_to_the_last_position() {
+  i=1
+  while [ "$i" -le 100 ]; do echo "line $i of the file"; i=$((i + 1)); done > "$CASE_DIR/f"
+  cp "$CASE_DIR/f" "$CASE_DIR/COMMIT_EDITMSG"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed "50Gll"
+  wait_for "f  50:3  NORMAL"
+  typed ":q"
+  keys Enter
+  wait_exit
+  restart
+  # The cursor is where it was, in the middle of the screen.
+  start f
+  wait_for "f  50:3  NORMAL"
+  [ "$(screen | sed -n 12p | cut -c1-30)" = "  50 line 50 of the file" ]
+  # `:e` away and back remembers too; ZZ and a signal are ways out as well.
+  typed "20G"
+  wait_for "f  20:1  NORMAL"
+  typed ":e COMMIT_EDITMSG"
+  keys Enter
+  wait_for "COMMIT_EDITMSG  1:1  NORMAL"
+  typed ":e f"
+  keys Enter
+  wait_for "f  20:1  NORMAL"
+  typed "ZZ"
+  wait_exit
+  restart
+  # +cmd and file:line say where to go; git's message files start at the top.
+  start +3 f
+  wait_for "f  3:1  NORMAL"
+  typed ":q"
+  keys Enter
+  wait_exit
+  restart
+  start f:7
+  wait_for "f  7:1  NORMAL"
+  typed ":q"
+  keys Enter
+  wait_exit
+  restart
+  start COMMIT_EDITMSG
+  wait_for "COMMIT_EDITMSG  1:1  NORMAL"
+  typed "30G"
+  wait_for "COMMIT_EDITMSG  30:1  NORMAL"
+  typed ":q"
+  keys Enter
+  wait_exit
+  restart
+  start COMMIT_EDITMSG
+  wait_for "COMMIT_EDITMSG  1:1  NORMAL"
+  sleep 0.3
+  screen | grep -F -q "COMMIT_EDITMSG  1:1  NORMAL"
+  typed ":q"
+  keys Enter
+  wait_exit
+  # A file nobody has opened starts at the top; the places are in the private state directory.
+  restart
+  printf 'a\nb\n' > "$CASE_DIR/new.txt"
+  start new.txt
+  wait_for "new.txt  1:1  NORMAL"
+  [ -f "$XDG_STATE_HOME/si/positions" ]
+  [ "$(stat -c %a "$XDG_STATE_HOME/si/positions" 2> /dev/null || stat -f %Lp "$XDG_STATE_HOME/si/positions")" = 600 ]
+}
+
+# The cursor goes to the first match while the pattern is typed; Esc gives the place back; Enter keeps it.
+vi_14_search_moves_while_typing() {
+  i=1
+  while [ "$i" -le 100 ]; do echo "row $i"; i=$((i + 1)); done > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed "/row 7"
+  wait_for "/row 7"
+  screen | grep -F -q "   7 row 7"
+  typed "7"
+  wait_for "  77 row 77"
+  [ "$(screen | sed -n 12p | cut -c1-12)" = "  77 row 77  " ] || [ "$(screen | sed -n 12p | cut -c1-11)" = "  77 row 77" ]
+  keys Escape
+  wait_for "f  1:1  NORMAL"
+  screen | grep -F -q "   1 row 1"
+  gone "  77 row 77"
+  typed "/row 77"
+  keys Enter
+  wait_for "f  77:1  NORMAL"
+  [ "$(screen | sed -n 12p | cut -c1-11)" = "  77 row 77" ]
+  # A pattern that is bad so far, or has no match, leaves the cursor where it started.
+  typed "/(row"
+  sleep 0.2
+  screen | grep -F -q "  77 row 77"
+  keys Escape
+  wait_for "f  77:1  NORMAL"
+}
+
 
 main "$@"

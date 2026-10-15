@@ -131,23 +131,34 @@ fn vi_7_s_in_a_read_only_buffer_is_refused() {
 }
 
 #[test]
-fn vi_7_commands_that_come_later_are_parsed_now() {
-    for keys in [
-        ":!sort\n",
-        ":%!sort\n",
-        ":1,2!sort\n",
-        ":.,$!tr a b\n",
-        ":ref\n",
-        ":%ref\n",
-        ":'<,'>ref\n",
-        ":.ref\n",
+fn vi_7_filter_and_ref_take_ranges_like_the_other_commands() {
+    for (keys, cmd, input) in [
+        (":!sort\n", "sort", "a\n"),
+        (":%!sort\n", "sort", "a\nb\nc\n"),
+        (":1,2!sort\n", "sort", "a\nb\n"),
+        (":.,$!tr a b\n", "tr a b", "a\nb\nc\n"),
+        (":3,2!cat\n", "cat", "b\nc\n"),
     ] {
-        let mut a = typed("|a\nb\nc", keys);
-        assert_eq!(msg(&mut a), "not available yet", "{keys}");
-        assert_eq!(text(&a), "a\nb\nc");
+        let mut a = named("a\nb\nc\n");
+        let fx = feed(&mut a, keys);
+        let spawn = fx.iter().find_map(|e| match e {
+            Effect::Spawn { cmd, input } => Some((cmd.as_str(), input.as_slice())),
+            _ => None,
+        });
+        assert_eq!(spawn, Some((cmd, input.as_bytes())), "{keys}");
+        assert_eq!(text(&a), "a\nb\nc", "the filter changes nothing by itself");
     }
-    let mut a = typed("|a\nb\nc", "Vj<Esc>:'<,'>ref\n");
-    assert_eq!(msg(&mut a), "not available yet");
+    for (keys, said) in [
+        (":ref\n", "copied f:1-1"),
+        (":%ref\n", "copied f:1-3"),
+        (":2,3ref\n", "copied f:2-3"),
+        ("Vj<Esc>:'<,'>ref\n", "copied f:1-2"),
+        ("j:.ref\n", "copied f:2-2"),
+    ] {
+        let mut a = named("a\nb\nc\n");
+        feed(&mut a, keys);
+        assert_eq!(msg(&mut a), said, "{keys}");
+    }
     assert_eq!(says("|a", ":nonsense<CR>"), "not an editor command: nonsense");
     assert_eq!(says("|a", ":5nonsense<CR>"), "not an editor command: nonsense");
     assert_eq!(says("|a", ":s<CR>"), "usage: :s/re/rep/[g]");

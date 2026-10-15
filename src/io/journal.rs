@@ -1,5 +1,6 @@
-//! SAFE-6
-//! Snapshots and recovery: one atomically written file per (path, pid) in the state directory.
+//! SAFE-6, CLI-6
+//! Snapshots and recovery: one atomically written file per (path, pid) in the state directory. The
+//! places where files were last closed live there too.
 use super::file::private;
 use crate::core::buffer::hash;
 use std::ffi::OsString;
@@ -70,19 +71,63 @@ fn running(pid: u32) -> bool {
 /// One file per (path, pid): the name holds the FNV-1a-64 hash of `path` and the pid, so two
 /// sessions on one file never overwrite each other.
 pub fn write(state: &Path, s: &Snapshot) -> io::Result<()> {
+    put(state, &file(state, &s.path, s.pid), &encode(s), true)
+}
+
+/// `durable`: synced to the disk before and after the rename (a place is not worth waiting for).
+fn put(state: &Path, dest: &Path, data: &[u8], durable: bool) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(state)?;
     private(state)?;
-    let dest = file(state, &s.path, s.pid);
     let tmp = dest.with_extension("tmp");
     let _ = fs::remove_file(&tmp); // left behind by a crashed session whose pid came round again
     let put = || -> io::Result<()> {
         let mut f = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
-        f.write_all(&encode(s))?;
-        f.sync_all()?;
-        // The directory is synced to make the rename durable; if that fails the snapshot is still there.
-        fs::rename(&tmp, &dest).inspect(|_| drop(File::open(state).and_then(|d| d.sync_all())))
+        f.write_all(data)?;
+        if durable {
+            f.sync_all()?;
+        }
+        // The directory is synced to make the rename durable; if that fails the file is still there.
+        let dir = |_: &()| durable.then(|| File::open(state).and_then(|d| d.sync_all()));
+        fs::rename(&tmp, dest).inspect(|r| drop(dir(r)))
     };
     put().inspect_err(|_| drop(fs::remove_file(&tmp)))
+}
+
+/// CLI-6: where the last files were closed, least recently used first: (key, line, column).
+pub type Places = Vec<(String, usize, usize)>;
+
+/// At most this many files are remembered.
+const PLACES: usize = 1000;
+
+/// The remembered places in `state`. Anything that does not read as one is skipped: a place only
+/// moves the cursor.
+pub fn places(state: &Path) -> Places {
+    let text = fs::read_to_string(state.join("positions")).unwrap_or_default();
+    text.lines()
+        .filter_map(|l| {
+            let mut f = l.splitn(3, '\t');
+            let (line, col, key) = (f.next()?, f.next()?, f.next()?);
+            Some((key.into(), line.parse().ok()?, col.parse().ok()?))
+        })
+        .collect()
+}
+
+/// Where `key` was last closed, as (line, column).
+pub fn place(state: &Path, key: &str) -> Option<(usize, usize)> {
+    places(state).into_iter().find(|p| p.0 == key).map(|p| (p.1, p.2))
+}
+
+/// `key` was closed at (`line`, `col`): it is the most recently used now, and the oldest go.
+pub fn touch(v: &mut Places, key: String, line: usize, col: usize) {
+    v.retain(|p| p.0 != key);
+    v.push((key, line, col));
+    v.drain(..v.len().saturating_sub(PLACES));
+}
+
+/// Writes the places atomically (like a snapshot).
+pub fn save_places(state: &Path, v: &Places) -> io::Result<()> {
+    let body: String = v.iter().map(|(k, l, c)| format!("{l}\t{c}\t{k}\n")).collect();
+    put(state, &state.join("positions"), body.as_bytes(), false)
 }
 
 /// The newest snapshot of `path` whose process is no longer running (and is not `own_pid`). A

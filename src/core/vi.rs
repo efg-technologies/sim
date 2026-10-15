@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-12, VI-13, PROP-8
+//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, PROP-8
 //! Key sequence to Command: counts, operators and prefixes in Normal and Visual mode, and the
 //! editing of the command line.
 use super::app::Key;
@@ -78,6 +78,13 @@ impl Parser {
     /// A prefix key (the `]` of `]c`) waits for the key that completes it.
     pub fn waiting(&self) -> bool {
         self.pre.is_some()
+    }
+
+    /// The next key is text, not a command: typed in Insert mode or on the command line, or the char
+    /// after `f F t T r` (VI-10).
+    pub fn text(&self) -> bool {
+        matches!(self.mode, Mode::Insert | Mode::Cmd)
+            || matches!(self.pre, Some('f' | 'F' | 't' | 'T' | 'r'))
     }
 
     pub fn open(&mut self, init: &str) {

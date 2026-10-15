@@ -1,4 +1,4 @@
-//! CLI-1, CLI-3, SAFE-1, SAFE-4, SAFE-6, SAFE-7, PROP-1, PROP-9, VI-2, VI-7, VI-9, VI-12, VI-13
+//! CLI-1, CLI-3, CLI-6, SAFE-1, SAFE-4, SAFE-6, SAFE-7, PROP-1, PROP-5, PROP-6, PROP-9, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14
 //! `App::update(&mut self, Event) -> Vec<Effect>`: the state, and what each Event does to it.
 use super::buffer::{ABSENT, Buffer, Format, hash};
 use super::review::{CONFLICTS, PROPOSALS};
@@ -7,6 +7,8 @@ use super::view::{self, Frame};
 use ropey::Rope;
 use std::collections::VecDeque;
 use std::mem::take;
+use std::ops::Range;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -48,6 +50,11 @@ pub enum Event {
     /// however busy the keys keep it, and its ticks are 1000 apart.
     Tick(u64),
     Signal(i32),
+    /// The filter ended (PROP-6): its exit code (`None`: killed by a signal), stdout and stderr. The
+    /// diff of its result gives up at the instant (PROP-7).
+    FilterDone(Option<i32>, Vec<u8>, Vec<u8>, Instant),
+    /// Where the file just opened was left (CLI-6): path, line and column, 0-based.
+    Place(String, usize, usize),
 }
 
 #[rustfmt::skip]
@@ -65,8 +72,21 @@ pub enum Effect {
     Snapshot { path: Option<String>, base: Rope, text: Rope },
     /// The journal's snapshots are not needed any more: the buffer is clean, or we quit.
     Unsnapshot,
+    /// Run `cmd` with `sh -c`, `input` on its stdin (PROP-5); the answer is `Event::FilterDone`.
+    Spawn { cmd: String, input: Vec<u8> },
+    /// Stop the running filter's whole process group (PROP-5).
+    Kill,
+    /// Run this with `sh -c` and forget it (VI-11).
+    Hook(String),
+    /// The file is closed with its cursor here (CLI-6): path, line and column, 0-based.
+    Remember { path: String, line: usize, col: usize },
     Quit(i32),
 }
+
+/// A filter in flight (PROP-5): the buffer's text when it started, the lines it was given, the last
+/// tick then, and whether Ctrl-c cancelled it.
+#[rustfmt::skip]
+pub(super) struct Run { pub(super) text: Rope, pub(super) lines: Range<usize>, pub(super) at: u64, pub(super) killed: bool }
 
 /// A write in flight: what it saved and what to do when it is done.
 #[rustfmt::skip]
@@ -127,6 +147,16 @@ pub struct App {
     pub(super) opening: VecDeque<u64>,
     /// The version whose text the journal holds, and the tick that asked for it.
     snap: Option<(u64, u64)>,
+    /// `SI_ON_NORMAL` (VI-11) and the current directory (AI-1): the shell reads them, the core does not.
+    pub hook: Option<String>,
+    pub cwd: Option<String>,
+    pub(super) filter: Option<Run>,
+    /// The last tick, in ms (PROP-5), and the mode the last update ended in (VI-11).
+    pub(super) tick: u64,
+    was: Mode,
+    /// While a search is typed (VI-14): where its first match is. The screen is drawn around it as if
+    /// the cursor were there; the cursor itself stays where it is until Enter.
+    pub pv: Option<usize>,
 }
 
 impl App {
@@ -157,6 +187,7 @@ impl App {
     /// The first frame, then the effects of typing `keys` (`\n` is Enter).
     pub fn start(&mut self, keys: &str) -> Vec<Effect> {
         let mut fx = vec![Effect::Render(view::render(self))];
+        fx.extend(self.hook.clone().map(Effect::Hook)); // starting is entering Normal mode (VI-11)
         for c in keys.chars() {
             fx.extend(self.update(Event::Key(if c == '\n' { Key::Enter } else { Key::Char(c) })));
         }
@@ -167,17 +198,21 @@ impl App {
         let answer = matches!(ev, Event::Saved(_) | Event::SaveConflict(..));
         match ev {
             Event::Tick(now) => {
+                self.tick = now;
                 let (b, v) = (&self.buf, self.buf.version());
                 if b.dirty() && self.snap.is_none_or(|(s, t)| s != v && now >= t + 1000) {
                     let (path, base, text) = (self.path.clone(), b.base.clone(), b.text.clone());
                     self.fx.push(Effect::Snapshot { path, base, text });
                     self.snap = Some((v, now));
                 }
+                let frame = self.filter.is_some().then(|| view::render(self)); // the seconds
+                self.fx.extend(frame.map(Effect::Render));
                 return take(&mut self.fx);
             }
             Event::Signal(n) => {
                 self.snap = None; // a signal is a tick that cannot wait
                 let mut fx = self.update(Event::Tick(0));
+                fx.extend(self.place());
                 fx.push(Effect::Quit(128 + n));
                 return fx;
             }
@@ -195,6 +230,7 @@ impl App {
                 let s = s.replace("\r\n", "\n").replace('\r', "\n");
                 if self.vi.mode == Mode::Cmd {
                     self.vi.insert_str(&s.replace('\n', " "));
+                    self.pv = self.preview();
                 } else {
                     self.leave_visual();
                     match self.buf.readonly.clone() {
@@ -211,12 +247,15 @@ impl App {
             Event::Opened(path, file) => match self.opening.pop_front() {
                 None => {}
                 Some(v) if v != self.buf.version() => self.say("not opened: edited meanwhile"),
+                Some(_) if self.filter.is_some() => self.say("not opened: a filter is running"),
                 Some(_) => {
                     self.load(Some(path.clone()), file);
                     self.fx.push(Effect::Watch(path));
                 }
             },
             Event::Recover(base, text, ms, file, by) => self.recover(&base, &text, ms, &file, by),
+            Event::FilterDone(status, out, err, by) => self.filter_done(status, &out, &err, by),
+            Event::Place(path, line, col) => self.resume(&path, line, col),
         }
         // The snapshots go when the buffer is clean again, and before we quit (a signal keeps them).
         if answer {
@@ -232,9 +271,36 @@ impl App {
         if let Some(at) = quit.or(clean.then_some(self.fx.len())) {
             self.fx.insert(at, Effect::Unsnapshot);
         }
+        // Entering Normal mode runs the hook (VI-11); leaving the file remembers the cursor (CLI-6).
+        let enter = self.was != Mode::Normal && self.vi.mode == Mode::Normal && quit.is_none();
+        self.fx.extend(self.hook.as_ref().filter(|_| enter).cloned().map(Effect::Hook));
+        self.was = self.vi.mode;
+        if let Some(at) = quit {
+            self.fx.splice(at..at, self.place()).for_each(drop);
+        }
         let frame = view::render(self);
         self.fx.push(Effect::Render(frame));
         take(&mut self.fx)
+    }
+
+    /// CLI-6: where the cursor is, for the journal, if the buffer has a file.
+    pub(super) fn place(&self) -> Option<Effect> {
+        let (b, path) = (&self.buf, self.path.clone()?);
+        Some(Effect::Remember { path, line: b.line_of(b.cursor), col: b.col() })
+    }
+
+    /// CLI-6: the file was left here. The cursor goes there (centered) unless it has moved since the
+    /// file was opened, or the file is one of git's messages, which start at the top.
+    fn resume(&mut self, path: &str, line: usize, col: usize) {
+        let git = ["COMMIT_EDITMSG", "MERGE_MSG", "TAG_EDITMSG", "git-rebase-todo"];
+        let moved = self.path.as_deref() != Some(path) || self.buf.cursor != 0 || !self.vi.idle();
+        if moved || git.iter().any(|g| Path::new(path).ends_with(g)) {
+            return;
+        }
+        let b = &mut self.buf;
+        let line = line.min(b.lines() - 1);
+        (b.cursor, self.center) = (b.start(line) + col.min(b.line_len(line)), true);
+        self.clamp();
     }
 
     pub(super) fn say(&mut self, m: impl Into<String>) {
@@ -278,7 +344,13 @@ impl App {
     }
 
     /// A key in any mode. Ctrl-s saves in all of them; the keys of a change are recorded for `.`.
-    pub(super) fn key(&mut self, k: Key) {
+    pub(super) fn key(&mut self, mut k: Key) {
+        // VI-10: full-width ASCII is the half-width key, unless it is text.
+        if let Key::Char(c @ '\u{ff01}'..='\u{ff5e}') = k
+            && !self.vi.text()
+        {
+            k = Key::Char(char::from((c as u32 - 0xfee0) as u8));
+        }
         if k == Key::Ctrl('s') {
             return self.ex("w");
         }
@@ -315,6 +387,7 @@ impl App {
                 }
             }
         }
+        self.pv = self.preview();
         self.changed |= typing && self.buf.version() != version;
         if self.vi.idle() && take(&mut self.changed) && !self.rec.is_empty() {
             self.last = take(&mut self.rec);

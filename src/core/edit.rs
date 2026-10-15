@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VIS-12, PROP-8
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VIS-12, PROP-5, PROP-8
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
 use super::buffer::Buffer;
@@ -362,7 +362,14 @@ impl App {
             k if vis && !MOTIONS.contains(k) && !"\x1b\x03vVoia:".contains(k) => {}
             k if MOTIONS.contains(k) => self.go(k, c.arg, c.n),
             '\x1b' | '\x03' if vis => self.leave_visual(),
-            '\x03' => self.say("q to quit"),
+            '\x03' => match self.filter.as_mut() {
+                Some(run) => {
+                    run.killed = true;
+                    self.fx.push(Effect::Kill);
+                    self.say("cancelling the filter");
+                }
+                None => self.say("q to quit"),
+            },
             'v' | 'V' => {
                 let m = if c.k == 'v' { Mode::Visual } else { Mode::VLine };
                 self.anchor = if vis { self.anchor } else { self.buf.cursor };

@@ -1,4 +1,4 @@
-//! SAFE-3, SAFE-4, PROP-9
+//! SAFE-3, SAFE-4, PROP-6, PROP-9
 //! The text (ropey) and undo. Every text change goes through `Buffer::replace`, which also keeps
 //! the marks and hunks of changes from outside where they belong.
 use ropey::Rope;
@@ -313,11 +313,26 @@ impl Buffer {
             }
             Arc::make_mut(&mut self.hunks).remove(i);
         }
-        // A reject changes no text, but it is a step of its own all the same.
+        self.step();
+    }
+
+    /// Ends the undo unit that `checkpoint` began without a change of text: a step of its own.
+    fn step(&mut self) {
         if let Some(p) = self.pending.take() {
             self.undo.push(p);
             self.redo.clear();
         }
+    }
+
+    /// Adds the proposals of a filter (PROP-6) as one undo step. The text, and with it whether the
+    /// buffer is modified, stay as they are.
+    pub fn propose(&mut self, new: Vec<Hunk>) {
+        self.checkpoint();
+        let mut all = self.hunks.to_vec();
+        all.extend(new);
+        all.sort_by_key(|h| h.mine.start);
+        self.hunks = all.into();
+        self.step();
     }
 
     /// Undoes (or redoes) one unit; false if there is none.

@@ -48,14 +48,14 @@ src/
     color.rs      OKLCH, APCA, color vision simulation, computing the palette
   io/
     file.rs       reading a file, atomic save, comparison by hash right before the rename, keeping attributes
-    journal.rs    snapshots and recovery, and where they live (a private state directory, never /tmp)
+    journal.rs    snapshots and recovery, the places files were closed at, and where they live (a private state directory, never /tmp)
     watch.rs      notify. Debounces changes and sends the disk content as an Event
     filter.rs     running sh -c, and cancelling it
     term.rs       crossterm, diffed Frame output, OSC 11 / 52, cursor shape
 ```
 
-- **Event**: `Key` `Paste` `Resize` `Opened(path, Result)` `Recover(base, text, age, file, deadline)` `Disk { bytes, hash, deadline }` `Saved(Result)` `SaveConflict(Option<Vec<u8>>, deadline)` `Notice(String)` `FilterDone` `Bg(Rgb)` `Tick(time)` `Signal(i32)`. A `deadline` is the instant a diff must give up at, stamped by the shell because the core reads no clock (PROP-7); the `hash` of a `Disk` is made by the thread that read the file, so that no key waits for it (P3)
-- **Effect**: `Render(Frame)` `Write { path, bytes, expect_hash }` `Open(path)` `Watch(path)` `Spawn` `Kill` `Clipboard(String)` `Snapshot { path, base, text }` `Unsnapshot` `Hook(String)` `Quit(i32)`
+- **Event**: `Key` `Paste` `Resize` `Opened(path, Result)` `Recover(base, text, age, file, deadline)` `Disk { bytes, hash, deadline }` `Saved(Result)` `SaveConflict(Option<Vec<u8>>, deadline)` `Notice(String)` `FilterDone` `Place(path, line, col)` `Bg(Rgb)` `Tick(time)` `Signal(i32)`. A `deadline` is the instant a diff must give up at, stamped by the shell because the core reads no clock (PROP-7); the `hash` of a `Disk` is made by the thread that read the file, so that no key waits for it (P3)
+- **Effect**: `Render(Frame)` `Write { path, bytes, expect_hash }` `Open(path)` `Watch(path)` `Spawn` `Kill` `Clipboard(String)` `Snapshot { path, base, text }` `Unsnapshot` `Remember { path, line, col }` `Hook(String)` `Quit(i32)`
 - Only the App on the main thread holds state. Other threads only send Events over mpsc. No locks
 - `Write` runs as a compare-and-swap. If the hash on disk differs from `expect_hash`, it writes nothing and returns `SaveConflict` (SAFE-5), and it checks right before the rename, looking at the file's stamp before and after the read so that a write during the read is seen too. `expect_hash: None` is `:w!`: no compare, and a file without write permission is written too (SAFE-1)
 - `Watch(path)` starts watching the file and reads it once, answering with `Event::Disk`: the new watcher's own thread does that read (never the main thread), before the debounced ones. The App asks for it when it gets a file name and after every save's answer, since what the watcher said while the save was in flight cannot be ordered against the save (PROP-1)

@@ -64,6 +64,20 @@ pub fn resolve(p: &str) -> PathBuf {
     fs::canonicalize(&abs).ok().or_else(beside).unwrap_or(abs)
 }
 
+/// SAFE-1: the first symlink on the way from `p` to its target that `uid` does not own, as it is
+/// named: `p` itself, or the absolute path of a link further on.
+pub fn foreign_link(p: &str, uid: u32) -> Option<String> {
+    let mut abs = std::path::absolute(p).ok()?;
+    for i in 0..40 {
+        let m = fs::symlink_metadata(&abs).ok().filter(Metadata::is_symlink)?;
+        if m.uid() != uid {
+            return Some(if i == 0 { p.into() } else { abs.display().to_string() });
+        }
+        abs = abs.parent()?.join(fs::read_link(&abs).ok()?);
+    }
+    None
+}
+
 /// `Ok(None)` for a file that does not exist.
 pub(super) fn opt<T>(r: io::Result<T>) -> io::Result<Option<T>> {
     match r {
@@ -83,15 +97,20 @@ pub fn read(path: &str) -> Read {
     }
 }
 
-/// SAFE-6: `dir` must be private to us, a real directory (not a symlink) that group and others
-/// cannot enter. Returns our uid. libc is not needed for it: it is the owner of a file we create.
-pub fn private(dir: &Path) -> io::Result<u32> {
-    let m = fs::symlink_metadata(dir)?;
+/// Our uid: libc is not needed for it, it is the owner of a file we create in `dir`.
+fn owner(dir: &Path) -> io::Result<u32> {
     let probe = dir.join(format!(".owner-{}", uniq()));
     let mine = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&probe);
     let mine = mine.and_then(|f| f.metadata());
     drop(fs::remove_file(&probe));
-    let uid = mine?.uid();
+    Ok(mine?.uid())
+}
+
+/// SAFE-6: `dir` must be private to us, a real directory (not a symlink) that group and others
+/// cannot enter. Returns our uid.
+pub fn private(dir: &Path) -> io::Result<u32> {
+    let m = fs::symlink_metadata(dir)?;
+    let uid = owner(dir)?;
     if m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0 {
         return Ok(uid);
     }
@@ -134,6 +153,13 @@ fn changed(t: &Path, expect: Option<u64>) -> io::Result<Option<Option<Vec<u8>>>>
 pub fn save(path: &str, bytes: &[u8], expect: Option<u64>, state: Option<&Path>) -> Result<Saved, String> {
     let t = resolve(path);
     let fail = |e: io::Error| format!("cannot save {path}: {}", why(&e));
+    if fs::symlink_metadata(path).is_ok_and(|m| m.is_symlink()) {
+        let dir = Path::new(path).parent().unwrap_or(Path::new(""));
+        let me = owner(dir).or_else(|_| owner(&std::env::temp_dir())).map_err(fail)?;
+        if let Some(link) = foreign_link(path, me) {
+            return Err(format!("not saved: {link} is a symlink owned by someone else"));
+        }
+    }
     let meta = opt(fs::metadata(&t)).map_err(fail)?;
     if expect.is_some() && meta.as_ref().is_some_and(|m| m.permissions().readonly()) {
         return Err("read-only file (:w! to write anyway)".into());
