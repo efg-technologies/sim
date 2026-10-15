@@ -4,7 +4,7 @@
 mod common;
 use common::{TempDir, temp_dir};
 use si::core::buffer::{ABSENT, hash};
-use si::io::file::{Saved, foreign_link, read, save};
+use si::io::file::{Saved, foreign_link, open_same, read, save, symlinks};
 use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
@@ -74,7 +74,7 @@ fn me(d: &TempDir) -> u32 {
 }
 
 #[test]
-fn safe_1_a_symlink_is_written_through_only_if_the_user_owns_it() {
+fn safe_1_a_symlink_is_written_through_only_if_the_user_or_root_owns_it() {
     let (d, f, state) = setup("symlink-owner");
     let me = me(&d);
     let (link, dangling, chain) =
@@ -100,28 +100,20 @@ fn safe_1_a_symlink_is_written_through_only_if_the_user_owns_it() {
     }
 }
 
-/// A link someone else owns is not written through. The system has some (`/etc/os-release` on Arch,
-/// `/etc`, `/tmp` and `/var` on macOS); a test run by root has none to refuse, and skips.
+/// Links of root's are the system's own and are trusted, whoever looks at them: `/bin` on Arch,
+/// `/tmp`, `/var` and `/etc` on macOS. (A test run by root has none that are not its own: it skips.)
 #[test]
-fn safe_1_a_symlink_owned_by_someone_else_is_refused() {
-    let (d, f, state) = setup("symlink-foreign");
+fn safe_1_a_symlink_of_root_is_trusted_whoever_looks() {
+    let (d, ..) = setup("symlink-root");
     let me = me(&d);
-    let theirs = |p: &&str| fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink() && m.uid() != me);
-    let all =
-        ["/etc/os-release", "/etc/mtab", "/etc/localtime", "/etc/resolv.conf", "/bin", "/lib"];
-    let all = all.into_iter().chain(["/tmp", "/etc", "/var", "/usr/bin/sh"]);
-    let Some(link) = all.into_iter().find(theirs).filter(|_| me != 0) else {
-        eprintln!("skipped: no symlink owned by someone else here, or run by root");
-        return;
-    };
-    let r = save(link, NEW, None, Some(&state));
-    assert_eq!(
-        r.err().as_deref(),
-        Some(&*format!("not saved: {link} is a symlink owned by someone else"))
-    );
-    let r = save(link, NEW, Some(ABSENT), Some(&state));
-    assert!(r.is_err_and(|e| e.starts_with("not saved: ")), "the compare-and-swap form too");
-    assert_eq!(fs::read(&f).unwrap(), OLD, "nothing else was touched");
+    let links: Vec<_> = [true, false].into_iter().filter_map(|dir| root_link(me, dir)).collect();
+    if links.is_empty() {
+        return eprintln!("skipped: no symlink owned by root here, or run by root");
+    }
+    for link in links {
+        assert_eq!(symlinks(link).first().map(|l| l.1), Some(0), "{link}");
+        assert_eq!((foreign_link(link, me), foreign_link(link, me + 1)), (None, None), "{link}");
+    }
 }
 
 /// As root a link can be given to somebody else: then the whole path is testable.
@@ -152,6 +144,18 @@ fn safe_1_a_link_given_away_is_refused_whatever_its_place_in_the_chain() {
     assert_eq!(fs::read(&f).unwrap(), OLD);
     assert!(!f.with_file_name("nowhere").exists(), "the missing target was not created");
     assert_eq!(temps(&f), 0);
+    // A directory given away, with a link of the user's own in front of it.
+    let (real, dir_link, front) = (d.0.join("real"), d.0.join("dir_link"), d.0.join("front"));
+    fs::create_dir(&real).unwrap();
+    symlink(&real, &dir_link).unwrap();
+    symlink(&dir_link, &front).unwrap();
+    std::os::unix::fs::lchown(&dir_link, Some(12345), None).unwrap();
+    for through in [&dir_link, &front] {
+        let r = save(through.join("new").to_str().unwrap(), NEW, None, Some(&state));
+        let want = format!("not saved: {} is a symlink owned by someone else", dir_link.display());
+        assert_eq!(r.err(), Some(want), "{through:?}");
+        assert!(!real.join("new").exists());
+    }
 }
 
 #[test]
@@ -306,4 +310,263 @@ fn safe_5_a_rewrite_of_the_same_text_during_a_save_is_no_conflict() {
     }
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     assert!(writer.join().unwrap() > 0);
+}
+
+/// A symlink of the system that root owns, to a directory or to a file. `None` when run by root
+/// (then the links the test makes are root's too) or when this system has none.
+fn root_link(me: u32, dir: bool) -> Option<&'static str> {
+    let all = ["/bin", "/lib", "/sbin", "/lib64", "/usr/sbin", "/var/run", "/tmp", "/etc", "/var"];
+    let files =
+        ["/etc/os-release", "/etc/mtab", "/etc/localtime", "/etc/resolv.conf", "/usr/bin/sh"];
+    let root = |p: &&str| fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink() && m.uid() == 0);
+    let named = |p: &&str| fs::metadata(p).is_ok_and(|m| m.is_dir() == dir);
+    all.into_iter().chain(files).filter(root).find(named).filter(|_| me != 0)
+}
+
+/// The directory of `d` spelled through a link of root's, so that a save there goes through one:
+/// `/proc/self` on Linux, `/var` on macOS (where `$TMPDIR` is under it). `None` when run by root.
+fn via_root(d: &TempDir, me: u32) -> Option<String> {
+    let dir = d.0.display().to_string();
+    let through = |p: &String| symlinks(&format!("{p}/f")).iter().any(|l| l.1 == 0);
+    [format!("/proc/self/root{dir}"), dir].into_iter().find(through).filter(|_| me != 0)
+}
+
+/// SAFE-1: a path that goes through links of root's is saved through, in front, and behind links of
+/// the user's own: the system's links, such as macOS's `/var` that `$TMPDIR` lies under, are not a
+/// reason to refuse the prompt a program opens in `$EDITOR`.
+#[test]
+fn safe_1_a_path_through_links_of_root_is_saved_through() {
+    let (d, f, state) = setup("root-links");
+    let me = me(&d);
+    let Some(via) = via_root(&d, me) else {
+        return eprintln!("skipped: no way through a link of root's here, or run by root");
+    };
+    let p = format!("{via}/f");
+    assert_eq!(foreign_link(&p, me), None);
+    let r = save(&p, NEW, Some(hash(OLD)), Some(&state));
+    assert!(matches!(r, Ok(Saved::Done(..))), "{p}: {:?}", r.err());
+    assert_eq!(fs::read(&f).unwrap(), NEW);
+    // Behind a link of the user's own that leads there, and a file that is not there yet.
+    let (mine, mine2) = (d.0.join("mine"), d.0.join("mine2"));
+    symlink(&via, &mine).unwrap();
+    symlink("mine", &mine2).unwrap();
+    let new = format!("{}/new", mine2.display());
+    assert!(matches!(save(&new, NEW, Some(ABSENT), Some(&state)), Ok(Saved::Done(..))));
+    assert_eq!(fs::read(d.0.join("new")).unwrap(), NEW);
+}
+
+/// SAFE-1: a link is followed if the user or root owns it, and refused if anybody else does. The
+/// links that can be made without root are the user's own, so the uid we are looked at from stands
+/// in for the owner; the full save is `safe_1_a_link_given_away_...`, which runs as root.
+#[test]
+fn safe_1_only_links_of_the_user_and_root_are_followed() {
+    let (d, ..) = setup("trusted");
+    let me = me(&d);
+    let Some(via) = via_root(&d, me) else {
+        return eprintln!("skipped: no way through a link of root's here, or run by root");
+    };
+    let mine = d.0.join("mine");
+    symlink(&via, &mine).unwrap();
+    let p = format!("{}/f", mine.display());
+    let owners: Vec<_> = symlinks(&p).iter().map(|l| l.1).collect();
+    assert!(owners.contains(&0) && owners.contains(&me), "{owners:?}");
+    assert_eq!(foreign_link(&p, me), None, "the user's and root's");
+    let name = mine.display().to_string();
+    assert_eq!(foreign_link(&p, me + 1), Some(name.clone()), "root's are trusted, the user's not");
+    assert_eq!(foreign_link(&p, 0), Some(name), "and a link is not trusted for being first");
+}
+
+/// `real/sub/target` (OLD) reached through links of the user's: `dl` is a link to the directory
+/// `real/sub`, `inner` a link next to the target, `chain` a link whose target passes through `dl`
+/// and ends at `inner`, and `real/x` a link that only `dl/../x` reaches.
+fn links(d: &TempDir) -> (PathBuf, impl Fn(&str) -> String + '_) {
+    let dir = d.0.clone();
+    fs::create_dir_all(dir.join("real/sub")).unwrap();
+    fs::write(dir.join("real/sub/target"), OLD).unwrap();
+    symlink("real/sub", dir.join("dl")).unwrap();
+    symlink("target", dir.join("real/sub/inner")).unwrap();
+    symlink("dl/inner", dir.join("chain")).unwrap();
+    symlink("sub/target", dir.join("real/x")).unwrap();
+    (dir.clone(), move |p: &str| dir.join(p).display().to_string())
+}
+
+fn names(p: &str) -> Vec<String> {
+    symlinks(p).into_iter().map(|l| l.0).collect()
+}
+
+/// SAFE-1: every symlink met on the way is looked at: a link to a directory in the middle of the
+/// path, links reached by following other links, and `..`, which is the parent of where a link
+/// leads. They come in the order they are followed, the path's own link under the name it was
+/// given and the others by their absolute path.
+#[test]
+fn safe_1_every_symlink_on_the_way_is_looked_at_in_the_order_it_is_followed() {
+    let (d, f, _) = setup("walk");
+    let me = me(&d);
+    let (dir, at) = links(&d);
+    let p = |s: &str| at(s);
+    assert_eq!(names(&p("dl/target")), [p("dl")]);
+    assert_eq!(names(&p("chain")), [p("chain"), p("dl"), p("real/sub/inner")]);
+    assert_eq!(names(&p("dl/../x")), [p("dl"), p("real/x")], "the parent of real/sub is real");
+    let own = p("real/./sub/../sub/inner");
+    assert_eq!(names(&own), std::slice::from_ref(&own), "the path's own link keeps its given name");
+    // Not links at all: a file, a directory, a name that is not there, `..`.
+    for q in [f.clone(), dir.clone(), dir.join("nothing/at/all"), dir.join("real/..")] {
+        assert_eq!(names(q.to_str().unwrap()), Vec::<String>::new(), "{q:?}");
+    }
+    assert_eq!(
+        names("Cargo.toml"),
+        Vec::<String>::new(),
+        "a relative name, from the current directory"
+    );
+    // The owner goes with the name, and the uid we are looked at from decides which is foreign.
+    assert!(symlinks(&p("chain")).iter().all(|l| l.1 == me));
+    assert_eq!(foreign_link(&p("dl/target"), me), None);
+    assert_eq!(
+        foreign_link(&p("dl/target"), me + 1),
+        Some(p("dl")),
+        "the directory link, not the file"
+    );
+    assert_eq!(
+        foreign_link(&p("chain"), me + 1),
+        Some(p("chain")),
+        "the first one met, by the given name"
+    );
+    // At most 40 links are followed, like the kernel: a loop ends the list.
+    symlink("loop_b", dir.join("loop_a")).unwrap();
+    symlink("loop_a", dir.join("loop_b")).unwrap();
+    assert_eq!(names(&p("loop_a")).len(), 40);
+}
+
+/// SAFE-1: the user's own links, of any kind and in any place, are written through.
+#[test]
+fn safe_1_a_path_through_the_users_own_links_is_saved_through() {
+    let (d, _, state) = setup("own-links");
+    let (dir, at) = links(&d);
+    for through in ["dl/target", "chain", "dl/inner", "real/sub/inner"] {
+        fs::write(dir.join("real/sub/target"), OLD).unwrap();
+        let r = save(&at(through), NEW, Some(hash(OLD)), Some(&state));
+        assert!(matches!(r, Ok(Saved::Done(..))), "{through}: {:?}", r.err());
+        assert_eq!(fs::read(dir.join("real/sub/target")).unwrap(), NEW, "{through}");
+        assert!(
+            fs::symlink_metadata(at(through)).unwrap().is_symlink() == (through != "dl/target")
+        );
+    }
+    // A file that is not there yet, behind a directory link, and a `..` after one.
+    save(&at("dl/new"), NEW, Some(ABSENT), Some(&state)).unwrap();
+    assert_eq!(fs::read(dir.join("real/sub/new")).unwrap(), NEW);
+    save(&at("dl/../via_parent"), NEW, Some(ABSENT), Some(&state)).unwrap();
+    assert_eq!(fs::read(dir.join("real/via_parent")).unwrap(), NEW, "the parent of real/sub");
+    assert!(!dir.join("via_parent").exists());
+}
+
+/// SAFE-1: a loop of links is no path: the save fails and nothing is written or made.
+#[test]
+fn safe_1_a_loop_of_links_is_refused_and_nothing_is_written() {
+    let (d, f, state) = setup("loop");
+    let (a, b) = (d.0.join("loop_a"), d.0.join("loop_b"));
+    symlink("loop_b", &a).unwrap();
+    symlink("loop_a", &b).unwrap();
+    let before = fs::read_dir(&d.0).unwrap().count();
+    for expect in [None, Some(ABSENT)] {
+        let e = save(a.to_str().unwrap(), NEW, expect, Some(&state)).err().unwrap();
+        assert!(e.contains("symbolic links") && !e.contains("someone else"), "{e}");
+    }
+    let e = save(a.join("below").to_str().unwrap(), NEW, None, Some(&state)).err().unwrap();
+    assert!(e.contains("symbolic links"), "a loop in the middle: {e}");
+    assert_eq!(
+        (fs::read_dir(&d.0).unwrap().count(), fs::read(&f).unwrap()),
+        (before, OLD.to_vec())
+    );
+}
+
+/// The identity of a file: (device, inode).
+fn id(p: &Path) -> Option<(u64, u64)> {
+    let m = fs::metadata(p).unwrap();
+    Some((m.dev(), m.ino()))
+}
+
+/// SAFE-2: the file an in-place save opens must be the one that was validated, and nothing of it
+/// is truncated before that is known.
+#[test]
+fn safe_2_the_file_opened_for_an_in_place_write_must_be_the_one_validated() {
+    let (d, f, _) = setup("same-file");
+    let (victim, other) = (d.0.join("victim"), d.0.join("other"));
+    let seen = id(&f);
+    // The file itself is opened, and truncated only now.
+    assert!(open_same(&f, seen).unwrap().is_some());
+    assert_eq!(fs::read(&f).unwrap(), b"", "the validated file is truncated");
+    // A link swapped in for it, to a file the user owns: refused, and that file is untouched.
+    fs::remove_file(&f).unwrap();
+    fs::write(&victim, OLD).unwrap();
+    symlink(&victim, &f).unwrap();
+    assert!(open_same(&f, seen).unwrap().is_none());
+    assert_eq!(fs::read(&victim).unwrap(), OLD, "nothing was written through the link");
+    // Another file renamed over it: refused, and not truncated by the open.
+    fs::remove_file(&f).unwrap();
+    fs::write(&other, OLD).unwrap();
+    fs::rename(&other, &f).unwrap();
+    assert!(open_same(&f, seen).unwrap().is_none());
+    assert_eq!(fs::read(&f).unwrap(), OLD, "the other file kept its text");
+    // Validated as not there, and a file is: refused.
+    assert!(open_same(&f, None).unwrap().is_none());
+    assert_eq!(fs::read(&f).unwrap(), OLD);
+    // Gone altogether is an error of its own, not a swap.
+    fs::remove_file(&f).unwrap();
+    assert!(open_same(&f, seen).is_err());
+}
+
+/// SAFE-2: the file of an in-place save is swapped for a link, to a file the user owns, after the
+/// save has looked at it and while its recovery copy is written (a big one, so that the window is
+/// wide). The save is refused and nothing is written through the link. If the swap comes late
+/// (after the open) the text goes to the file that was validated; the link's target is never
+/// written either way, and the save is refused at least once in a few tries.
+#[test]
+fn safe_2_a_file_swapped_for_a_link_during_an_in_place_save_is_not_written_through() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+    let (d, f, state) = setup("swapped");
+    let (victim, other) = (d.0.join("victim"), d.0.join("other"));
+    fs::write(&victim, b"victim\n").unwrap();
+    let big = vec![b'x'; 64 << 20];
+    let mut refused = false;
+    for _ in 0..5 {
+        drop(fs::remove_file(&f));
+        drop(fs::remove_file(&other));
+        fs::write(&f, OLD).unwrap();
+        fs::hard_link(&f, &other).unwrap(); // two links: the save goes in place
+        let done = Arc::new(AtomicBool::new(false));
+        let (f2, state2, done2) = (f.clone(), state.clone(), done.clone());
+        let victim2 = victim.clone();
+        let swapper = std::thread::spawn(move || {
+            let copy = |s: &Path| fs::read_dir(s).unwrap().flatten().next().is_some();
+            while !done2.load(Relaxed) && !copy(&state2) {}
+            fs::remove_file(&f2).unwrap();
+            symlink(&victim2, &f2).unwrap();
+        });
+        let r = save(f.to_str().unwrap(), &big, None, Some(&state));
+        done.store(true, Relaxed);
+        swapper.join().unwrap();
+        assert_eq!(
+            fs::read(&victim).unwrap(),
+            b"victim\n",
+            "written through the link: {:?}",
+            r.as_ref().err()
+        );
+        if let Err(e) = r {
+            assert!(e.starts_with("not saved: ") && e.ends_with(" changed while saving"), "{e}");
+            assert_eq!(
+                fs::read_dir(&state).unwrap().count(),
+                0,
+                "nothing was written: no copy to keep"
+            );
+            assert_eq!(
+                fs::read(&other).unwrap(),
+                OLD,
+                "the file the link replaced was not touched"
+            );
+            refused = true;
+            break;
+        }
+    }
+    assert!(refused, "the swap never came before the open: the window was too narrow");
 }

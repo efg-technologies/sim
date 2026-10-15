@@ -9,16 +9,21 @@ use si::io::filter;
 use si::io::journal::{self, NO_STATE, Snapshot};
 use si::io::term::{self, Term};
 use si::io::watch::watch;
-use signal_hook::consts::{SIGHUP, SIGTERM};
+use signal_hook::consts::{SIGHUP, SIGTERM, SIGWINCH};
 use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
 /// How long a diff may take before it gives up (PROP-7).
 const MERGE: Duration = Duration::from_millis(50);
+/// How long a quit waits for the terminal to finish answering (VIS-4).
+const DRAIN: Duration = Duration::from_millis(100);
+/// Set by a quit that is waiting for the terminal: the input thread then asks it and reports.
+static QUITTING: AtomicBool = AtomicBool::new(false);
 const USAGE: &str = "usage: si [+cmd] [file]\n       si [+cmd] -- file";
 
 fn now_ms() -> u64 {
@@ -145,20 +150,31 @@ fn main() -> ExitCode {
         fx.extend(app.update(Event::Place(f.clone(), l, c)));
     }
 
+    // The terminal is not touched yet, so a panic in here needs no restoring (CLI-4). VIS-4: it is
+    // asked for its background unless the keys given at startup quit.
+    fx.extend(app.start(&cli.keys));
+    let ask = !fx.iter().any(|e| matches!(e, Effect::Quit(_)));
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         term::leave(&mut io::stdout());
         prev(info);
     }));
-    if term::enter(&mut io::stdout()).is_err() {
+    if term::enter(&mut io::stdout(), ask).is_err() {
         eprintln!("si: cannot set up the terminal");
         return ExitCode::FAILURE;
     }
     let asked = Instant::now(); // the query for the background color went out with `enter`
-    let t = tx.clone();
+    let (t, (settled, drained)) = (tx.clone(), mpsc::channel());
     thread::spawn(move || {
         let mut reply = term::Reply::default(); // VIS-4: the background color arrives as keys
         while let Ok(ev) = crossterm::event::read() {
+            if QUITTING.load(SeqCst) {
+                // A terminal answers in order, and the answer to this one, which crossterm keeps from
+                // us and waits for, comes after the color's: when it is in, nothing is left to read
+                drop(crossterm::terminal::supports_keyboard_enhancement());
+                let _ = settled.send(());
+                return;
+            }
             if reply.feed(ev).into_iter().any(|e| t.send(e).is_err()) {
                 return;
             }
@@ -178,11 +194,10 @@ fn main() -> ExitCode {
     });
     let (jobs, finished) = journal_thread(state.clone(), held, tx.clone());
     let mut term = Term::new(io::stdout(), env::var_os("TMUX").is_some());
-    fx.extend(app.start(&cli.keys));
     // VIS-4: the first frame waits at most 3 ms for the terminal's color, which it gets as it is
     // drawn. The wait overlaps the work above, and a quit needs no frame. What else came meanwhile
     // is App's too.
-    if !fx.iter().any(|e| matches!(e, Effect::Quit(_))) {
+    if ask {
         let (bg, early) = term::wait_bg(&rx, asked + Duration::from_millis(3));
         app.pal = bg.map(color::palette);
         fx.extend(early.into_iter().flat_map(|e| app.update(e)));
@@ -240,6 +255,13 @@ fn main() -> ExitCode {
                     drop(jobs.send(e))
                 }
                 Effect::Quit(code) => {
+                    if ask && app.pal.is_none() {
+                        // The color may still be on its way: the input thread is woken (as a resize
+                        // would) to wait for it, since a late answer would be typed into the shell
+                        QUITTING.store(true, SeqCst);
+                        drop(signal_hook::low_level::raise(SIGWINCH));
+                        let _ = drained.recv_timeout(DRAIN);
+                    }
                     term::leave(&mut io::stdout());
                     pgid.into_iter().for_each(filter::cancel); // a filter nobody waits for
                     drop(jobs); // the journal thread ends once its queue is done: wait for that

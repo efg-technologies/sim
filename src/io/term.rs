@@ -8,15 +8,20 @@ use std::io::{self, Write};
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
-/// Alternate screen, bracketed paste, kitty keyboard protocol (disambiguate escape codes), and the
-/// query for the terminal's background color (OSC 11, VIS-4).
-pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?2004h\x1b[>1u\x1b]11;?\x1b\\";
+/// Alternate screen, bracketed paste, kitty keyboard protocol (disambiguate escape codes).
+pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?2004h\x1b[>1u";
+/// The query for the terminal's background color (OSC 11, VIS-4): sent after `ENTER` unless the
+/// startup keys quit already, since the answer of a terminal arrives after si is gone then.
+pub const ASK: &[u8] = b"\x1b]11;?\x1b\\";
 /// Undoes `ENTER`, and gives the cursor back its default shape and visibility.
 pub const LEAVE: &[u8] = b"\x1b[<1u\x1b[?2004l\x1b[?1049l\x1b[0 q\x1b[?25h";
 
-pub fn enter(out: &mut impl Write) -> io::Result<()> {
+pub fn enter(out: &mut impl Write, ask: bool) -> io::Result<()> {
     crossterm::terminal::enable_raw_mode()?;
     out.write_all(ENTER)?;
+    if ask {
+        out.write_all(ASK)?;
+    }
     out.flush()
 }
 

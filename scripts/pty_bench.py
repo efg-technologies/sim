@@ -1,22 +1,35 @@
 #!/usr/bin/env python3
-"""Benchmarks of the real si binary, which needs a terminal: every run gets its own pty.
+"""Benchmarks of the real si binary, which needs a terminal: every run gets its own pty, and the
+script plays the terminal on the other side of it (class Terminal).
 
-  pty_bench.py startup BIN FILE [N]   wall time of `BIN +q FILE` (PERF-1), N runs (default 200),
-                                      with the pty answering si's OSC 11 query like a terminal
-                                      (`median_ms`) and without an answer (`median_unanswered_ms`,
-                                      which includes the 3 ms wait of VIS-4), and of /bin/true in
-                                      the same harness as the baseline. `si +q` quits before it
-                                      draws, so it never waits for the color: `first_frame_ms` and
-                                      `first_frame_unanswered_ms` are the time to the first frame
-                                      of `BIN FILE`, with and without an answer
+  pty_bench.py startup BIN FILE [N]   wall time of `BIN +q FILE` (PERF-1), N runs (default 200), and
+                                      of /bin/true in the same harness as the baseline. `si +q` quits
+                                      before it draws and asks the terminal nothing (VIS-4), so the
+                                      terminal does not matter to it. `first_frame_ms` is the time to
+                                      the first frame of `BIN FILE` and `quit_ms` the time from `:q`
+                                      to the exit after it, with the terminal answering at once, with
+                                      one that does not know OSC 11 but answers the rest
+                                      (`_no_osc_ms`) and with one that answers nothing
+                                      (`_unanswered_ms`: the first frame waits its 3 ms out, and the
+                                      quit waits the 100 ms it allows the terminal)
   pty_bench.py rss BIN FILE           VmRSS and VmHWM of `BIN FILE` after its first frame
                                       (PERF-5; Linux only)
   pty_bench.py firstframe BIN FILE    whether the first frame of `BIN FILE` is in color when the
                                       terminal's answer to the OSC 11 query is there in time
                                       (VIS-4): `colored` and `faint` (1 or 0), best of 10 starts
+  pty_bench.py asks BIN FILE          whether `BIN +q FILE` (`queried_quit`) and `BIN FILE`
+                                      (`queried_open`) send the OSC 11 query (1 or 0) (VIS-4)
+  pty_bench.py quit BIN FILE KIND     the time from `:q` to the exit after the first frame (`quit_ms`,
+                                      median of 3) with a terminal of KIND `answering`, `no_osc` or
+                                      `silent`, to see that a quit never waits long (VIS-4)
+  pty_bench.py leak BIN FILE MS       a terminal that answers every query MS milliseconds late, in
+                                      order; `:q` as soon as the first frame is up. `leaked` is the
+                                      number of bytes of its answers that were still unread when si
+                                      had gone, i.e. what the shell would have typed (VIS-4);
+                                      `quit_ms` the time from `:q` to the exit
 
 Prints key=value lines (times in ms, memory in kB) after a readable summary on stderr.
-Used by scripts/bench.sh, tests/perf_1.rs and tests/perf_5.rs. Standard library only.
+Used by scripts/bench.sh, tests/perf_1.rs, tests/perf_5.rs and tests/vis_4.rs. Standard library only.
 """
 import atexit
 import fcntl
@@ -47,21 +60,50 @@ def open_pty():
 
 QUERY = b"\x1b]11;?"  # si asks for the terminal's background color (VIS-4)
 ANSWER = b"\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\"
+DA1 = b"\x1b[c"  # and, when it quits before the color came, whether the terminal is done answering
+ATTRIBUTES = b"\x1b[?62;c"
 
 
-def run_once(argv, answer=False):
-    """Seconds from spawning argv, with a pty as stdin, stdout and stderr, to its exit. With
-    `answer` the pty plays a terminal: it answers the OSC 11 query as soon as it sees it."""
+class Terminal:
+    """The terminal's side of a pty. It reads what si writes and answers the queries it knows the
+    way a terminal does: in the order they were sent, each `delay` seconds after it was seen (and
+    not before the answer to the one before). `osc=False` is a terminal that does not know OSC 11
+    and so never answers it, `silent` one that answers nothing."""
+
+    def __init__(self, master, delay=0.0, osc=True, silent=False):
+        self.master, self.delay, self.osc, self.silent = master, delay, osc, silent
+        self.seen, self.scanned, self.due, self.last = b"", 0, [], 0.0
+        self.queried = set()
+
+    def pump(self, wait=0.0005):
+        """Reads what is there (for at most `wait` seconds), schedules the answers to the queries
+        in it and sends those that are due."""
+        if select.select([self.master], [], [], wait)[0]:
+            self.seen += os.read(self.master, 65536)
+        while True:
+            hits = sorted((self.seen.find(q, self.scanned), q) for q in (QUERY, DA1))
+            hits = [h for h in hits if h[0] >= 0]
+            if not hits:
+                break
+            at, query = hits[0]
+            self.scanned = at + len(query)
+            self.queried.add(query)
+            answer = {QUERY: ANSWER, DA1: ATTRIBUTES}[query]
+            if not self.silent and (self.osc or query != QUERY):
+                self.last = max(self.last, time.perf_counter() + self.delay)
+                self.due.append((self.last, answer))
+        now = time.perf_counter()
+        for item in [d for d in self.due if d[0] <= now]:
+            self.due.remove(item)
+            os.write(self.master, item[1])
+
+
+def run_once(argv):
+    """Seconds from spawning argv, with a pty as stdin, stdout and stderr, to its exit."""
     master, slave = open_pty()
     try:
         start = time.perf_counter()
         proc = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave, env=ENV)
-        seen = b""
-        while answer and QUERY not in seen and proc.poll() is None:
-            if select.select([master], [], [], 0.0005)[0]:
-                seen += os.read(master, 65536)
-        if answer and QUERY in seen:
-            os.write(master, ANSWER)
         # A blocking wait: Popen.wait(timeout=...) polls with sleeps of 0.5, 1, 2, 4 ms..., which
         # rounds every time up to the next of 3.5, 7.5, 15.5 ms (counted from the call).
         signal.alarm(10)
@@ -76,67 +118,133 @@ def run_once(argv, answer=False):
     return elapsed
 
 
-def median_ms(argv, runs, warmup=10, answer=False):
+def median_ms(argv, runs, warmup=10):
     for _ in range(warmup):
-        run_once(argv, answer)
-    times = sorted(run_once(argv, answer) * 1000 for _ in range(runs))
+        run_once(argv)
+    times = sorted(run_once(argv) * 1000 for _ in range(runs))
     return statistics.median(times), times[0], times[int(len(times) * 0.9)]
 
 
-def frame_ms(binary, path, answer):
-    """Seconds from spawning `binary path` to the status line of its first frame. With `answer` the
-    pty answers the OSC 11 query as soon as it sees it; without, si waits the 3 ms out."""
+def session(binary, path, **terminal):
+    """Runs `binary path` against a Terminal until its first frame, types `:q` at once and waits for
+    the exit. Gives back the seconds to the first frame, the seconds from `:q` to the exit, and the
+    Terminal (after si has gone, with the pty's slave end still open for whoever looks at it)."""
     master, slave = open_pty()
     where, name = os.path.split(os.path.abspath(path))
     start = time.perf_counter()
     proc = subprocess.Popen(
         [os.path.abspath(binary), name], cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV
     )
+    term = Terminal(master, **terminal)
     try:
-        seen, answered, deadline = b"", False, time.time() + 10
-        while b"NORMAL" not in seen:
+        deadline = time.time() + 10
+        while b"NORMAL" not in term.seen:
             if time.time() > deadline or proc.poll() is not None:
-                sys.exit(f"pty_bench: no first frame from {binary}: {seen[-200:]!r}")
-            if select.select([master], [], [], 0.0005)[0]:
-                seen += os.read(master, 65536)
-            if answer and not answered and QUERY in seen:
-                os.write(master, ANSWER)
-                answered = True
+                sys.exit(f"pty_bench: no first frame from {binary}: {term.seen[-200:]!r}")
+            term.pump()
         took = time.perf_counter() - start
         os.write(master, b":q\r")
-        proc.wait(timeout=10)
-    finally:
-        if proc.poll() is None:
-            proc.kill()
+        typed = time.perf_counter()
+        while proc.poll() is None and time.time() < deadline:
+            term.pump(0.0002)
+        quit = time.perf_counter() - typed
+        if proc.poll() != 0:
+            sys.exit(f"pty_bench: {binary} did not quit with :q ({proc.poll()})")
+    except BaseException:
+        proc.kill()
+        raise
+    return took, quit, term, slave, master
+
+
+def frames(binary, path, runs, **terminal):
+    """Median first frame and median quit, in ms, over `runs` sessions."""
+    firsts, quits = [], []
+    for _ in range(runs):
+        took, quit, _, slave, master = session(binary, path, **terminal)
         os.close(slave)
         os.close(master)
-    return took
+        firsts.append(took * 1000)
+        quits.append(quit * 1000)
+    return statistics.median(firsts), statistics.median(quits)
 
 
 def startup(binary, path, runs):
-    si = median_ms([binary, "+q", path], runs, answer=True)
-    mute = median_ms([binary, "+q", path], runs)
+    si = median_ms([binary, "+q", path], runs)
     base = median_ms(["/bin/true"], runs)
     print(
-        f"startup: si +q median {si[0]:.2f} ms (min {si[1]:.2f}, p90 {si[2]:.2f}) with the terminal "
-        f"answering OSC 11, {mute[0]:.2f} ms (min {mute[1]:.2f}, p90 {mute[2]:.2f}) with no answer; "
-        f"/bin/true baseline median {base[0]:.2f} ms (min {base[1]:.2f}, p90 {base[2]:.2f}); N={runs}",
+        f"startup: si +q median {si[0]:.2f} ms (min {si[1]:.2f}, p90 {si[2]:.2f}); /bin/true "
+        f"baseline median {base[0]:.2f} ms (min {base[1]:.2f}, p90 {base[2]:.2f}); N={runs}",
         file=sys.stderr,
     )
-    frames = [
-        sorted(frame_ms(binary, path, answer) * 1000 for _ in range(runs // 2)) for answer in (1, 0)
-    ]
-    print(
-        f"first frame: median {frames[0][runs // 4]:.2f} ms with the terminal answering OSC 11, "
-        f"{frames[1][runs // 4]:.2f} ms with no answer (N={runs // 2})",
-        file=sys.stderr,
-    )
+    # Silent terminals make every quit wait the 100 ms allowed to the terminal: fewer runs.
+    n = max(runs // 4, 5)
+    kinds = {
+        "": frames(binary, path, runs // 2),
+        "_no_osc": frames(binary, path, n, osc=False),
+        "_unanswered": frames(binary, path, n, silent=True),
+    }
+    names = {"": "answering everything", "_no_osc": "answering all but OSC 11", "_unanswered": "answering nothing"}
+    for kind, (first, quit) in kinds.items():
+        print(
+            f"terminal {names[kind]}: first frame median {first:.2f} ms, then :q to exit median {quit:.2f} ms",
+            file=sys.stderr,
+        )
     print(f"median_ms={si[0]:.3f}")
-    print(f"median_unanswered_ms={mute[0]:.3f}")
-    print(f"first_frame_ms={frames[0][runs // 4]:.3f}")
-    print(f"first_frame_unanswered_ms={frames[1][runs // 4]:.3f}")
+    for kind, (first, quit) in kinds.items():
+        if kind != "_no_osc":
+            print(f"first_frame{kind}_ms={first:.3f}")
+        print(f"quit{kind}_ms={quit:.3f}")
     print(f"baseline_ms={base[0]:.3f}")
     print(f"runs={runs}")
+
+
+def asks(binary, path):
+    """Whether `+q` and a plain start send the query for the background (VIS-4)."""
+    master, slave = open_pty()
+    where, name = os.path.split(os.path.abspath(path))
+    try:
+        proc = subprocess.Popen(
+            [os.path.abspath(binary), "+q", name],
+            cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV,
+        )
+        term = Terminal(master)
+        deadline = time.time() + 10
+        while proc.poll() is None and time.time() < deadline:
+            term.pump()
+        quit_asked = QUERY in term.queried
+    finally:
+        os.close(slave)
+        os.close(master)
+    took, quit, term, slave, master = session(binary, path)
+    os.close(slave)
+    os.close(master)
+    print(f"queried_quit={int(quit_asked)}")
+    print(f"queried_open={int(QUERY in term.queried)}")
+
+
+def leak(binary, path, delay_ms):
+    """A terminal MS milliseconds late with every answer; si is quit at its first frame. Whatever
+    reaches the pty after si has restored it is typed into the shell: look at what is left."""
+    took, quit, term, slave, master = session(binary, path, delay=delay_ms / 1000)
+    try:
+        # Everything the terminal still owes arrives now, after si has gone, as it would.
+        until = time.perf_counter() + delay_ms / 1000 + 0.05
+        while time.perf_counter() < until or term.due:
+            term.pump(0.001)
+        attrs = termios.tcgetattr(slave)
+        attrs[3] &= ~termios.ICANON  # a line without its end is not readable otherwise
+        termios.tcsetattr(slave, termios.TCSANOW, attrs)
+        os.set_blocking(slave, False)
+        try:
+            left = os.read(slave, 4096)
+        except BlockingIOError:
+            left = b""
+    finally:
+        os.close(slave)
+        os.close(master)
+    print(f"leak: {len(left)} bytes left for the shell: {left!r}; :q to exit {quit * 1000:.1f} ms", file=sys.stderr)
+    print(f"leaked={len(left)}")
+    print(f"quit_ms={quit * 1000:.3f}")
 
 
 def rss(binary, path):
@@ -222,6 +330,13 @@ def main(argv):
         rss(argv[2], argv[3])
     elif len(argv) == 4 and argv[1] == "firstframe":
         firstframe(argv[2], argv[3])
+    elif len(argv) == 4 and argv[1] == "asks":
+        asks(argv[2], argv[3])
+    elif len(argv) == 5 and argv[1] == "quit":
+        kinds = {"answering": {}, "no_osc": {"osc": False}, "silent": {"silent": True}}
+        print(f"quit_ms={frames(argv[2], argv[3], 3, **kinds[argv[4]])[1]:.3f}")
+    elif len(argv) == 5 and argv[1] == "leak":
+        leak(argv[2], argv[3], float(argv[4]))
     else:
         sys.exit(__doc__)
 
