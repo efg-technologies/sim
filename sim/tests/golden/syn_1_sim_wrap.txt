@@ -1,0 +1,21 @@
+24x8 cursor 5,0 Block
+|   1 let long = "aaaa   |
+|.---..................  |
+|.....KKK........SSSSSS..|
+|     bbbb cccc dddd     |
+|....................    |
+|.....SSSSSSSSSSSSSSS....|
+|     eeee ffff gggg";   |
+|......................  |
+|.....SSSSSSSSSSSSSSS....|
+|     // hhhh iiii jjjj  |
+|......................  |
+|.....ccccccccccccccccc..|
+|                        |
+|                        |
+|                        |
+|                        |
+|                        |
+|                        |
+|main.rs  1:1  NORMAL    |
+|....................    |

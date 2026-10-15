@@ -1,14 +1,25 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
-//! and no terminal, so the tests drive it without threads.
-use crate::layout;
+//! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
+//! are in `panel.rs`.
+mod panel;
+
+use crate::color::Palette;
+use crate::layout::{self, Mark};
+use crate::marks::Marks;
+use crate::paint::{Looks, Screen};
+use crate::rank::History;
+use crate::syn::Spans;
 use crate::tree::{Entry, Row as TreeRow, Tree};
+use panel::Search;
+use ropey::Rope;
 use si::core::app::{App, Effect, Event, Key, Read};
 use si::core::cli;
 use si::core::vi::Mode;
 use si::core::view::{self, Frame, Row, Shape};
 use si::io::journal::Snapshot;
+use std::collections::HashSet;
 use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -16,6 +27,9 @@ use unicode_width::UnicodeWidthStr;
 
 /// A file open in sim. Ids are never reused, so a late answer for a closed file is dropped.
 pub type Id = usize;
+
+/// SYN-3: files over this many bytes are not highlighted.
+pub const MAX_HL: usize = 10_000_000;
 
 #[derive(Debug)]
 pub enum SimEvent {
@@ -35,11 +49,19 @@ pub enum SimEvent {
     Opened(Opened),
     /// The answer to `SimEffect::Open` when the path is a directory.
     Dir(String),
+    /// FIND-3: the files under the root, sorted, relative to it.
+    Files(Vec<String>),
+    /// MARK-1: git's status, and where the root lies below the top of the repository.
+    Status(Result<(Vec<u8>, String), String>),
+    /// SYN-1: the payload of a reply of the terminal to OSC 4, 10 or 11.
+    Osc(String),
+    /// SYN-3: the spans of a window of a file.
+    Spans(Hl),
 }
 
 #[derive(Debug)]
 pub enum SimEffect {
-    Render(Frame),
+    Render(Screen),
     /// What a file's App asks for: a write, a watch, a snapshot, the clipboard, a reload.
     App(Id, Effect),
     /// Read this directory and answer with `SimEvent::Listing`.
@@ -53,6 +75,15 @@ pub enum SimEffect {
     /// A recovered snapshot (journal key, pid of the dead session) is ours to delete once the
     /// file's own snapshot is on disk, or when the file is saved or closed (SAFE-6).
     Hold(Id, String, u32),
+    /// List the files under the root and answer with `SimEvent::Files` (FIND-3). The shell runs
+    /// it so that it never runs twice at once: a request while it runs is one more run after it.
+    Files,
+    /// Ask git for the status of the root and answer with `SimEvent::Status` (MARK-1); likewise.
+    Status,
+    /// Save the history of opened files (MARK-2).
+    History(History),
+    /// Highlight a window of a file and answer with `SimEvent::Spans` (SYN-3).
+    Highlight(Req),
     Quit(i32),
 }
 
@@ -71,12 +102,36 @@ pub struct Opened {
     pub found: Option<Found>,
 }
 
+/// SYN-3: lines `from..from + n` of the file `id` named `name`, as of version `ver` of `text`.
+#[derive(Debug)]
+pub struct Req {
+    pub id: Id,
+    pub name: String,
+    pub ver: u64,
+    pub text: Rope,
+    pub from: usize,
+    pub n: usize,
+}
+
+/// SYN-3: the spans of lines `from..` of a file at version `ver`, which had `lines` lines.
+#[derive(Debug)]
+pub struct Hl {
+    pub id: Id,
+    pub ver: u64,
+    pub lines: usize,
+    pub from: usize,
+    pub spans: Vec<Spans>,
+}
+
 pub struct Buf {
     pub id: Id,
     pub key: String,
     pub app: App,
     /// The App's last frame, valid for the size it has now.
     frame: Option<Frame>,
+    /// The latest spans, and what was last asked for (version, first and last line on screen).
+    hl: Option<Hl>,
+    asked: Option<(u64, usize, usize)>,
 }
 
 #[derive(Default)]
@@ -88,8 +143,11 @@ pub struct Panel {
     pub top: usize,
     /// A `g` waits for a second one.
     g: bool,
-    /// A directory (below the root) to expand, step by step, as its listings arrive.
+    /// A path (below the root) to show: its directories are expanded, step by step, as their
+    /// listings arrive, and the cursor goes there.
     reveal: Option<PathBuf>,
+    /// FIND-1: the search that runs, if any.
+    search: Option<Search>,
 }
 
 #[derive(Default)]
@@ -105,6 +163,34 @@ pub struct Sim {
     /// The keys of `+cmd` and `file:line`, typed into the first file once it is open.
     keys: String,
     msg: Option<String>,
+    /// FIND-3: the files under the root, sorted.
+    files: Vec<String>,
+    /// MARK-1: git's status (and the prefix), the paths seen changing on disk, and the marks.
+    status: (Vec<u8>, String),
+    disk: HashSet<PathBuf>,
+    marks: Marks,
+    no_repo: bool,
+    /// MARK-2: the history, and the time in seconds (at the start, then the shell's ticks).
+    history: History,
+    now: u64,
+    t0: u64,
+    /// MARK-3: the rows of the narrowed tree, when it is narrowed.
+    focus: Option<Tree>,
+    /// SYN-1, SYN-2, SYN-5: the terminal's palette, whether colors are on, and a `z` just typed.
+    pal: Palette,
+    hl_off: bool,
+    z: bool,
+}
+
+/// What `sim` starts with besides what it was asked to open: the shell's side of the world.
+#[derive(Default)]
+pub struct Env {
+    pub cwd: PathBuf,
+    pub size: (u16, u16),
+    /// Seconds since the epoch.
+    pub now: u64,
+    pub history: History,
+    pub pal: Palette,
 }
 
 /// What `sim` was asked to open (TREE-1).
@@ -143,15 +229,21 @@ fn all(line: &str) -> Option<(&str, bool, &str)> {
 }
 
 impl Sim {
-    pub fn new(s: Start, cwd: PathBuf, size: (u16, u16)) -> (Sim, Vec<SimEffect>) {
+    pub fn new(s: Start, env: Env) -> (Sim, Vec<SimEffect>) {
         let panel = Panel { open: s.file.is_none(), focus: s.file.is_none(), ..Panel::default() };
-        let (root, keys, size) = (s.root, s.keys, (size.0.max(1), size.1.max(2)));
-        let mut sim = Sim { panel, cwd, size, keys, root, ..Sim::default() };
+        let (root, keys, size) = (s.root, s.keys, (env.size.0.max(1), env.size.1.max(2)));
+        let (history, pal, cwd) = (env.history, env.pal, env.cwd);
+        let mut sim = Sim { panel, cwd, size, keys, root, history, pal, ..Sim::default() };
+        (sim.now, sim.t0) = (env.now, env.now);
         let mut out = vec![SimEffect::Read(sim.root.clone())];
+        out.push(SimEffect::Files);
+        sim.git(&mut out);
         if let Some(f) = s.file {
+            sim.note(&sim.cwd.join(&f), &mut out);
             sim.request(f, &mut out);
         }
-        out.push(SimEffect::Render(sim.frame()));
+        let screen = sim.frame(&mut out);
+        out.push(SimEffect::Render(screen));
         (sim, out)
     }
 
@@ -176,7 +268,10 @@ impl Sim {
             SimEvent::BackTab => self.step(self.bufs.len().saturating_sub(1)),
             SimEvent::App(id, e) => self.to(id, e, &mut out),
             SimEvent::Notice(m) => self.msg = Some(m),
-            SimEvent::Tick(n) => return self.snapshots(None, || Event::Tick(n)),
+            SimEvent::Tick(n) => {
+                self.now = self.t0 + n / 1000;
+                return self.snapshots(None, || Event::Tick(n));
+            }
             SimEvent::Signal(n) => {
                 let mut out = self.snapshots(None, || Event::Signal(n));
                 out.push(SimEffect::Quit(128 + n));
@@ -185,8 +280,27 @@ impl Sim {
             SimEvent::Listing(dir, r) => self.listing(&dir, r, &mut out),
             SimEvent::Opened(o) => self.opened(o, &mut out),
             SimEvent::Dir(path) => self.reveal_dir(&path, &mut out),
+            SimEvent::Files(files) => {
+                self.files = files;
+                self.search_run(&mut out);
+            }
+            SimEvent::Status(r) => match r {
+                Ok(status) => {
+                    self.status = status;
+                    self.remark();
+                }
+                Err(e) if e.starts_with("not a git repository") => self.no_repo = true,
+                Err(e) => self.msg = Some(e),
+            },
+            SimEvent::Osc(s) => self.pal.reply(&s),
+            SimEvent::Spans(h) => {
+                if let Some(b) = self.bufs.iter_mut().find(|b| b.id == h.id) {
+                    b.hl = Some(h);
+                }
+            }
         }
-        out.push(SimEffect::Render(self.frame()));
+        let screen = self.frame(&mut out);
+        out.push(SimEffect::Render(screen));
         out
     }
 
@@ -213,11 +327,37 @@ impl Sim {
         }
     }
 
-    /// Gives an event to one file's App, and runs what it asks for.
+    /// MARK-1: asks for git's status (not where it said there is no repository).
+    fn git(&mut self, out: &mut Vec<SimEffect>) {
+        out.extend((!self.no_repo).then_some(SimEffect::Status));
+    }
+
+    /// MARK-1: the marks from git's status and the paths seen changing on disk.
+    fn remark(&mut self) {
+        self.marks = Marks::new(&self.status.0, &self.status.1, &self.disk);
+        self.refocus();
+    }
+
+    /// MARK-2: notes that the user opened a file, and has the history saved.
+    fn note(&mut self, path: &Path, out: &mut Vec<SimEffect>) {
+        self.history.record(&path.to_string_lossy(), self.now);
+        out.push(SimEffect::History(self.history.clone()));
+    }
+
+    /// Gives an event to one file's App, and runs what it asks for. A change on disk or a save
+    /// is a change for MARK-1 (it works without git too), and git is asked again.
     fn to(&mut self, id: Id, ev: Event, out: &mut Vec<SimEffect>) {
+        let changed = matches!(ev, Event::Disk { .. } | Event::Saved(Ok(_)));
         let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) else { return };
-        let fx = b.app.update(ev);
+        let (fx, path) = (b.app.update(ev), b.app.path.clone());
         self.run(id, fx, out);
+        if let (true, Some(path)) = (changed, path) {
+            if let Ok(rel) = self.cwd.join(path).strip_prefix(&self.root) {
+                self.disk.insert(rel.into());
+                self.remark();
+            }
+            self.git(out);
+        }
     }
 
     /// Takes the frames and the quits out of an App's effects; the shell gets the rest.
@@ -251,6 +391,7 @@ impl Sim {
         self.bufs.remove(i);
         out.push(SimEffect::Close(id));
         self.cur = (self.cur - usize::from(i < self.cur)).min(self.bufs.len().saturating_sub(1));
+        self.refocus();
         if self.bufs.is_empty() {
             out.push(SimEffect::Quit(0));
         }
@@ -272,6 +413,7 @@ impl Sim {
         self.msg = None;
         match k {
             Key::Ctrl('n') => return self.toggle(out),
+            Key::Ctrl('p') => return self.find(out),
             Key::Tab if self.idle() => return self.step(1),
             _ if self.panel.open && self.panel.focus => return self.panel_key(k, out),
             _ => {}
@@ -285,7 +427,15 @@ impl Sim {
             self.to(id, Event::Key(Key::Esc), out); // the command line is ours: close it
             return self.run_all(cmd, out);
         }
+        // SYN-2: `zh` turns the colors off and on. si's parser takes the `h` after a `z` and
+        // does nothing, so the App still gets the key.
+        let zh = self.z && k == Key::Char('h');
+        self.z = self.idle() && k == Key::Char('z');
         self.to(id, Event::Key(k), out);
+        if zh {
+            self.hl_off = !self.hl_off;
+            self.msg = Some(format!("syntax colors {}", if self.hl_off { "off" } else { "on" }));
+        }
     }
 
     fn run_all(&mut self, (name, bang, arg): (&str, bool, &str), out: &mut Vec<SimEffect>) {
@@ -312,8 +462,10 @@ impl Sim {
         }
     }
 
-    /// BUF-1: shows the file if it is open, else asks for it to be read.
+    /// BUF-1: shows the file if it is open, else asks for it to be read. MARK-2: either way the
+    /// user chose it, so it goes into the history.
     fn open(&mut self, path: PathBuf, out: &mut Vec<SimEffect>) {
+        self.note(&path, out);
         let same = |b: &Buf| b.app.path.as_ref().is_some_and(|p| self.cwd.join(p) == path);
         if let Some(i) = self.bufs.iter().position(same) {
             (self.cur, self.panel.focus) = (i, false);
@@ -346,152 +498,63 @@ impl Sim {
             }
         }
         fx.extend(app.start(&take(&mut self.keys)));
-        self.bufs.push(Buf { id: o.id, key: o.key, app, frame: None });
+        self.bufs.push(Buf { id: o.id, key: o.key, app, frame: None, hl: None, asked: None });
         self.cur = self.bufs.len() - 1;
+        self.refocus();
         self.run(o.id, fx, out);
-    }
-
-    // ---- the panel ----
-
-    /// TREE-2: Ctrl-n opens the panel and focuses it, or closes it when it has the focus. An
-    /// opening reads the directories again, so that what changed meanwhile shows.
-    fn toggle(&mut self, out: &mut Vec<SimEffect>) {
-        let close = self.panel.open && self.panel.focus;
-        (self.panel.open, self.panel.focus) = (!close, !close);
-        if !close {
-            let rows = self.tree.rows(0, self.tree.visible());
-            let open =
-                rows.into_iter().filter(|r| r.is_dir && r.open).map(|r| self.root.join(r.path));
-            out.extend(std::iter::once(self.root.clone()).chain(open).map(SimEffect::Read));
-        }
-    }
-
-    /// The row of the panel at `row`, if there is one.
-    fn row(&self, row: usize) -> Option<TreeRow> {
-        self.tree.rows(row, 1).pop()
-    }
-
-    /// TREE-4: a key while the panel has the focus.
-    fn panel_key(&mut self, k: Key, out: &mut Vec<SimEffect>) {
-        let last = self.tree.visible().saturating_sub(1);
-        let page = usize::from(self.size.1) - 1;
-        let (cur, g) = (self.panel.cur, take(&mut self.panel.g));
-        let to = match k {
-            Key::Char('j') | Key::Down => cur + 1,
-            Key::Char('k') | Key::Up => cur.saturating_sub(1),
-            Key::Ctrl('d') => cur + page / 2,
-            Key::Ctrl('u') => cur.saturating_sub(page / 2),
-            Key::PageDown => cur + page,
-            Key::PageUp => cur.saturating_sub(page),
-            Key::Char('g') if g => 0,
-            Key::Char('g') => {
-                self.panel.g = true;
-                cur
-            }
-            Key::Char('G') => last,
-            Key::Char('l') | Key::Right | Key::Enter => return self.enter(out),
-            Key::Char('h') | Key::Left => return self.back(),
-            Key::Char('-') => {
-                let top = self.row(cur).and_then(|r| r.path.iter().next().map(PathBuf::from));
-                self.tree.collapse_all();
-                top.and_then(|p| self.tree.row_of(&p)).unwrap_or(0)
-            }
-            Key::Char('q') => return (self.panel.open, self.panel.focus) = (false, false),
-            Key::Esc => return self.panel.focus = false,
-            _ => cur,
-        };
-        self.panel.cur = to.min(last);
-    }
-
-    /// `l`, Right and Enter: expand a directory, open a file.
-    fn enter(&mut self, out: &mut Vec<SimEffect>) {
-        let Some(r) = self.row(self.panel.cur) else { return };
-        let abs = self.root.join(&r.path);
-        if !r.is_dir {
-            self.open(abs, out);
-        } else if !r.open && self.tree.expand(&r.path) {
-            out.push(SimEffect::Read(abs));
-        }
-    }
-
-    /// `h` and Left: collapse an open directory, else go to the directory above.
-    fn back(&mut self) {
-        let Some(r) = self.row(self.panel.cur) else { return };
-        if r.is_dir && r.open {
-            self.tree.collapse(&r.path);
-        } else if let Some(up) = self.tree.parent_row(self.panel.cur) {
-            self.panel.cur = up;
-        }
-    }
-
-    /// TREE-5: a directory has been read. The cursor and the first row stay on their entries
-    /// whatever came in above them.
-    fn listing(&mut self, dir: &Path, r: Result<Vec<Entry>, String>, out: &mut Vec<SimEffect>) {
-        let Ok(rel) = dir.strip_prefix(&self.root) else { return };
-        let entries = r.unwrap_or_else(|e| {
-            self.msg = Some(e);
-            vec![]
-        });
-        let (cur, top) = (self.row(self.panel.cur), self.row(self.panel.top));
-        self.tree.insert_listing(rel, entries);
-        let find =
-            |r: Option<TreeRow>, old| r.and_then(|r| self.tree.row_of(&r.path)).unwrap_or(old);
-        (self.panel.cur, self.panel.top) = (find(cur, self.panel.cur), find(top, self.panel.top));
-        self.reveal(out);
-    }
-
-    /// `:e dir` (BUF-1): the panel opens with that directory expanded and under the cursor.
-    fn reveal_dir(&mut self, path: &str, out: &mut Vec<SimEffect>) {
-        let abs = self.cwd.join(path);
-        let Ok(rel) = abs.strip_prefix(&self.root) else {
-            return self.msg =
-                Some(format!("{} is not under {}", abs.display(), self.root.display()));
-        };
-        self.panel.reveal = Some(rel.to_path_buf());
-        (self.panel.open, self.panel.focus) = (true, true);
-        self.reveal(out);
-    }
-
-    /// Expands the directories on the way to the one to reveal, as far as their listings are
-    /// there; the rest follows as they arrive.
-    fn reveal(&mut self, out: &mut Vec<SimEffect>) {
-        let Some(target) = self.panel.reveal.clone() else { return };
-        let mut path = PathBuf::new();
-        for c in &target {
-            path.push(c);
-            if self.tree.row_of(&path).is_none() {
-                return self.panel.reveal = None; // not there
-            }
-            if self.tree.expand(&path) {
-                return out.push(SimEffect::Read(self.root.join(&path)));
-            }
-        }
-        self.panel.reveal = None;
-        self.panel.cur = self.tree.row_of(&target).unwrap_or(self.panel.cur);
-    }
-
-    /// Keeps the cursor row on screen, and the first row where the tree has rows for it.
-    fn scroll(&mut self) {
-        let (rows, n) = (usize::from(self.size.1) - 1, self.tree.visible());
-        let p = &mut self.panel;
-        p.cur = p.cur.min(n.saturating_sub(1));
-        p.top = p.top.min(n.saturating_sub(rows)).clamp((p.cur + 1).saturating_sub(rows), p.cur);
     }
 
     // ---- the frame ----
 
+    /// SYN-1, SYN-3: the colors of the file on screen. The spans come from the highlighter's
+    /// thread: the last ones are used until new ones come (an edit leaves the colors of the other
+    /// lines as they were for the moment), and when they do not cover what is on screen they are
+    /// asked for again, a screenful above and below.
+    fn colors(&self, b: &Buf, f: &Frame) -> (Vec<Looks>, Option<Req>) {
+        let buf = &b.app.buf;
+        let text = |l: usize| {
+            (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
+        };
+        // Lines inserted or removed at the cursor move the lines below it: their old spans are
+        // shifted to match, for the moment until the new ones arrive.
+        let (hl, cur) = (b.hl.as_ref().filter(|_| !self.hl_off), buf.line_of(buf.cursor));
+        let spans = |l: usize| {
+            let h = hl?;
+            let old = if l > cur {
+                l.checked_add_signed(h.lines as isize - buf.lines() as isize)?
+            } else {
+                l
+            };
+            h.spans.get(old.checked_sub(h.from)?)
+        };
+        let (looks, win) = layout::colors(f, buf.lines().to_string().len().max(3), &text, &spans);
+        let (ver, h) = (buf.version(), usize::from(self.size.1));
+        let (Some((a, z)), Some(name)) = (win, b.app.path.clone()) else { return (looks, None) };
+        let covered = |h: &Hl| h.ver == ver && h.from <= a && z < h.from + h.spans.len();
+        let (from, on) = (a.saturating_sub(h), !self.hl_off && buf.text.len_bytes() <= MAX_HL);
+        let n = z + h - from + 1;
+        let ask = on && !b.hl.as_ref().is_some_and(covered) && b.asked != Some((ver, from, n));
+        (looks, ask.then(|| Req { id: b.id, name, ver, text: buf.text.clone(), from, n }))
+    }
+
     /// The whole screen: the panel, the current file and the status line (BUF-2: `2/5` is
     /// appended when more than one file is open).
-    fn frame(&mut self) -> Frame {
+    fn frame(&mut self, out: &mut Vec<SimEffect>) -> Screen {
         self.fit();
         self.scroll();
         let ((w, h), (pw, ew)) = (self.size, self.widths());
         let (off, focus) = (if pw > 0 { pw + 1 } else { 0 }, self.panel.open && self.panel.focus);
-        let rows = if pw > 0 { self.tree.rows(self.panel.top, usize::from(h) - 1) } else { vec![] };
+        let rows =
+            if pw > 0 { self.view().rows(self.panel.top, usize::from(h) - 1) } else { vec![] };
+        let root_str = self.root.to_string_lossy();
+        let likely = if pw > 0 { self.history.top(&root_str, 5, self.now) } else { vec![] };
+        let marked: Vec<(TreeRow, Mark)> =
+            rows.into_iter().map(|r| self.mark(r, &likely)).collect();
         let at = self.row(self.panel.cur);
-        let dir = |r: &TreeRow| if r.is_dir { "/" } else { "" };
         let root = self.root.display().to_string();
-        let tree = at.as_ref().map_or(root.clone(), |r| format!("{}{}", r.path.display(), dir(r)));
+        let tree = at.as_ref().map_or(root.clone(), |r| {
+            format!("{}{}", r.path.display(), if r.is_dir { "/" } else { "" })
+        });
         let (mut status, mut cursor, mut shape) = (root, (off, 0), Shape::Block);
         let mut cmd = false;
         if let Some(b) = self.bufs.get_mut(self.cur) {
@@ -511,24 +574,61 @@ impl Sim {
                 status = wide.rows.last().map_or(String::new(), |r| r.text.clone());
                 cursor = if cmd { wide.cursor } else { cursor };
             }
-            if focus && b.app.msg.is_none() {
-                status = format!("{tree}  TREE");
-            }
-        } else if focus {
+        }
+        if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
             status = format!("{tree}  TREE");
+        }
+        if let (true, Some(s)) = (focus, &self.panel.search) {
+            let n = s.found.hits.len();
+            status = match (s.query.is_empty(), n) {
+                (true, _) => format!("/{}", s.query),
+                (_, 0) => format!("/{}  no match", s.query),
+                _ => format!("/{}  {n} match{}", s.query, if n == 1 { "" } else { "es" }),
+            };
+            if s.typing {
+                (cursor, shape) = ((1 + s.query.width() as u16, h - 1), Shape::Bar);
+            }
         }
         status = self.msg.clone().unwrap_or(status);
         if self.bufs.len() > 1 && !cmd {
             status += &format!("  {}/{}", self.cur + 1, self.bufs.len());
         }
         let sel = focus.then(|| self.panel.cur - self.panel.top);
-        if let Some(i) = sel {
+        let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
+        if let (Some(i), false) = (sel, typing) {
             let col = at.map_or(0, |r| (2 * r.depth + 2) as u16);
             (cursor, shape) = ((col.min(pw.saturating_sub(1)), i as u16), Shape::Block);
         }
-        let editor = self.bufs.get(self.cur).and_then(|b| b.frame.as_ref());
-        let mut rows = layout::body(w, h, pw, &rows, sel, editor);
+        let ed = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
+        let (elooks, ask) = ed.map_or((vec![], None), |(b, f)| self.colors(b, f));
+        if let (Some(req), Some(b)) = (ask, self.bufs.get_mut(self.cur)) {
+            b.asked = Some((req.ver, req.from, req.n));
+            out.push(SimEffect::Highlight(req));
+        }
+        let editor =
+            self.bufs.get(self.cur).and_then(|b| b.frame.as_ref()).map(|f| (f, &elooks[..]));
+        let (mut rows, mut looks) =
+            layout::body(w, h, pw, &marked, sel, editor, self.pal.sel().is_some());
         rows.push(Row { text: layout::fit(&status, usize::from(w)).0, ..Row::default() });
-        Frame { width: w, height: h, rows, cursor, shape }
+        looks.push(vec![]);
+        Screen { frame: Frame { width: w, height: h, rows, cursor, shape }, looks, pal: self.pal }
+    }
+
+    /// A row of the panel with what it shows besides its name (see `layout::Mark`).
+    fn mark(&self, r: TreeRow, likely: &[(String, f64)]) -> (TreeRow, Mark) {
+        let (p, name) = (r.path.as_path(), r.path.to_string_lossy());
+        let hit = self.panel.search.as_ref().filter(|s| !s.query.is_empty()).map(|s| {
+            r.is_dir && s.found.dirs.contains(name.as_ref())
+                || !r.is_dir
+                    && (self.files.binary_search_by(|f| f.as_str().cmp(&name)).ok())
+                        .is_some_and(|i| s.found.hits.binary_search_by_key(&i, |h| h.index).is_ok())
+        });
+        let mark = Mark {
+            change: !r.is_dir && self.marks.changed(p),
+            below: r.is_dir && self.marks.changed_below(p),
+            likely: !r.is_dir && likely.iter().any(|l| Path::new(&l.0) == p),
+            hit,
+        };
+        (r, mark)
     }
 }

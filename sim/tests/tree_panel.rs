@@ -123,7 +123,7 @@ fn tree_2_ctrl_n_opens_and_focuses_the_panel_and_closes_it_when_it_has_focus() {
     assert!(!r.sim.panel.open);
     r.keys("<C-n>");
     assert!(r.sim.panel.open && r.sim.panel.focus);
-    assert_eq!(r.panel(), ["  f.txt"]);
+    assert_eq!(r.panel(), ["• f.txt"], "opened: likely (MARK-2)");
     r.keys("<C-n>");
     assert!(!r.sim.panel.open && !r.sim.panel.focus);
     assert!(r.panel().is_empty());

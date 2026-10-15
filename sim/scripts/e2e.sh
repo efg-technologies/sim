@@ -22,9 +22,14 @@
 #   wait_exit [s]      wait until sim has exited
 #   exit_code          print the exit code of sim (after wait_exit)
 #   now_ms             print the time in milliseconds since the epoch
+#   screen_esc         print the screen with its SGR sequences (colors, reverse, bold)
+#   wait_esc PATTERN   wait until the screen with its SGR sequences matches the (basic) regex
+#   reply OSC          type a terminal's reply to sim's color query, e.g. reply '11;rgb:1e1e/1e1e/1e1e'
 #   restart            end the case's tmux session, so that `start` can run sim again (files stay)
 #   $CASE_DIR          the case's temp directory; $HOME and $XDG_STATE_HOME are inside it
 #   $W                 sim's working directory, $CASE_DIR/work: the project a case makes
+#   $CT                set it (CT=truecolor) before `start` to run sim with COLORTERM=$CT; otherwise sim
+#                      runs without COLORTERM, whatever the user's terminal sets
 set -eu
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -44,7 +49,7 @@ shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # ---- helpers used by cases ----
 
 start() {
-  cmd="cd $(shq "$W") && env HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") $(shq "$SIM_BIN")"
+  cmd="cd $(shq "$W") && env -u COLORTERM HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") ${CT:+COLORTERM=$CT} $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
   # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after sim exits.
@@ -54,6 +59,9 @@ start() {
 keys() { tm send-keys -t "$SESSION" "$@"; }
 typed() { tm send-keys -t "$SESSION" -l -- "$1"; }
 screen() { tm capture-pane -p -t "$SESSION"; }
+screen_esc() { tm capture-pane -p -e -t "$SESSION"; }
+# What a terminal answers to the color query (OSC 10, 11 and 4): typed into sim as keys.
+reply() { tm send-keys -t "$SESSION" -l -- "$(printf '\033]%s\033\\' "$1")"; }
 
 wait_for() {
   tries=$((${2:-5} * 20))
@@ -75,6 +83,18 @@ wait_gone() {
     tries=$((tries - 1))
   done
   echo "timed out waiting for the screen to lose: $1" >&2
+  return 1
+}
+
+wait_esc() {
+  tries=$((${2:-5} * 20))
+  while [ "$tries" -gt 0 ]; do
+    if screen_esc 2> /dev/null | grep -q -- "$1"; then return 0; fi
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+  echo "timed out waiting for the colored screen to match: $1" >&2
+  screen_esc | cat -v >&2
   return 1
 }
 
@@ -559,6 +579,330 @@ buf_3_a_panic_restores_the_terminal() {
   wait_for "SIM_E2E_PANIC is set"
   wait_for "exit=101"
   terminal_restored
+}
+
+# ---- S2: finding and marks ----
+
+# The project as a git repository: target/ is ignored, everything else is committed.
+gitproject() {
+  project
+  printf 'target/\n' > "$W/.gitignore"
+  mkdir -p "$W/target"
+  printf 'x\n' > "$W/target/junk.rs"
+  git -C "$W" init -q
+  git -C "$W" add -A
+  git -C "$W" -c user.name=sim -c user.email=sim@example.com commit -q -m init
+}
+
+find_1_slash_searches_the_whole_tree_and_enter_opens_the_best_match() {
+  project
+  start
+  wait_for "▸ src/"
+  gone "main.rs" # src/ is closed: the search has to reach into it
+  typed /main
+  wait_for "/main  1 match"
+  wait_for "▾ src/"
+  screen | grep -F -q "    main.rs"
+  keys Enter
+  wait_for "src/main.rs  1:1  NORMAL"
+  screen | grep -F -q "fn main"
+  screen | grep -F -q "▾ src/" # the tree shows where the file is
+}
+
+find_1_esc_ends_the_search_and_restores_the_expansion() {
+  project
+  start
+  wait_for "▸ src/"
+  typed /lib
+  wait_for "/lib  1 match"
+  wait_for "    lib.rs"
+  keys Escape
+  wait_gone "lib.rs"
+  screen | grep -F -q "▸ src/"
+  wait_for "docs/  TREE"
+}
+
+find_1_matches_are_bold_the_rest_is_dimmed_and_backspace_edits_the_query() {
+  project
+  start
+  wait_for "▸ src/"
+  typed /mainx
+  wait_for "/mainx  no match"
+  wait_esc '2m.*docs/' # nothing matches: everything is dimmed
+  keys BSpace
+  wait_for "/main  1 match"
+  wait_esc '1m.*src/' # a directory with a match below it is bold
+  screen_esc | grep 'docs/' | grep -v -q '1m'
+  screen_esc | grep 'docs/' | grep -q '2m'
+}
+
+find_1_down_commits_the_query_and_steps_to_the_next_match() {
+  project
+  start
+  wait_for "▸ src/"
+  typed /.md
+  wait_for "/.md  2 matches"
+  keys Down # from README.md (the best) round to docs/guide.md
+  wait_for "/.md  2 matches"
+  keys Enter
+  wait_for "docs/guide.md  1:1  NORMAL"
+}
+
+find_3_ignored_files_are_not_found_and_untracked_ones_are() {
+  gitproject
+  printf 'u\n' > "$W/src/untracked.rs"
+  start
+  wait_for "▸ src/"
+  typed /junk
+  wait_for "/junk  no match"
+  keys Escape
+  typed /untracked
+  wait_for "/untracked  1 match"
+}
+
+find_3_outside_git_the_files_come_from_a_walk() {
+  project
+  mkdir -p "$W/.git" # a directory called .git that is not a repository: skipped by the walk
+  printf 'x\n' > "$W/.git/hidden.rs"
+  start
+  wait_for "▸ src/"
+  typed /lib
+  wait_for "/lib  1 match"
+  keys Escape
+  typed /hidden
+  wait_for "/hidden  no match"
+}
+
+find_4_ctrl_p_from_a_file_opens_the_panel_and_starts_the_search() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  gone "▸"
+  keys C-p
+  typed lib
+  wait_for "/lib  1 match"
+  screen | grep -F -q "▸ docs/"
+  keys Enter
+  wait_for "src/lib.rs  1:1  NORMAL  2/2"
+}
+
+find_4_ctrl_p_works_in_insert_mode_and_never_types() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  typed i
+  wait_for INSERT
+  keys C-p
+  typed guide
+  wait_for "/guide  1 match"
+  keys Escape # ends the search
+  wait_for "docs/  TREE"
+  keys Escape # gives the focus back (tmux would send two at once as Alt-Esc)
+  wait_for "src/main.rs  1:1  INSERT" # still inserting, and nothing was typed
+  gone modified
+}
+
+mark_1_changed_files_have_the_change_color_and_their_directories_a_tilde() {
+  gitproject
+  printf 'more\n' >> "$W/src/lib.rs"
+  printf 'new\n' > "$W/docs/new.md"
+  start
+  wait_for "▸ src/ ~"
+  screen | grep -F -q "▸ docs/ ~"
+  typed l # opens docs/
+  wait_for "new.md"
+  wait_esc '7mnew\.md'
+  screen_esc | grep 'guide\.md' | grep -v -q '7mguide\.md'
+  wait_for "docs/  TREE"
+  typed jjjl # src/
+  wait_for "lib.rs"
+  wait_esc '7mlib\.rs'
+  screen_esc | grep 'main\.rs' | grep -v -q '7mmain\.rs'
+}
+
+mark_1_a_file_that_changes_on_disk_while_sim_runs_is_marked_without_git() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  keys C-n
+  wait_for "▸ src/"
+  gone "~"
+  printf 'fn main() { 1 }\n' > "$W/src/main.new"
+  mv "$W/src/main.new" "$W/src/main.rs"
+  wait_for "▸ src/ ~"
+}
+
+mark_1_git_is_asked_again_after_a_save() {
+  gitproject
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  keys C-n
+  wait_for "▸ src/"
+  gone "~"
+  keys Escape
+  typed "A // edit"
+  keys Escape
+  typed ":w"
+  keys Enter
+  wait_content "$W/src/lib.rs" "fn lib() {} // edit"
+  wait_for "▸ src/ ~"
+}
+
+mark_2_files_you_open_are_marked_with_a_bullet_in_the_next_session() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  typed ":q"
+  keys Enter
+  wait_exit
+  tries=100
+  while [ ! -s "$XDG_STATE_HOME/sim/history" ] && [ "$tries" -gt 0 ]; do
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+  ls -l "$XDG_STATE_HOME/sim/history" | grep -q '^-rw-------'
+  ls -ld "$XDG_STATE_HOME/sim" | grep -q '^drwx------'
+  grep -q "$W/src/main.rs" "$XDG_STATE_HOME/sim/history"
+  restart
+  start
+  wait_for "▸ src/"
+  typed jl
+  wait_for "• main.rs"
+  screen | grep -F -q "    lib.rs"
+  gone "• lib.rs"
+}
+
+mark_3_dot_narrows_the_tree_to_what_changed_and_dot_again_shows_everything() {
+  gitproject
+  printf 'more\n' >> "$W/src/lib.rs"
+  start
+  wait_for "▸ src/ ~"
+  typed .
+  wait_for "lib.rs"
+  wait_gone "README.md"
+  gone "docs/"
+  typed .
+  wait_for "README.md"
+  screen | grep -F -q "▸ docs/"
+}
+
+speed_2_the_first_frame_comes_before_the_list_of_files() {
+  # 100,000 files take too long to make here; the benchmark (tests/speed_2.rs) has them. Here:
+  # the tree shows at once, however long the list takes (a slow git stands in for a big repository),
+  # and the search finds what is in the list when it arrives.
+  gitproject
+  mkdir -p "$CASE_DIR/bin"
+  printf '#!/bin/sh\nsleep 1\nexec %s "$@"\n' "$(command -v git)" > "$CASE_DIR/bin/git"
+  chmod +x "$CASE_DIR/bin/git"
+  wrap "PATH=$CASE_DIR/bin:$PATH"
+  start
+  wait_for "Ctrl-n  tree" 1
+  wait_for "▸ src/" 1
+  typed /lib
+  wait_for "/lib  no match" 1
+  wait_for "/lib  1 match" 10
+}
+
+# ---- S3: highlighting in color ----
+
+syn_1_keywords_strings_and_comments_use_the_terminals_own_colors_without_a_reply() {
+  printf 'fn main() { let s = "x"; } // c\n' > "$W/a.rs"
+  start a.rs
+  wait_for "a.rs  1:1  NORMAL"
+  wait_esc '31mfn'
+  wait_esc '31mlet'
+  wait_esc '32m"x"'
+  wait_esc '2;3m// c'
+  ! screen_esc | grep -q '3[4]m'
+}
+
+syn_1_the_palette_moves_the_colors_and_the_reply_never_reaches_the_app() {
+  printf 'fn main() { let s = "x"; } // c\n' > "$W/a.rs"
+  CT=truecolor
+  start a.rs
+  wait_for "a.rs  1:1  NORMAL"
+  wait_esc '31mfn' # first the theme's own
+  reply '11;rgb:1e1e/1e1e/2e2e'
+  reply '4;1;rgb:cc/00/00'
+  reply '4;2;rgb:00/aa/00'
+  wait_esc '38;2;[0-9;]*mfn'
+  wait_esc '38;2;[0-9;]*m"x"'
+  screen | grep -F -q "a.rs  1:1  NORMAL"
+  gone modified
+  typed x # keys still reach the App
+  wait_for "modified"
+}
+
+syn_2_zh_turns_the_colors_off_and_on() {
+  printf 'fn main() {}\n' > "$W/a.rs"
+  start a.rs
+  wait_esc '31mfn'
+  typed zh
+  wait_for "syntax colors off"
+  ! screen_esc | grep -q '31m'
+  typed zh
+  wait_for "syntax colors on"
+  wait_esc '31mfn'
+}
+
+syn_3_a_file_over_10_mb_is_not_highlighted() {
+  yes 'fn main() { let s = "x"; }' | head -c 11000000 > "$W/big.rs"
+  printf 'fn main() { let s = "x"; }\n' > "$W/small.rs"
+  start big.rs
+  wait_for "big.rs  1:1  NORMAL"
+  sleep 0.5
+  ! screen_esc | grep -q '31m'
+  typed ":e small.rs"
+  keys Enter
+  wait_for "small.rs  1:1  NORMAL"
+  wait_esc '31mfn'
+}
+
+syn_4_toml_typescript_and_dockerfile_are_highlighted() {
+  printf '[package]\nname = "sim"\n' > "$W/Cargo.toml"
+  printf 'const a: string = "x";\n' > "$W/a.ts"
+  printf 'FROM rust:1\nRUN echo "x"\n' > "$W/Dockerfile"
+  start Cargo.toml
+  wait_esc '32m"sim"'
+  typed ":e a.ts"
+  keys Enter
+  wait_esc '31mconst'
+  typed ":e Dockerfile"
+  keys Enter
+  wait_esc '31mFROM'
+}
+
+syn_5_the_selection_is_underlined_without_truecolor_and_gray_with_it() {
+  printf 'fn main() {}\n' > "$W/a.rs"
+  start a.rs
+  wait_for "a.rs  1:1  NORMAL"
+  typed vlll
+  wait_for VISUAL
+  wait_esc '4m'
+  ! screen_esc | grep -q '48;2'
+  restart
+  CT=truecolor
+  start a.rs
+  wait_for "a.rs  1:1  NORMAL"
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  typed vlll
+  wait_for VISUAL
+  wait_esc '48;2;'
+  ! screen_esc | grep -q '[;[]4m'
+}
+
+buf_1_snapshots_are_off_when_the_state_directory_is_not_private() {
+  project
+  mkdir -p "$XDG_STATE_HOME/si"
+  chmod 755 "$XDG_STATE_HOME/si"
+  start src/lib.rs
+  wait_for "snapshots are off"
+  typed x
+  wait_for modified
+  typed ":w"
+  keys Enter
+  wait_content "$W/src/lib.rs" "n lib() {}" # saving works all the same
+  [ -z "$(ls -A "$XDG_STATE_HOME/si")" ] # and nothing was written there
 }
 
 main "$@"

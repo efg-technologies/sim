@@ -1,23 +1,15 @@
 //! SYN-1, SYN-3, SYN-4
-//! syntect scopes to typographic spans per line, never a color, with the parse state cached
-//! every [`EVERY`] lines so that an edit re-parses from the nearest state above it (pure, apart
-//! from loading the syntax set once).
+//! syntect scopes to looks per line (keyword, string, number, type, function, comment), with the
+//! parse state cached every [`EVERY`] lines so that an edit re-parses from the nearest state
+//! above it (pure, apart from loading the syntax set once).
+use crate::paint::Look;
 use std::ops::Range;
 use std::path::Path;
 use std::sync::OnceLock;
 use syntect::parsing::{ParseState, Scope, ScopeStack, ScopeStackOp, SyntaxSet};
 
-/// What a char looks like. The order is the precedence: where the scopes of a char disagree the
-/// first wins, so a keyword-like word inside a comment or a string stays dim or italic.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Attr {
-    Dim,
-    Italic,
-    Bold,
-}
-
 /// Char ranges of a line, in order and apart. Chars outside every span are plain.
-pub type Spans = Vec<(Range<usize>, Attr)>;
+pub type Spans = Vec<(Range<usize>, Look)>;
 
 /// Line `i` without its line break; none past the end.
 pub type Text<'a> = &'a dyn Fn(usize) -> Option<String>;
@@ -29,34 +21,47 @@ pub type Text<'a> = &'a dyn Fn(usize) -> Option<String>;
 /// states of 70,000 lines at 16, measured).
 pub const EVERY: usize = 16;
 
-/// The bundled syntaxes. The first call decodes their index (0.3 ms in release), and the first
-/// highlight of a language its contexts and regexes (17 ms for Rust): do both in a thread,
-/// never before the first frame.
+/// The syntaxes of bat (the `two-face` crate), which has the languages syntect's own set lacks
+/// (SYN-4). The first call decodes their index, and the first highlight of a language its
+/// contexts and regexes: do both in a thread, never before the first frame.
 pub fn syntaxes() -> &'static SyntaxSet {
     static SET: OnceLock<SyntaxSet> = OnceLock::new();
-    SET.get_or_init(SyntaxSet::load_defaults_newlines)
+    SET.get_or_init(two_face::syntax::extra_newlines)
 }
 
 /// What each scope looks like; the longest scope that is a prefix wins, so a more specific
-/// one can take it back (`None`: plain). Markup is typography already: headings and strong
-/// are bold, emphasis italic.
-const RULES: [(&str, Option<Attr>); 12] = [
-    ("comment", Some(Attr::Dim)),
-    ("string", Some(Attr::Italic)),
+/// one can take it back (`None`: plain). Operators, names and punctuation are plain. Markup is
+/// typography already: headings and strong are bold. Blue is never used (SYN-1).
+const RULES: [(&str, Option<Look>); 25] = [
+    ("comment", Some(Look::Com)),
+    ("string", Some(Look::Str)),
     ("string.unquoted", None), // a bare word, YAML's plain value, bash's `$(...)`: not a literal
-    ("constant.character", Some(Attr::Italic)),
-    ("markup.italic", Some(Attr::Italic)),
-    ("keyword", Some(Attr::Bold)),
+    ("constant", Some(Look::Num)),
+    ("constant.character", Some(Look::Str)),
+    ("keyword", Some(Look::Kw)),
     ("keyword.operator", None),
-    ("storage", Some(Attr::Bold)),
-    ("storage.type.string", None),
+    ("keyword.operator.dockerfile", Some(Look::Kw)), // `CMD` is an operator to that syntax
+    ("storage", Some(Look::Kw)),
+    ("storage.type.string", None), // the `f` of an f-string
     ("storage.modifier.lifetime", None),
-    ("markup.heading", Some(Attr::Bold)),
-    ("markup.bold", Some(Attr::Bold)),
+    ("variable.language", Some(Look::Kw)), // this, self, super
+    ("support.type", Some(Look::Ty)),
+    ("entity.name.type", Some(Look::Ty)),
+    ("entity.name.class", Some(Look::Ty)),
+    ("entity.name.struct", Some(Look::Ty)),
+    ("entity.name.enum", Some(Look::Ty)),
+    ("entity.name.trait", Some(Look::Ty)),
+    ("entity.other.inherited-class", Some(Look::Ty)),
+    ("entity.name.function", Some(Look::Fun)),
+    ("support.function", Some(Look::Fun)),
+    ("support.macro", Some(Look::Fun)),
+    ("variable.function", Some(Look::Fun)),
+    ("markup.heading", Some(Look::Bold)),
+    ("markup.bold", Some(Look::Bold)),
 ];
 
-fn attr_of(scope: Scope) -> Option<Attr> {
-    static RULES_SCOPES: OnceLock<Vec<(Scope, Option<Attr>)>> = OnceLock::new();
+fn attr_of(scope: Scope) -> Option<Look> {
+    static RULES_SCOPES: OnceLock<Vec<(Scope, Option<Look>)>> = OnceLock::new();
     let rules = RULES_SCOPES.get_or_init(|| {
         RULES.iter().filter_map(|&(s, a)| Some((Scope::new(s).ok()?, a))).collect()
     });
@@ -95,12 +100,6 @@ impl Syn {
     /// A line `line` was edited, or lines were inserted or removed there: the states below it are stale.
     pub fn edit(&mut self, line: usize) {
         self.states.truncate(line / EVERY + 1);
-    }
-
-    /// How many lines must be parsed to get from the nearest valid state to `line`: if that is
-    /// a lot, do it in the background (SYN-3) and show the lines plain meanwhile.
-    pub fn distance(&self, line: usize) -> usize {
-        line - (line / EVERY).min(self.states.len() - 1) * EVERY
     }
 
     /// The spans of lines `from..from + n` (fewer if `text` ends). Parses from the nearest
@@ -144,6 +143,6 @@ impl Syn {
 }
 
 /// How a char looks while this is the stack of scopes it is in.
-fn look(stack: &ScopeStack) -> Option<Attr> {
+fn look(stack: &ScopeStack) -> Option<Look> {
     stack.as_slice().iter().filter_map(|&s| attr_of(s)).min()
 }

@@ -45,6 +45,11 @@ impl Marks {
         self.files.insert(path);
     }
 
+    /// Every file that changed (MARK-3 narrows the tree to these, the open ones and the recent).
+    pub fn files(&self) -> impl Iterator<Item = &PathBuf> {
+        self.files.iter()
+    }
+
     /// Whether the name of this path gets the change color.
     pub fn changed(&self, path: &Path) -> bool {
         self.files.contains(path)

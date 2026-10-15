@@ -1,10 +1,13 @@
-//! TREE-5, FIND-3: reading a directory, and listing the files of a repository.
+//! TREE-5, FIND-3, BUF-1: reading a directory, listing the files of a repository, and the
+//! private directory that snapshots go to.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
 use sim::io;
 use sim::tree::Entry;
-use std::os::unix::fs::symlink;
+use std::ffi::OsString;
+use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+use std::path::Path;
 
 fn sorted(mut v: Vec<Entry>) -> Vec<(String, bool)> {
     v.sort_by(|a, b| a.name.cmp(&b.name));
@@ -106,4 +109,119 @@ fn find_3_not_a_repository_is_a_clear_error_and_so_is_a_missing_directory() {
     assert!(err.starts_with("not a git repository: ") && err.contains("io-notrepo"), "{err}");
     let err = io::git_files(&d.0.join("missing")).unwrap_err();
     assert!(err.starts_with("cannot run git in "), "{err}");
+}
+
+// ---- BUF-1: the directory of snapshots (SAFE-6) ----
+
+fn os(s: &str) -> Option<OsString> {
+    Some(OsString::from(s))
+}
+
+fn mode(p: &Path, m: u32) {
+    std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap();
+}
+
+#[test]
+fn buf_1_the_snapshot_directory_is_si_s_and_it_is_made_private() {
+    let d = temp_dir("snap-ok");
+    let got = io::snapshot_dir(Some(d.0.clone().into()), os("/home/nobody")).unwrap();
+    assert_eq!(got, d.0.join("si"));
+    let m = std::fs::metadata(&got).unwrap();
+    assert_eq!(m.mode() & 0o777, 0o700);
+    assert_eq!(io::private(&got).unwrap(), m.uid(), "the uid of the probe is the owner's");
+    assert!(std::fs::read_dir(&got).unwrap().next().is_none(), "the probe is gone");
+    // From $HOME when there is no $XDG_STATE_HOME; the same directory the second time.
+    let home = temp_dir("snap-home");
+    let got = io::snapshot_dir(None, Some(home.0.clone().into())).unwrap();
+    assert_eq!(got, home.0.join(".local/state/si"));
+    assert_eq!(io::snapshot_dir(None, Some(home.0.clone().into())).unwrap(), got);
+}
+
+#[test]
+fn buf_1_without_a_state_directory_there_are_no_snapshots_and_never_a_shared_fallback() {
+    for (xdg, home) in
+        [(None, None), (os("rel/state"), os("rel/home")), (os(""), os("")), (os("rel"), None)]
+    {
+        let err = io::snapshot_dir(xdg.clone(), home.clone()).unwrap_err();
+        assert!(err.contains("neither $XDG_STATE_HOME nor $HOME"), "{xdg:?} {home:?}: {err}");
+    }
+    // A relative $XDG_STATE_HOME is ignored (the XDG rule), and $HOME is used.
+    let home = temp_dir("snap-rel");
+    let got = io::snapshot_dir(os("relative"), Some(home.0.clone().into())).unwrap();
+    assert!(got.starts_with(&home.0));
+    assert!(!std::env::temp_dir().join("si").starts_with(&got));
+}
+
+#[test]
+fn buf_1_a_directory_that_others_can_enter_or_that_is_a_link_is_refused() {
+    let d = temp_dir("snap-open");
+    let si = d.0.join("si");
+    std::fs::create_dir_all(&si).unwrap();
+    for m in [0o755, 0o710, 0o701, 0o777] {
+        mode(&si, m);
+        let err = io::snapshot_dir(Some(d.0.clone().into()), None).unwrap_err();
+        assert!(err.contains("is not private"), "{m:o}: {err}");
+    }
+    mode(&si, 0o700);
+    assert!(io::snapshot_dir(Some(d.0.clone().into()), None).is_ok());
+    // A symlink to a directory that is private is still a link: not a real directory.
+    let d = temp_dir("snap-link");
+    let real = d.0.join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    mode(&real, 0o700);
+    symlink(&real, d.0.join("si")).unwrap();
+    let err = io::snapshot_dir(Some(d.0.clone().into()), None).unwrap_err();
+    assert!(err.contains("is not private"), "{err}");
+    // And a plain file in the way.
+    let d = temp_dir("snap-file");
+    make(&d.0, &["si"]);
+    assert!(io::snapshot_dir(Some(d.0.clone().into()), None).is_err());
+}
+
+#[test]
+fn buf_1_a_snapshot_file_of_someone_else_is_never_read() {
+    let d = temp_dir("snap-foreign");
+    let state = io::snapshot_dir(Some(d.0.clone().into()), None).unwrap();
+    let uid = std::fs::metadata(&state).unwrap().uid();
+    let key = "/p/a.txt";
+    assert!(!io::foreign(&state, key, uid), "nothing there");
+    let snap = si::io::journal::Snapshot {
+        path: key.into(),
+        pid: 1,
+        time_ms: 1,
+        base: b"b".to_vec(),
+        text: b"t".to_vec(),
+    };
+    si::io::journal::write(&state, &snap).unwrap();
+    assert!(!io::foreign(&state, key, uid), "ours");
+    assert!(io::foreign(&state, key, uid + 1), "had it been someone else's");
+    assert!(!io::foreign(&state, "/p/other.txt", uid + 1), "other files have their own");
+}
+
+#[test]
+fn buf_1_with_snapshots_off_saves_still_work_and_nothing_is_written_anywhere_shared() {
+    let d = temp_dir("snap-off");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let saves = io::save_thread(None, tx.clone());
+    let (jobs, finished) = io::journal_thread(None, None, tx);
+    let target = d.0.join("f.txt");
+    std::fs::write(&target, "old\n").unwrap();
+    saves.send((1, target.to_string_lossy().into_owned(), b"new\n".to_vec(), None)).unwrap();
+    match rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() {
+        sim::sim::SimEvent::App(1, si::core::app::Event::Saved(Ok(_))) => {}
+        e => panic!("{e:?}"),
+    }
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "new\n");
+    // The journal thread takes its jobs and does nothing with them.
+    jobs.send(io::Job::Snap(1, si::core::app::Effect::Unsnapshot)).unwrap();
+    drop(jobs);
+    assert!(matches!(
+        finished.recv_timeout(std::time::Duration::from_secs(5)),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
+    ));
+    assert!(!Path::new(io::DEAD_STATE).exists());
+    assert!(
+        std::fs::create_dir_all(io::DEAD_STATE).is_err(),
+        "recovery copies cannot be made there"
+    );
 }

@@ -92,3 +92,48 @@ fn syn_3_bench_load_first_highlight_and_edit() {
     assert!(per_line < Duration::from_micros(200), "{per_line:?}");
     assert!(one < Duration::from_millis(1), "{one:?}");
 }
+
+/// SYN-3: what the user waits for, end to end: a request of the event loop to the highlighter's
+/// thread and its answer, on a 100,000-line file.
+#[test]
+#[ignore = "benchmark: run with --release"]
+fn syn_3_bench_the_highlighter_from_request_to_answer() {
+    use ropey::Rope;
+    use sim::io::highlight_thread;
+    use sim::sim::{Req, SimEvent};
+    let text = source(100_000).join("\n") + "\n";
+    let (tx, rx) = std::sync::mpsc::channel();
+    let jobs = highlight_thread(tx);
+    let ask = |ver: u64, text: &Rope, from: usize| {
+        let t = Instant::now();
+        let req = Req { id: 1, name: "main.rs".into(), ver, text: text.clone(), from, n: 70 };
+        jobs.send(req).unwrap();
+        let Ok(SimEvent::Spans(h)) = rx.recv_timeout(Duration::from_secs(60)) else {
+            panic!("no answer")
+        };
+        assert_eq!((h.ver, h.spans.len()), (ver, 70));
+        t.elapsed()
+    };
+    let mut rope = Rope::from_str(&text);
+    let first = ask(1, &rope, 0);
+    let jump = ask(2, &rope, 50_000);
+    let near = ask(3, &rope, 50_040);
+    // Typing at line 50,000 (the cursor line and the screenful around it), worst of 100 keys.
+    let (mut edit, mut worst) = (Duration::ZERO, Duration::ZERO);
+    for i in 0..100 {
+        let at = rope.line_to_char(50_010) + 4;
+        rope.insert_char(at, 'x');
+        let d = ask(10 + i, &rope, 49_990);
+        (edit, worst) = (edit + d, worst.max(d));
+    }
+    // Back at the top after all that: the states at the top are still there.
+    let back = ask(200, &rope, 0);
+    println!("the highlighter, window of 70 lines, 100,000 lines of Rust:");
+    println!("  the first window (loads the syntaxes, cold):  {first:.2?}");
+    println!("  a jump 50,000 lines down (plain until then):  {jump:.2?}");
+    println!("  50,040 lines down, the states are there:      {near:.2?}");
+    println!("  an edit and its window: mean {:.2?}, worst {worst:.2?}", edit / 100);
+    println!("  back at the top:                              {back:.2?}");
+    assert!(first < Duration::from_millis(100), "{first:?}");
+    assert!(worst < Duration::from_millis(50), "{worst:?}");
+}

@@ -1,16 +1,21 @@
-//! TREE-1, BUF-1, BUF-3, SPEED-1
+//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, SPEED-1, SPEED-2
 //! The event loop: several si Apps, the panel, the threads, running Effects. It is si's main.rs
 //! for many files: one save thread and one journal thread for all of them, a watcher for each,
-//! and every job and answer tagged with the id of its file.
+//! and every job and answer tagged with the id of its file. The file list, git's status, the
+//! history and the highlighter each run in the background. The first frame is drawn before the
+//! terminal is asked for its colors.
 #![forbid(unsafe_code)]
 use crossterm::event::{Event as Ev, KeyCode};
 use si::core::app::{Effect, Event};
 use si::io::file;
-use si::io::term::{self, Term};
+use si::io::term;
 use si::io::watch::watch;
 use signal_hook::consts::{SIGHUP, SIGTERM};
+use sim::color::{self, Palette};
 use sim::io::{self as sio, Job, MERGE};
-use sim::sim::{Id, Sim, SimEffect, SimEvent, start};
+use sim::paint::Painter;
+use sim::rank::History;
+use sim::sim::{Env, Id, Sim, SimEffect, SimEvent, start};
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::{self, IsTerminal};
@@ -69,8 +74,21 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     let (tx, rx) = mpsc::channel();
-    let state = sio::snapshot_dir();
-    let (mut sim, mut fx) = Sim::new(s, cwd, size);
+    // SAFE-6: no private state directory, no snapshots; the status line says so once.
+    let state = sio::snapshot_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
+    let state =
+        state.map_err(|e| drop(tx.send(SimEvent::Notice(format!("snapshots are off: {e}")))));
+    let history = sio::state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
+    let truecolor = matches!(env::var("COLORTERM").as_deref(), Ok("truecolor" | "24bit"));
+    let env = Env {
+        cwd,
+        size,
+        now: sio::now_ms() / 1000,
+        history: history.as_deref().map_or_else(History::default, sio::load_history),
+        pal: Palette::new(truecolor),
+    };
+    let (mut sim, mut fx) = Sim::new(s, env);
+    let state = state.ok();
 
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -83,7 +101,16 @@ fn main() -> ExitCode {
     }
     let t = tx.clone();
     thread::spawn(move || {
+        // The terminal's replies to the color query come in as keys (Alt+`]`, the payload, Alt+`\`):
+        // they are put together here for a moment after the start and never reach the App.
+        let (mut reply, until) = (None, Instant::now() + Duration::from_secs(2));
         while let Ok(ev) = crossterm::event::read() {
+            if let (Ev::Key(k), true) = (&ev, truecolor && Instant::now() < until)
+                && let Some(done) = color::feed(&mut reply, k)
+            {
+                done.into_iter().for_each(|s| drop(t.send(SimEvent::Osc(s))));
+                continue;
+            }
             if let Some(e) = from_term(ev)
                 && t.send(e).is_err()
             {
@@ -103,9 +130,13 @@ fn main() -> ExitCode {
             drop(t.send(SimEvent::Tick(n * 1000)));
         }
     });
-    let (jobs, finished) = sio::journal_thread(state.clone(), tx.clone());
+    let (jobs, finished) = sio::journal_thread(state.clone(), history, tx.clone());
     let saves = sio::save_thread(state.clone(), tx.clone());
-    let mut term = Term::new(io::stdout(), env::var_os("TMUX").is_some());
+    let highlights = sio::highlight_thread(tx.clone());
+    let (r1, r2) = (sim.root.clone(), sim.root.clone());
+    let files = sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1)));
+    let git = sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2)));
+    let (mut painter, tmux) = (Painter::new(io::stdout()), env::var_os("TMUX").is_some());
     let (mut watchers, mut local, mut first) = (HashMap::<Id, Held>::new(), vec![], true);
     loop {
         let mut frame = None;
@@ -120,10 +151,15 @@ fn main() -> ExitCode {
                             drop(t.send(SimEvent::Listing(dir, r)));
                         });
                     }
+                    SimEffect::Files => drop(files.send(())),
+                    SimEffect::Status => drop(git.send(())),
+                    SimEffect::History(h) => drop(jobs.send(Job::History(h))),
+                    SimEffect::Highlight(req) => drop(highlights.send(req)),
                     SimEffect::Open(id, path) => {
                         // Watching starts before the file is read, so that no change slips in between.
                         watchers.extend(watching(&tx, id, &path));
-                        local.push(sio::open(&state, id, &path, std::path::Path::new(&path)));
+                        let at = std::path::Path::new(&path);
+                        local.push(sio::open(state.as_deref(), id, &path, at));
                     }
                     SimEffect::Close(id) => drop(watchers.remove(&id)),
                     SimEffect::Hold(id, key, pid) => drop(jobs.send(Job::Hold(id, key, pid))),
@@ -141,7 +177,9 @@ fn main() -> ExitCode {
                             drop(watchers.remove(&id)); // the old watcher's thread ends before the new one starts
                             watchers.extend(watching(&tx, id, &path));
                         }
-                        Effect::Clipboard(text) => drop(term.clipboard(&text)),
+                        Effect::Clipboard(text) => {
+                            drop(painter.write(&term::clipboard(&text, tmux)))
+                        }
                         Effect::Snapshot { .. } | Effect::Unsnapshot => {
                             drop(jobs.send(Job::Snap(id, e)))
                         }
@@ -161,12 +199,16 @@ fn main() -> ExitCode {
             fx = local.drain(..).flat_map(|ev| sim.update(ev)).collect();
         }
         if let Some(f) = frame
-            && term.draw(f).is_err()
+            && painter.draw(f).is_err()
         {
             drop(tx.send(SimEvent::Signal(SIGHUP))); // the terminal is gone
         }
         if std::mem::take(&mut first) {
             e2e_panic();
+            if truecolor {
+                // SYN-1: asked after the first frame; the replies come back as `SimEvent::Osc`.
+                drop(painter.write(color::QUERY.as_bytes()));
+            }
         }
         let Ok(ev) = rx.recv() else { return ExitCode::FAILURE };
         fx = sim.update(ev);

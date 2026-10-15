@@ -11,11 +11,16 @@ si = { path = ".." }
 crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste"] }
 signal-hook = "0.3"
 unicode-width = { version = "0.2", default-features = false }
-# syntect, trimmed to what sim uses (SYN-1, SYN-4):
-# - default-features off: no onig (C regex), no html, no default themes (sim never uses a color)
-# - default-syntaxes: the bundled syntax set, loaded from its compressed dump
+# SYN-3: the highlighter's thread is given a clone of the buffer's rope (O(1)), never a copy of the text.
+ropey = { version = "1.6", default-features = false, features = ["simd"] }
+# syntect and its syntaxes, trimmed to what sim uses (SYN-1, SYN-4):
+# - default-features off: no onig (C regex), no html, no default themes (sim has its own colors)
+# - parsing: the parser and the loader of the compressed syntax dump
 # - regex-fancy: the pure-Rust regex backend (fancy-regex)
-syntect = { version = "5", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
+# - two-face: bat's syntax set (TOML, TypeScript, Dockerfile, ...) instead of syntect's own
+#   default one, which is why syntect's `default-syntaxes` is off: the binary holds one set only
+syntect = { version = "5", default-features = false, features = ["parsing", "regex-fancy"] }
+two-face = { version = "0.5", default-features = false, features = ["syntect-fancy"] }
 
 [dev-dependencies]
 proptest = "1"

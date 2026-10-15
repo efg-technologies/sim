@@ -1,9 +1,11 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2
-//! The impure helpers: reading files and directories, the threads that save and keep snapshots,
-//! git, and the history file in sim's state directory.
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3
+//! The impure helpers: reading files and directories, the threads that save and keep snapshots
+//! and highlight, git, the list of files, and the history file in sim's state directory.
 use crate::rank::History;
-use crate::sim::{Found, Id, Opened, SimEvent};
+use crate::sim::{Found, Hl, Id, Opened, Req, SimEvent};
+use crate::syn::{Spans, Syn};
 use crate::tree::Entry;
+use ropey::Rope;
 use si::core::app::{Effect, Event, Read};
 use si::io::file::{self, Saved, why};
 use si::io::journal::{self, Snapshot};
@@ -11,12 +13,12 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::{env, thread};
 
 /// How long a diff may take before it gives up (PROP-7).
 pub const MERGE: Duration = Duration::from_millis(50);
@@ -31,13 +33,52 @@ pub fn read(path: &str) -> Read {
     }
 }
 
+/// Where recovery copies go when snapshots are off: a path nothing can be made under.
+pub const DEAD_STATE: &str = "/dev/null/sim-no-state";
+
+/// `$XDG_STATE_HOME`, else `$HOME/.local/state`; a relative path is ignored, as the XDG spec says.
+fn state_base(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    let abs = |v: Option<OsString>| v.map(PathBuf::from).filter(|p| p.is_absolute());
+    abs(xdg).or_else(|| abs(home).map(|h| h.join(".local/state")))
+}
+
+/// SAFE-6: `dir` must be private to us: a real directory (not a symlink) that we own and that
+/// group and others cannot enter. Returns our uid, which libc is not needed for: it is the owner
+/// of a file we create there (the probe). This is si's `file::private`, which this tree's si
+/// does not have yet.
+pub fn private(dir: &Path) -> io::Result<u32> {
+    let m = fs::symlink_metadata(dir)?;
+    let probe = dir.join(format!(".owner-{}-{}", std::process::id(), now_ms()));
+    let mine = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&probe);
+    let mine = mine.and_then(|f| f.metadata());
+    drop(fs::remove_file(&probe));
+    let uid = mine?.uid();
+    let ok = m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0;
+    ok.then_some(uid).ok_or_else(|| {
+        io::Error::other(format!("{} is not private (yours, mode 700)", dir.display()))
+    })
+}
+
 /// Where snapshots go: si's directory, so that si and sim recover each other's files (SAFE-6).
-pub fn snapshot_dir() -> PathBuf {
-    let var = |k| env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    var("XDG_STATE_HOME")
-        .or_else(|| var("HOME").map(|h| h.join(".local/state")))
-        .unwrap_or_else(env::temp_dir)
-        .join("si")
+/// With neither variable set (or no absolute path in them) there is none, never a shared place
+/// such as /tmp; and it must be private (see `private`). `Err` says why snapshots are off.
+pub fn snapshot_dir(xdg: Option<OsString>, home: Option<OsString>) -> Result<PathBuf, String> {
+    let dir = state_base(xdg, home)
+        .ok_or("no state directory: neither $XDG_STATE_HOME nor $HOME is set")?
+        .join("si");
+    let make = DirBuilder::new().recursive(true).mode(0o700).create(&dir);
+    make.map_err(|e| format!("cannot make {}: {}", dir.display(), why(&e)))?;
+    private(&dir).map(|_| dir).map_err(|e| why(&e))
+}
+
+/// SAFE-6: whether a snapshot file of `key` in `state` belongs to someone other than `uid`.
+/// This tree's `journal::find` does not look at owners, so sim does not call it then.
+pub fn foreign(state: &Path, key: &str, uid: u32) -> bool {
+    let name = journal::file(state, key, 0);
+    let stem = name.file_name().and_then(|n| n.to_str()).and_then(|n| n.split('-').next());
+    let named = |e: &fs::DirEntry| e.file_name().to_string_lossy().starts_with(stem.unwrap_or("-"));
+    let mut entries = fs::read_dir(state).into_iter().flatten().flatten();
+    entries.any(|e| named(&e) && !e.metadata().is_ok_and(|m| m.uid() == uid))
 }
 
 pub fn now_ms() -> u64 {
@@ -52,27 +93,27 @@ fn key(path: &Path) -> String {
 /// The shell's answer to `SimEffect::Open` (BUF-1): `at` is where the file is, `shown` the name
 /// its App will show. A directory is shown in the panel; a file is read, and the snapshot that a
 /// dead session left for it (SAFE-6) is looked up.
-pub fn open(state: &Path, id: Id, shown: &str, at: &Path) -> SimEvent {
+pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
     if at.is_dir() {
         return SimEvent::Dir(shown.into());
     }
     let key = key(at);
-    let found = journal::find(state, &key, std::process::id()).map(|s| {
+    let found = state.and_then(|state| {
+        let uid = fs::metadata(state).ok()?.uid();
+        let s = journal::find(state, &key, std::process::id())
+            .filter(|_| !foreign(state, &key, uid))?;
         let (file, age) =
             (journal::file(state, &s.path, s.pid), now_ms().saturating_sub(s.time_ms));
-        Found(s, file.display().to_string(), age, Instant::now() + MERGE)
+        Some(Found(s, file.display().to_string(), age, Instant::now() + MERGE))
     });
-    SimEvent::Opened(Opened {
-        id,
-        path: shown.into(),
-        key,
-        file: read(&at.to_string_lossy()),
-        found,
-    })
+    let file = read(&at.to_string_lossy());
+    SimEvent::Opened(Opened { id, path: shown.into(), key, file, found })
 }
 
 /// A job for the journal thread.
 pub enum Job {
+    /// The history of opened files, to save (MARK-2).
+    History(History),
     /// A snapshot that a dead session left for this file, to delete when ours replaces it.
     Hold(Id, String, u32),
     /// A `Snapshot` or an `Unsnapshot` of this file's App.
@@ -80,35 +121,43 @@ pub enum Job {
 }
 
 /// The journal thread (SAFE-6) runs snapshots and removals of every file in order, so no key
-/// waits for a disk. The receiver reports `Disconnected` once the thread has finished what was
-/// sent. The first snapshot that cannot be written is told to the user through `tell`.
-pub fn journal_thread(state: PathBuf, tell: Sender<SimEvent>) -> (Sender<Job>, Receiver<()>) {
+/// waits for a disk, and saves the history (MARK-2) in `hist` as well. The receiver reports
+/// `Disconnected` once the thread has finished what was sent. The first snapshot and the first
+/// history that cannot be written are told to the user through `tell`.
+pub fn journal_thread(
+    state: Option<PathBuf>,
+    hist: Option<PathBuf>,
+    tell: Sender<SimEvent>,
+) -> (Sender<Job>, Receiver<()>) {
     let (jobs, rx) = mpsc::channel();
     let (done, finished) = mpsc::channel();
     thread::spawn(move || {
         let (pid, _done) = (std::process::id(), done);
-        let rm = |h: (String, u32)| journal::remove(&state, &h.0, h.1);
+        let rm = |h: (String, u32)| state.iter().for_each(|s| journal::remove(s, &h.0, h.1));
         // The snapshot of each file that is ours to delete: a recovered one, then our own.
-        let (mut held, mut told) = (HashMap::<Id, (String, u32)>::new(), false);
+        let (mut held, mut told) = (HashMap::<Id, (String, u32)>::new(), [false; 2]);
+        let mut say = |n: usize, what: String| {
+            if !std::mem::replace(&mut told[n], true) {
+                drop(tell.send(SimEvent::Notice(what)));
+            }
+        };
         for job in rx {
             match job {
+                Job::History(h) => {
+                    hist.iter().filter_map(|d| save_history(d, &h).err()).for_each(|e| say(1, e))
+                }
                 Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
                 Job::Snap(id, Effect::Snapshot { path, base, text }) => {
+                    let Some(state) = &state else { continue }; // snapshots are off
                     let [base, text] = [base, text].map(|r| r.to_string().into_bytes());
                     let path = path.map_or(String::new(), |p| key(Path::new(&p)));
                     let snap = Snapshot { path, pid, time_ms: now_ms(), base, text };
                     let mine = (snap.path.clone(), pid);
-                    let wrote = journal::write(&state, &snap);
-                    if wrote.is_ok() {
-                        held.insert(id, mine.clone()).filter(|old| *old != mine).map(rm);
-                    }
-                    if let Err(e) = wrote
-                        && !std::mem::replace(&mut told, true)
-                    {
-                        drop(tell.send(SimEvent::Notice(format!(
-                            "cannot write snapshots: {}",
-                            why(&e)
-                        ))));
+                    match journal::write(state, &snap) {
+                        Ok(()) => {
+                            held.insert(id, mine.clone()).filter(|old| *old != mine).map(rm);
+                        }
+                        Err(e) => say(0, format!("cannot write snapshots: {}", why(&e))),
                     }
                 }
                 Job::Snap(id, _) => drop(held.remove(&id).map(rm)),
@@ -122,9 +171,10 @@ pub fn journal_thread(state: PathBuf, tell: Sender<SimEvent>) -> (Sender<Job>, R
 pub type Save = (Id, String, Vec<u8>, Option<u64>);
 
 /// The save thread: one for all files, in order. Each answer is tagged with the file's id.
-pub fn save_thread(state: PathBuf, answers: Sender<SimEvent>) -> Sender<Save> {
+pub fn save_thread(state: Option<PathBuf>, answers: Sender<SimEvent>) -> Sender<Save> {
     let (jobs, rx) = mpsc::channel::<Save>();
     thread::spawn(move || {
+        let state = state.unwrap_or_else(|| DEAD_STATE.into()); // no recovery copies then (SAFE-2)
         for (id, path, bytes, expect) in rx {
             let ev = match file::save(&path, &bytes, expect, &state) {
                 Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn))),
@@ -198,13 +248,62 @@ pub fn git_prefix(dir: &Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out).trim_end_matches('\n').to_string())
 }
 
-/// MARK-2: `$XDG_STATE_HOME/sim`, else `$HOME/.local/state/sim` (the values of the two
-/// variables are passed in; a relative one is ignored, as the XDG spec says). There is no
+/// FIND-3: past this many files a walk stops (git's list has no limit): a walk of `/` or of a
+/// home directory must not eat the memory.
+const WALK_MAX: usize = 200_000;
+
+/// The files below `root` without git, relative to it. Links are files, never followed.
+fn walk(root: &Path) -> Vec<String> {
+    let (mut out, mut todo) = (vec![], vec![PathBuf::new()]);
+    while let Some(rel) = todo.pop().filter(|_| out.len() < WALK_MAX) {
+        for e in fs::read_dir(root.join(&rel)).into_iter().flatten().flatten() {
+            let path = rel.join(e.file_name());
+            match e.file_type() {
+                Ok(t) if t.is_dir() => todo.extend((e.file_name() != ".git").then_some(path)),
+                _ => out.push(path.to_string_lossy().into_owned()),
+            }
+        }
+    }
+    out
+}
+
+/// FIND-3: the files under `root`, sorted, relative to it: the repository's (tracked and
+/// untracked, not ignored) if `root` is in one, else a walk.
+pub fn files(root: &Path) -> Vec<String> {
+    let listed = |out: Vec<u8>| -> Vec<String> {
+        let names = out.split(|&b| b == 0).filter(|p| !p.is_empty());
+        names.map(|p| String::from_utf8_lossy(p).into_owned()).collect()
+    };
+    let mut list = git_files(root).map_or_else(|_| walk(root), listed);
+    list.sort_unstable();
+    list.dedup();
+    list
+}
+
+/// A background job that never runs twice at once: a request while it runs is one more run
+/// after it, however many requests came (FIND-3, MARK-1). Its answer goes to `tx`.
+pub fn worker(tx: Sender<SimEvent>, job: impl Fn() -> SimEvent + Send + 'static) -> Sender<()> {
+    let (ask, rx) = mpsc::channel();
+    thread::spawn(move || {
+        while rx.recv().is_ok() {
+            rx.try_iter().for_each(drop);
+            if tx.send(job()).is_err() {
+                return;
+            }
+        }
+    });
+    ask
+}
+
+/// MARK-1: git's status and where `root` lies below the top of the repository.
+pub fn status(root: &Path) -> Result<(Vec<u8>, String), String> {
+    Ok((git_status(root)?, git_prefix(root)?))
+}
+
+/// MARK-2: `$XDG_STATE_HOME/sim`, else `$HOME/.local/state/sim` (see `state_base`). There is no
 /// fallback to a temporary directory: the history must not sit where others can read it.
 pub fn state_dir(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
-    let abs = |v: Option<OsString>| v.map(PathBuf::from).filter(|p| p.is_absolute());
-    let base = abs(xdg_state_home).or_else(|| abs(home).map(|h| h.join(".local/state")))?;
-    Some(base.join("sim"))
+    Some(state_base(xdg_state_home, home)?.join("sim"))
 }
 
 /// The history saved in `dir`; empty if there is none, or it cannot be read.
@@ -235,4 +334,65 @@ pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {
     })?;
     let _ = File::open(dir).and_then(|d| d.sync_all()); // the rename has happened; this only makes it durable
     Ok(())
+}
+
+/// The first byte at which two texts differ, or an earlier one: ropes cut into chunks in different
+/// ways count as different where their chunks first do.
+fn first_diff(a: &Rope, b: &Rope) -> usize {
+    let mut at = 0;
+    for (p, q) in a.chunks().zip(b.chunks()) {
+        if p != q {
+            return at + p.bytes().zip(q.bytes()).take_while(|(x, y)| x == y).count();
+        }
+        at += p.len();
+    }
+    at
+}
+
+/// SYN-3: highlights windows of files off the main thread. It keeps a `Syn` (the parse states)
+/// for each file, and the text they were made from: where a new text first differs from that
+/// one is where the states stop being valid.
+#[derive(Default)]
+pub struct Highlighter(HashMap<Id, (Option<Syn>, Rope)>);
+
+impl Highlighter {
+    pub fn run(&mut self, req: Req) -> SimEvent {
+        let Req { id, name, ver, text, from, n } = req;
+        let line =
+            |i: usize| text.get_line(i).map(|l| l.to_string().trim_end_matches('\n').to_string());
+        let first = line(0).unwrap_or_default();
+        let (syn, seen) =
+            self.0.entry(id).or_insert_with(|| (Syn::new(&name, &first), Rope::new()));
+        let lines = text.len_lines();
+        let spans = match syn {
+            Some(syn) => {
+                if *seen != text {
+                    syn.edit(text.byte_to_line(first_diff(seen, &text).min(text.len_bytes())));
+                    *seen = text.clone();
+                }
+                syn.spans(&line, from, n)
+            }
+            None => vec![Spans::new(); n.min(lines.saturating_sub(from))],
+        };
+        SimEvent::Spans(Hl { id, ver, lines, from, spans })
+    }
+}
+
+/// The thread of the highlighter. Of the requests waiting for it, only the newest for each file
+/// is answered: the others are about text that is gone.
+pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<Req> {
+    let (jobs, rx) = mpsc::channel::<Req>();
+    thread::spawn(move || {
+        let mut hl = Highlighter::default();
+        while let Ok(first) = rx.recv() {
+            let mut latest = HashMap::from([(first.id, first)]);
+            rx.try_iter().for_each(|r| drop(latest.insert(r.id, r)));
+            for (_, r) in latest {
+                if tx.send(hl.run(r)).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    jobs
 }

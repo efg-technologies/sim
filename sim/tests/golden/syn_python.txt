@@ -1,29 +1,29 @@
 tool.py: Python
 |#!/usr/bin/env python3|
-|----------------------|
+|cccccccccccccccccccccc|
 |# comment with def and return|
-|-----------------------------|
+|ccccccccccccccccccccccccccccc|
 |import os|
-|BBBBBB...|
+|KKKKKK...|
 ||
 ||
 |class A:|
-|BBBBB...|
+|KKKKK.T.|
 |    """Docstring with return and if."""|
-|....-----------------------------------|
+|....ccccccccccccccccccccccccccccccccccc|
 ||
 ||
 |    def f(self, x):|
-|....BBB............|
+|....KKK.F..........|
 |        s = 'single' + "double" + f"{x} fmt"|
-|............iiiiiiii...iiiiiiii....i...iiiii|
+|............SSSSSSSS...SSSSSSSS....S...SSSSS|
 |        if x and not s:|
-|........BB.............|
+|........KK.............|
 |            return None  # done|
-|............BBBBBB.......------|
+|............KKKKKK.NNNN..cccccc|
 |        for i in range(3):|
-|........BBB...BB..........|
+|........KKK...KK.FFFFF.N..|
 |            pass|
-|............BBBB|
+|............KKKK|
 |        return x|
-|........BBBBBB..|
+|........KKKKKK..|

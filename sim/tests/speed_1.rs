@@ -1,5 +1,5 @@
 //! SPEED-1: with the panel open, a key on a 100,000-line file takes at most 1 ms at p99. The time
-//! of a key is `Sim::update` plus `Term::draw` into memory: everything before the write to the
+//! of a key is `Sim::update` plus `Painter::draw` into memory: everything before the write to the
 //! terminal (the panel, the composed frame and si's own PERF-2 work all included).
 //!
 //!   cargo test --release -p sim --test speed_1 -- --ignored bench --nocapture
@@ -7,8 +7,7 @@
 mod common;
 use common::*;
 use si::core::app::{Event, Key};
-use si::core::view::Frame;
-use si::io::term::Term;
+use sim::paint::Painter;
 use sim::sim::{SimEffect, SimEvent};
 use std::time::{Duration, Instant};
 
@@ -18,28 +17,42 @@ type Times = Vec<(Duration, Key)>;
 
 struct Bench {
     r: Rig,
-    term: Term<Vec<u8>>,
+    term: Painter<Vec<u8>>,
 }
 
 impl Bench {
     /// 100,000 lines in `big.rs`, a tree of some 300 files beside it, the panel open, the cursor
     /// in the middle of the file and the focus in the text.
-    fn new(size: (u16, u16)) -> Bench {
+    fn new(size: (u16, u16), colored: bool) -> Bench {
         let code = code_text(100_000, 70);
         let mut files: Vec<String> =
             (0..300).map(|i| format!("dir{}/file{i}.rs", i % 12)).collect();
         files.push(format!("big.rs={code}"));
         let names: Vec<&str> = files.iter().map(String::as_str).collect();
-        let mut r = rig_sized("speed-1", &names, &["big.rs"], size);
+        // A history as full as it gets (MARK-2: 1,000 files), for the marks of the panel.
+        let mut r = rig_env("speed-1", &names, &["big.rs"], size, |e| {
+            for i in 0..1000 {
+                e.history.record(
+                    &e.cwd.join(format!("dir{}/file{i}.rs", i % 12)).to_string_lossy(),
+                    NOW - 60 * i as u64,
+                );
+            }
+        });
+        r.hold_spans = true; // parsing 50,000 lines takes seconds: once, and only if the run is to be colored
         r.keys("<C-n>llll<Esc>"); // the panel open, some directories expanded
         r.keys("50000G");
+        if colored {
+            r.deliver_spans();
+            let colored = r.shot.looks.iter().flatten().any(|(_, l)| *l != sim::paint::Look::Bold);
+            assert!(colored, "the text on screen has its colors (SYN-1)");
+        }
         assert!(r.sim.panel.open && !r.sim.panel.focus);
         let b = &r.app().buf;
         assert!(
             b.lines() >= 100_000 && b.line_of(b.cursor) == 49_999,
             "the big file, in the middle"
         );
-        Bench { r, term: Term::new(Vec::new(), false) }
+        Bench { r, term: Painter::new(Vec::new()) }
     }
 
     fn time(&mut self, keys: &str) -> Times {
@@ -49,7 +62,6 @@ impl Bench {
                 let t = Instant::now();
                 for e in self.r.sim.update(SimEvent::Term(Event::Key(k))) {
                     if let SimEffect::Render(f) = e {
-                        let f: Frame = f;
                         self.term.draw(f).unwrap();
                     }
                 }
@@ -123,8 +135,8 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
         let kinds: [(&str, Kind); 4] =
             [("motions", motions), ("insert", inserts), ("delete", deletes), ("panel", panel)];
         for (name, run) in kinds {
-            run(&mut Bench::new(size)); // warm up: page in the text and the allocator
-            let mut b = Bench::new(size);
+            run(&mut Bench::new(size, false)); // warm up: page in the text and the allocator
+            let mut b = Bench::new(size, true);
             let mut t = run(&mut b);
             t.sort();
             let (p50, p99, max) = (percentile(&t, 50), percentile(&t, 99), t[t.len() - 1]);
