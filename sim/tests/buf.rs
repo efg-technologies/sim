@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Effect;
+use si::core::app::{Effect, Event};
 use si::core::vi::Mode;
 use si::io::journal::{self, Snapshot};
 use sim::sim::{SimEffect, SimEvent};
@@ -598,4 +598,140 @@ fn buf_3_each_file_keeps_si_s_rules_for_proposals_when_it_is_closed() {
     r.keys(":q!\n");
     assert_eq!(r.open_files(), ["b.txt"], ":q! discards the proposals and closes only this file");
     assert!(r.quit.is_none());
+}
+
+// ---- on si's M4 and M5: the guarantees hold for every file ----
+
+#[test]
+fn buf_1_a_file_opens_where_it_was_closed_unless_keys_say_otherwise() {
+    let long: String = (1..=40).map(|i| format!("line {i}\n")).collect();
+    let mut r = rig("b1-place", &[&format!("a.txt={long}"), "b.txt=one\ntwo\nthree\n"], &[]);
+    // Where the files were left, in si's own places (CLI-6): the shell finds it while it reads.
+    let (ka, kb) = (key_of_in(&r, "a.txt"), key_of_in(&r, "b.txt"));
+    let mut all = journal::places(&r.state);
+    journal::touch(&mut all, ka, 30, 2);
+    journal::touch(&mut all, kb, 2, 3);
+    journal::save_places(&r.state, &all).unwrap();
+    r.keys("<CR>");
+    assert_eq!(r.status(), "a.txt  31:3  NORMAL");
+    r.keys("<C-n>j<CR>");
+    assert_eq!(r.status(), "b.txt  3:4  NORMAL  2/2");
+    // The keys of a `+cmd` or `file:line` win over the place, and only for the file they are for.
+    let mut r = rig("b1-place-keys", &["a.txt=one\ntwo\nthree\n", "b.txt=x\ny\nz\n"], &["a.txt:2"]);
+    let mut all = journal::places(&r.state);
+    journal::touch(&mut all, key_of_in(&r, "b.txt"), 2, 0);
+    journal::save_places(&r.state, &all).unwrap();
+    assert_eq!(r.status(), "a.txt  2:1  NORMAL");
+    r.keys(":e b.txt\n");
+    assert_eq!(r.status(), "b.txt  3:1  NORMAL  2/2", "another file is opened at its place");
+}
+
+fn key_of_in(r: &Rig, f: &str) -> String {
+    si::io::file::resolve(&r.cwd.join(f).to_string_lossy()).to_string_lossy().into_owned()
+}
+
+#[test]
+fn buf_3_leaving_remembers_where_each_file_was_left_in_si_s_way() {
+    let mut r = two("b3-remember");
+    r.keys("j<Tab>l");
+    r.log.clear();
+    r.keys(":qa\n");
+    let places: Vec<_> = r
+        .log
+        .iter()
+        .filter_map(|e| match e {
+            SimEffect::App(id, Effect::Remember { path, line, col }) => {
+                Some((*id, path.clone(), *line, *col))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(r.quit, Some(0));
+    assert_eq!(places.len(), 2, "{places:?}");
+    assert!(places.contains(&(r.sim.bufs[1].id, "b.txt".into(), 1, 0)));
+    assert!(places.contains(&(r.sim.bufs[0].id, "a.txt".into(), 0, 1)));
+    // A signal, and `:cq`, give them too (as they give each file its last snapshot).
+    let mut r = two("b3-remember-sig");
+    r.log.clear();
+    r.send(SimEvent::Signal(15));
+    let n =
+        r.log.iter().filter(|e| matches!(e, SimEffect::App(_, Effect::Remember { .. }))).count();
+    assert_eq!((n, r.quit), (2, Some(143)));
+}
+
+#[test]
+fn buf_1_every_file_runs_the_hook_of_the_environment_and_knows_the_working_directory() {
+    let mut r =
+        rig_env("b1-hook", &FILES, &[], (80, 24), |e| e.hook = Some("fcitx5-remote -c".into()));
+    r.keys("<CR>");
+    assert_eq!(r.app().cwd.as_deref(), Some(r.cwd.to_string_lossy().as_ref()));
+    assert_eq!(r.app().hook.as_deref(), Some("fcitx5-remote -c"));
+    r.keys("<C-n>j<CR>");
+    assert_eq!(r.open_files(), ["a.txt", "b.txt"]);
+    assert_eq!(r.app().hook.as_deref(), Some("fcitx5-remote -c"), "every file's App");
+    let hooks =
+        |r: &Rig| r.log.iter().filter(|e| matches!(e, SimEffect::App(_, Effect::Hook(_)))).count();
+    let before = hooks(&r);
+    r.keys("ix<Esc>"); // entering Normal mode again (VI-11)
+    assert_eq!(hooks(&r), before + 1);
+}
+
+#[test]
+fn buf_1_a_filter_belongs_to_the_file_it_was_started_in() {
+    let mut r = two("b1-filter");
+    r.keys(":%!tr a-z A-Z\n"); // in b.txt
+    let b = r.sim.bufs[1].id;
+    let spawned = r.log.iter().find_map(|e| match e {
+        SimEffect::App(id, Effect::Spawn { cmd, input }) => Some((*id, cmd.clone(), input.clone())),
+        _ => None,
+    });
+    assert_eq!(spawned, Some((b, "tr a-z A-Z".into(), b"B1\nB2\n".to_vec())));
+    r.keys("<Tab>");
+    // The answer finds b.txt wherever the user is, and a.txt knows nothing of it.
+    let done = Event::FilterDone(Some(0), b"b1\nB2\n".to_vec(), vec![], far());
+    r.send(SimEvent::App(b, done));
+    assert_eq!(r.sim.bufs[1].app.buf.hunks.len(), 1);
+    assert!(r.sim.bufs[0].app.buf.hunks.is_empty());
+    // An answer for a file that is not open (ids are never reused) is dropped.
+    r.send(SimEvent::App(77, Event::FilterDone(Some(0), vec![], vec![], far())));
+    assert_eq!(r.open_files(), ["a.txt", "b.txt"]);
+}
+
+#[test]
+fn buf_1_a_read_of_the_disk_older_than_a_save_s_answer_is_dropped_by_that_file() {
+    // PROP-1, per file: a watcher's read that began before the save was done must not undo it, and
+    // a read that began after it is taken in.
+    let mut r = two("b1-seq");
+    let a = r.sim.bufs[0].id;
+    r.keys("<Tab>x"); // a.txt: "ne"
+    let began = si::io::file::seq(); // a watcher's read starts here: it sees the old file
+    r.keys(":w\n");
+    assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ne\ntwo\n");
+    let read = |text: &str, seq| {
+        let hash = Some(si::core::buffer::hash(text.as_bytes()));
+        Event::Disk { bytes: Some(text.into()), hash, deadline: far(), seq }
+    };
+    r.send(SimEvent::App(a, read("one\ntwo\n", began)));
+    assert_eq!(r.text(), "ne\ntwo");
+    assert!(r.app().buf.marks.is_empty() && r.app().buf.hunks.is_empty() && !r.app().buf.dirty());
+    r.send(SimEvent::App(a, read("ne\ntwo\nthree\n", si::io::file::seq())));
+    assert_eq!(r.text(), "ne\ntwo\nthree", "a newer read is a change on disk");
+    assert!(!r.app().buf.marks.is_empty());
+}
+
+#[test]
+fn buf_1_the_seconds_of_a_running_filter_are_counted_on_the_screen_as_the_ticks_come() {
+    let mut r = two("b1-seconds");
+    r.keys(":%!sleep 100\n");
+    assert!(r.status().contains("filter 0s · Ctrl-c cancel"), "{}", r.status());
+    r.send(SimEvent::Tick(1000));
+    assert!(r.status().contains("filter 1s · Ctrl-c cancel"), "{}", r.status());
+    r.send(SimEvent::Tick(2000));
+    assert!(r.status().contains("filter 2s"), "{}", r.status());
+    // A tick that changes nothing on the screen draws nothing.
+    let mut quiet = two("b1-quiet");
+    let before = quiet.log.len();
+    let fx = quiet.sim.update(SimEvent::Tick(1000));
+    assert!(fx.iter().all(|e| !matches!(e, SimEffect::Render(_))), "{fx:?}");
+    assert_eq!(quiet.log.len(), before);
 }

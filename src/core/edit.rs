@@ -57,7 +57,7 @@ fn scan(b: &Buffer, i: usize, same: char, other: char, fwd: bool) -> Option<usiz
 
 impl App {
     /// A Normal-mode cursor rests on a char, not after the last one.
-    pub(super) fn clamp(&mut self) {
+    pub fn clamp(&mut self) {
         let b = &mut self.buf;
         let l = b.line_of(b.cursor);
         if self.vi.mode != Mode::Insert {

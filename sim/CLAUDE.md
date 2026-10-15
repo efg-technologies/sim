@@ -4,6 +4,7 @@
 @SPEC.md
 
 You are implementing sim: si for your own machine. sim is a separate binary in the `sim/` member of the si workspace. It reuses si's library (`si::core`, `si::io`) and adds a tree panel, several open files, marks for changed and likely files, syntax highlighting in color and the mouse.
+Its event loop is si's main.rs for many files: whatever si's shell does for its one file (numbered disk reads, the watcher, filters, the hook, places, the terminal's colors, the bounded wait at the quit) it does for each, and where si's library has a function sim calls it.
 Before starting any work, read sim's CONCEPT.md and SPEC.md, and si's CONCEPT.md, SPEC.md and CLAUDE.md in the repository root: si's rules hold here unless this file says otherwise.
 
 ## The pyramid
@@ -24,16 +25,17 @@ sim/
     find.rs        fuzzy matching of paths and ranking (pure)
     rank.rs        recency/frequency likelihood from the open history (pure)
     marks.rs       git status and on-disk changes → marks for files and directories (pure)
+    sim/ptr.rs     the mouse: clicks, drags and the wheel in the panel and the text (pure)
     syn.rs         syntect (bat's syntaxes) → colored spans per line, with cached parse states
-    color.rs       OKLCH, APCA, the terminal's palette from its OSC replies (pure)
-    paint.rs       the looks beyond si's four styles, the Screen, the Painter that writes it
-    layout.rs      the panel and the editor composed into one Screen: marks, search, colors (pure)
+    color.rs       what si's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, and the terminal's replies put together out of the keys (pure)
+    paint.rs       the looks beyond si's four styles, the Screen, the Painter that writes it, the mouse modes on and off
+    layout.rs      the panel and the editor composed into one Screen: marks, search, colors; the char under a point (pure)
     io.rs          directory reads, git, the file list, the history file, the threads (the impure parts)
 ```
 
 - Functional core, imperative shell, as in si: the pure modules never touch the file system, processes, clocks or the terminal
-- Each open file is one `si::core::app::App`. sim never reaches into an App's internals beyond its public API; when sim needs something si doesn't offer, add the smallest extension point to si (and keep si within its own 3,000 lines and its SPEC)
-- Colors: syntax colors come from the terminal's palette (OSC 4), adjusted for contrast; the change color stays the only chromatic background and no text color shares its hue (P3)
+- Each open file is one `si::core::app::App`. sim never reaches into an App's internals beyond its public API; when sim needs something si doesn't offer, add the smallest extension point to si (and keep si within its own 3,600 lines and its SPEC; when si is at its cap, only a visibility may change there)
+- Colors: the four styles are si's palette (`Event::Bg`, given to every App; `term::sgr` paints them); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; the change color stays the only chromatic background and no text color shares its hue (P3)
 - Dependencies: si, syntect and two-face (bat's syntaxes; pure-Rust regex backend), ropey. Anything else needs a reason in SPEC first
 - sim/src stays within 3,000 lines (counted like si's). Rules from si's CLAUDE.md (edition 2024, `#![forbid(unsafe_code)]`, clippy denies unwrap/expect/panic, no panics on I/O errors, `//!` ID headers, English everywhere) apply
 
@@ -52,4 +54,4 @@ sim/
 - **S1**: several files and the tree panel
 - **S2**: finding, marks for changed and likely files, focus
 - **S3**: typographic syntax highlighting
-- **S4**: the mouse, benches, polish
+- **S4**: the mouse (PTR-1, PTR-2), the benches again, polish; on si's M5 (numbered reads, the terminal's colors by si's palette)

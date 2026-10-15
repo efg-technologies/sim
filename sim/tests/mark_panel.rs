@@ -148,7 +148,7 @@ fn mark_1_git_is_asked_at_the_start_and_when_the_panel_opens_and_not_where_there
     assert_eq!(count(&key(&mut sim, Key::Ctrl('p'))), 1, "the panel opening again looks again");
     assert_eq!(count(&key(&mut sim, Key::Ctrl('n'))), 0);
     sim.update(SimEvent::Status(Err("not a git repository: /x".into())));
-    let fx = sim.update(SimEvent::App(0, Event::Saved(Ok((1, None)))));
+    let fx = sim.update(SimEvent::App(0, Event::Saved(Ok((1, None)), 1)));
     assert_eq!(count(&fx), 0, "no file with that id: nothing is asked");
 }
 

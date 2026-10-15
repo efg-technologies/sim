@@ -69,6 +69,7 @@ pub fn golden(name: &str, actual: &str) {
 
 // ---- driving Sim without threads or a terminal ----
 
+use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use si::core::app::{App, Effect, Event, Key};
 use si::core::view::{Frame, Style};
 use sim::io;
@@ -199,9 +200,10 @@ pub fn rig_env(
         rows: vec![],
         cursor: (0, 0),
         shape: si::core::view::Shape::Block,
+        pal: None,
     };
     let mut r = Rig {
-        shot: Screen { frame: blank.clone(), looks: vec![], pal: Default::default() },
+        shot: Screen { frame: blank.clone(), looks: vec![], syn: Default::default() },
         screen: blank,
         jobs: vec![],
         history: None,
@@ -254,19 +256,23 @@ impl Rig {
                     }
                     SimEffect::App(id, Effect::Write { path, bytes, expect_hash }) => {
                         let at = self.cwd.join(&path).to_string_lossy().into_owned();
-                        let ev =
-                            match si::io::file::save(&at, &bytes, expect_hash, Some(&self.state)) {
-                                Ok(si::io::file::Saved::Done(h, w)) => Event::Saved(Ok((h, w))),
-                                Ok(si::io::file::Saved::Conflict(d)) => {
-                                    Event::SaveConflict(d, far())
-                                }
-                                Err(e) => Event::Saved(Err(e)),
-                            };
+                        let (done, seq) = (
+                            si::io::file::save(&at, &bytes, expect_hash, Some(&self.state)),
+                            si::io::file::seq(),
+                        );
+                        let ev = match done {
+                            Ok(si::io::file::Saved::Done(h, w)) => Event::Saved(Ok((h, w)), seq),
+                            Ok(si::io::file::Saved::Conflict(d)) => {
+                                Event::SaveConflict(d, far(), seq)
+                            }
+                            Err(e) => Event::Saved(Err(e), seq),
+                        };
                         self.queue.push_back(SimEvent::App(id, ev));
                     }
                     SimEffect::App(id, Effect::Open(p)) => {
+                        let seq = si::io::file::seq();
                         let read = si::io::file::read(&self.cwd.join(&p).to_string_lossy());
-                        let ev = Event::Opened(p.clone(), read);
+                        let ev = Event::Opened(p.clone(), read, seq);
                         self.queue.push_back(SimEvent::App(id, ev));
                     }
                     SimEffect::Quit(c) => {
@@ -309,6 +315,25 @@ impl Rig {
             let r = io::read_dir(&dir);
             self.send(SimEvent::Listing(dir, r));
         }
+    }
+
+    /// The mouse at (`col`, `row`) of the screen, 0-based (PTR-1).
+    pub fn mouse(&mut self, kind: MouseEventKind, col: u16, row: u16) -> &mut Rig {
+        let m = MouseEvent { kind, column: col, row, modifiers: KeyModifiers::NONE };
+        self.send(SimEvent::Mouse(m));
+        self
+    }
+
+    /// A click with the left button: the press, then the release.
+    pub fn click(&mut self, col: u16, row: u16) -> &mut Rig {
+        self.mouse(MouseEventKind::Down(MouseButton::Left), col, row);
+        self.mouse(MouseEventKind::Up(MouseButton::Left), col, row)
+    }
+
+    /// One notch of the wheel.
+    pub fn wheel(&mut self, up: bool, col: u16, row: u16) -> &mut Rig {
+        let kind = if up { MouseEventKind::ScrollUp } else { MouseEventKind::ScrollDown };
+        self.mouse(kind, col, row)
     }
 
     pub fn app(&self) -> &App {
@@ -432,12 +457,30 @@ fn dump_rows(f: &Frame, looks: &[Looks]) -> String {
 /// What the watcher's thread sends when the file now holds `bytes`: the content with its hash.
 pub fn disk(bytes: &[u8]) -> Event {
     let hash = Some(si::core::buffer::hash(bytes));
-    Event::Disk { bytes: Some(bytes.to_vec()), hash, deadline: far() }
+    Event::Disk { bytes: Some(bytes.to_vec()), hash, deadline: far(), seq: si::io::file::seq() }
 }
 
 /// A deadline far away: a diff in a test never gives up.
 pub fn far() -> std::time::Instant {
     std::time::Instant::now() + std::time::Duration::from_secs(3600)
+}
+
+/// Runs si's scripts/pty_bench.py (which spawns a real binary in a pty and plays the terminal on
+/// the other side) and returns the key=value pairs it prints; none without python3.
+pub fn pty_bench(args: &[&str]) -> Option<std::collections::HashMap<String, f64>> {
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/pty_bench.py");
+    let out = match Command::new("python3").arg(script).args(args).output() {
+        Ok(out) => out,
+        Err(e) => {
+            eprintln!("skipped: python3 is needed for scripts/pty_bench.py, but: {e}");
+            return None;
+        }
+    };
+    eprint!("{}", String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "pty_bench.py {args:?} failed");
+    let out = String::from_utf8(out.stdout).unwrap();
+    let pairs = out.lines().filter_map(|l| l.split_once('='));
+    Some(pairs.map(|(k, v)| (k.to_string(), v.parse().unwrap())).collect())
 }
 
 // ---- benchmarks ----

@@ -8,3 +8,5 @@ Features we wanted but did not build yet.
 - Matches of a search shown in place with an underline (`hlsearch`), and trailing blanks made visible (`listchars` trail), both without a hue.
 - The characters of a search that matched, shown in the panel (bold or underlined in the file name): `Found::positions` has them already.
 - The terminal's own foreground (OSC 10) as the base of the selection's text, instead of a neutral gray.
+- Double and triple clicks to select a word and a line, scrolling by dragging past the edge of the text, and scrolling by a notch of the wheel in rows rather than lines when a line wraps (the App's view starts at a line).
+- Clicking in the status line or a tab-like list of files to switch files (BufferLine's click in the author's nvim); the position `2/5` is only text now.

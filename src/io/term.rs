@@ -136,7 +136,7 @@ pub fn wait_bg(rx: &Receiver<Event>, by: Instant) -> (Option<Rgb>, Vec<Event>) {
 
 /// The SGR parameters of a style (VIS-4): truecolor from the palette, or without one reverse video
 /// and faint stand in for the change and the secondary level.
-fn sgr(style: Style, pal: Option<Palette>) -> String {
+pub fn sgr(style: Style, pal: Option<Palette>) -> String {
     let c = |k: u8, (r, g, b): Rgb| format!(";{k}8;2;{r};{g};{b}");
     match (pal, style) {
         (None, _) => ["", ";2", ";7", ";2;9"][style as usize].into(),
