@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main, ci]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Edition 2024 needs Rust 1.85 or newer; stable is far past that.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      # The E2E suites drive si and sim inside tmux (each case on its own socket and no config).
+      - name: Install tmux (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux (macOS)
+        if: runner.os == 'macOS'
+        run: command -v tmux || brew install tmux
+      - run: tmux -V
+
+      # fmt, clippy -D warnings, tests, trace, line cap, release binary size.
+      - name: si - scripts/check.sh
+        run: sh scripts/check.sh
+      - name: sim - sim/scripts/check.sh
+        run: sh sim/scripts/check.sh
+
+      # No global or system git configuration may leak into the cases (they carry their own
+      # identity through the environment). Benches are timing-sensitive and stay out of CI.
+      - name: si - scripts/e2e.sh
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_SYSTEM: /dev/null
+        run: sh scripts/e2e.sh
+      - name: sim - sim/scripts/e2e.sh
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_SYSTEM: /dev/null
+        run: sh sim/scripts/e2e.sh
