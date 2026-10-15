@@ -1,6 +1,7 @@
 //! Helpers shared by the integration tests.
 #![allow(dead_code, clippy::unwrap_used)]
 use si::core::app::{App, Effect, Event, Key};
+use si::core::buffer::{Hunk, Mark, Words};
 use si::core::view::{Frame, Style};
 use unicode_width::UnicodeWidthChar;
 
@@ -98,6 +99,18 @@ pub fn temp_dir(name: &str) -> TempDir {
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     TempDir(d)
+}
+
+/// Runs `f` on a thread and gives up after `secs`: a command that spins must fail, not hang.
+pub fn within<T: Send + 'static>(secs: u64, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || drop(tx.send(f())));
+    rx.recv_timeout(std::time::Duration::from_secs(secs)).ok()
+}
+
+/// A deadline far away: a diff in a test never gives up (PROP-7 has its own tests).
+pub fn far() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(3600)
 }
 
 /// The status line (last row).
@@ -273,4 +286,80 @@ pub fn pty_bench(args: &[&str]) -> Option<std::collections::HashMap<String, f64>
             .map(|(k, v)| (k.to_string(), v.parse().unwrap()))
             .collect(),
     )
+}
+
+/// A mark of a change from disk; `words` are the columns to paint in the line.
+pub fn mark(line: usize, kind: char, words: Vec<std::ops::Range<usize>>) -> Mark {
+    Mark { line, kind, words: Some(words.into()) }
+}
+
+/// The columns a mark paints; `None` is the whole line.
+pub fn words(m: &Mark) -> Option<Vec<std::ops::Range<usize>>> {
+    m.words.as_ref().map(|w| w.to_vec())
+}
+
+/// A hunk that is a conflict with the disk.
+pub fn hunk(mine: std::ops::Range<usize>, theirs: &str, words: Option<Words>) -> Hunk {
+    Hunk { mine, theirs: theirs.into(), disk: true, words: words.map(std::sync::Arc::new) }
+}
+
+/// The number of cases of a property: `SI_FUZZ_CASES` if it is set, `default` otherwise.
+pub fn cases(default: u32) -> u32 {
+    std::env::var("SI_FUZZ_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// `text` (its lines, no final line break) with the lines `h.mine` replaced by the lines of
+/// `h.theirs`: what accepting the hunk must give (PROP-8).
+pub fn splice(text: &str, h: &Hunk) -> String {
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    let n = lines.len();
+    let theirs = h.theirs.split_inclusive('\n').map(|l| l.strip_suffix('\n').unwrap_or(l));
+    lines.splice(h.mine.start.min(n)..h.mine.end.min(n), theirs);
+    if lines.is_empty() {
+        lines.push("");
+    }
+    lines.join("\n")
+}
+
+/// What a decision key (`y n Y N`, pressed in REVIEW) must have done to the text and the hunks
+/// (PROP-8): a reject only drops hunks, an accept splices their lines in (for hunks that do not
+/// overlap, which is what a merge makes), and `y` and `n` drop exactly one.
+pub fn check_decision(
+    k: &str,
+    pre: &str,
+    pre_hunks: &[Hunk],
+    post: &str,
+    post_hunks: &[Hunk],
+) -> Result<(), String> {
+    let theirs = |v: &[Hunk]| v.iter().map(|h| h.theirs.to_string()).collect::<Vec<_>>();
+    let flat = pre_hunks.windows(2).all(|p| p[0].mine.end <= p[1].mine.start);
+    let fail = |why: &str| {
+        Err(format!("{k}: {why}: {pre:?} -> {post:?}; hunks {pre_hunks:?} -> {post_hunks:?}"))
+    };
+    match k {
+        "N" if post != pre || !post_hunks.is_empty() => fail("N changes the text or leaves hunks"),
+        "Y" if flat
+            && (!post_hunks.is_empty()
+                || post != pre_hunks.iter().rev().fold(pre.to_string(), |t, h| splice(&t, h))) =>
+        {
+            fail("Y is not every hunk spliced in")
+        }
+        "y" | "n" if pre_hunks.len() != post_hunks.len() + 1 => fail("not exactly one hunk went"),
+        "y" | "n" => {
+            // The hunk that went is one whose removal leaves the others as they were.
+            let rest = |i: usize| {
+                let mut t = theirs(pre_hunks);
+                t.remove(i);
+                t == theirs(post_hunks)
+            };
+            let want =
+                |i: usize| if k == "y" { splice(pre, &pre_hunks[i]) } else { pre.to_string() };
+            if (0..pre_hunks.len()).any(|i| rest(i) && post == want(i)) {
+                Ok(())
+            } else {
+                fail("the text is not the hunk's")
+            }
+        }
+        _ => Ok(()),
+    }
 }

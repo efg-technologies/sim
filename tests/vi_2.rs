@@ -168,6 +168,43 @@ fn vi_8_every_yank_goes_to_the_clipboard_and_nothing_else_does() {
 }
 
 #[test]
+fn vi_8_a_yank_says_what_it_took() {
+    for (text_, keys, want) in [
+        ("foo bar\nbaz", "yy", "1 line yanked"),
+        ("foo bar\nbaz", "2yy", "2 lines yanked"),
+        ("a\nb\nc\nd", "3yy", "3 lines yanked"),
+        ("foo bar\nbaz", "yj", "2 lines yanked"),
+        ("foo bar\nbaz", "Vy", "1 line yanked"),
+        ("foo bar\nbaz", "Vjy", "2 lines yanked"),
+        ("foo bar\nbaz", "yl", "1 char yanked"),
+        ("foo bar\nbaz", "yw", "4 chars yanked"),
+        ("foo bar\nbaz", "Y", "7 chars yanked"),
+        ("foo bar\nbaz", "y$", "7 chars yanked"),
+        ("foo bar\nbaz", "vly", "2 chars yanked"),
+        ("foo bar\nbaz", "v", "1 char yanked"),
+        ("hello world 12", "y$", "14 chars yanked"),
+        ("日本語", "yl", "1 char yanked"),
+        ("日本語", "y$", "3 chars yanked"),
+    ] {
+        let mut a = app(text_);
+        // (`v` alone selects a char; yanking it is `vy`.)
+        feed(&mut a, if keys == "v" { "vy" } else { keys });
+        assert_eq!(status(&screen(&mut a)), want, "{text_:?} {keys}");
+    }
+    // The message is for the next key only, and a yank of nothing says nothing.
+    let mut a = app("a b\nc");
+    feed(&mut a, "yw");
+    assert_eq!(status(&screen(&mut a)), "2 chars yanked");
+    feed(&mut a, "l");
+    assert_eq!(status(&screen(&mut a)), "[no name]  1:2  NORMAL");
+    let mut a = app("");
+    feed(&mut a, "yy");
+    assert_eq!(status(&screen(&mut a)), "1 line yanked", "an empty line is still a line");
+    feed(&mut a, "yl");
+    assert_eq!(status(&screen(&mut a)), "[no name]  1:1  NORMAL", "no char, no message");
+}
+
+#[test]
 fn vi_8_there_is_one_register_and_deletes_fill_it() {
     table(&[
         ("|ab cd", "dwp", "cab| d"),
@@ -250,6 +287,109 @@ fn vi_2_commands_that_edit_are_refused_in_a_read_only_buffer() {
         feed(&mut a, "<Esc>");
     }
     feed(&mut a, "yy");
-    assert_eq!(status(&screen(&mut a)).get(..4), Some("f  1"), "yanking is fine");
+    assert_eq!(status(&screen(&mut a)), "1 line yanked", "yanking is fine");
     assert!(matches!(a.update(Event::Tick(0)).len(), 0));
+}
+
+/// A count of 20 digits used to overflow (a panic in debug, a wrap in release: `j` moved up).
+#[test]
+fn vi_2_huge_counts_saturate_instead_of_overflowing() {
+    let keys =
+        ["j", "k", "l", "h", "$", "dd", "yy", ">>", "x", "rx", "<C-d>", "<C-u>", "<PageDown>"];
+    for k in keys.iter().chain(&["G", "J", "dj", "d$", "dl", "cc", "<lt><lt>", "p", "P", "."]) {
+        let keys = format!("jl99999999999999999999{k}<Esc>");
+        let r = within(10, move || {
+            let mut a = app("abc\ndef\nghi\njkl\n");
+            feed(&mut a, "yw");
+            feed(&mut a, &keys);
+            (a.buf.line_of(a.buf.cursor), text(&a).len())
+        });
+        assert!(r.is_some_and(|(_, len)| len < 1 << 20), "{k}: panicked, spun or grew: {r:?}");
+    }
+    table(&[
+        ("|abc\ndef\nghi", "99999999999999999999j", "abc\ndef\n|ghi"),
+        ("abc\ndef\n|ghi", "99999999999999999999k", "|abc\ndef\nghi"),
+        ("|abc", "99999999999999999999l", "ab|c"),
+        ("|abc\ndef", "99999999999999999999$", "abc\nde|f"),
+        ("a|bc\ndef", "99999999999999999999dd", "|"),
+        ("|abc\ndef", "99999999999999999999J", "abc| def"),
+        ("|abc", "99999999999999999999x", "|"),
+        ("|abc", "99999999999999999999rx", "|abc"),
+    ]);
+}
+
+/// The largest file si is specified for is 10 MB: a count must not make the text grow past 16 MiB
+/// (the allocation could abort the process with the unsaved text in it).
+#[test]
+fn vi_2_a_result_over_16_mib_is_refused_with_a_message() {
+    let mut a = app("abc def\n");
+    feed(&mut a, "yiw");
+    let r = within(20, move || {
+        for keys in ["18446744073709551615p", "100000000P", "6000000p"] {
+            feed(&mut a, keys);
+            assert_eq!(text(&a), "abc def", "{keys} was refused");
+            assert_eq!(status(&screen(&mut a)), "too large: 16 MiB at most", "{keys}");
+        }
+        feed(&mut a, "1000p");
+        text(&a).len()
+    });
+    assert_eq!(r, Some(7 + 3000), "a count that fits still works");
+    let mut a = app("abc\n");
+    feed(&mut a, "99999999999999999999rx");
+    assert_eq!(text(&a), "abc", "`r` with a count past the line does nothing");
+    let line = "a".repeat(4_300_000); // `r` of a 4-byte char over all of it would add 17 MB
+    let mut a = app(&line);
+    feed(&mut a, "4300000r😀");
+    assert_eq!(status(&screen(&mut a)), "too large: 16 MiB at most");
+    assert!(!a.buf.dirty());
+}
+
+#[test]
+fn vi_2_dot_after_a_visual_change_does_not_replay_the_typed_text() {
+    table(&[
+        ("|abc", "vcx<Esc>.", "|xbc"),
+        ("|abcd", "xvcQ<Esc>.", "|cd"),
+        ("|abc\ndef", "Vcx<Esc>.", "|x\ndef"),
+        ("|abcd", "xvd.", "|d"),
+        ("|abcd", "vlcX<Esc>x.", "|d"),
+    ]);
+}
+
+#[test]
+fn vi_2_dot_after_undo_repeats_the_change_not_the_undo() {
+    table(&[
+        ("|abc", "xu.", "|bc"),
+        ("|one\ntwo\nthree", "ddjddu.", "|two"),
+        ("|abc", "xu<C-r>.", "|c"),
+        ("|a b c", "dwuu.", "|b c"),
+    ]);
+}
+
+#[test]
+fn vi_2_j_adds_no_space_before_a_closing_paren() {
+    table(&[("|foo(\n)x", "J", "foo(|)x"), ("|a\n) b", "J", "a|) b"), ("|a\n(b", "J", "a| (b")]);
+}
+
+#[test]
+fn vi_8_taking_nothing_keeps_the_register_and_the_clipboard() {
+    for keys in ["x", "Y", "y$", "D", "C<Esc>", "yl", "dl", "dh", "yh"] {
+        let mut a = app("foo\n\nbar\n");
+        feed(&mut a, "yiwj");
+        let fx = feed(&mut a, keys);
+        assert!(clipboard(&fx).is_empty(), "{keys}: nothing taken, nothing for the clipboard");
+        feed(&mut a, "P");
+        assert_eq!(text(&a), "foo\nfoo\nbar", "{keys}: the register still holds `foo`");
+    }
+}
+
+#[test]
+fn vi_8_p_from_an_empty_register_says_so_and_does_not_move() {
+    for keys in ["p", "P", "3p", "3P"] {
+        let mut a = app("ab\ncd\n");
+        feed(&mut a, "j");
+        let before = marked(&a);
+        feed(&mut a, keys);
+        assert_eq!(marked(&a), before, "{keys}");
+        assert_eq!(status(&screen(&mut a)), "the register is empty", "{keys}");
+    }
 }

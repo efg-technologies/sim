@@ -1,19 +1,26 @@
 //! SAFE-6
 //! Snapshots and recovery: one atomically written file per (path, pid) in the state directory.
+use super::file::private;
 use crate::core::buffer::hash;
+use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Snapshot {
-    pub path: String,
-    pub pid: u32,
-    pub time_ms: u64,
-    pub base: Vec<u8>,
-    pub text: Vec<u8>,
+pub struct Snapshot { pub path: String, pub pid: u32, pub time_ms: u64, pub base: Vec<u8>, pub text: Vec<u8> }
+
+/// Why there are no snapshots and no recovery copies when `state_dir` finds no place for them.
+pub const NO_STATE: &str = "no state directory: neither $XDG_STATE_HOME nor $HOME is set";
+
+/// `$XDG_STATE_HOME/si`, else `$HOME/.local/state/si`. With neither set (or not an absolute path)
+/// there is none, never a shared place such as /tmp: snapshots and recovery copies are off (SAFE-6).
+pub fn state_dir(xdg: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+    let var = |v: Option<OsString>| v.map(PathBuf::from).filter(|p| p.is_absolute());
+    var(xdg).or_else(|| var(home).map(|h| h.join(".local/state"))).map(|d| d.join("si"))
 }
 
 // FNV-1a 64 of the path, in hex: stable across runs and Rust versions (unlike `DefaultHasher`).
@@ -58,11 +65,13 @@ fn running(pid: u32) -> bool {
     kill.map_or(true, |s| s.success())
 }
 
-/// Writes atomically into `state` (created 0700): temp file (0600, create_new) + fsync + rename.
+/// Writes atomically into `state` (created 0700, and refused unless private): temp file (0600,
+/// create_new) + fsync + rename.
 /// One file per (path, pid): the name holds the FNV-1a-64 hash of `path` and the pid, so two
 /// sessions on one file never overwrite each other.
 pub fn write(state: &Path, s: &Snapshot) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(state)?;
+    private(state)?;
     let dest = file(state, &s.path, s.pid);
     let tmp = dest.with_extension("tmp");
     let _ = fs::remove_file(&tmp); // left behind by a crashed session whose pid came round again
@@ -76,13 +85,15 @@ pub fn write(state: &Path, s: &Snapshot) -> io::Result<()> {
     put().inspect_err(|_| drop(fs::remove_file(&tmp)))
 }
 
-/// The newest snapshot of `path` whose process is no longer running (and is not `own_pid`).
+/// The newest snapshot of `path` whose process is no longer running (and is not `own_pid`). A
+/// state directory that is not private, and files in it that are not ours, are not looked at.
 pub fn find(state: &Path, path: &str, own_pid: u32) -> Option<Snapshot> {
-    let prefix = format!("{}-", stem(path));
+    let (prefix, uid) = (format!("{}-", stem(path)), private(state).ok()?);
     fs::read_dir(state)
         .ok()?
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .filter(|e| e.metadata().is_ok_and(|m| m.is_file() && m.uid() == uid))
         .filter_map(|e| decode(&fs::read(e.path()).ok()?))
         .filter(|s| s.path == path && s.pid != own_pid && !running(s.pid))
         .max_by_key(|s| s.time_ms)
