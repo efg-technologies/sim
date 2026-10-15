@@ -1,0 +1,33 @@
+README.md: Markdown
+|# Title with `code`|
+|BBBBBBBBBBBBBBBBBBB|
+||
+||
+|Some *emphasis* and **strong** text, plain again.|
+|.....iiiiiiiiii.....BBBBBBBBBB...................|
+||
+||
+|- item one|
+|..........|
+|- item two|
+|..........|
+||
+||
+|> quote|
+|.......|
+||
+||
+|```rust|
+|.......|
+|fn main() {}|
+|............|
+|```|
+|...|
+||
+||
+|## Second heading|
+|BBBBBBBBBBBBBBBBB|
+||
+||
+|<!-- hidden -->|
+|---------------|

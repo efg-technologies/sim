@@ -9,22 +9,28 @@
 #   - an ID is not listed in any `//!` header,
 # or when any test is named after an ID that is not in SPEC.
 # POSIX sh + awk only, so it also runs on macOS.
+#
+# It also checks sim (sim/scripts/trace.sh sets these). Defaults are si's own:
+#   TRACE_DIR       the directory that holds SPEC.md, .milestone, src/, tests/ (default: the repo root)
+#   TRACE_PREFIX    the letter of the milestones, M1 or S1 (default: M)
+#   TRACE_FAMILIES  the test-name families, joined with | (default: si's)
 set -eu
 
-cd "$(dirname "$0")/.."
+cd "${TRACE_DIR:-$(dirname "$0")/..}"
 
 for f in SPEC.md .milestone; do
   [ -f "$f" ] || { echo "trace: $f not found" >&2; exit 1; }
 done
 
+prefix=${TRACE_PREFIX:-M}
 milestone=$(tr -d ' \t\r\n' < .milestone)
 case $milestone in
-  M*) current=${milestone#M} ;;
+  "$prefix"*) current=${milestone#"$prefix"} ;;
   *) current= ;;
 esac
 case $current in
   "" | *[!0-9]*)
-    echo "trace: .milestone must look like M1, found '$milestone'" >&2
+    echo "trace: .milestone must look like ${prefix}1, found '$milestone'" >&2
     exit 1
     ;;
 esac
@@ -33,14 +39,14 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/si-trace.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 # Test-name families; IDs look like SAFE-1 and test names like safe_1_...
-families='cli|safe|prop|vis|vi|ai|perf|val'
+families=${TRACE_FAMILIES:-'cli|safe|prop|vis|vi|ai|perf|val'}
 
 # 1. IDs and milestones from SPEC.md, in file order. Indented sub-items are skipped.
-awk '
+awk -v prefix="$prefix" '
   /^- \*\*[A-Z]+-[0-9]+\*\* / {
     id = $2
     gsub(/\*/, "", id)
-    if (match($0, /\[M[0-9]+\]/)) {
+    if (match($0, "\\[" prefix "[0-9]+\\]")) {
       print "spec", id, substr($0, RSTART + 2, RLENGTH - 3)
     } else {
       print "nomilestone", id
@@ -99,8 +105,8 @@ dirs=src
 } > "$tmp/found"
 
 # 3. Join everything, print the table and decide.
-cat "$tmp/spec" "$tmp/found" | awk -v current="$current" -v milestone="$milestone" '
-  $1 == "nomilestone" { bad[++nbad] = "SPEC line for " $2 " has no [Mn] milestone" }
+cat "$tmp/spec" "$tmp/found" | awk -v current="$current" -v milestone="$milestone" -v prefix="$prefix" '
+  $1 == "nomilestone" { bad[++nbad] = "SPEC line for " $2 " has no [" prefix "n] milestone" }
   $1 == "spec" {
     if ($2 in ms) bad[++nbad] = "SPEC lists " $2 " twice"
     ids[++n] = $2
@@ -121,7 +127,7 @@ cat "$tmp/spec" "$tmp/found" | awk -v current="$current" -v milestone="$mileston
         if (tests[id] + 0 == 0) { notest++; note = note "  <- no test" }
         if (!(id in impl)) { noimpl++; note = note "  <- not in any //! header" }
       }
-      printf "%-9s M%-8s %5d  %s%s\n", id, ms[id], tests[id] + 0, (id in impl) ? "yes" : "no", note
+      printf "%-9s %s%-8s %5d  %s%s\n", id, prefix, ms[id], tests[id] + 0, (id in impl) ? "yes" : "no", note
     }
     for (i = 1; i <= nclaims; i++) {
       split(claims[i], c, " ")
