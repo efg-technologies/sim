@@ -5,6 +5,8 @@
 Files that AI and other processes rewrite: a human reads them as fast as possible, fixes them, and saves them without losing anything.
 It is meant to be `$EDITOR` (git commit, Claude Code's prompt editing, quick fixes). Open it for a moment, then close it.
 
+The name: si is short for *SIght*, as vi is for *VIsual* — and 視 (shi), to look closely, in Japanese. sim is *SI iMproved*, as vim is *Vi IMproved*.
+
 ## Principles
 
 Lower numbers take priority. When two principles conflict, the lower number wins.

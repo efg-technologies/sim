@@ -3,6 +3,9 @@ name = "si"
 version = "0.1.0"
 edition = "2024"
 publish = false
+description = "si (SIght): a vi for reading, where only the changes light up"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/efg-technologies/sim"
 
 # sim is built on si and lives in sim/. A bare `cargo test` or `cargo clippy` here still checks si
 # alone (the root package is the default member); sim has its own sim/scripts/check.sh.

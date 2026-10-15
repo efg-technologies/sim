@@ -2,6 +2,8 @@
 
 > si, at home: get to the file, read it, see what changed.
 
+sim is *SI iMproved*, as vim is *Vi IMproved*.
+
 sim is si for your own machine. It keeps everything si guarantees and adds what makes an editor comfortable to live in: a way to reach files, several files open at once, and help with reading code.
 si must work anywhere (over ssh, in any terminal, without relying on colors or plugins). sim may assume your own machine: a modern terminal with truecolor and italics, a local file system, git, and a mouse. And it uses color where color helps, as long as the change stays the easiest thing to find (P3).
 
