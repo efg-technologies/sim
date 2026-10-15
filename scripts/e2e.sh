@@ -22,6 +22,7 @@
 #   wait_exit [s]      wait until si has exited
 #   exit_code          print the exit code of si (after wait_exit)
 #   now_ms             print the time in milliseconds since the epoch
+#   restart            end the case's tmux session, so that `start` can run si again (files stay)
 #   $CASE_DIR          the case's temp directory (cwd of si); $HOME and $XDG_STATE_HOME are inside it
 set -eu
 
@@ -102,7 +103,16 @@ run_one() {
           screen
           echo "---------------------------"
         fi
+        panes=$(tm list-panes -a -F "#{pane_pid}" 2> /dev/null || true)
         tm kill-server 2> /dev/null || true
+        # si saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
+        for pid in $panes; do
+          tries=100
+          while pgrep -s "$pid" > /dev/null 2>&1 && [ "$tries" -gt 0 ]; do
+            sleep 0.05
+            tries=$((tries - 1))
+          done
+        done
         rm -rf "$CASE_DIR"
         exit "$status"' EXIT
   trap 'exit 130' HUP INT TERM
@@ -184,12 +194,58 @@ wrap() {
   chmod +x "$SI_BIN"
 }
 
+restart() {
+  tm kill-session -t "$SESSION"
+  rm -f "$CASE_DIR/.exit_code"
+}
+
 # After si is gone: the normal screen is back and the tty is in cooked mode again.
 terminal_restored() {
   wait_for icanon
   [ "$(tm display-message -p -t "$SESSION" '#{alternate_on}')" = 0 ]
   screen | grep -E -q '(^| )icanon( |$)'
   screen | grep -E -q '(^| )echo( |$)'
+}
+
+# git commit with si as the editor: ZZ makes the commit, :cq aborts it (the exit code reaches git).
+cli_3_git_commit_with_si() {
+  repo=$CASE_DIR/repo
+  git init -q "$repo"
+  printf 'one\n' > "$repo/a"
+  git -C "$repo" add a
+  cat > "$CASE_DIR/commit.sh" << EOF
+#!/bin/sh
+cd $(shq "$repo") || exit 1
+export GIT_EDITOR=$(shq "$SI_BIN") GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+export GIT_AUTHOR_NAME=si GIT_AUTHOR_EMAIL=si@example.com
+export GIT_COMMITTER_NAME=si GIT_COMMITTER_EMAIL=si@example.com
+git commit -q
+rc=\$?
+echo # tmux scrolls the first line away when the pane dies
+echo "git=\$rc"
+EOF
+  chmod +x "$CASE_DIR/commit.sh"
+  SI_BIN=$CASE_DIR/commit.sh
+  start
+  wait_for "COMMIT_EDITMSG  1:1  NORMAL"
+  typed "ifeat: add a"
+  keys Escape
+  typed ZZ
+  wait_for "git=0"
+  [ "$(git -C "$repo" log --format=%s)" = "feat: add a" ]
+
+  restart
+  printf 'two\n' > "$repo/b"
+  git -C "$repo" add b
+  start
+  wait_for "COMMIT_EDITMSG  1:1  NORMAL"
+  typed "iwill not be used"
+  keys Escape
+  typed ":cq"
+  keys Enter
+  wait_for "git=1"
+  [ "$(git -C "$repo" rev-list --count HEAD)" = 1 ]
+  ! git -C "$repo" diff --cached --quiet # b is still staged: nothing was committed
 }
 
 cli_4_quit_restores_terminal() {
@@ -240,6 +296,86 @@ safe_1_edit_save_quit_writes_the_bytes() {
   wait_exit
   [ "$(exit_code)" = 0 ]
   printf 'one\nthree\n' | cmp - "$CASE_DIR/f"
+}
+
+# Starts si on the arguments, types into the second line, waits until a snapshot has surely been
+# taken (a tick comes every second), and kills si with SIGKILL. Call `wrap` first.
+edit_and_kill_9() {
+  start "$@"
+  wait_for "  1:1  NORMAL"
+  typed "jcwTWO"
+  keys Escape
+  wait_for "modified"
+  sleep 1.5
+  kill -9 "$(cat "$CASE_DIR/si.pid")"
+  wait_for "exit=137"
+  restart
+}
+
+safe_6_recovers_after_kill_9() {
+  printf 'one\ntwo\n' > "$CASE_DIR/f"
+  wrap
+  edit_and_kill_9 f
+  start f
+  wait_for "recovered unsaved changes from"
+  wait_for "u to undo"
+  screen | grep -F -q "  2 TWO"
+  typed u
+  wait_for "  2 two"
+  gone modified
+  printf 'one\ntwo\n' | cmp - "$CASE_DIR/f"
+  typed ":q"
+  keys Enter
+  wait_for "exit=0"
+  # quitting forgot the snapshot: nothing is left to offer next time
+  [ -z "$(ls -A "$XDG_STATE_HOME/si")" ]
+}
+
+safe_6_sigterm_keeps_the_last_edit() {
+  printf 'one\ntwo\n' > "$CASE_DIR/f"
+  wrap
+  start f
+  wait_for "f  1:1  NORMAL"
+  # Less than a second after the start, no tick has snapshotted this yet: only the snapshot
+  # taken on the signal can hold it.
+  typed "jcwTWO"
+  keys Escape
+  wait_for "modified"
+  kill -TERM "$(cat "$CASE_DIR/si.pid")"
+  wait_for "exit=143"
+  restart
+  start f
+  wait_for "recovered unsaved changes from"
+  screen | grep -F -q "  2 TWO"
+}
+
+safe_6_an_unnamed_buffer_is_recovered_too() {
+  wrap
+  start
+  wait_for "[no name]  1:1  NORMAL"
+  typed "ilost words"
+  keys Escape
+  wait_for "modified"
+  sleep 1.5
+  kill -9 "$(cat "$CASE_DIR/si.pid")"
+  wait_for "exit=137"
+  restart
+  start
+  wait_for "recovered unsaved changes from"
+  screen | grep -F -q "  1 lost words"
+}
+
+safe_6_a_file_changed_meanwhile_keeps_the_snapshot_and_says_where() {
+  printf 'one\ntwo\n' > "$CASE_DIR/f"
+  wrap
+  edit_and_kill_9 f
+  printf 'changed elsewhere\n' > "$CASE_DIR/f"
+  start f
+  wait_for "kept unsaved changes from"
+  wait_for "not applied"
+  screen | grep -F -q "  1 changed elsewhere"
+  gone modified
+  [ "$(ls "$XDG_STATE_HOME/si" | wc -l)" -eq 1 ]
 }
 
 vi_8_yank_reaches_the_clipboard() {

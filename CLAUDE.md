@@ -52,8 +52,8 @@ src/
     term.rs       crossterm, diffed Frame output, OSC 11 / 52, cursor shape
 ```
 
-- **Event**: `Key` `Paste` `Resize` `Opened(path, Result)` `Disk(Option<Vec<u8>>)` `Saved(Result)` `SaveConflict(Vec<u8>)` `FilterDone` `Bg(Rgb)` `Tick(time)` `Signal(i32)`
-- **Effect**: `Render(Frame)` `Write { path, bytes, expect_hash }` `Open(path)` `Spawn` `Kill` `Clipboard(String)` `Snapshot` `Hook(String)` `Quit(i32)`
+- **Event**: `Key` `Paste` `Resize` `Opened(path, Result)` `Recover(base, text, age, file)` `Disk(Option<Vec<u8>>)` `Saved(Result)` `SaveConflict(Vec<u8>)` `FilterDone` `Bg(Rgb)` `Tick(time)` `Signal(i32)`
+- **Effect**: `Render(Frame)` `Write { path, bytes, expect_hash }` `Open(path)` `Spawn` `Kill` `Clipboard(String)` `Snapshot { path, base, text }` `Unsnapshot` `Hook(String)` `Quit(i32)`
 - Only the App on the main thread holds state. Other threads only send Events over mpsc. No locks
 - `Write` runs as a compare-and-swap. If the hash on disk differs from `expect_hash`, it writes nothing and returns `SaveConflict` (SAFE-5)
 - A Frame has only four styles: `Primary` `Secondary` `Change` `Deleted`. color.rs decides which real colors they map to. (The Visual selection is an underline, not a style; see VI-5)

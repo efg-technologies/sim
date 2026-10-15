@@ -44,7 +44,7 @@ pub fn why(e: &io::Error) -> String {
 }
 
 /// Follows symlinks, so a link is saved through to its target and stays a link.
-fn resolve(p: &str) -> PathBuf {
+pub fn resolve(p: &str) -> PathBuf {
     let abs = std::path::absolute(p).unwrap_or_else(|_| p.into());
     let beside = || {
         fs::canonicalize(abs.parent()?).ok().map(|d| d.join(abs.file_name().unwrap_or_default()))

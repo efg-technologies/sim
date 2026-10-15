@@ -1,4 +1,5 @@
-//! VI-7: ex commands and their ranges. Rows are (before, keys, after); `|` is the cursor.
+//! VI-7: ex commands and their ranges, and `:e` when the buffer is edited meanwhile.
+//! Rows are (before, keys, after); `|` is the cursor.
 mod common;
 use common::*;
 use si::core::app::{App, Effect, Event};
@@ -172,6 +173,46 @@ fn vi_7_e_opens_a_file_unless_the_buffer_is_modified() {
     let mut a = app("abc\n");
     assert_eq!(open_of(&feed(&mut a, ":e!\n")), None);
     assert_eq!(msg(&mut a), "no file name");
+}
+
+#[test]
+fn vi_7_a_file_is_not_loaded_over_edits_made_while_it_was_read() {
+    let load = |a: &mut App| a.update(Event::Opened("g".into(), Ok(Some(b"new\n".to_vec()))));
+    // `:e` on a clean buffer, then a key lands before the file arrives.
+    let mut a = named("abc\n");
+    feed(&mut a, ":e g\n");
+    feed(&mut a, "x");
+    load(&mut a);
+    assert_eq!((text(&a).as_str(), a.path.as_deref(), a.buf.dirty()), ("bc", Some("f"), true));
+    assert_eq!(msg(&mut a), "not opened: edited meanwhile");
+    // `:e!` discards what was there when it ran, but not what came after.
+    let mut a = named("abc\n");
+    feed(&mut a, "x:e! g\n");
+    feed(&mut a, "x");
+    load(&mut a);
+    assert_eq!((text(&a).as_str(), a.path.as_deref()), ("c", Some("f")));
+    // Nothing happened meanwhile: the file is loaded, also after `:e!` of a modified buffer.
+    for keys in [":e g\n", "x:e! g\n"] {
+        let mut a = named("abc\n");
+        feed(&mut a, keys);
+        load(&mut a);
+        assert_eq!(
+            (text(&a).as_str(), a.path.as_deref(), a.buf.dirty()),
+            ("new", Some("g"), false)
+        );
+    }
+    // An edit that was undone leaves the text as it was: nothing to lose.
+    let mut a = named("abc\n");
+    feed(&mut a, ":e g\nxu");
+    load(&mut a);
+    assert_eq!(a.path.as_deref(), Some("g"));
+    // The refusal is for that one load: a later `:e` works.
+    let mut a = named("abc\n");
+    feed(&mut a, ":e g\nx");
+    load(&mut a);
+    feed(&mut a, ":e! g\n");
+    load(&mut a);
+    assert_eq!((text(&a).as_str(), a.path.as_deref()), ("new", Some("g")));
 }
 
 #[test]

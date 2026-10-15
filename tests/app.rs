@@ -46,14 +46,31 @@ fn cli_1_the_command_runs_after_the_first_render() {
 fn cli_3_exit_codes() {
     let code = |keys: &str| quit(&feed(&mut named("a\n"), keys));
     assert_eq!((code(":q\n"), code(":q!\n"), code(":cq\n")), (Some(0), Some(0), Some(1)));
-    assert_eq!(code("x:q\n"), None, "`:q` is refused while the buffer is modified");
-    assert_eq!(code("x:q!\n"), Some(0));
-    assert_eq!(code("x:cq\n"), Some(1));
+    assert_eq!(
+        (code("q"), code("ZQ"), code("x:q!\n"), code("x:cq\n")),
+        (Some(0), Some(0), Some(0), Some(1))
+    );
+    assert_eq!(
+        (code("x:q\n"), code("xq")),
+        (None, None),
+        "`:q` is refused while the buffer is modified"
+    );
     assert_eq!(code(":x\n"), Some(0), "`:x` writes only when modified");
+    for keys in ["x:wq\n", "x:x\n", "xZZ"] {
+        let mut a = named("a\n");
+        let fx = feed(&mut a, keys);
+        assert!(write(&fx).is_some() && quit(&fx).is_none(), "{keys:?}: quits after the save");
+        assert_eq!(quit(&a.update(Event::Saved(Ok((0, None))))), Some(0), "{keys:?}");
+    }
     let mut a = named("a\n");
-    assert_eq!(write(&feed(&mut a, "x:x\n")).map(|w| w.1), Some(&b"\n"[..]));
-    assert_eq!(quit(&a.update(Event::Saved(Ok((0, None))))), Some(0));
-    assert_eq!(quit(&a.update(Event::Signal(15))), Some(143));
+    feed(&mut a, "x:wq\n");
+    assert_eq!(
+        quit(&a.update(Event::Saved(Err("disk full".into())))),
+        None,
+        "no exit when it failed"
+    );
+    assert_eq!(quit(&named("a\n").update(Event::Signal(15))), Some(143));
+    assert_eq!(quit(&named("a\n").update(Event::Signal(1))), Some(129));
 }
 
 #[test]

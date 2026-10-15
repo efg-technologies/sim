@@ -144,7 +144,10 @@ impl App {
             "cq" => self.fx.push(Effect::Quit(1)),
             "e" if dirty && !bang => self.say("no write since last change (:e! to discard)"),
             "e" => match if arg.is_empty() { self.path.clone() } else { Some(arg.into()) } {
-                Some(path) => self.fx.push(Effect::Open(path)),
+                Some(path) => {
+                    self.opening = Some(self.buf.version());
+                    self.fx.push(Effect::Open(path));
+                }
                 None => self.say("no file name"),
             },
             "s" => self.subst(range.unwrap_or((line, line)), arg),
