@@ -3,10 +3,9 @@
 //! them with si's Frame, and the Painter that writes a Screen to the terminal, row by row.
 //! si's own `Term` knows only its four styles, so sim has this painter (see NOTES in SPEC).
 use crate::color::Palette;
-use si::core::view::{Frame, Row, Shape, Style};
+use si::core::view::{Frame, Row, Shape, Style, width};
 use std::io::{self, Write};
 use std::ops::Range;
-use unicode_width::UnicodeWidthChar;
 
 /// What a char looks like on top of its style. The order is the precedence where the scopes of
 /// a char disagree (the first wins), so a keyword inside a comment or a string stays a comment
@@ -67,7 +66,8 @@ fn sgr(style: Style, underline: bool, look: Option<Look>, pal: &Palette) -> Stri
 /// The text of a row with an SGR sequence wherever style, underline or look changes.
 fn paint(b: &mut Vec<u8>, row: &Row, looks: &Looks, pal: &Palette) {
     let (mut now, mut col) = (None, 0u16);
-    for c in row.text.chars() {
+    let cs: Vec<char> = row.text.chars().collect();
+    for (i, &c) in cs.iter().enumerate() {
         let style =
             row.spans.iter().find(|(r, _)| r.contains(&col)).map_or(Style::Primary, |s| s.1);
         let underline = row.underline.iter().any(|r| r.contains(&col));
@@ -77,7 +77,7 @@ fn paint(b: &mut Vec<u8>, row: &Row, looks: &Looks, pal: &Palette) {
             now = Some((style, underline, look));
         }
         b.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
-        col += c.width().unwrap_or(0) as u16;
+        col += width(&cs, i, usize::from(col)) as u16; // si's own rule, as in its `Term` (VIS-7)
     }
 }
 

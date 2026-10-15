@@ -79,10 +79,12 @@ fn tree_1_the_panel_is_a_third_of_the_screen_at_most_32_and_one_column_apart() {
 
 #[test]
 fn tree_1_names_that_would_do_harm_in_a_terminal_are_never_sent_raw() {
-    let r = rig("t1-safe", &["a\x1b[2Jb", "c\u{202e}d", "e\nf", "日本語.md"], &[]);
+    let bidi = "\u{61c}\u{200b}\u{200e}\u{200f}\u{202a}\u{202e}\u{2066}\u{2069}\u{feff}";
+    let names = ["a\x1b[2Jb", "c\u{202e}d", "e\nf", "日本語.md", &format!("g{bidi}h")];
+    let r = rig("t1-safe", &names, &[]);
     let all = r.screen.rows.iter().map(|r| r.text.as_str()).collect::<String>();
-    assert!(!all.chars().any(|c| c.is_control() || c == '\u{202e}'), "{all:?}");
-    assert_eq!(r.panel().len(), 4);
+    assert!(!all.chars().any(|c| c.is_control() || bidi.contains(c)), "{all:?}");
+    assert_eq!(r.panel().len(), 5);
     assert!(r.panel().contains(&"  日本語.md".to_string()));
 }
 
@@ -115,6 +117,28 @@ fn tree_1_the_status_line_is_not_cut_at_the_width_of_the_editor() {
     r.keys(":abcdefghijklmnopqrstuvwxyz0123456789");
     assert_eq!(r.status(), ":abcdefghijklmnopqrstuvwxyz0123456789");
     assert_eq!(r.screen.cursor, (37, 7), "the cursor of the command line is on the status row");
+}
+
+#[test]
+fn tree_1_a_command_line_longer_than_the_screen_scrolls_at_the_width_of_the_screen() {
+    // VI-12: the App renders its own, narrower frame at every update and scrolls the line to it;
+    // the line shown across the whole screen must scroll as one on a screen of that width.
+    let mut r = rig_sized("t1-scroll", &["f.txt"], &["f.txt"], (40, 8));
+    r.keys("<C-n><Esc>");
+    let line: String = ('a'..='z').cycle().take(60).collect();
+    let width = |s: &str| unicode_width::UnicodeWidthStr::width(s);
+    r.keys(":");
+    for c in line.chars() {
+        r.keys(&c.to_string());
+        let (status, (x, y)) = (r.status().to_string(), r.screen.cursor);
+        assert!(width(&status) <= 40 && y == 7 && x < 40, "{status:?} {x},{y}");
+        assert!(width(&status) > 26 || width(&status) == status.chars().count(), "{status:?}");
+    }
+    let (shown, x) = (r.status().to_string(), r.screen.cursor.0);
+    assert!(width(&shown) >= 39 && x >= 38, "the line fills the screen: {shown:?} cursor {x}");
+    assert!(format!(":{line}").ends_with(&shown), "its tail: {shown:?}");
+    r.keys("<Home>");
+    assert_eq!((r.status().chars().next(), r.screen.cursor.0), (Some(':'), 1), "the start again");
 }
 
 #[test]

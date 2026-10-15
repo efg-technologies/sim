@@ -7,7 +7,9 @@
 #![forbid(unsafe_code)]
 use crossterm::event::{Event as Ev, KeyCode};
 use si::core::app::{Effect, Event};
-use si::io::file;
+use si::core::buffer::hash;
+use si::io::file::{self, read};
+use si::io::journal;
 use si::io::term;
 use si::io::watch::watch;
 use signal_hook::consts::{SIGHUP, SIGTERM};
@@ -29,25 +31,30 @@ const USAGE: &str = "usage: sim [+cmd] [dir | file]\n       sim [+cmd] -- file";
 /// A watcher, kept alive by holding it (PROP-1).
 type Held = Box<dyn Any>;
 
-/// Watches `path` for file `id`. The deadline of each change is stamped when the watcher reads
-/// the file, since the core reads no clock (PROP-7).
-fn watching(tx: &Sender<SimEvent>, id: Id, path: &str) -> Option<(Id, Held)> {
+/// Watches `path` for file `id` (PROP-1), as si's main does for its one file. The deadline of each
+/// change is stamped when the watcher reads the file, since the core reads no clock (PROP-7), and
+/// its hash is made there too, so that no key waits for it (P3). With `first`, the watcher's thread
+/// also reads the file once at the start, ordered before the debounced reads.
+fn watching(tx: &Sender<SimEvent>, id: Id, path: &str, first: bool) -> Option<(Id, Held)> {
     let t = tx.clone();
-    let on = move |bytes| {
-        drop(t.send(SimEvent::App(id, Event::Disk { bytes, deadline: Instant::now() + MERGE })))
+    let on = move |bytes: Option<Vec<u8>>| {
+        let hash = bytes.as_deref().map(hash);
+        let ev = Event::Disk { bytes, hash, deadline: Instant::now() + MERGE };
+        drop(t.send(SimEvent::App(id, ev)))
     };
-    watch(&file::resolve(path), on)
+    watch(&file::resolve(path), on, first)
         .inspect_err(|e| drop(tx.send(SimEvent::Notice(format!("cannot watch {path}: {e}")))))
         .ok()
         .map(|w| (id, Box::new(w) as Held))
 }
 
-/// What the terminal sent, as sim's event: si's, and Shift-Tab, which si has no key for (crossterm
-/// reads both the legacy `CSI Z` and the kitty `CSI 9;2u` as `BackTab`).
-fn from_term(ev: Ev) -> Option<SimEvent> {
+/// What the terminal sent, as sim's events: si's (`convert_all`: Alt+x is Esc, then x), and
+/// Shift-Tab, which si has no key for (crossterm reads both the legacy `CSI Z` and the kitty
+/// `CSI 9;2u` as `BackTab`).
+fn from_term(ev: Ev) -> Vec<SimEvent> {
     match ev {
-        Ev::Key(k) if k.code == KeyCode::BackTab => Some(SimEvent::BackTab),
-        ev => Some(SimEvent::Term(term::convert(ev)?)),
+        Ev::Key(k) if k.code == KeyCode::BackTab => vec![SimEvent::BackTab],
+        ev => term::convert_all(ev).into_iter().map(SimEvent::Term).collect(),
     }
 }
 
@@ -74,10 +81,9 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     let (tx, rx) = mpsc::channel();
-    // SAFE-6: no private state directory, no snapshots; the status line says so once.
-    let state = sio::snapshot_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
-    let state =
-        state.map_err(|e| drop(tx.send(SimEvent::Notice(format!("snapshots are off: {e}")))));
+    // SAFE-6, as in si: without a state directory (and unless it is private) there are no
+    // snapshots and no recovery copies; the first snapshot that cannot be written says so.
+    let state = journal::state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
     let history = sio::state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
     let truecolor = matches!(env::var("COLORTERM").as_deref(), Ok("truecolor" | "24bit"));
     let env = Env {
@@ -88,7 +94,6 @@ fn main() -> ExitCode {
         pal: Palette::new(truecolor),
     };
     let (mut sim, mut fx) = Sim::new(s, env);
-    let state = state.ok();
 
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -111,9 +116,7 @@ fn main() -> ExitCode {
                 done.into_iter().for_each(|s| drop(t.send(SimEvent::Osc(s))));
                 continue;
             }
-            if let Some(e) = from_term(ev)
-                && t.send(e).is_err()
-            {
+            if from_term(ev).into_iter().any(|e| t.send(e).is_err()) {
                 return;
             }
         }
@@ -157,7 +160,7 @@ fn main() -> ExitCode {
                     SimEffect::Highlight(req) => drop(highlights.send(req)),
                     SimEffect::Open(id, path) => {
                         // Watching starts before the file is read, so that no change slips in between.
-                        watchers.extend(watching(&tx, id, &path));
+                        watchers.extend(watching(&tx, id, &path, false));
                         let at = std::path::Path::new(&path);
                         local.push(sio::open(state.as_deref(), id, &path, at));
                     }
@@ -168,14 +171,12 @@ fn main() -> ExitCode {
                             drop(saves.send((id, path, bytes, expect_hash)))
                         }
                         Effect::Open(path) => {
-                            local.push(SimEvent::App(
-                                id,
-                                Event::Opened(path.clone(), sio::read(&path)),
-                            ));
+                            local.push(SimEvent::App(id, Event::Opened(path.clone(), read(&path))));
                         }
                         Effect::Watch(path) => {
                             drop(watchers.remove(&id)); // the old watcher's thread ends before the new one starts
-                            watchers.extend(watching(&tx, id, &path));
+                            // Its first read is ordered after everything sent so far (see si's main).
+                            watchers.extend(watching(&tx, id, &path, true));
                         }
                         Effect::Clipboard(text) => {
                             drop(painter.write(&term::clipboard(&text, tmux)))

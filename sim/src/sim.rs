@@ -6,6 +6,7 @@
 mod panel;
 
 use crate::color::Palette;
+use crate::io::GIT_SKIPPED;
 use crate::layout::{self, Mark};
 use crate::marks::Marks;
 use crate::paint::{Looks, Screen};
@@ -20,7 +21,7 @@ use si::core::vi::Mode;
 use si::core::view::{self, Frame, Row, Shape};
 use si::io::journal::Snapshot;
 use std::collections::HashSet;
-use std::mem::take;
+use std::mem::{replace, take};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
@@ -132,6 +133,9 @@ pub struct Buf {
     /// The latest spans, and what was last asked for (version, first and last line on screen).
     hl: Option<Hl>,
     asked: Option<(u64, usize, usize)>,
+    /// Where the command line scrolls to on the full-width status line (VI-12): the App's own
+    /// `vi.off` is that of its narrower frame, which every one of its updates renders.
+    wide: usize,
 }
 
 #[derive(Default)]
@@ -170,6 +174,8 @@ pub struct Sim {
     disk: HashSet<PathBuf>,
     marks: Marks,
     no_repo: bool,
+    /// MARK-1: git was not run because the repository's config could run commands (told once).
+    skipped: bool,
     /// MARK-2: the history, and the time in seconds (at the start, then the shell's ticks).
     history: History,
     now: u64,
@@ -290,6 +296,13 @@ impl Sim {
                     self.remark();
                 }
                 Err(e) if e.starts_with("not a git repository") => self.no_repo = true,
+                Err(e) if e == GIT_SKIPPED => {
+                    // Told once (MARK-1), not again at every opening of the panel.
+                    self.no_repo = true;
+                    if !replace(&mut self.skipped, true) {
+                        self.msg = Some(e);
+                    }
+                }
                 Err(e) => self.msg = Some(e),
             },
             SimEvent::Osc(s) => self.pal.reply(&s),
@@ -438,25 +451,43 @@ impl Sim {
         }
     }
 
+    /// The names of the files `pick` says yes to, in order, with their ids.
+    fn named(&self, pick: impl Fn(&Buf) -> bool) -> (Vec<Id>, String) {
+        let files = self.bufs.iter().filter(|b| pick(b));
+        let (ids, names): (_, Vec<_>) =
+            files.map(|b| (b.id, b.app.path.clone().unwrap_or_default())).unzip();
+        (ids, names.join(", "))
+    }
+
+    /// BUF-3: `:qa` and `:wa` hold SAFE-7 for each file. `:qa` stays while a file has a hunk
+    /// (si's `:q` says so before it says anything about a write), then while one is modified;
+    /// `:wa` leaves out the files that have a conflict with the disk, naming them, and saves the rest.
     fn run_all(&mut self, (name, bang, arg): (&str, bool, &str), out: &mut Vec<SimEffect>) {
-        let (ids, names): (Vec<Id>, Vec<String>) = (self.bufs.iter())
-            .filter(|b| b.app.buf.dirty())
-            .map(|b| (b.id, b.app.path.clone().unwrap_or_default()))
-            .unzip();
+        let (open, hunks) = self.named(|b| !b.app.buf.hunks.is_empty());
+        let (modified, names) = self.named(|b| b.app.buf.dirty());
         match name {
-            "qa" | "qall" if bang || ids.is_empty() => {
+            "qa" | "qall" if bang || (open.is_empty() && modified.is_empty()) => {
                 out.extend(self.bufs.iter().map(|b| SimEffect::App(b.id, Effect::Unsnapshot)));
                 out.push(SimEffect::Quit(0));
             }
-            "qa" | "qall" => {
-                self.msg = Some(format!(
-                    "no write since last change in {} (:qa! to discard)",
-                    names.join(", ")
-                ))
+            "qa" | "qall" if !open.is_empty() => {
+                self.msg =
+                    Some(format!("unresolved proposals in {hunks} (]c to review, :qa! discards)"))
             }
-            "wa" | "wall" if ids.is_empty() => self.msg = Some("no modified files".into()),
+            "qa" | "qall" => {
+                self.msg = Some(format!("no write since last change in {names} (:qa! to discard)"))
+            }
+            "wa" | "wall" if modified.is_empty() => self.msg = Some("no modified files".into()),
             "wa" | "wall" => {
-                ids.into_iter().for_each(|id| self.to(id, Event::Key(Key::Ctrl('s')), out))
+                let (stuck, stuck_names) = self.named(|b| b.app.buf.hunks.iter().any(|h| h.disk));
+                for id in modified.into_iter().filter(|id| !stuck.contains(id)) {
+                    self.to(id, Event::Key(Key::Ctrl('s')), out);
+                }
+                if !stuck.is_empty() {
+                    self.msg = Some(format!(
+                        "not saved: conflicts with the disk in {stuck_names} (]c, :w! keeps yours)"
+                    ));
+                }
             }
             _ => self.open(self.cwd.join(arg), out),
         }
@@ -498,7 +529,15 @@ impl Sim {
             }
         }
         fx.extend(app.start(&take(&mut self.keys)));
-        self.bufs.push(Buf { id: o.id, key: o.key, app, frame: None, hl: None, asked: None });
+        self.bufs.push(Buf {
+            id: o.id,
+            key: o.key,
+            app,
+            frame: None,
+            hl: None,
+            asked: None,
+            wide: 0,
+        });
         self.cur = self.bufs.len() - 1;
         self.refocus();
         self.run(o.id, fx, out);
@@ -511,6 +550,9 @@ impl Sim {
     /// lines as they were for the moment), and when they do not cover what is on screen they are
     /// asked for again, a screenful above and below.
     fn colors(&self, b: &Buf, f: &Frame) -> (Vec<Looks>, Option<Req>) {
+        if b.app.vi.mode == Mode::Review {
+            return (vec![Looks::new(); f.rows.len()], None); // its rows weave mine and theirs
+        }
         let buf = &b.app.buf;
         let text = |l: usize| {
             (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
@@ -566,11 +608,15 @@ impl Sim {
                 (b.app.vi.mode == Mode::Cmd && !focus, f.shape, (f.cursor.0 + off, f.cursor.1));
             status = f.rows.last().map_or(String::new(), |r| r.text.clone());
             // The App cuts its status line to its own width; the screen has more.
+            if !cmd {
+                b.wide = 0;
+            }
             if pw > 0 && (cmd || status.width() + 2 >= usize::from(ew)) {
-                let (top, center, size) = (b.app.top, b.app.center, b.app.size);
-                b.app.size.0 = w;
+                let (top, skip, center, size) = (b.app.top, b.app.skip, b.app.center, b.app.size);
+                (b.app.size.0, b.app.vi.off) = (w, b.wide);
                 let wide = view::render(&mut b.app);
-                (b.app.top, b.app.center, b.app.size) = (top, center, size);
+                b.wide = b.app.vi.off;
+                (b.app.top, b.app.skip, b.app.center, b.app.size) = (top, skip, center, size);
                 status = wide.rows.last().map_or(String::new(), |r| r.text.clone());
                 cursor = if cmd { wide.cursor } else { cursor };
             }

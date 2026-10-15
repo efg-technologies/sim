@@ -5,8 +5,7 @@
 use crate::paint::{Look, Looks};
 use crate::syn::Spans;
 use crate::tree;
-use si::core::view::{Frame, Row, Style};
-use unicode_width::UnicodeWidthChar;
+use si::core::view::{Frame, Row, Style, width};
 
 /// What the editor area shows while no file is open (TREE-1).
 const HELP: [&str; 5] =
@@ -15,21 +14,18 @@ const HELP: [&str; 5] =
 /// Whether a char must not reach the terminal as it is (SAFE-8): a file name can hold anything.
 fn hostile(c: char) -> bool {
     c.is_control()
-        || matches!(c, '\u{200b}' | '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+        || matches!(c, '\u{61c}' | '\u{200b}' | '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
 }
 
-/// `s` cut to `max` columns, hostile chars replaced by U+FFFD, and the columns it takes.
+/// `s` cut to `max` columns, hostile chars replaced by U+FFFD, and the columns it takes: by si's
+/// own `width`, so an emoji presentation sequence takes what the editor gives it (VIS-7).
 pub fn fit(s: &str, max: usize) -> (String, usize) {
-    let (mut out, mut cols) = (String::new(), 0);
-    for c in s.chars().map(|c| if hostile(c) { '\u{fffd}' } else { c }) {
-        let w = c.width().unwrap_or(0);
-        if cols + w > max {
-            break;
-        }
-        out.push(c);
-        cols += w;
+    let cs: Vec<char> = s.chars().map(|c| if hostile(c) { '\u{fffd}' } else { c }).collect();
+    let (mut end, mut cols) = (0, 0);
+    while end < cs.len() && cols + width(&cs, end, cols) <= max {
+        (end, cols) = (end + 1, cols + width(&cs, end, cols));
     }
-    (out, cols)
+    (cs[..end].iter().collect(), cols)
 }
 
 /// What the panel shows about a row besides its name: MARK-1 (`change` the change color on the
@@ -115,18 +111,23 @@ pub fn body(
     (rows, all)
 }
 
-/// How a char of the buffer is written in a row of the editor (SAFE-8, VIS-8; view.rs): the
-/// chars it takes in the row's text and the columns, when it starts at column `col`.
-fn shown(c: char, col: usize) -> (usize, usize) {
-    match c {
-        '\t' => (4 - col % 4, 4 - col % 4),
-        '\0'..='\x08' | '\n'..='\x1f' | '\x7f' => (2, 2), // ^X
-        '\u{80}'..='\u{9f}' | '\u{200b}' | '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' => {
-            (8, 8)
-        } // <U+XXXX>
-        '\u{2066}'..='\u{2069}' | '\u{feff}' => (8, 8),
-        _ => (1, c.width().unwrap_or(0)),
-    }
+/// How `cs[i]` of the buffer is written in a row of the editor when it starts at column `col`
+/// (SAFE-8, VIS-7, VIS-8; view.rs): the chars it takes in the row's text and the columns, which
+/// are si's own `width`. A tab and a char shown as `^X` or `<U+XXXX>` take as many chars as
+/// columns; a U+FE0F after one of those, or after another U+FE0F, is not written (VIS-7).
+fn shown(cs: &[char], i: usize, col: usize) -> (usize, usize) {
+    let (w, token) = (width(cs, i, col), |c: char| c != '\t' && hostile(c));
+    let elided = cs[i] == '\u{fe0f}' && i > 0 && (token(cs[i - 1]) || cs[i - 1] == '\u{fe0f}');
+    (
+        if elided {
+            0
+        } else if cs[i] == '\t' || token(cs[i]) {
+            w
+        } else {
+            1
+        },
+        w,
+    )
 }
 
 /// SYN-1: the looks of the rows of an editor frame. `digits` is the width of its line numbers,
@@ -149,7 +150,7 @@ pub fn colors<'a>(
         }
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         while used < len && ci < cs.len() {
-            let (n, w) = shown(cs[ci], col);
+            let (n, w) = shown(&cs, ci, col);
             let look = sp.and_then(|s| s.iter().find(|s| s.0.contains(&ci))).filter(|_| w > 0);
             let look = look.map(|s| s.1);
             let cols = (gutter + col) as u16..(gutter + col + w) as u16;

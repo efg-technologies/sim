@@ -76,7 +76,9 @@ use sim::paint::{Look, Looks, Screen};
 use sim::rank::History;
 use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, start};
 use std::collections::VecDeque;
+use std::fs::Permissions;
 use std::mem::take;
+use std::os::unix::fs::PermissionsExt;
 use unicode_width::UnicodeWidthChar;
 
 /// Key notation of si's tests: a char is itself (`\n` Enter, `\x1b` Esc, `\t` Tab); `<Esc> <CR>
@@ -173,6 +175,8 @@ pub fn rig_env(
     tweak: impl FnOnce(&mut Env),
 ) -> Rig {
     let (dir, state) = (temp_dir(name), temp_dir(&format!("{name}-state")));
+    // SAFE-6: si uses a state directory only if it is private.
+    std::fs::set_permissions(&state.0, Permissions::from_mode(0o700)).unwrap();
     for f in files {
         // `name=content` makes a file with that content; a bare name holds its own name.
         match f.split_once('=') {
@@ -250,18 +254,19 @@ impl Rig {
                     }
                     SimEffect::App(id, Effect::Write { path, bytes, expect_hash }) => {
                         let at = self.cwd.join(&path).to_string_lossy().into_owned();
-                        let ev = match si::io::file::save(&at, &bytes, expect_hash, &self.state) {
-                            Ok(si::io::file::Saved::Done(h, w)) => Event::Saved(Ok((h, w))),
-                            Ok(si::io::file::Saved::Conflict(d)) => Event::SaveConflict(d, far()),
-                            Err(e) => Event::Saved(Err(e)),
-                        };
+                        let ev =
+                            match si::io::file::save(&at, &bytes, expect_hash, Some(&self.state)) {
+                                Ok(si::io::file::Saved::Done(h, w)) => Event::Saved(Ok((h, w))),
+                                Ok(si::io::file::Saved::Conflict(d)) => {
+                                    Event::SaveConflict(d, far())
+                                }
+                                Err(e) => Event::Saved(Err(e)),
+                            };
                         self.queue.push_back(SimEvent::App(id, ev));
                     }
                     SimEffect::App(id, Effect::Open(p)) => {
-                        let ev = Event::Opened(
-                            p.clone(),
-                            io::read(&self.cwd.join(&p).to_string_lossy()),
-                        );
+                        let read = si::io::file::read(&self.cwd.join(&p).to_string_lossy());
+                        let ev = Event::Opened(p.clone(), read);
                         self.queue.push_back(SimEvent::App(id, ev));
                     }
                     SimEffect::Quit(c) => {
@@ -422,6 +427,12 @@ fn dump_rows(f: &Frame, looks: &[Looks]) -> String {
         }
     }
     out
+}
+
+/// What the watcher's thread sends when the file now holds `bytes`: the content with its hash.
+pub fn disk(bytes: &[u8]) -> Event {
+    let hash = Some(si::core::buffer::hash(bytes));
+    Event::Disk { bytes: Some(bytes.to_vec()), hash, deadline: far() }
 }
 
 /// A deadline far away: a diff in a test never gives up.
