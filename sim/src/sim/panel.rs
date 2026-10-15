@@ -127,7 +127,7 @@ impl Sim {
 
     /// `l`, Right and Enter: expand a directory, open a file (which ends a search, leaving the
     /// tree as the search made it, so that the file is shown in its place).
-    fn enter(&mut self, out: Out) {
+    pub(super) fn enter(&mut self, out: Out) {
         let Some(r) = self.row(self.panel.cur) else { return };
         let abs = self.root.join(&r.path);
         if !r.is_dir {
@@ -139,7 +139,7 @@ impl Sim {
     }
 
     /// `h` and Left: collapse an open directory, else go to the directory above.
-    fn back(&mut self) {
+    pub(super) fn back(&mut self) {
         let Some(r) = self.row(self.panel.cur) else { return };
         if r.is_dir && r.open {
             self.view_mut().collapse(&r.path);

@@ -46,8 +46,9 @@ pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
             (journal::file(state, &s.path, s.pid), now_ms().saturating_sub(s.time_ms));
         Some(Found(s, file.display().to_string(), age, Instant::now() + MERGE))
     });
+    let place = state.and_then(|state| journal::place(state, &key));
     let file = file::read(&at.to_string_lossy());
-    SimEvent::Opened(Opened { id, path: shown.into(), key, file, found })
+    SimEvent::Opened(Opened { id, path: shown.into(), key, file, found, place })
 }
 
 /// A job for the journal thread.
@@ -56,8 +57,10 @@ pub enum Job {
     History(History),
     /// A snapshot that a dead session left for this file, to delete when ours replaces it.
     Hold(Id, String, u32),
-    /// A `Snapshot` or an `Unsnapshot` of this file's App.
-    Snap(Id, Effect),
+    /// What this file's App asked of the journal: a `Snapshot`, an `Unsnapshot` (SAFE-6), a
+    /// `Remember` of where its cursor was left, or the `Open` of a reload, whose place is looked up
+    /// (CLI-6).
+    App(Id, Effect),
 }
 
 /// The journal thread (SAFE-6) runs snapshots and removals of every file in order, so no key
@@ -87,7 +90,22 @@ pub fn journal_thread(
                     hist.iter().filter_map(|d| save_history(d, &h).err()).for_each(|e| say(1, e))
                 }
                 Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
-                Job::Snap(id, Effect::Snapshot { path, base, text }) => {
+                Job::App(_, Effect::Remember { path, line, col }) => {
+                    // Read again, so that another session's places are kept (CLI-6).
+                    for d in state.iter() {
+                        let mut all = journal::places(d);
+                        journal::touch(&mut all, key(Path::new(&path)), line, col);
+                        drop(journal::save_places(d, &all));
+                    }
+                }
+                Job::App(id, Effect::Open(path)) => {
+                    let at =
+                        state.as_deref().and_then(|d| journal::place(d, &key(Path::new(&path))));
+                    if let Some((l, c)) = at {
+                        drop(tell.send(SimEvent::App(id, Event::Place(path, l, c))));
+                    }
+                }
+                Job::App(id, Effect::Snapshot { path, base, text }) => {
                     let [base, text] = [base, text].map(|r| r.to_string().into_bytes());
                     let path = path.map_or(String::new(), |p| key(Path::new(&p)));
                     let snap = Snapshot { path, pid, time_ms: now_ms(), base, text };
@@ -100,7 +118,7 @@ pub fn journal_thread(
                         Err(e) => say(0, format!("cannot write snapshots: {}", why(&e))),
                     }
                 }
-                Job::Snap(id, _) => drop(held.remove(&id).map(rm)),
+                Job::App(id, _) => drop(held.remove(&id).map(rm)),
             }
         }
     });
@@ -115,10 +133,13 @@ pub fn save_thread(state: Option<PathBuf>, answers: Sender<SimEvent>) -> Sender<
     let (jobs, rx) = mpsc::channel::<Save>();
     thread::spawn(move || {
         for (id, path, bytes, expect) in rx {
+            // The answer is numbered when the save is done (PROP-1), as in si's main.
             let ev = match file::save(&path, &bytes, expect, state.as_deref()) {
-                Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn))),
-                Ok(Saved::Conflict(disk)) => Event::SaveConflict(disk, Instant::now() + MERGE),
-                Err(e) => Event::Saved(Err(e)),
+                Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn)), file::seq()),
+                Ok(Saved::Conflict(disk)) => {
+                    Event::SaveConflict(disk, Instant::now() + MERGE, file::seq())
+                }
+                Err(e) => Event::Saved(Err(e), file::seq()),
             };
             if answers.send(SimEvent::App(id, ev)).is_err() {
                 return;

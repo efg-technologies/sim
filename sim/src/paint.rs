@@ -1,11 +1,25 @@
 //! SYN-1, SYN-5, FIND-1
 //! What sim draws beyond si's four styles: the looks a char can have, the Screen that carries
-//! them with si's Frame, and the Painter that writes a Screen to the terminal, row by row.
-//! si's own `Term` knows only its four styles, so sim has this painter (see NOTES in SPEC).
-use crate::color::Palette;
+//! them with si's Frame, and the Painter that writes a Screen to the terminal, row by row. The
+//! four styles are si's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
+use crate::color::Syntax;
+use si::core::color::Palette;
 use si::core::view::{Frame, Row, Shape, Style, width};
+use si::io::term::{self, sgr as base};
 use std::io::{self, Write};
 use std::ops::Range;
+
+/// Mouse reporting (PTR-1): presses and releases (1000), movement with a button down (1002), in
+/// SGR coding (1006). `MOUSE_OFF` undoes it exactly, in reverse.
+pub const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+pub const MOUSE_OFF: &[u8] = b"\x1b[?1006l\x1b[?1002l\x1b[?1000l";
+
+/// Gives the terminal back (si's `term::leave`) after letting go of the mouse. Errors are ignored:
+/// it also runs from the panic hook and after SIGHUP.
+pub fn leave(out: &mut impl Write) {
+    let _ = out.write_all(MOUSE_OFF).and_then(|()| out.flush());
+    term::leave(out);
+}
 
 /// What a char looks like on top of its style. The order is the precedence where the scopes of
 /// a char disagree (the first wins), so a keyword inside a comment or a string stays a comment
@@ -25,46 +39,54 @@ pub enum Look {
 /// Column ranges of a row, in the columns of the Frame.
 pub type Looks = Vec<(Range<u16>, Look)>;
 
-/// A Frame with the looks of each of its rows and the palette they are drawn with.
+/// A Frame (which carries si's palette) with the looks of each of its rows and the syntax colors
+/// they are drawn with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Screen {
     pub frame: Frame,
     pub looks: Vec<Looks>,
-    pub pal: Palette,
+    pub syn: Syntax,
 }
 
 /// The SGR sequence for a char with this style, underline and look. The change style wins: on
 /// it a look can only be bold or italic, never a color (P3: the change is the only chromatic
-/// background, and reverse video would turn a text color into a background).
-fn sgr(style: Style, underline: bool, look: Option<Look>, pal: &Palette) -> String {
+/// background, and reverse video would turn a text color into a background). Comments are the
+/// secondary gray and italic, or faint and italic where there is no palette.
+fn sgr(
+    style: Style,
+    underline: bool,
+    look: Option<Look>,
+    pal: Option<Palette>,
+    syn: &Syntax,
+) -> String {
     let change = style == Style::Change;
-    let (base, ul) = (["", ";2", ";7", ";2;9"][style as usize], ["", ";4"][usize::from(underline)]);
-    let mut s = format!("\x1b[0{base}{ul}");
+    let fg = |(r, g, b): (u8, u8, u8)| format!(";38;2;{r};{g};{b}");
+    let mut s = format!("\x1b[0{}{}", base(style, pal), ["", ";4"][usize::from(underline)]);
     let (attr, hue) = match look {
         Some(Look::Kw) => (";1", Some(1)),
         Some(Look::Str) => ("", Some(2)),
         Some(Look::Ty) => ("", Some(3)),
         Some(Look::Num) => ("", Some(5)),
         Some(Look::Fun) => ("", Some(6)),
-        Some(Look::Com) => (";2;3", None),
+        Some(Look::Com) => (if pal.is_some() { ";3" } else { ";2;3" }, None),
         Some(Look::Bold) => (";1", None),
         _ => ("", None),
     };
     s += attr;
-    if let (Some(i), Some(l), false) = (hue, look, change) {
-        match pal.hue(l) {
-            Some([r, g, b]) => s += &format!(";38;2;{r};{g};{b}"),
-            None => s += &format!(";3{i}"),
-        }
+    if let (Some(Look::Com), Some(p), false) = (look, pal, change) {
+        s += &fg(p.secondary);
     }
-    if let (Some(Look::Sel), false, Some((bg, t))) = (look, change, pal.sel()) {
-        s += &format!(";48;2;{};{};{};38;2;{};{};{}", bg[0], bg[1], bg[2], t[0], t[1], t[2]);
+    if let (Some(i), Some(l), false) = (hue, look, change) {
+        s += &syn.hue(l).map_or(format!(";3{i}"), fg);
+    }
+    if let (Some(Look::Sel), false, Some((bg, t))) = (look, change, syn.sel()) {
+        s += &format!(";48;2;{};{};{}{}", bg.0, bg.1, bg.2, fg(t));
     }
     s + "m"
 }
 
 /// The text of a row with an SGR sequence wherever style, underline or look changes.
-fn paint(b: &mut Vec<u8>, row: &Row, looks: &Looks, pal: &Palette) {
+fn paint(b: &mut Vec<u8>, row: &Row, looks: &Looks, (pal, syn): (Option<Palette>, &Syntax)) {
     let (mut now, mut col) = (None, 0u16);
     let cs: Vec<char> = row.text.chars().collect();
     for (i, &c) in cs.iter().enumerate() {
@@ -73,7 +95,7 @@ fn paint(b: &mut Vec<u8>, row: &Row, looks: &Looks, pal: &Palette) {
         let underline = row.underline.iter().any(|r| r.contains(&col));
         let look = looks.iter().find(|(r, _)| r.contains(&col)).map(|l| l.1);
         if now != Some((style, underline, look)) {
-            b.extend(sgr(style, underline, look, pal).as_bytes());
+            b.extend(sgr(style, underline, look, pal, syn).as_bytes());
             now = Some((style, underline, look));
         }
         b.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
@@ -101,10 +123,9 @@ impl<W: Write> Painter<W> {
 
     pub fn draw(&mut self, s: Screen) -> io::Result<()> {
         let (f, mut b) = (&s.frame, Vec::<u8>::new());
-        let same = self
-            .prev
-            .as_ref()
-            .filter(|p| (p.frame.width, p.frame.height, p.pal) == (f.width, f.height, s.pal));
+        let same = self.prev.as_ref().filter(|p| {
+            (p.frame.width, p.frame.height, p.frame.pal, p.syn) == (f.width, f.height, f.pal, s.syn)
+        });
         // A frame that rewrites anything is one synchronized update, so nothing tears.
         let sync = same.is_none_or(|p| p.frame.rows != f.rows || p.looks != s.looks);
         if sync {
@@ -118,7 +139,7 @@ impl<W: Write> Painter<W> {
                 continue;
             }
             write!(b, "\x1b[{};1H", i + 1)?;
-            paint(&mut b, row, &s.looks[i], &s.pal);
+            paint(&mut b, row, &s.looks[i], (f.pal, &s.syn));
             b.extend(b"\x1b[0m\x1b[K");
         }
         write!(b, "\x1b[{};{}H", f.cursor.1 + 1, f.cursor.0 + 1)?;

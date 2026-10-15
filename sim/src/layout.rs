@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -163,4 +163,38 @@ pub fn colors<'a>(
         }
     }
     (out, win)
+}
+
+/// PTR-1: the char under the point `(x, row)` of an editor frame, as (line, index in the line), by
+/// the same walk as `colors`: the line of a row is read from its gutter, a wrapped line goes on in
+/// the rows below, and each char takes what `shown` says. A point in the gutter is the start of
+/// its row's text; one past the end of the text is the row's last char, or, on the last row of a
+/// line, the end of the line (a Normal-mode cursor is then put on its last char by the App).
+pub fn hit(
+    f: &Frame,
+    digits: usize,
+    text: &dyn Fn(usize) -> Option<String>,
+    (x, row): (usize, usize),
+) -> Option<(usize, usize)> {
+    let (gutter, mut line, mut cs, mut ci) = (digits + 2, None, Vec::<char>::new(), 0);
+    for (i, r) in f.rows.iter().enumerate().take(row + 1) {
+        let no: String = r.text.chars().skip(1).take(digits).collect();
+        if let Some(l) = no.trim().parse::<usize>().ok().and_then(|n| n.checked_sub(1)) {
+            (line, cs, ci) = (Some(l), text(l).unwrap_or_default().chars().collect(), 0);
+        }
+        let (mut col, mut used, first) = (0, 0, ci);
+        let len = r.text.chars().count().saturating_sub(gutter);
+        while used < len && ci < cs.len() {
+            let (n, w) = shown(&cs, ci, col);
+            if i == row && gutter + col + w > x {
+                return line.map(|l| (l, ci));
+            }
+            (used, col, ci) = (used + n, col + w, ci + 1);
+        }
+        if i == row {
+            let end = if ci < cs.len() { ci.saturating_sub(1).max(first) } else { ci };
+            return line.map(|l| (l, end));
+        }
+    }
+    None
 }

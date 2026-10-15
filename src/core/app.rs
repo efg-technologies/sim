@@ -300,7 +300,7 @@ impl App {
     }
 
     /// CLI-6: where the cursor is, for the journal, if the buffer has a file.
-    pub(super) fn place(&self) -> Option<Effect> {
+    pub fn place(&self) -> Option<Effect> {
         let (b, path) = (&self.buf, self.path.clone()?);
         Some(Effect::Remember { path, line: b.line_of(b.cursor), col: b.col() })
     }

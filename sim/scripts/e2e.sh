@@ -25,6 +25,10 @@
 #   screen_esc         print the screen with its SGR sequences (colors, reverse, bold)
 #   wait_esc PATTERN   wait until the screen with its SGR sequences matches the (basic) regex
 #   reply OSC          type a terminal's reply to sim's color query, e.g. reply '11;rgb:1e1e/1e1e/1e1e'
+#   mouse B COL ROW M  type what a terminal reports for the mouse in SGR coding (1006): button code B
+#                      (0 left, 32 left dragged, 64 / 65 wheel up / down), COL and ROW 1-based, M the
+#                      press `M` or the release `m`; click, press, drag, release, wheel are shorter
+#   mouse_flags        the mouse modes the pane's application has asked tmux for (any, SGR, button)
 #   restart            end the case's tmux session, so that `start` can run sim again (files stay)
 #   $CASE_DIR          the case's temp directory; $HOME and $XDG_STATE_HOME are inside it
 #   $W                 sim's working directory, $CASE_DIR/work: the project a case makes
@@ -62,6 +66,16 @@ screen() { tm capture-pane -p -t "$SESSION"; }
 screen_esc() { tm capture-pane -p -e -t "$SESSION"; }
 # What a terminal answers to the color query (OSC 10, 11 and 4): typed into sim as keys.
 reply() { tm send-keys -t "$SESSION" -l -- "$(printf '\033]%s\033\\' "$1")"; }
+
+# What a terminal reports for the mouse (PTR-1), typed into sim like the replies above.
+mouse() { tm send-keys -t "$SESSION" -l -- "$(printf '\033[<%s;%s;%s%s' "$1" "$2" "$3" "$4")"; }
+press() { mouse 0 "$1" "$2" M; }
+drag() { mouse 32 "$1" "$2" M; }
+release() { mouse 0 "$1" "$2" m; }
+click() { press "$1" "$2"; release "$1" "$2"; }
+wheel() { mouse "$1" "$2" "$3" M; } # wheel 65 COL ROW is down, 64 up
+# Which mouse modes the application in the pane has switched on: any, SGR coding, button events.
+mouse_flags() { tm display-message -p -t "$SESSION" '#{mouse_any_flag}#{mouse_sgr_flag}#{mouse_button_flag}'; }
 
 wait_for() {
   tries=$((${2:-5} * 20))
@@ -259,10 +273,14 @@ restart() {
 # The screen no longer contains TEXT.
 gone() { ! screen | grep -F -q -- "$1"; }
 
+# What is left in si's state directory but the places where files were closed (CLI-6, which stay).
+journal_left() { ls -A "$XDG_STATE_HOME/si" 2> /dev/null | grep -v '^positions$' || true; }
+
 # After sim is gone: the normal screen is back and the tty is in cooked mode again.
 terminal_restored() {
   wait_for icanon
   [ "$(tm display-message -p -t "$SESSION" '#{alternate_on}')" = 0 ]
+  [ "$(mouse_flags)" = 000 ] # and the mouse is let go (PTR-1)
   screen | grep -E -q '(^| )icanon( |$)'
   screen | grep -E -q '(^| )echo( |$)'
 }
@@ -420,7 +438,7 @@ buf_1_two_files_are_edited_switched_with_tab_saved_with_wa_and_closed_with_qa() 
   keys Enter
   wait_exit
   [ "$(exit_code)" = 0 ]
-  [ -z "$(ls -A "$XDG_STATE_HOME/si" 2> /dev/null)" ] # nothing left in the journal
+  [ -z "$(journal_left)" ] # nothing left in the journal
 }
 
 buf_1_a_change_on_disk_is_merged_into_the_file_it_belongs_to() {
@@ -475,7 +493,7 @@ buf_1_kill_9_leaves_a_snapshot_for_every_modified_file() {
   typed ":qa!"
   keys Enter
   wait_for "exit=0"
-  [ -z "$(ls -A "$XDG_STATE_HOME/si")" ] # discarding forgot them
+  [ -z "$(journal_left)" ] # discarding forgot them
 }
 
 buf_1_sigterm_snapshots_every_modified_file() {
@@ -886,6 +904,26 @@ syn_1_the_palette_moves_the_colors_and_the_reply_never_reaches_the_app() {
   wait_for "modified"
 }
 
+syn_1_si_s_palette_paints_the_text_and_the_change_once_the_terminal_answers() {
+  printf 'fn main() {} // c\n' > "$W/a.rs"
+  CT=truecolor
+  start a.rs
+  wait_for "a.rs  1:1  NORMAL"
+  wait_esc '31mfn' # the theme's own until the terminal answers
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  reply '4;1;rgb:cc/00/00'
+  wait_esc '38;2;[0-9;]*mfn'
+  screen_esc | grep -q '38;2;[0-9;]*m *1 ' # the line number: si's secondary gray
+  ! screen_esc | grep -q '[;[]2m' # no faint stand-in left for the comment
+  wait_esc '3m.*38;2;[0-9;]*m// c\|38;2;[0-9;]*m.*3m// c' # italic and the secondary gray
+  # A change on disk: its mark is the change color (a background) with si's gray on it.
+  printf 'fn main() {} // c\nfn more() {}\n' > "$W/a.new"
+  mv "$W/a.new" "$W/a.rs"
+  wait_esc '48;2;[0-9;]*m'
+  ! screen_esc | grep -q '[;[]7m' # and no reverse video
+  gone modified
+}
+
 syn_2_zh_turns_the_colors_off_and_on() {
   printf 'fn main() {}\n' > "$W/a.rs"
   start a.rs
@@ -936,7 +974,7 @@ syn_5_the_selection_is_underlined_without_truecolor_and_gray_with_it() {
   restart
   CT=truecolor
   start a.rs
-  wait_for "a.rs  1:1  NORMAL"
+  wait_for "a.rs  1:4  NORMAL" # where the file was left (CLI-6)
   reply '11;rgb:1e1e/1e1e/1e1e'
   typed vlll
   wait_for VISUAL
@@ -956,6 +994,112 @@ buf_1_snapshots_are_off_when_the_state_directory_is_not_private() {
   keys Enter
   wait_content "$W/src/lib.rs" "n lib() {}" # saving works all the same
   [ -z "$(ls -A "$XDG_STATE_HOME/si")" ] # and nothing was written there
+}
+
+# ---- S4: the mouse ----
+
+ptr_1_a_click_in_the_panel_opens_a_file_and_toggles_a_directory() {
+  project
+  start
+  wait_for "▸ src/"
+  click 3 2 # the row of src/
+  wait_for "▾ src/"
+  wait_for "    lib.rs"
+  click 3 2
+  wait_gone "lib.rs"
+  click 5 3 # README.md
+  wait_for "README.md  1:1  NORMAL"
+  screen | grep -F -q "   1 readme"
+  keys C-n
+  wait_for "▸ docs/"
+  click 5 3 # the same row: the file is shown again, not opened a second time
+  wait_for "README.md  1:1  NORMAL"
+  gone "2/2"
+}
+
+ptr_1_a_click_in_the_text_moves_the_cursor_and_a_drag_selects_until_a_click() {
+  printf 'alpha beta\ngamma delta\n' > "$W/f.txt"
+  start f.txt
+  wait_for "f.txt  1:1  NORMAL"
+  click 12 2 # the text starts at column 6: this is its 7th char of line 2
+  wait_for "f.txt  2:7  NORMAL"
+  press 8 1 # the 3rd char of line 1
+  drag 9 1
+  drag 12 1
+  wait_for VISUAL
+  release 12 1
+  wait_for "f.txt  1:7  VISUAL" # the pointer's char is the cursor
+  wait_esc '[;[]4mpha b'
+  typed d # the selection is Visual mode's: its keys work on it
+  wait_for "aleta"
+  click 7 1
+  wait_for "f.txt  1:2  NORMAL  modified"
+  click 7 2
+  wait_for "f.txt  2:2  NORMAL  modified"
+}
+
+ptr_1_the_wheel_scrolls_the_text_and_the_panel_by_what_is_under_the_pointer() {
+  project
+  seq 1 100 | sed 's/^/line /' > "$W/long.txt"
+  for i in $(seq 1 30); do : > "$W/file$i.txt"; done
+  start long.txt
+  wait_for "long.txt  1:1  NORMAL"
+  wheel 65 40 5 # three lines on; the cursor keeps its 8 lines of context
+  wait_for "   4 line 4"
+  wait_for "long.txt  12:1  NORMAL"
+  wheel 65 40 5
+  wheel 65 40 5
+  wait_for "  10 line 10"
+  wheel 64 40 5
+  wait_for "   7 line 7"
+  keys C-n
+  wait_for "▸ docs/"
+  wheel 65 3 5 # over the panel: it scrolls, the text does not
+  wheel 65 3 5
+  wait_for "   7 line 7"
+  gone "▸ docs/"
+  wait_for "file5.txt" # three rows a notch, and the text did not follow
+  wheel 64 3 5
+  wheel 64 3 5
+  wait_for "▸ docs/"
+}
+
+ptr_1_mouse_reporting_is_on_while_sim_runs_and_off_after_every_way_out() {
+  project
+  wrap
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  [ "$(mouse_flags)" = 111 ] # buttons and drags, in SGR coding
+  typed ":qa"
+  keys Enter
+  wait_for "exit=0"
+  terminal_restored
+}
+
+ptr_2_the_mouse_edits_nothing() {
+  printf 'alpha beta\ngamma delta\n' > "$W/f.txt"
+  start f.txt
+  wait_for "f.txt  1:1  NORMAL"
+  click 8 1
+  press 8 1
+  drag 14 2
+  release 14 2
+  mouse 2 8 1 M # the right button
+  mouse 2 8 1 m
+  mouse 1 8 1 M # the middle button (paste, in some editors)
+  mouse 1 8 1 m
+  wheel 65 8 1
+  wheel 64 8 1
+  click 3 24 # the status line
+  sleep 0.3
+  gone modified
+  screen | grep -F -q "   1 alpha beta"
+  [ "$(cat "$W/f.txt")" = "$(printf 'alpha beta\ngamma delta')" ]
+  keys Escape
+  typed ":q"
+  keys Enter # nothing is modified, so this quits
+  wait_exit
+  [ "$(exit_code)" = 0 ]
 }
 
 main "$@"

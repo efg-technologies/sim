@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Effect;
+use si::core::app::{Effect, Event};
 use si::io::journal::{self, Snapshot};
 use sim::io;
 use sim::sim::SimEvent;
@@ -132,7 +132,7 @@ fn mode(p: &Path, m: u32) {
 fn snapshot(name: &str, text: &str) -> io::Job {
     let rope = ropey::Rope::from_str;
     let (base, text, path) = (rope(""), rope(text), Some(name.to_string()));
-    io::Job::Snap(1, Effect::Snapshot { path, base, text })
+    io::Job::App(1, Effect::Snapshot { path, base, text })
 }
 
 /// Runs the journal thread on `state` over `jobs` to its end; what it told the user.
@@ -186,8 +186,8 @@ fn buf_1_without_a_state_directory_there_are_no_snapshots_and_never_a_shared_fal
     let answers: Vec<_> = (0..2).map(|_| rx.recv_timeout(WAIT).unwrap()).collect();
     match &answers[..] {
         [
-            SimEvent::App(1, si::core::app::Event::Saved(Ok(_))),
-            SimEvent::App(2, si::core::app::Event::Saved(Err(e))),
+            SimEvent::App(1, si::core::app::Event::Saved(Ok(_), _)),
+            SimEvent::App(2, si::core::app::Event::Saved(Err(e), _)),
         ] => {
             assert!(e.contains("no recovery copy possible"), "{e}");
         }
@@ -229,7 +229,7 @@ fn buf_1_a_directory_that_others_can_enter_or_that_is_a_link_is_never_used() {
         std::fs::hard_link(&f, &other).unwrap();
         saves.send((1, f.to_string_lossy().into_owned(), b"new\n".to_vec(), None)).unwrap();
         match rx.recv_timeout(WAIT).unwrap() {
-            SimEvent::App(1, si::core::app::Event::Saved(Err(e))) => {
+            SimEvent::App(1, si::core::app::Event::Saved(Err(e), _)) => {
                 assert!(e.contains("no recovery copy possible"), "{m:o}: {e}");
             }
             e => panic!("{m:o}: {e:?}"),
@@ -244,4 +244,59 @@ fn buf_1_a_directory_that_others_can_enter_or_that_is_a_link_is_never_used() {
     assert!(!found(&link), "a link is not looked through");
     let told = journal(Some(&link), vec![snapshot("b.txt", "x")]);
     assert!(told.len() == 1 && told[0].contains("is not private"), "{told:?}");
+}
+
+#[test]
+fn buf_1_the_save_thread_numbers_each_answer_when_its_save_is_done() {
+    // PROP-1: a read of the disk takes its number as it starts, a save's answer when the save is
+    // done, from one counter for every thread; a read that began before the answer is older.
+    let d = temp_dir("save-seq");
+    let (tx, rx) = mpsc::channel();
+    let saves = io::save_thread(Some(d.0.join("state")), tx);
+    let f = d.0.join("f.txt");
+    std::fs::write(&f, "old\n").unwrap();
+    let began = si::io::file::seq(); // a watcher's read that starts before the save
+    saves.send((1, f.to_string_lossy().into_owned(), b"new\n".to_vec(), None)).unwrap();
+    saves.send((2, f.to_string_lossy().into_owned(), b"newer\n".to_vec(), Some(0))).unwrap(); // refused
+    let seq = |e: SimEvent| match e {
+        SimEvent::App(_, Event::Saved(_, n) | Event::SaveConflict(_, _, n)) => n,
+        e => panic!("{e:?}"),
+    };
+    let (first, second) =
+        (seq(rx.recv_timeout(WAIT).unwrap()), seq(rx.recv_timeout(WAIT).unwrap()));
+    assert!(began < first && first < second, "{began} < {first} < {second}");
+    assert!(second < si::io::file::seq(), "and the counter goes on from there");
+}
+
+#[test]
+fn buf_1_the_journal_thread_remembers_where_a_file_was_closed_and_answers_a_reload_with_it() {
+    // CLI-6: `Remember` saves the place (reading the others' again first), `Open` looks it up and
+    // the answer is tagged with the id of the file that asked.
+    let d = temp_dir("places");
+    let state = journal::state_dir(Some(d.0.clone().into()), None).unwrap();
+    std::fs::create_dir_all(&state).unwrap();
+    mode(&state, 0o700);
+    let [a, b, c] = ["a.txt", "b.txt", "c.txt"].map(|n| d.0.join(n).to_string_lossy().into_owned());
+    let (tx, rx) = mpsc::channel();
+    let (send, finished) = io::journal_thread(Some(state.clone()), None, tx);
+    let remember =
+        |p: &str, line, col| io::Job::App(1, Effect::Remember { path: p.into(), line, col });
+    send.send(remember(&a, 4, 2)).unwrap();
+    send.send(remember(&b, 0, 7)).unwrap();
+    send.send(io::Job::App(5, Effect::Open(a.clone()))).unwrap();
+    send.send(io::Job::App(6, Effect::Open(c))).unwrap(); // never closed: no answer
+    drop(send);
+    assert_eq!(finished.recv_timeout(WAIT), Err(RecvTimeoutError::Disconnected));
+    assert_eq!(journal::places(&state).len(), 2);
+    assert_eq!(journal::place(&state, &key_of(Path::new(&a))), Some((4, 2)));
+    let answers: Vec<_> = rx.try_iter().collect();
+    match &answers[..] {
+        [SimEvent::App(5, Event::Place(p, 4, 2))] => assert_eq!(p, &a),
+        a => panic!("{a:?}"),
+    }
+    // The first open of a file finds its place too, and brings it with the file (`Opened`).
+    match io::open(Some(&state), 3, "a.txt", Path::new(&a)) {
+        SimEvent::Opened(o) => assert_eq!(o.place, Some((4, 2))),
+        e => panic!("{e:?}"),
+    }
 }

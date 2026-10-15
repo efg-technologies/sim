@@ -18,6 +18,7 @@ type Times = Vec<(Duration, Key)>;
 struct Bench {
     r: Rig,
     term: Painter<Vec<u8>>,
+    size: (u16, u16),
 }
 
 impl Bench {
@@ -52,24 +53,25 @@ impl Bench {
             b.lines() >= 100_000 && b.line_of(b.cursor) == 49_999,
             "the big file, in the middle"
         );
-        Bench { r, term: Painter::new(Vec::new()) }
+        Bench { r, term: Painter::new(Vec::new()), size }
+    }
+
+    /// The time of one event: the state's update and the painter's bytes into memory.
+    fn one(&mut self, ev: SimEvent) -> Duration {
+        let t = Instant::now();
+        for e in self.r.sim.update(ev) {
+            if let SimEffect::Render(f) = e {
+                self.term.draw(f).unwrap();
+            }
+        }
+        let d = t.elapsed();
+        self.term.out.clear();
+        d
     }
 
     fn time(&mut self, keys: &str) -> Times {
-        common::keys(keys)
-            .into_iter()
-            .map(|k| {
-                let t = Instant::now();
-                for e in self.r.sim.update(SimEvent::Term(Event::Key(k))) {
-                    if let SimEffect::Render(f) = e {
-                        self.term.draw(f).unwrap();
-                    }
-                }
-                let d = t.elapsed();
-                self.term.out.clear();
-                (d, k)
-            })
-            .collect()
+        let keys = common::keys(keys);
+        keys.into_iter().map(|k| (self.one(SimEvent::Term(Event::Key(k))), k)).collect()
     }
 }
 
@@ -125,6 +127,51 @@ fn panel(b: &mut Bench) -> Times {
     out
 }
 
+/// The mouse (PTR-1) on the big file with the panel open: clicks in the text, drags (a press, some
+/// moves, a release), the wheel in the text (three lines a notch, the cursor keeping its context)
+/// and over the panel. Each event is timed, as a key is.
+fn mouse(b: &mut Bench) -> Times {
+    use crossterm::event::{KeyModifiers, MouseButton as B, MouseEvent, MouseEventKind as K};
+    let ev = |kind, column, row| {
+        SimEvent::Mouse(MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE })
+    };
+    let (w, h) = b.size;
+    let mut rng = Rng(11);
+    let mut out = vec![];
+    let at = |rng: &mut Rng| {
+        ((27 + rng.below(usize::from(w) - 27)) as u16, rng.below(usize::from(h) - 1) as u16)
+    };
+    for round in 0..600 {
+        let (x, y) = at(&mut rng);
+        // The key it is reported under: `c` a click, `d` a drag, `w` the wheel over the text, `r` over the panel.
+        let (mut events, label) = match round % 4 {
+            0 => (vec![ev(K::Down(B::Left), x, y), ev(K::Up(B::Left), x, y)], 'c'),
+            1 => {
+                let (x2, y2) = at(&mut rng);
+                let moves = [(x, y), (x2, y), (x2, y2), (x, y2)];
+                let drags = moves.iter().map(|&(a, b)| ev(K::Drag(B::Left), a, b));
+                let press = [ev(K::Down(B::Left), x, y)];
+                (press.into_iter().chain(drags).chain([ev(K::Up(B::Left), x, y2)]).collect(), 'd')
+            }
+            2 => {
+                let down = (round / 4) % 2 == 0;
+                let notch = if down { K::ScrollDown } else { K::ScrollUp };
+                ((0..6).map(|_| ev(notch, x, y)).collect(), 'w')
+            }
+            _ => (
+                (0..4)
+                    .map(|_| ev(K::ScrollDown, 3, y))
+                    .chain((0..4).map(|_| ev(K::ScrollUp, 3, y)))
+                    .collect(),
+                'r',
+            ),
+        };
+        events.push(SimEvent::Term(Event::Key(Key::Esc))); // leaves the selection a drag made
+        out.extend(events.into_iter().map(|e| (b.one(e), Key::Char(label))));
+    }
+    out
+}
+
 #[test]
 #[ignore]
 fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
@@ -132,8 +179,13 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     let mut failed = vec![];
     for size in [(80, 24), (240, 60)] {
         type Kind = fn(&mut Bench) -> Times;
-        let kinds: [(&str, Kind); 4] =
-            [("motions", motions), ("insert", inserts), ("delete", deletes), ("panel", panel)];
+        let kinds: [(&str, Kind); 5] = [
+            ("motions", motions),
+            ("insert", inserts),
+            ("delete", deletes),
+            ("panel", panel),
+            ("mouse", mouse),
+        ];
         for (name, run) in kinds {
             run(&mut Bench::new(size, false)); // warm up: page in the text and the allocator
             let mut b = Bench::new(size, true);
@@ -150,11 +202,28 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
                 max.0,
                 max.1
             );
+            if name == "mouse" {
+                for label in ['c', 'd', 'w', 'r'] {
+                    let of: Times = t.iter().copied().filter(|k| k.1 == Key::Char(label)).collect();
+                    eprintln!(
+                        "          {label} {:5}  p99 {:>8.1?}  max {:>8.1?}",
+                        of.len(),
+                        percentile(&of, 99).0,
+                        of[of.len() - 1].0
+                    );
+                }
+            }
             assert!(t.len() >= 1000);
-            if p99.0 > P99 {
+            // A wheel notch and the first move of a drag render twice (the cursor goes where the
+            // first render showed it must), so an event of the mouse has twice a key's time (PTR-1).
+            let most = if name == "mouse" { 2 * P99 } else { P99 };
+            if p99.0 > most {
                 failed.push(format!("{name} {}x{}: p99 {:?}", size.0, size.1, p99.0));
             }
         }
     }
-    assert!(failed.is_empty(), "p99 over 1 ms: {failed:?}");
+    assert!(
+        failed.is_empty(),
+        "p99 over its time (1 ms for a key, 2 ms for the mouse): {failed:?}"
+    );
 }

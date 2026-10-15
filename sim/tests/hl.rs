@@ -1,12 +1,15 @@
 //! SYN-1, SYN-2, SYN-3, SYN-5: colored text through sim's state (the highlighter's answers come
-//! back as events), the palette from the terminal's replies, and the painter's bytes.
+//! back as events), the colors from the terminal's replies, si's palette under them, and the
+//! painter's bytes.
 #![allow(clippy::unwrap_used, clippy::panic)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event as Ev, KeyCode, KeyEvent, KeyModifiers};
 use proptest::prelude::*;
+use si::core::app::{Event, Key};
+use si::core::color::{apca, palette as si_palette, parse_osc11};
 use si::core::view::{Frame, Row, Shape, Style};
-use sim::color::{self, Palette, lc};
+use sim::color::{self, Input, Syntax};
 use sim::io::Highlighter;
 use sim::paint::{Look, Painter, Screen};
 use sim::sim::{Env, Req, SimEvent};
@@ -23,9 +26,9 @@ fn any_color(r: &Rig) -> bool {
 
 /// Sim with a palette that has answered: this background and these ANSI colors (red, green,
 /// yellow, magenta, cyan).
-fn palette(bg: &str) -> Palette {
-    let mut p = Palette::new(true);
-    p.reply(&format!("11;rgb:{bg}"));
+fn palette(bg: &str) -> Syntax {
+    let mut p = Syntax::new(true);
+    p.bg(parse_osc11(&format!("rgb:{bg}")).unwrap());
     for (i, c) in
         [(1, "cc/00/00"), (2, "00/aa/00"), (3, "aa/aa/00"), (5, "aa/00/aa"), (6, "00/aa/aa")]
     {
@@ -131,6 +134,7 @@ fn syn_1_the_painter_writes_sgr_31_to_36_without_a_palette_and_never_blue() {
         rows: vec![Row { text: "fn s 1 T f c b".into(), ..Row::default() }, Row::default()],
         cursor: (0, 0),
         shape: Shape::Block,
+        pal: None,
     };
     let looks = vec![
         vec![
@@ -143,7 +147,7 @@ fn syn_1_the_painter_writes_sgr_31_to_36_without_a_palette_and_never_blue() {
         ],
         vec![],
     ];
-    p.draw(Screen { frame, looks, pal: Palette::default() }).unwrap();
+    p.draw(Screen { frame, looks, syn: Syntax::default() }).unwrap();
     let out = String::from_utf8(p.out).unwrap();
     for sgr in [
         "\x1b[0;1;31mfn",
@@ -169,11 +173,17 @@ fn syn_1_the_painter_counts_columns_by_si_s_rule_so_spans_stay_on_their_chars() 
     let (b, c) = (col(cs.iter().position(|&x| x == 'b').unwrap()), col(cs.len() - 1));
     assert_eq!(b, 3, "a is 1, the sequence 2");
     let row = Row { text: text.into(), spans: vec![(b..b + 1, Style::Change)], ..Row::default() };
-    let frame =
-        Frame { width: 20, height: 1, rows: vec![row], cursor: (0, 0), shape: Shape::Block };
+    let frame = Frame {
+        width: 20,
+        height: 1,
+        rows: vec![row],
+        cursor: (0, 0),
+        shape: Shape::Block,
+        pal: None,
+    };
     let looks = vec![vec![(c..c + 1, Look::Kw)]];
     let mut p = Painter::new(Vec::new());
-    p.draw(Screen { frame, looks, pal: Palette::default() }).unwrap();
+    p.draw(Screen { frame, looks, syn: Syntax::default() }).unwrap();
     let out = String::from_utf8(p.out).unwrap();
     // A zero-width char (the selector, the joiner) goes with the column it stands on, as in si's Term.
     assert!(out.contains("\x1b[0;7m\u{fe0f}b\x1b[0m"), "the change style covers b only: {out:?}");
@@ -203,9 +213,10 @@ fn syn_1_the_change_background_wins_over_a_color_and_a_color_never_makes_a_backg
             ],
             cursor: (0, 0),
             shape: Shape::Block,
+            pal: None,
         };
         let looks = vec![vec![(0..2, Look::Kw), (0..4, Look::Sel)], vec![]];
-        p.draw(Screen { frame, looks, pal: palette("1e/1e/1e") }).unwrap();
+        p.draw(Screen { frame, looks, syn: palette("1e/1e/1e") }).unwrap();
         String::from_utf8(p.out).unwrap()
     };
     let on_change = draw(Style::Change);
@@ -227,11 +238,11 @@ fn syn_1_a_palette_moves_each_color_until_it_reads_at_lc_75_on_every_background(
         let pal = palette(bg);
         let rgb = |s: &str| {
             let v: Vec<u8> = s.split('/').map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
-            [v[0], v[1], v[2]]
+            (v[0], v[1], v[2])
         };
         for look in [Look::Kw, Look::Str, Look::Ty, Look::Num, Look::Fun] {
             let c = pal.hue(look).unwrap();
-            let contrast = lc(c, rgb(bg)).abs();
+            let contrast = apca(c, rgb(bg)).abs();
             assert!(contrast >= 75.0, "{look:?} on {bg}: Lc {contrast:.1}");
         }
     }
@@ -241,18 +252,18 @@ fn syn_1_a_palette_moves_each_color_until_it_reads_at_lc_75_on_every_background(
 fn syn_1_the_colors_keep_their_hue_and_blue_is_not_asked_for() {
     let pal = palette("1e/1e/2e");
     for (look, ansi) in [
-        (Look::Kw, [0xcc, 0, 0]),
-        (Look::Str, [0, 0xaa, 0]),
-        (Look::Num, [0xaa, 0, 0xaa]),
-        (Look::Fun, [0, 0xaa, 0xaa]),
+        (Look::Kw, (0xcc, 0, 0)),
+        (Look::Str, (0, 0xaa, 0)),
+        (Look::Num, (0xaa, 0, 0xaa)),
+        (Look::Fun, (0, 0xaa, 0xaa)),
     ] {
         let (a, b) = (color::to_lch(ansi), color::to_lch(pal.hue(look).unwrap()));
         let d = (a[2] - b[2]).abs().min(360.0 - (a[2] - b[2]).abs());
         assert!(d < 12.0, "{look:?}: hue {:.0} became {:.0}", a[2], b[2]);
     }
     assert!(!color::QUERY.contains("4;4;"), "ANSI blue is never asked for");
-    let mut only_blue = Palette::new(true);
-    only_blue.reply("11;rgb:00/00/00");
+    let mut only_blue = Syntax::new(true);
+    only_blue.bg((0, 0, 0));
     only_blue.reply("4;4;rgb:00/00/ff");
     assert!(
         [Look::Kw, Look::Str, Look::Ty, Look::Num, Look::Fun]
@@ -263,83 +274,247 @@ fn syn_1_the_colors_keep_their_hue_and_blue_is_not_asked_for() {
 
 #[test]
 fn syn_1_without_truecolor_or_a_reply_there_is_no_palette() {
-    let mut p = Palette::new(false);
-    p.reply("11;rgb:1e/1e/1e");
+    let mut p = Syntax::new(false);
+    p.bg((0x1e, 0x1e, 0x1e));
     p.reply("4;1;rgb:cc/00/00");
     assert!(
         p.hue(Look::Kw).is_none() && p.sel().is_none(),
         "no COLORTERM: the terminal's own colors"
     );
-    let mut p = Palette::new(true);
+    let mut p = Syntax::new(true);
     p.reply("4;1;rgb:cc/00/00");
     assert!(p.hue(Look::Kw).is_none(), "no background: no way to tell the contrast");
     for junk in [
         "",
-        "11",
-        "11;",
-        "11;rgb:zz/00/00",
-        "11;rgb:1/2",
+        "4",
+        "4;",
+        "4;1;rgb:zz/00/00",
+        "4;1;rgb:1/2",
         "4;99;rgb:00/00/00",
         "52;c;AAAA",
-        "11;rgb:1/2/3/4",
+        "4;1;rgb:1/2/3/4",
+        "11;rgb:00/00/00",
     ] {
         p.reply(junk); // nothing panics
     }
-    p.reply("11;rgb:ffff/ffff/ffff");
+    p.bg((255, 255, 255));
     p.reply("4;1;rgb:cc00/0000/0000");
     assert!(p.hue(Look::Kw).is_some(), "four hex digits a channel, as terminals send");
 }
 
-fn key(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
-    KeyEvent::new(code, mods)
+fn key(code: KeyCode, mods: KeyModifiers) -> Ev {
+    Ev::Key(KeyEvent::new(code, mods))
+}
+
+/// What `Input` made of these events, as text: `<r,g,b>` the background, `osc:..` a reply to OSC 4,
+/// a key as itself (`^` Esc), `tab` Shift-Tab, `mouse` the mouse.
+fn heard(input: &mut Input, evs: Vec<Ev>) -> String {
+    let one = |e: SimEvent| match e {
+        SimEvent::Term(Event::Bg((r, g, b))) => format!("<{r},{g},{b}>"),
+        SimEvent::Term(Event::Key(Key::Esc)) => "^".into(),
+        SimEvent::Term(Event::Key(Key::Char(c))) => c.to_string(),
+        SimEvent::Term(e) => format!("{e:?}"),
+        SimEvent::Osc(s) => format!("osc:{s}"),
+        SimEvent::BackTab => "tab".into(),
+        SimEvent::Mouse(_) => "mouse".into(),
+        e => panic!("{e:?}"),
+    };
+    evs.into_iter().flat_map(|e| input.feed(e)).map(one).collect()
+}
+
+/// `ESC ] body ESC \` as crossterm reads it: Alt+`]`, the body as plain keys, Alt+`\`.
+fn osc(body: &str) -> Vec<Ev> {
+    let (alt, none) = (KeyModifiers::ALT, KeyModifiers::NONE);
+    let keys = body.chars().map(|c| key(KeyCode::Char(c), none));
+    [key(KeyCode::Char(']'), alt)]
+        .into_iter()
+        .chain(keys)
+        .chain([key(KeyCode::Char('\\'), alt)])
+        .collect()
 }
 
 #[test]
-fn syn_1_an_osc_reply_is_put_together_from_keys_and_never_reaches_the_app() {
-    let (eaten, alt) = (Some(None), KeyModifiers::ALT);
-    let mut buf = None;
-    let plain = |c: char| key(KeyCode::Char(c), KeyModifiers::NONE);
-    // ESC ] 11 ; rgb:1E1E/1e1e/1E1E ESC \  (crossterm: Alt+], the payload, Alt+\)
-    assert_eq!(color::feed(&mut buf, &key(KeyCode::Char(']'), alt)), eaten);
-    for c in "11;rgb:1E1E/1e1e/1E1E".chars() {
-        let mods = if c.is_uppercase() { KeyModifiers::SHIFT } else { KeyModifiers::NONE };
-        assert_eq!(color::feed(&mut buf, &key(KeyCode::Char(c), mods)), eaten, "{c}");
-    }
-    let done = color::feed(&mut buf, &key(KeyCode::Char('\\'), alt));
-    assert_eq!(done, Some(Some("11;rgb:1E1E/1e1e/1E1E".into())));
+fn syn_1_a_reply_to_osc_4_is_put_together_from_keys_and_the_one_to_osc_11_is_si_s() {
+    let mut input = Input::new(true);
+    // The background is si's `Reply`: it becomes `Event::Bg` and none of its keys goes on.
+    assert_eq!(heard(&mut input, osc("11;rgb:1E1E/1e1e/1E1E")), "<30,30,30>");
+    // An ANSI color is sim's: the payload as it came, and none of its keys goes on.
+    assert_eq!(heard(&mut input, osc("4;1;rgb:cc/00/00")), "osc:4;1;rgb:cc/00/00");
     // BEL ends a reply too (Ctrl-g).
-    color::feed(&mut buf, &key(KeyCode::Char(']'), alt));
-    color::feed(&mut buf, &plain('1'));
-    let bel = color::feed(&mut buf, &key(KeyCode::Char('g'), KeyModifiers::CONTROL));
-    assert_eq!(bel, Some(Some("1".into())));
-    // Ordinary keys are ordinary keys; a reply that turns out to be keys gives the key back.
-    assert_eq!(color::feed(&mut buf, &plain('x')), None);
-    assert_eq!(color::feed(&mut buf, &key(KeyCode::Char('x'), alt)), None);
-    color::feed(&mut buf, &key(KeyCode::Char(']'), alt));
-    assert_eq!(color::feed(&mut buf, &key(KeyCode::Enter, KeyModifiers::NONE)), None);
-    assert_eq!(color::feed(&mut buf, &plain('y')), None, "and then nothing is being collected");
-    // A runaway reply is cut off, not collected for ever.
-    color::feed(&mut buf, &key(KeyCode::Char(']'), alt));
-    let n = (0..300).filter(|_| color::feed(&mut buf, &plain('a')) == eaten).count();
-    assert!(n < 300);
+    let evs = vec![
+        key(KeyCode::Char(']'), KeyModifiers::ALT),
+        key(KeyCode::Char('4'), KeyModifiers::NONE),
+        key(KeyCode::Char('g'), KeyModifiers::CONTROL),
+    ];
+    assert_eq!(heard(&mut input, evs), "osc:4");
+    // Replies arriving in pieces, between typed keys.
+    let (mut first, rest) = (osc("4;2;rgb:00/aa/00"), osc("11;rgb:00/00/00"));
+    let tail = first.split_off(6);
+    assert_eq!(heard(&mut input, first), "");
+    assert_eq!(heard(&mut input, tail), "osc:4;2;rgb:00/aa/00");
+    assert_eq!(heard(&mut input, rest), "<0,0,0>");
 }
 
 #[test]
-fn syn_1_a_reply_from_the_terminal_changes_the_palette_of_the_next_screen() {
+fn syn_1_keys_that_are_not_a_reply_go_on_as_keys_in_order() {
+    let (alt, none) = (KeyModifiers::ALT, KeyModifiers::NONE);
+    let mut input = Input::new(true);
+    let plain = |c: char| key(KeyCode::Char(c), none);
+    assert_eq!(heard(&mut input, vec![plain('x'), key(KeyCode::Char('x'), alt)]), "x^x");
+    // A typed Esc and `]`, then something that is no reply: not lost, whichever reply it is not.
+    assert_eq!(heard(&mut input, vec![key(KeyCode::Char(']'), alt), plain('x')]), "^]x");
+    assert_eq!(heard(&mut input, vec![key(KeyCode::Char(']'), alt), plain('4'), plain('x')]), "");
+    // Shift-Tab and the mouse are sim's, wherever they come.
+    let click = Ev::Mouse(crossterm::event::MouseEvent {
+        kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        column: 1,
+        row: 2,
+        modifiers: none,
+    });
+    assert_eq!(
+        heard(&mut input, vec![key(KeyCode::BackTab, KeyModifiers::SHIFT), click]),
+        "tabmouse"
+    );
+    // A reply to OSC 4 that never ends is cut off, not collected for ever; its keys go on.
+    let mut runaway = vec![key(KeyCode::Char(']'), alt), plain('4')];
+    runaway.extend((0..300).map(|_| plain('a')));
+    assert!(heard(&mut input, runaway).len() > 100);
+    // With no COLORTERM nothing is asked with OSC 4, so an Alt+`]` is not held for it.
+    let mut quiet = Input::new(false);
+    assert_eq!(heard(&mut quiet, vec![key(KeyCode::Char(']'), alt), plain('4')]), "^]4");
+}
+
+#[test]
+fn syn_1_si_s_palette_paints_the_four_styles_and_the_syntax_colors_stay_on_top() {
+    let mut r = rig_env(
+        "hl-base",
+        &[&format!("main.rs={RUST}"), "b.rs=fn b() {}\n"],
+        &["main.rs"],
+        (40, 8),
+        |e: &mut Env| e.syn = Syntax::new(true),
+    );
+    assert_eq!(r.shot.frame.pal, None, "no answer, no palette: reverse and faint stand in");
+    let bg = (0x1e, 0x1e, 0x1e);
+    r.send(SimEvent::Term(Event::Bg(bg)));
+    let pal = si_palette(bg);
+    assert_eq!(r.shot.frame.pal, Some(pal), "the Frame carries si's palette");
+    assert_eq!(r.app().pal, Some(pal), "and the App has been told");
+    r.send(SimEvent::Osc("4;1;rgb:cc/00/00".into()));
+    // Another file, opened later, has it too.
+    r.keys(":e b.rs\n");
+    assert_eq!(r.app().pal, Some(pal));
+    r.keys(":e main.rs\n");
+    let mut p = Painter::new(Vec::new());
+    p.draw(r.shot.clone()).unwrap();
+    let out = String::from_utf8(p.out).unwrap();
+    let (g, c) = (pal.primary, pal.secondary);
+    assert!(out.contains(&format!("\x1b[0;38;2;{};{};{}m", g.0, g.1, g.2)), "primary: {out:?}");
+    assert!(
+        out.contains(&format!(";38;2;{};{};{};3m", c.0, c.1, c.2))
+            || out.contains(&format!(";3;38;2;{};{};{}m", c.0, c.1, c.2)),
+        "comments are the secondary gray, in italic: {out:?}"
+    );
+    assert!(!out.contains("\x1b[0;2;3m"), "not faint, now that there is a gray");
+    assert!(out.contains(";1;38;2;"), "a keyword is bold and in the adjusted red: {out:?}");
+}
+
+#[test]
+fn syn_1_the_change_background_wins_over_every_syntax_color_under_si_s_palette() {
+    let bg = (0x1e, 0x1e, 0x1e);
+    let pal = si_palette(bg);
+    let draw = |style| {
+        let mut p = Painter::new(Vec::new());
+        let frame = Frame {
+            width: 10,
+            height: 2,
+            rows: vec![
+                Row { text: "fn x".into(), spans: vec![(0..4, style)], ..Row::default() },
+                Row::default(),
+            ],
+            cursor: (0, 0),
+            shape: Shape::Block,
+            pal: Some(pal),
+        };
+        let looks = vec![vec![(0..2, Look::Kw), (2..3, Look::Com), (3..4, Look::Sel)], vec![]];
+        p.draw(Screen { frame, looks, syn: palette("1e/1e/1e") }).unwrap();
+        String::from_utf8(p.out).unwrap()
+    };
+    let on_change = draw(Style::Change);
+    let want = format!("48;2;{};{};{}", pal.change.0, pal.change.1, pal.change.2);
+    assert!(on_change.contains(&want), "si's change background: {on_change:?}");
+    let text = format!("38;2;{};{};{}", pal.change_text.0, pal.change_text.1, pal.change_text.2);
+    // Every sequence in it sets the text to si's gray on the change background, and only that.
+    let colors = on_change.matches("38;2;").count();
+    assert_eq!(on_change.matches(&text).count(), colors, "no syntax color on it: {on_change:?}");
+    assert_eq!(
+        on_change.matches("48;2;").count(),
+        colors,
+        "and no other background: {on_change:?}"
+    );
+    assert!(on_change.contains(";1m") && on_change.contains(";3m"), "bold and italic remain");
+    let plain = draw(Style::Primary);
+    assert!(plain.contains("48;2;") && plain.contains("38;2;"), "colors elsewhere: {plain:?}");
+}
+
+#[test]
+fn syn_1_a_reply_from_the_terminal_changes_the_colors_of_the_next_screen() {
     let mut r =
         rig_env("hl-osc", &[&format!("main.rs={RUST}")], &["main.rs"], (40, 8), |e: &mut Env| {
-            e.pal = Palette::new(true);
+            e.syn = Syntax::new(true);
         });
-    assert!(r.shot.pal.hue(Look::Kw).is_none());
-    r.send(SimEvent::Osc("11;rgb:1e1e/1e1e/1e1e".into()));
+    assert!(r.shot.syn.hue(Look::Kw).is_none());
+    r.send(SimEvent::Term(Event::Bg((0x1e, 0x1e, 0x1e))));
     r.send(SimEvent::Osc("4;1;rgb:cc/00/00".into()));
-    assert!(r.shot.pal.hue(Look::Kw).is_some());
+    assert!(r.shot.syn.hue(Look::Kw).is_some());
     let mut p = Painter::new(Vec::new());
     p.draw(r.shot.clone()).unwrap();
     assert!(String::from_utf8(p.out).unwrap().contains("38;2;"), "drawn with the adjusted red");
     r.send(SimEvent::Osc("52;c;junk".into()));
     r.keys("lll"); // an unknown reply and keys go on as usual
     assert_eq!(r.status(), "main.rs  1:4  NORMAL");
+}
+
+#[test]
+fn syn_1_the_quit_waits_for_the_terminal_only_while_an_answer_is_still_to_come() {
+    // VIS-4: sim asks the background (si's `enter`) and, with COLORTERM, five ANSI colors; a quit
+    // before they are in waits for the terminal to finish (bounded), so none is typed into the shell.
+    let ansi = ["4;1;rgb:cc/00/00", "4;2;rgb:00/aa/00", "4;3;rgb:aa/aa/00", "4;5;rgb:aa/00/aa"];
+    let mut r = rig_env("hl-asking", &["a.rs"], &["a.rs"], (40, 8), |e: &mut Env| {
+        e.syn = Syntax::new(true);
+    });
+    assert!(r.sim.asking(), "nothing is in yet");
+    r.send(SimEvent::Term(Event::Bg((0x1e, 0x1e, 0x1e))));
+    assert!(r.sim.asking(), "the colors of syntax are still to come");
+    ansi.iter().for_each(|a| r.send(SimEvent::Osc((*a).into())));
+    assert!(r.sim.asking(), "all but cyan");
+    r.send(SimEvent::Osc("4;6;rgb:00/aa/aa".into()));
+    assert!(!r.sim.asking(), "all in: a quit has nothing to wait for");
+    // Without COLORTERM only the background is asked.
+    let mut r = rig_sized("hl-asking2", &["a.rs"], &["a.rs"], (40, 8));
+    assert!(r.sim.asking());
+    r.send(SimEvent::Term(Event::Bg((255, 255, 255))));
+    assert!(!r.sim.asking());
+}
+
+/// The real binary in a pty, against a terminal that answers every query 30 ms late, in order (si's
+/// scripts/pty_bench.py): `:q` at the first frame must not end before the answers are in.
+#[test]
+fn syn_1_a_quit_before_the_terminal_has_answered_leaves_nothing_for_the_shell() {
+    let dir = temp_dir("hl-leak");
+    std::fs::write(dir.0.join("a.rs"), "fn main() {}\n").unwrap();
+    let (sim, file) = (env!("CARGO_BIN_EXE_sim"), dir.0.join("a.rs"));
+    let Some(m) = pty_bench(&["leak", sim, file.to_str().unwrap(), "30"]) else { return };
+    assert_eq!(m["leaked"], 0.0, "the shell would have typed the terminal's answer");
+    assert!(
+        m["quit_ms"] >= 25.0,
+        "it quit in {:.1} ms, before the answer could be in",
+        m["quit_ms"]
+    );
+    for (kind, most) in [("answering", 80.0), ("no_osc", 80.0), ("silent", 400.0)] {
+        let m = pty_bench(&["quit", sim, file.to_str().unwrap(), kind]).unwrap();
+        assert!(m["quit_ms"] < most, "a quit with a {kind} terminal took {:.1} ms", m["quit_ms"]);
+        assert_eq!(m["quit_ms"] >= 90.0, kind == "silent", "{kind}: {:.1} ms", m["quit_ms"]);
+    }
 }
 
 // ---- SYN-2 ----
@@ -549,15 +724,15 @@ fn syn_5_the_selection_is_a_gray_background_with_truecolor_and_an_underline_with
     assert_eq!((gray(&r), underlined(&r)), (0, 1));
     // A palette: the gray; and the underline is gone.
     let mut r = rig_env("sel-gray", &[&content], &["main.rs"], (40, 8), |e: &mut Env| {
-        e.pal = palette("1e/1e/1e")
+        e.syn = palette("1e/1e/1e")
     });
     r.keys("vlll");
     assert_eq!((gray(&r), underlined(&r)), (1, 0));
     golden("syn_5_selection", &dump_screen(&r.shot));
     // Not truecolor: the underline, whatever the terminal answered.
     let mut r = rig_env("sel-16", &[&content], &["main.rs"], (40, 8), |e: &mut Env| {
-        e.pal = Palette::new(false);
-        e.pal.reply("11;rgb:1e/1e/1e");
+        e.syn = Syntax::new(false);
+        e.syn.bg((0x1e, 0x1e, 0x1e));
     });
     r.keys("vlll");
     assert_eq!((gray(&r), underlined(&r)), (0, 1));
@@ -573,11 +748,19 @@ fn syn_5_the_gray_is_neutral_reads_at_lc_15_and_its_text_at_lc_75_on_every_backg
         let pal = palette(bg);
         let (shade, text) = pal.sel().unwrap();
         let rgb: Vec<u8> = bg.split('/').map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
-        let bg = [rgb[0], rgb[1], rgb[2]];
-        assert_eq!(shade[0], shade[1], "neutral");
-        assert_eq!(shade[1], shade[2], "neutral");
-        assert!(lc(shade, bg).abs() >= 15.0, "{bg:?}: the gray reads at {:.1}", lc(shade, bg));
-        assert!(lc(text, shade).abs() >= 75.0, "{bg:?}: its text reads at {:.1}", lc(text, shade));
-        assert!(lc(shade, bg).abs() < 30.0, "{bg:?}: a hint, not a block: {:.1}", lc(shade, bg));
+        let bg = (rgb[0], rgb[1], rgb[2]);
+        assert_eq!(shade.0, shade.1, "neutral");
+        assert_eq!(shade.1, shade.2, "neutral");
+        assert!(apca(shade, bg).abs() >= 15.0, "{bg:?}: the gray reads at {:.1}", apca(shade, bg));
+        assert!(
+            apca(text, shade).abs() >= 75.0,
+            "{bg:?}: its text reads at {:.1}",
+            apca(text, shade)
+        );
+        assert!(
+            apca(shade, bg).abs() < 30.0,
+            "{bg:?}: a hint, not a block: {:.1}",
+            apca(shade, bg)
+        );
     }
 }

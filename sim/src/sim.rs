@@ -4,8 +4,9 @@
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
 //! are in `panel.rs`.
 mod panel;
+mod ptr;
 
-use crate::color::Palette;
+use crate::color::Syntax;
 use crate::io::GIT_SKIPPED;
 use crate::layout::{self, Mark};
 use crate::marks::Marks;
@@ -13,10 +14,13 @@ use crate::paint::{Looks, Screen};
 use crate::rank::History;
 use crate::syn::Spans;
 use crate::tree::{Entry, Row as TreeRow, Tree};
+use crossterm::event::MouseEvent;
 use panel::Search;
 use ropey::Rope;
 use si::core::app::{App, Effect, Event, Key, Read};
+use si::core::buffer::Buffer;
 use si::core::cli;
+use si::core::color::{Palette, palette};
 use si::core::vi::Mode;
 use si::core::view::{self, Frame, Row, Shape};
 use si::io::journal::Snapshot;
@@ -36,8 +40,10 @@ pub const MAX_HL: usize = 10_000_000;
 pub enum SimEvent {
     /// An event of one open file: a change on disk, the result of a save, a reload.
     App(Id, Event),
-    /// What the terminal sent that si understands: a key, a paste, a new size.
+    /// What the terminal sent that si understands: a key, a paste, a new size, its background.
     Term(Event),
+    /// The mouse (PTR-1): a click, a drag, a release, the wheel.
+    Mouse(MouseEvent),
     /// Shift-Tab, which si's `Key` does not have.
     BackTab,
     Tick(u64),
@@ -54,7 +60,7 @@ pub enum SimEvent {
     Files(Vec<String>),
     /// MARK-1: git's status, and where the root lies below the top of the repository.
     Status(Result<(Vec<u8>, String), String>),
-    /// SYN-1: the payload of a reply of the terminal to OSC 4, 10 or 11.
+    /// SYN-1: the payload of a reply of the terminal to OSC 4.
     Osc(String),
     /// SYN-3: the spans of a window of a file.
     Spans(Hl),
@@ -101,6 +107,8 @@ pub struct Opened {
     pub key: String,
     pub file: Read,
     pub found: Option<Found>,
+    /// Where the file was closed last time (CLI-6): line and column.
+    pub place: Option<(usize, usize)>,
 }
 
 /// SYN-3: lines `from..from + n` of the file `id` named `name`, as of version `ver` of `text`.
@@ -182,10 +190,16 @@ pub struct Sim {
     t0: u64,
     /// MARK-3: the rows of the narrowed tree, when it is narrowed.
     focus: Option<Tree>,
-    /// SYN-1, SYN-2, SYN-5: the terminal's palette, whether colors are on, and a `z` just typed.
-    pal: Palette,
+    /// VIS-4: si's palette, made of the terminal's background (it paints the four styles).
+    /// SYN-1, SYN-2, SYN-5: the syntax colors, whether they are on, and a `z` just typed.
+    pal: Option<Palette>,
+    syn: Syntax,
     hl_off: bool,
     z: bool,
+    /// `SI_ON_NORMAL` (VI-11), which every file's App runs.
+    hook: Option<String>,
+    /// PTR-1: the press in the text that a drag goes on from: the file, and whether it has begun.
+    drag: Option<(Id, bool)>,
 }
 
 /// What `sim` starts with besides what it was asked to open: the shell's side of the world.
@@ -196,7 +210,8 @@ pub struct Env {
     /// Seconds since the epoch.
     pub now: u64,
     pub history: History,
-    pub pal: Palette,
+    pub syn: Syntax,
+    pub hook: Option<String>,
 }
 
 /// What `sim` was asked to open (TREE-1).
@@ -221,6 +236,11 @@ pub fn start(
     })
 }
 
+/// Line `l` of the buffer without its line break; none past the end.
+fn text_of(buf: &Buffer, l: usize) -> Option<String> {
+    (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
+}
+
 /// The commands for all the files at once, which si's App does not know (BUF-3), and `:e name`,
 /// which opens another file instead of replacing this one (BUF-1): name, `!`, argument.
 fn all(line: &str) -> Option<(&str, bool, &str)> {
@@ -238,8 +258,9 @@ impl Sim {
     pub fn new(s: Start, env: Env) -> (Sim, Vec<SimEffect>) {
         let panel = Panel { open: s.file.is_none(), focus: s.file.is_none(), ..Panel::default() };
         let (root, keys, size) = (s.root, s.keys, (env.size.0.max(1), env.size.1.max(2)));
-        let (history, pal, cwd) = (env.history, env.pal, env.cwd);
-        let mut sim = Sim { panel, cwd, size, keys, root, history, pal, ..Sim::default() };
+        let (history, syn, cwd) = (env.history, env.syn, env.cwd);
+        let mut sim =
+            Sim { panel, cwd, size, keys, root, history, syn, hook: env.hook, ..Sim::default() };
         (sim.now, sim.t0) = (env.now, env.now);
         let mut out = vec![SimEffect::Read(sim.root.clone())];
         out.push(SimEffect::Files);
@@ -270,16 +291,22 @@ impl Sim {
                 self.to(self.id(), Event::Paste(s), &mut out)
             }
             SimEvent::Term(Event::Resize(w, h)) => self.size = (w.max(1), h.max(2)),
+            SimEvent::Term(Event::Bg(rgb)) => self.background(rgb, &mut out),
             SimEvent::Term(_) => {}
+            SimEvent::Mouse(m) => self.mouse(m, &mut out),
             SimEvent::BackTab => self.step(self.bufs.len().saturating_sub(1)),
             SimEvent::App(id, e) => self.to(id, e, &mut out),
             SimEvent::Notice(m) => self.msg = Some(m),
             SimEvent::Tick(n) => {
                 self.now = self.t0 + n / 1000;
-                return self.snapshots(None, || Event::Tick(n));
+                let (fx, drawn) = self.snapshots(None, || Event::Tick(n));
+                if !drawn {
+                    return fx;
+                }
+                out = fx;
             }
             SimEvent::Signal(n) => {
-                let mut out = self.snapshots(None, || Event::Signal(n));
+                let mut out = self.snapshots(None, || Event::Signal(n)).0;
                 out.push(SimEffect::Quit(128 + n));
                 return out;
             }
@@ -305,7 +332,7 @@ impl Sim {
                 }
                 Err(e) => self.msg = Some(e),
             },
-            SimEvent::Osc(s) => self.pal.reply(&s),
+            SimEvent::Osc(s) => self.syn.reply(&s),
             SimEvent::Spans(h) => {
                 if let Some(b) = self.bufs.iter_mut().find(|b| b.id == h.id) {
                     b.hl = Some(h);
@@ -315,6 +342,20 @@ impl Sim {
         let screen = self.frame(&mut out);
         out.push(SimEffect::Render(screen));
         out
+    }
+
+    /// VIS-4: the terminal's background came, however late: si's palette is made of it, every App
+    /// is told (as si's loop tells its one), and the syntax colors follow it (SYN-1).
+    fn background(&mut self, rgb: (u8, u8, u8), out: &mut Vec<SimEffect>) {
+        (self.pal, _) = (Some(palette(rgb)), self.syn.bg(rgb));
+        let ids: Vec<Id> = self.bufs.iter().map(|b| b.id).collect();
+        ids.into_iter().for_each(|id| self.to(id, Event::Bg(rgb), out));
+    }
+
+    /// Whether the terminal may still be answering what was asked of it (VIS-4): the quit then
+    /// waits for it to finish, so that no answer is typed into the shell.
+    pub fn asking(&self) -> bool {
+        self.pal.is_none() || self.syn.pending()
     }
 
     /// Tells every App the size it has, so that what it renders fits next to the panel.
@@ -360,7 +401,7 @@ impl Sim {
     /// Gives an event to one file's App, and runs what it asks for. A change on disk or a save
     /// is a change for MARK-1 (it works without git too), and git is asked again.
     fn to(&mut self, id: Id, ev: Event, out: &mut Vec<SimEffect>) {
-        let changed = matches!(ev, Event::Disk { .. } | Event::Saved(Ok(_)));
+        let changed = matches!(ev, Event::Disk { .. } | Event::Saved(Ok(_), _));
         let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) else { return };
         let (fx, path) = (b.app.update(ev), b.app.path.clone());
         self.run(id, fx, out);
@@ -390,7 +431,7 @@ impl Sim {
             Some(0) => self.close(id, out),
             // `:cq`: the whole of sim ends, and the other files keep what is unsaved in them.
             Some(code) => {
-                out.extend(self.snapshots(Some(id), || Event::Signal(0)));
+                out.extend(self.snapshots(Some(id), || Event::Signal(0)).0);
                 out.push(SimEffect::Quit(code));
             }
             None => {}
@@ -411,15 +452,23 @@ impl Sim {
     }
 
     /// Gives every App but `except` an event that makes it ask for a snapshot of its unsaved text
-    /// (a tick, a signal: SAFE-6), and keeps only those requests.
-    fn snapshots(&mut self, except: Option<Id>, ev: impl Fn() -> Event) -> Vec<SimEffect> {
-        let mut out = vec![];
+    /// (a tick, a signal: SAFE-6), and keeps only those requests (and, for a signal, the place of
+    /// its cursor, CLI-6). The frame an App makes meanwhile is kept for the screen: a tick brings
+    /// the seconds of a running filter (PROP-5).
+    fn snapshots(&mut self, except: Option<Id>, ev: impl Fn() -> Event) -> (Vec<SimEffect>, bool) {
+        let (mut out, mut drawn) = (vec![], false);
         for b in self.bufs.iter_mut().filter(|b| Some(b.id) != except) {
-            let fx =
-                b.app.update(ev()).into_iter().filter(|e| matches!(e, Effect::Snapshot { .. }));
-            out.extend(fx.map(|e| SimEffect::App(b.id, e)));
+            for e in b.app.update(ev()) {
+                match e {
+                    Effect::Render(f) => (b.frame, drawn) = (Some(f), true),
+                    Effect::Snapshot { .. } | Effect::Remember { .. } => {
+                        out.push(SimEffect::App(b.id, e))
+                    }
+                    _ => {}
+                }
+            }
         }
-        out
+        (out, drawn)
     }
 
     fn key(&mut self, k: Key, out: &mut Vec<SimEffect>) {
@@ -467,7 +516,10 @@ impl Sim {
         let (modified, names) = self.named(|b| b.app.buf.dirty());
         match name {
             "qa" | "qall" if bang || (open.is_empty() && modified.is_empty()) => {
-                out.extend(self.bufs.iter().map(|b| SimEffect::App(b.id, Effect::Unsnapshot)));
+                for b in &self.bufs {
+                    let fx = [Some(Effect::Unsnapshot), b.app.place()]; // CLI-6: the place is remembered
+                    out.extend(fx.into_iter().flatten().map(|e| SimEffect::App(b.id, e)));
+                }
                 out.push(SimEffect::Quit(0));
             }
             "qa" | "qall" if !open.is_empty() => {
@@ -519,7 +571,8 @@ impl Sim {
             self.cur = i; // another name of a file that is open: one buffer, one snapshot
             return out.push(SimEffect::Close(o.id));
         }
-        let mut app = App::new(Some(o.path), o.file, (self.widths().1, self.size.1));
+        let mut app = App::new(Some(o.path.clone()), o.file, (self.widths().1, self.size.1));
+        (app.hook, app.cwd) = (self.hook.clone(), Some(self.cwd.to_string_lossy().into_owned()));
         let mut fx = vec![];
         if let Some(Found(s, file, age, by)) = o.found {
             let v = app.buf.version();
@@ -528,6 +581,11 @@ impl Sim {
                 out.push(SimEffect::Hold(o.id, s.path, s.pid));
             }
         }
+        // A `+cmd` or `file:line` says where to go; otherwise it is where the file was closed (CLI-6).
+        if let Some((l, c)) = o.place.filter(|_| self.keys.is_empty()) {
+            fx.extend(app.update(Event::Place(o.path, l, c)));
+        }
+        fx.extend(self.pal.map(|p| app.update(Event::Bg(p.bg))).into_iter().flatten());
         fx.extend(app.start(&take(&mut self.keys)));
         self.bufs.push(Buf {
             id: o.id,
@@ -554,9 +612,7 @@ impl Sim {
             return (vec![Looks::new(); f.rows.len()], None); // its rows weave mine and theirs
         }
         let buf = &b.app.buf;
-        let text = |l: usize| {
-            (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
-        };
+        let text = |l: usize| text_of(buf, l);
         // Lines inserted or removed at the cursor move the lines below it: their old spans are
         // shifted to match, for the moment until the new ones arrive.
         let (hl, cur) = (b.hl.as_ref().filter(|_| !self.hl_off), buf.line_of(buf.cursor));
@@ -572,6 +628,7 @@ impl Sim {
         let (looks, win) = layout::colors(f, buf.lines().to_string().len().max(3), &text, &spans);
         let (ver, h) = (buf.version(), usize::from(self.size.1));
         let (Some((a, z)), Some(name)) = (win, b.app.path.clone()) else { return (looks, None) };
+        let z = z.max(a); // a screen too narrow for its gutter shows cut numbers: no window that ends before it starts
         let covered = |h: &Hl| h.ver == ver && h.from <= a && z < h.from + h.spans.len();
         let (from, on) = (a.saturating_sub(h), !self.hl_off && buf.text.len_bytes() <= MAX_HL);
         let n = z + h - from + 1;
@@ -654,10 +711,11 @@ impl Sim {
         let editor =
             self.bufs.get(self.cur).and_then(|b| b.frame.as_ref()).map(|f| (f, &elooks[..]));
         let (mut rows, mut looks) =
-            layout::body(w, h, pw, &marked, sel, editor, self.pal.sel().is_some());
+            layout::body(w, h, pw, &marked, sel, editor, self.syn.sel().is_some());
         rows.push(Row { text: layout::fit(&status, usize::from(w)).0, ..Row::default() });
         looks.push(vec![]);
-        Screen { frame: Frame { width: w, height: h, rows, cursor, shape }, looks, pal: self.pal }
+        let frame = Frame { width: w, height: h, rows, cursor, shape, pal: self.pal };
+        Screen { frame, looks, syn: self.syn }
     }
 
     /// A row of the panel with what it shows besides its name (see `layout::Mark`).
