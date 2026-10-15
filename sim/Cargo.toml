@@ -3,6 +3,9 @@ name = "sim"
 version = "0.1.0"
 edition = "2024"
 publish = false
+description = "sim (SI iMproved): si for your own machine, with a project tree, search and colors"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/efg-technologies/sim"
 
 # The event loop (src/main.rs) is si's main.rs for several files: it needs the same crates as that,
 # at the same versions and features, so none of them adds code to the build (SPEC, TREE-1).
