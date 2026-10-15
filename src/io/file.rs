@@ -1,4 +1,4 @@
-//! SAFE-1, SAFE-2, SAFE-3, SAFE-4, SAFE-5, SAFE-6
+//! SAFE-1, SAFE-2, SAFE-3, SAFE-4, SAFE-5, SAFE-6, PROP-1
 //! Reading a file, atomic save, comparison by hash right before the rename, keeping attributes.
 use super::journal::NO_STATE;
 use crate::core::app::Read;
@@ -9,7 +9,7 @@ use std::fs::{self, DirBuilder, File, Metadata, OpenOptions, Permissions};
 use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, fchown};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed, Ordering::SeqCst};
 
 pub enum Saved {
     /// The hash of what was written, and a warning if something after the rename failed.
@@ -19,6 +19,14 @@ pub enum Saved {
 }
 
 static SEQ: AtomicUsize = AtomicUsize::new(0);
+static READS: AtomicU64 = AtomicU64::new(0);
+
+/// The number of a read of the disk, one counter for every thread (PROP-1). A read takes it as it
+/// starts, so a later number never belongs to something that began earlier. The answer of a save
+/// takes it when the save is done.
+pub fn seq() -> u64 {
+    READS.fetch_add(1, SeqCst) + 1
+}
 
 /// What a save is to write: the target, the bytes, and the hash the disk must still have.
 type Job<'a> = (&'a Path, &'a [u8], Option<u64>);

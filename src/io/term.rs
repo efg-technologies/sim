@@ -1,12 +1,16 @@
-//! PERF-3, VIS-7, VIS-10, CLI-4, VI-8, VI-9, VI-12
-//! crossterm: diffed Frame output, OSC 52, cursor shape.
+//! PERF-3, VIS-4, VIS-7, VIS-10, CLI-4, VI-8, VI-9, VI-12
+//! crossterm: diffed Frame output, OSC 11 / 52, cursor shape.
 use crate::core::app::{Event, Key};
+use crate::core::color::{Palette, Rgb, parse_osc11};
 use crate::core::view::{Frame, Row, Shape, Style, width};
 use crossterm::event::{Event as Ev, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::io::{self, Write};
+use std::sync::mpsc::Receiver;
+use std::time::Instant;
 
-/// Alternate screen, bracketed paste, kitty keyboard protocol (disambiguate escape codes).
-pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?2004h\x1b[>1u";
+/// Alternate screen, bracketed paste, kitty keyboard protocol (disambiguate escape codes), and the
+/// query for the terminal's background color (OSC 11, VIS-4).
+pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?2004h\x1b[>1u\x1b]11;?\x1b\\";
 /// Undoes `ENTER`, and gives the cursor back its default shape and visibility.
 pub const LEAVE: &[u8] = b"\x1b[<1u\x1b[?2004l\x1b[?1049l\x1b[0 q\x1b[?25h";
 
@@ -72,6 +76,72 @@ pub fn convert_all(ev: Ev) -> Vec<Event> {
     convert(ev).into_iter().collect()
 }
 
+/// VIS-4: puts together the terminal's answer to the OSC 11 query, which crossterm reads as keys:
+/// `ESC ]` is Alt+`]`, the text is plain chars, and the end (`ESC \` or BEL) is Alt+`\` or Ctrl-g.
+/// The answer becomes `Event::Bg` and none of its keys reaches App. Keys that turn out not to be an
+/// answer (its text starts with `11;`) go on as keys, in order: a typed Esc and `]` are not lost.
+#[derive(Default)]
+pub struct Reply(Option<String>);
+
+impl Reply {
+    pub fn feed(&mut self, ev: Ev) -> Vec<Event> {
+        let (alt, ctrl) = (KeyModifiers::ALT, KeyModifiers::CONTROL);
+        let (code, mods) = match &ev {
+            Ev::Key(k) => (k.code, k.modifiers),
+            _ => (KeyCode::Null, KeyModifiers::NONE),
+        };
+        match (self.0.take(), code) {
+            (None, KeyCode::Char(']')) if mods.contains(alt) => self.0 = Some(String::new()),
+            (None, _) => return convert_all(ev),
+            (Some(s), KeyCode::Char('\\' | 'g'))
+                if mods.intersects(alt | ctrl) && s.starts_with("11;") =>
+            {
+                return parse_osc11(&s[3..]).map(Event::Bg).into_iter().collect();
+            }
+            (Some(s), KeyCode::Char(c))
+                if !mods.intersects(alt | ctrl)
+                    && ("11;".starts_with(&format!("{s}{c}"))
+                        || s.starts_with("11;") && s.len() < 40) =>
+            {
+                self.0 = Some(s + c.encode_utf8(&mut [0; 4]));
+            }
+            (Some(s), _) => {
+                let keys = [Key::Esc, Key::Char(']')].into_iter().chain(s.chars().map(Key::Char));
+                return keys.map(Event::Key).chain(convert_all(ev)).collect();
+            }
+        }
+        vec![]
+    }
+}
+
+/// VIS-4: waits for the terminal's background color until `by` (3 ms after the query). Gives back
+/// the color if it came, and in order everything that came before it (App's to take in).
+pub fn wait_bg(rx: &Receiver<Event>, by: Instant) -> (Option<Rgb>, Vec<Event>) {
+    let mut got = vec![];
+    while let Some(left) = by.checked_duration_since(Instant::now())
+        && let Ok(ev) = rx.recv_timeout(left)
+    {
+        if let Event::Bg(rgb) = ev {
+            return (Some(rgb), got);
+        }
+        got.push(ev);
+    }
+    (None, got)
+}
+
+/// The SGR parameters of a style (VIS-4): truecolor from the palette, or without one reverse video
+/// and faint stand in for the change and the secondary level.
+fn sgr(style: Style, pal: Option<Palette>) -> String {
+    let c = |k: u8, (r, g, b): Rgb| format!(";{k}8;2;{r};{g};{b}");
+    match (pal, style) {
+        (None, _) => ["", ";2", ";7", ";2;9"][style as usize].into(),
+        (Some(p), Style::Primary) => c(3, p.primary),
+        (Some(p), Style::Secondary) => c(3, p.secondary),
+        (Some(p), Style::Change) => c(4, p.change) + &c(3, p.change_text),
+        (Some(p), Style::Deleted) => c(3, p.secondary) + ";9",
+    }
+}
+
 /// Draws Frames, rewriting only the rows that differ from the previous one.
 pub struct Term<W: Write> {
     pub out: W,
@@ -116,7 +186,9 @@ impl<W: Write> Term<W> {
 
     pub fn draw(&mut self, f: Frame) -> io::Result<()> {
         let mut b: Vec<u8> = vec![];
-        let same = self.prev.as_ref().filter(|p| (p.width, p.height) == (f.width, f.height));
+        // A new palette (the color came late) redraws everything, as a resize does.
+        let same =
+            self.prev.as_ref().filter(|p| (p.width, p.height, p.pal) == (f.width, f.height, f.pal));
         // A frame that rewrites anything is one synchronized update, so nothing tears.
         let sync = same.is_none_or(|p| p.rows != f.rows);
         if sync {
@@ -130,7 +202,7 @@ impl<W: Write> Term<W> {
                 continue;
             }
             write!(b, "\x1b[{};1H", i + 1)?;
-            paint(&mut b, row);
+            paint(&mut b, row, f.pal);
             b.extend(b"\x1b[0m\x1b[K");
         }
         write!(b, "\x1b[{};{}H", f.cursor.1 + 1, f.cursor.0 + 1)?;
@@ -148,7 +220,7 @@ impl<W: Write> Term<W> {
 }
 
 /// The text of a row with an SGR sequence wherever the style changes.
-fn paint(b: &mut Vec<u8>, row: &Row) {
+fn paint(b: &mut Vec<u8>, row: &Row, pal: Option<Palette>) {
     let (mut now, mut col) = (None, 0u16);
     let cs: Vec<char> = row.text.chars().collect();
     for (i, &c) in cs.iter().enumerate() {
@@ -157,8 +229,7 @@ fn paint(b: &mut Vec<u8>, row: &Row) {
         let underline = row.underline.iter().any(|r| r.contains(&col));
         if now != Some((style, underline)) {
             b.extend(b"\x1b[0");
-            // The SGR parameters of Primary, Secondary, Change (reverse) and Deleted (strikethrough).
-            b.extend(["", ";2", ";7", ";2;9"][style as usize].as_bytes());
+            b.extend(sgr(style, pal).as_bytes());
             b.extend(if underline { ";4m" } else { "m" }.as_bytes());
             now = Some((style, underline));
         }

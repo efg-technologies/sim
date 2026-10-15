@@ -64,7 +64,7 @@ fn vi_13_zz_is_x() {
     let fx = feed(&mut a, "xZZ");
     assert_eq!((writes(&fx), quit(&fx)), (vec![("f", &b"bc\n"[..])], None));
     assert_eq!(
-        quit(&a.update(Event::Saved(Ok((1, None))))),
+        quit(&a.update(Event::Saved(Ok((1, None)), 0))),
         Some(0),
         "quits once the save succeeded"
     );
@@ -73,7 +73,7 @@ fn vi_13_zz_is_x() {
     assert_eq!((writes(&fx).len(), quit(&fx)), (0, Some(0)), "nothing to save: just quit");
     let mut a = named("abc\n");
     feed(&mut a, "xZZ");
-    a.update(Event::Saved(Err("disk full".into())));
+    a.update(Event::Saved(Err("disk full".into()), 0));
     assert_eq!(msg(&mut a), "disk full");
 }
 

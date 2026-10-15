@@ -8,7 +8,7 @@ mod common;
 use common::*;
 use si::core::app::{App, Effect, Event, Key};
 use si::core::buffer::Buffer;
-use si::io::file::{Saved, save};
+use si::io::file::{Saved, save, seq};
 use si::io::watch::watch;
 use std::collections::HashSet;
 use std::fs;
@@ -31,11 +31,12 @@ fn read(path: &str) -> Option<Option<Vec<u8>>> {
 
 fn watching(tx: &Sender<Event>, path: &str, first: bool) -> Option<notify::RecommendedWatcher> {
     let t = tx.clone();
-    let on = move |bytes: Option<Vec<u8>>| {
+    let on = move |seq: u64, bytes: Option<Vec<u8>>| {
         drop(t.send(Event::Disk {
             hash: bytes.as_deref().map(si::core::buffer::hash),
             bytes,
             deadline: Instant::now() + Duration::from_millis(50),
+            seq,
         }))
     };
     watch(&si::io::file::resolve(path), on, first).ok()
@@ -132,12 +133,13 @@ fn round(seed: u64) -> Result<(), String> {
                         let (tx, state) = (tx.clone(), state.clone());
                         thread::spawn(move || {
                             let _ = tx.send(match save(&path, &bytes, expect_hash, Some(&state)) {
-                                Ok(Saved::Done(h, w)) => Event::Saved(Ok((h, w))),
+                                Ok(Saved::Done(h, w)) => Event::Saved(Ok((h, w)), seq()),
                                 Ok(Saved::Conflict(d)) => Event::SaveConflict(
                                     d,
                                     Instant::now() + Duration::from_millis(50),
+                                    seq(),
                                 ),
-                                Err(e) => Event::Saved(Err(e)),
+                                Err(e) => Event::Saved(Err(e), seq()),
                             });
                         });
                     }

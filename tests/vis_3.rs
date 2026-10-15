@@ -11,7 +11,12 @@ fn named(path: &str, text: &str, size: (u16, u16)) -> App {
 }
 
 fn disk(a: &mut App, text: &str) {
-    a.update(Event::Disk { bytes: Some(text.as_bytes().to_vec()), hash: None, deadline: far() });
+    a.update(Event::Disk {
+        bytes: Some(text.as_bytes().to_vec()),
+        hash: None,
+        deadline: far(),
+        seq: 0,
+    });
 }
 
 /// The columns of row `r` painted with the change style.
@@ -155,6 +160,6 @@ fn vis_9_the_status_line_counts_changes_on_disk_and_proposals() {
     feed(&mut a, "rX");
     disk(&mut a, "A\nb\n");
     assert_eq!(status(&screen(&mut a)), "f  1:1  NORMAL  modified · 1 proposal");
-    a.update(Event::Disk { bytes: None, hash: None, deadline: far() });
+    a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
     assert_eq!(status(&screen(&mut a)), "f  1:1  NORMAL  modified · deleted on disk · 1 proposal");
 }

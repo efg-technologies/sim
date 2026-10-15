@@ -187,7 +187,7 @@ fn vi_7_e_opens_a_file_unless_the_buffer_is_modified() {
 
 #[test]
 fn vi_7_a_file_is_not_loaded_over_edits_made_while_it_was_read() {
-    let load = |a: &mut App| a.update(Event::Opened("g".into(), Ok(Some(b"new\n".to_vec()))));
+    let load = |a: &mut App| a.update(Event::Opened("g".into(), Ok(Some(b"new\n".to_vec())), 0));
     // `:e` on a clean buffer, then a key lands before the file arrives.
     let mut a = named("abc\n");
     feed(&mut a, ":e g\n");
@@ -230,7 +230,7 @@ fn vi_7_a_newly_opened_file_starts_fresh() {
     let mut a = named("abc\ndef\n");
     feed(&mut a, "jlxvl<Esc>");
     feed(&mut a, "/e<CR>:e! g<CR>");
-    a.update(Event::Opened("g".into(), Ok(Some(b"one\ntwo\nthree\n".to_vec()))));
+    a.update(Event::Opened("g".into(), Ok(Some(b"one\ntwo\nthree\n".to_vec())), 0));
     assert_eq!((a.path.as_deref(), text(&a).as_str()), (Some("g"), "one\ntwo\nthree"));
     assert_eq!((a.buf.cursor, a.top, a.buf.dirty()), (0, 0, false));
     feed(&mut a, "u");
@@ -246,7 +246,7 @@ fn vi_7_a_newly_opened_file_starts_fresh() {
     // Marks restart too: `'<` is line 1 again.
     let mut a = named("a\nb\nc\n");
     feed(&mut a, "jjV<Esc>:e! g<CR>");
-    a.update(Event::Opened("g".into(), Ok(Some(b"x\ny\nz\n".to_vec()))));
+    a.update(Event::Opened("g".into(), Ok(Some(b"x\ny\nz\n".to_vec())), 0));
     feed(&mut a, ":'<,'>s/./Q/\n");
     assert_eq!(text(&a), "Q\ny\nz");
 }
@@ -255,7 +255,7 @@ fn vi_7_a_newly_opened_file_starts_fresh() {
 fn vi_7_opening_a_missing_or_unreadable_file_works_like_at_startup() {
     let mut a = named("abc\n");
     feed(&mut a, ":e new.txt<CR>");
-    a.update(Event::Opened("new.txt".into(), Ok(None)));
+    a.update(Event::Opened("new.txt".into(), Ok(None), 0));
     assert_eq!(
         (a.path.as_deref(), text(&a).as_str(), a.buf.readonly.clone()),
         (Some("new.txt"), "", None)
@@ -266,7 +266,7 @@ fn vi_7_opening_a_missing_or_unreadable_file_works_like_at_startup() {
     ));
     let mut a = named("abc\n");
     feed(&mut a, ":e d<CR>");
-    a.update(Event::Opened("d".into(), Err("d is a directory".into())));
+    a.update(Event::Opened("d".into(), Err("d is a directory".into()), 0));
     assert_eq!(a.buf.readonly.as_deref(), Some("read-only: d is a directory"));
 }
 
@@ -306,8 +306,8 @@ fn vi_7_a_late_saved_does_not_touch_a_reloaded_buffer() {
     feed(&mut a, "x:e! g\n"); // `:e!` asked for the file ...
     let fx = feed(&mut a, ":w\n"); // ... and a save is refused until it arrives
     assert!(!fx.iter().any(|e| matches!(e, Effect::Write { .. })));
-    a.update(Event::Opened("g".into(), Ok(Some(b"g text\n".to_vec()))));
-    a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None))));
+    a.update(Event::Opened("g".into(), Ok(Some(b"g text\n".to_vec())), 0));
+    a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None)), 0));
     assert_eq!(
         (a.path.as_deref(), a.buf.dirty()),
         (Some("g"), false),
@@ -318,8 +318,8 @@ fn vi_7_a_late_saved_does_not_touch_a_reloaded_buffer() {
     // And the answer of a save that fails is not told about the new buffer either.
     let mut a = named("a\n");
     feed(&mut a, "x:e! g\n");
-    a.update(Event::Opened("g".into(), Ok(Some(b"g text\n".to_vec()))));
-    a.update(Event::Saved(Err("disk full".into())));
+    a.update(Event::Opened("g".into(), Ok(Some(b"g text\n".to_vec())), 0));
+    a.update(Event::Saved(Err("disk full".into()), 0));
     assert_eq!(msg(&mut a), "g  1:1  NORMAL");
 }
 
@@ -338,7 +338,7 @@ fn vi_7_e_is_refused_while_a_save_runs() {
             "{cmd}"
         );
         // Once it has ended the command works.
-        a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None))));
+        a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None)), 0));
         assert!(open_of(&feed(&mut a, cmd)).is_some(), "{cmd}");
     }
 }
@@ -363,7 +363,7 @@ fn vi_7_wq_and_x_with_another_name_do_not_quit_while_the_own_file_differs() {
         feed(&mut a, "x");
         let fx = feed(&mut a, cmd);
         assert!(fx.iter().any(|e| matches!(e, Effect::Write { path, .. } if path == "other")));
-        let fx = a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None))));
+        let fx = a.update(Event::Saved(Ok((si::core::buffer::hash(b"\n"), None)), 0));
         assert_eq!(quit(&fx), None, "{cmd}");
         assert_eq!(msg(&mut a), "saved other; not quitting: f has unsaved changes", "{cmd}");
         assert!(a.buf.dirty() && a.path.as_deref() == Some("f"));
@@ -371,11 +371,11 @@ fn vi_7_wq_and_x_with_another_name_do_not_quit_while_the_own_file_differs() {
     // With nothing unsaved in the own file, writing a copy and quitting is fine.
     let mut a = named("a\n");
     feed(&mut a, ":wq other\n");
-    assert_eq!(quit(&a.update(Event::Saved(Ok((1, None))))), Some(0));
+    assert_eq!(quit(&a.update(Event::Saved(Ok((1, None)), 0))), Some(0));
     // An unnamed buffer takes the name, which is its own file then.
     let mut a = app("a\n");
     feed(&mut a, "x:wq new\n");
-    assert_eq!(quit(&a.update(Event::Saved(Ok((1, None))))), Some(0));
+    assert_eq!(quit(&a.update(Event::Saved(Ok((1, None)), 0))), Some(0));
 }
 
 #[test]

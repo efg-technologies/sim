@@ -18,6 +18,9 @@
 #   keys KEY...        send tmux key names (Escape, Enter, C-c, ...)
 #   typed TEXT         send TEXT as typed characters
 #   screen             print the screen (still readable after si has exited)
+#   colors             print the screen with its escape sequences (tmux gives colors as 38;2;R;G;B)
+#   reply BODY         type a terminal's answer to si's OSC 11 query, e.g. reply rgb:1e1e/1e1e/1e1e
+#   wait_colors TEXT   wait until `colors` contains TEXT (fixed string)
 #   wait_for TEXT [s]  wait until the screen contains TEXT (fixed string), 5 s by default
 #   wait_exit [s]      wait until si has exited
 #   exit_code          print the exit code of si (after wait_exit)
@@ -52,6 +55,9 @@ start() {
 keys() { tm send-keys -t "$SESSION" "$@"; }
 typed() { tm send-keys -t "$SESSION" -l -- "$1"; }
 screen() { tm capture-pane -p -t "$SESSION"; }
+colors() { tm capture-pane -p -e -t "$SESSION"; }
+# A detached tmux has no terminal to ask for its background, so the answer is typed into the pane.
+reply() { tm send-keys -t "$SESSION" -l -- "$(printf '\033]11;%s\033\\' "$1")"; }
 
 wait_for() {
   tries=$((${2:-5} * 20))
@@ -61,6 +67,17 @@ wait_for() {
     tries=$((tries - 1))
   done
   echo "timed out waiting for the screen to contain: $1" >&2
+  return 1
+}
+
+wait_colors() {
+  tries=100
+  while [ "$tries" -gt 0 ]; do
+    if colors 2> /dev/null | grep -F -q -- "$1"; then return 0; fi
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+  echo "timed out waiting for the colors to contain: $1" >&2
   return 1
 }
 
@@ -1007,5 +1024,51 @@ vi_14_search_moves_while_typing() {
   wait_for "f  77:1  NORMAL"
 }
 
+# VIS-4: si asks the terminal for its background (OSC 11) and colors the screen from the answer: the
+# text in the palette's primary gray, line numbers in its secondary, a change on the change
+# background. No answer, no color (faint line numbers stand in); a late answer redraws everything.
+# The answer's own keys never reach the editor.
+vis_4_colors_follow_the_terminal_background() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  sleep 0.2
+  ! colors | grep -F -q '38;2;'
+  colors | grep -F -q '[2m'
+  # A dark terminal (#1e1e1e) answers late: primary 230, secondary 180, change #005ea4.
+  reply rgb:1e1e/1e1e/1e1e
+  wait_colors '38;2;230;230;230'
+  colors | grep -F -q '38;2;180;180;180'
+  ! colors | grep -F -q '[2m'
+  printf 'one\nTWO\nthree\n' > "$CASE_DIR/f"
+  wait_for "1 change on disk"
+  colors | grep -F -q '48;2;0;94;164'
+  # Nothing of the answer was typed into the buffer: it is still unmodified and quits at once.
+  typed ":q"
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+  # A light terminal (white): dark text, a pale blue change.
+  restart
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  reply rgb:ffff/ffff/ffff
+  wait_colors '38;2;75;75;75'
+  printf 'one\nTWO\nthree\n' > "$CASE_DIR/f"
+  wait_for "1 change on disk"
+  colors | grep -F -q '48;2;195;224;255'
+  # An answer ended by BEL instead of ESC \ is the same: black gives 227 and a deeper change blue.
+  tm send-keys -t "$SESSION" -l -- "$(printf '\033]11;rgb:0000/0000/0000\007')"
+  wait_colors '38;2;227;227;227'
+  colors | grep -F -q '48;2;0;90;157'
+  # Esc and ] in one write look like the start of an answer: they are Esc, then `]c` (next change).
+  typed "$(printf '\033]c')"
+  wait_for "f  2:1  NORMAL"
+  typed ":q"
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+}
 
 main "$@"
