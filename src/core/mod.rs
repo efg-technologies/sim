@@ -2,8 +2,10 @@
 
 pub mod app;
 pub mod buffer;
+pub mod cli;
 pub mod color;
 pub mod edit;
+pub mod ex;
 pub mod proposal;
 pub mod vi;
 pub mod view;

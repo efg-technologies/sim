@@ -32,13 +32,15 @@ Before starting any work, always read CONCEPT.md and SPEC.md.
 
 ```
 src/
-  main.rs         argument parsing, the event loop, running Effects
+  main.rs         the event loop, running Effects (reading files, saving, the clipboard)
   lib.rs          exposes core/ and io/ to main.rs and tests/
   core/           pure. Never touches std::fs, std::process, clocks or the terminal
+    cli.rs        the arguments of `si [+cmd] [file]` → the file and the keys to type first
     app.rs        App::update(&mut self, Event) -> Vec<Effect>
     buffer.rs     ropey and undo
-    vi.rs         key sequence → Command
-    edit.rs       applies a Command to the Buffer
+    vi.rs         key sequence → Command (Normal and Visual mode, the command line's editing)
+    edit.rs       applies a Command to the Buffer: motions, operators, text objects, Insert mode
+    ex.rs         ex commands and their ranges, `:s`, search
     proposal.rs   diff3, word-level diff, Proposal and Hunk
     view.rs       state → Frame (a grid of characters and styles), wrapping, kinsoku
     color.rs      OKLCH, APCA, color vision simulation, computing the palette
@@ -50,8 +52,8 @@ src/
     term.rs       crossterm, diffed Frame output, OSC 11 / 52, cursor shape
 ```
 
-- **Event**: `Key` `Paste` `Resize` `Disk(Option<Vec<u8>>)` `Saved(Result)` `SaveConflict(Vec<u8>)` `FilterDone` `Bg(Rgb)` `Tick(time)` `Signal(i32)`
-- **Effect**: `Render(Frame)` `Write { path, bytes, expect_hash }` `Spawn` `Kill` `Clipboard(String)` `Snapshot` `Hook(String)` `Quit(i32)`
+- **Event**: `Key` `Paste` `Resize` `Opened(path, Result)` `Disk(Option<Vec<u8>>)` `Saved(Result)` `SaveConflict(Vec<u8>)` `FilterDone` `Bg(Rgb)` `Tick(time)` `Signal(i32)`
+- **Effect**: `Render(Frame)` `Write { path, bytes, expect_hash }` `Open(path)` `Spawn` `Kill` `Clipboard(String)` `Snapshot` `Hook(String)` `Quit(i32)`
 - Only the App on the main thread holds state. Other threads only send Events over mpsc. No locks
 - `Write` runs as a compare-and-swap. If the hash on disk differs from `expect_hash`, it writes nothing and returns `SaveConflict` (SAFE-5)
 - A Frame has only four styles: `Primary` `Secondary` `Change` `Deleted`. color.rs decides which real colors they map to. (The Visual selection is an underline, not a style; see VI-5)

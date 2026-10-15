@@ -1,0 +1,140 @@
+== none
+24x9 cursor 5,0 Block
+|   1 alpha beta         |
+|.---...........         |
+|   2     gamma          |
+|.---..........          |
+|   3                    |
+|.---.                   |
+|   4 long long long     |
+|.---................    |
+|     long long long     |
+|....................    |
+|     long long          |
+|..............          |
+|   5 z                  |
+|.---..                  |
+|                        |
+|                        |
+|f.rs  1:1  NORMAL       |
+|.................       |
+== charwise inside a line
+24x9 cursor 12,0 Block
+|   1 alpha beta         |
+|.---.......__..         |
+|   2     gamma          |
+|.---..........          |
+|   3                    |
+|.---.                   |
+|   4 long long long     |
+|.---................    |
+|     long long long     |
+|....................    |
+|     long long          |
+|..............          |
+|   5 z                  |
+|.---..                  |
+|                        |
+|                        |
+|f.rs  1:8  VISUAL       |
+|.................       |
+== charwise over a tab
+24x9 cursor 13,1 Block
+|   1 alpha beta         |
+|.---.......____         |
+|   2     gamma          |
+|.---._________          |
+|   3                    |
+|.---.                   |
+|   4 long long long     |
+|.---................    |
+|     long long long     |
+|....................    |
+|     long long          |
+|..............          |
+|   5 z                  |
+|.---..                  |
+|                        |
+|                        |
+|f.rs  2:6  VISUAL       |
+|.................       |
+== charwise over an empty line and into a wrapped one
+24x9 cursor 12,3 Block
+|   1 alpha beta         |
+|.---.......____         |
+|   2     gamma          |
+|.---._________          |
+|   3                    |
+|.---.                   |
+|   4 long long long     |
+|.---.________.......    |
+|     long long long     |
+|....................    |
+|     long long          |
+|..............          |
+|   5 z                  |
+|.---..                  |
+|                        |
+|                        |
+|f.rs  4:8  VISUAL       |
+|.................       |
+== linewise on a tab line
+24x9 cursor 5,1 Block
+|   1 alpha beta         |
+|.---...........         |
+|   2     gamma          |
+|.---._________          |
+|   3                    |
+|.---.                   |
+|   4 long long long     |
+|.---................    |
+|     long long long     |
+|....................    |
+|     long long          |
+|..............          |
+|   5 z                  |
+|.---..                  |
+|                        |
+|                        |
+|f.rs  2:1  V-LINE       |
+|.................       |
+== linewise over a wrapped line
+24x9 cursor 5,6 Block
+|   1 alpha beta         |
+|.---...........         |
+|   2     gamma          |
+|.---._________          |
+|   3                    |
+|.---.                   |
+|   4 long long long     |
+|.---._______________    |
+|     long long long     |
+|....._______________    |
+|     long long          |
+|....._________          |
+|   5 z                  |
+|.---._                  |
+|                        |
+|                        |
+|f.rs  5:1  V-LINE       |
+|.................       |
+== left again
+24x9 cursor 5,6 Block
+|   1 alpha beta         |
+|.---...........         |
+|   2     gamma          |
+|.---..........          |
+|   3                    |
+|.---.                   |
+|   4 long long long     |
+|.---................    |
+|     long long long     |
+|....................    |
+|     long long          |
+|..............          |
+|   5 z                  |
+|.---..                  |
+|                        |
+|                        |
+|f.rs  5:1  NORMAL       |
+|.................       |
