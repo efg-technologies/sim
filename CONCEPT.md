@@ -14,7 +14,7 @@ Lower numbers take priority. When two principles conflict, the lower number wins
 | P1 | Safety | Without an explicit action, nobody's text is lost (yours, another process's, an AI's) |
 | P2 | Understanding | Make what changed obvious at a glance. Color is used only for change |
 | P3 | Speed | 5 ms to start, 1 ms per key. Anything that would make you wait runs asynchronously |
-| P4 | Minimal | src/ stays within 3,300 lines. Every feature is judged by "can we cut it?" |
+| P4 | Minimal | src/ stays within 3,600 lines. Every feature is judged by "can we cut it?" |
 | P5 | Keys | The best key for each job, not vi for its own sake: keep the vi grammar the hands already know, and depart from it wherever vi is worse than modern editors. The only new concept is the Proposal |
 
 ## The core abstraction: Proposal
@@ -53,6 +53,6 @@ Features we find ourselves wanting are only written down in NOTES.md.
 ## si and sim
 
 si is the editor that works anywhere: over ssh, in any terminal, without relying on colors or plugins.
-Comfort on your own machine (a way to find files, syntax highlighting, and the like) belongs to `sim`, a separate command built on si's core with its own CONCEPT and SPEC (in `sim/`). si's limits, such as the 3,300 lines of src/, apply to si alone.
+Comfort on your own machine (a way to find files, syntax highlighting, and the like) belongs to `sim`, a separate command built on si's core with its own CONCEPT and SPEC (in `sim/`). si's limits, such as the 3,600 lines of src/, apply to si alone.
 
-The limit was 3,000 until M3. It was raised to 3,300 because what pushed past it was safety (P1: races between saves, reloads and the watcher, a private state directory, compare-and-swap saves) and correctness (P2: widths of CJK and emoji, lines taller than the screen), both of which rank above P4. For scale: Neovim's C alone is about 11.5 MB (GitHub's count, roughly 380,000 lines), so si stays near 1% of it. The number is a pressure to keep asking "can we cut it?", not a race.
+The limit was 3,000 until M3. It was raised to 3,300 because what pushed past it was safety (P1: races between saves, reloads and the watcher, a private state directory, compare-and-swap saves) and correctness (P2: widths of CJK and emoji, lines taller than the screen), both of which rank above P4. For scale: Neovim's C alone is about 11.5 MB (GitHub's count, roughly 380,000 lines), so si stays near 1% of it. The number is a pressure to keep asking "can we cut it?", not a race. After M4 it was raised to 3,600 by the author's own measure, "significantly smaller than Neovim": filters, reopening where you left off and incremental search came from the author's requests and nvim habits, and 3,600 lines is still under 1% of Neovim's C.
