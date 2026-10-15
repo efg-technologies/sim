@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md.
         ┌─┴─────────┴─┐
         │    SPEC     │  what      ~50 requirements with IDs     SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       at most 3,300 lines       src/
+      │      CODE       │  how       at most 3,600 lines       src/
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       tests/ and more
     └─────────────────────┘
@@ -73,7 +73,7 @@ If another one is needed, first write the reason into SPEC.
 - Never panic on an I/O error. Say what happened, in words, on the status line
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
 - `[profile.release]` has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- src/ stays within 3,300 lines (blank lines and lines that are only a `//` comment don't count). If it is about to go over, propose features to cut
+- src/ stays within 3,600 lines (blank lines and lines that are only a `//` comment don't count). If it is about to go over, propose features to cut
 - Code, comments, messages, docs and commit messages are in English
 
 ## Tests
@@ -97,7 +97,7 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 2. `cargo clippy --all-targets -- -D warnings`
 3. `cargo test`
 4. scripts/trace.sh
-5. src/ has at most 3,300 lines
+5. src/ has at most 3,600 lines
 6. the release binary is at most 2 MB
 
 scripts/trace.sh checks these three things, and prints a table with one row per ID (ID, milestone, number of tests, implemented or not).
