@@ -1,4 +1,4 @@
-//! CLI-1, CLI-3, SAFE-1, SAFE-4, VI-9, VI-12, VI-13
+//! CLI-1, CLI-3, SAFE-1, SAFE-4, SAFE-6, VI-9, VI-12, VI-13
 //! `App::update(&mut self, Event) -> Vec<Effect>`: the state, and what each Event does to it.
 use super::buffer::{ABSENT, Buffer, hash};
 use super::vi::{Mode, Parser};
@@ -27,7 +27,12 @@ pub enum Event {
     SaveConflict(Vec<u8>),
     /// The result of reading the file an `Effect::Open` asked for.
     Opened(String, Read),
-    /// Wall-clock milliseconds.
+    /// Unsaved text left by a session that ended abnormally (SAFE-6): the base it was edited
+    /// from, the text, its age in ms, and the file that holds it. It is applied (as one undo
+    /// step) only if the disk still holds the base.
+    Recover(Vec<u8>, Vec<u8>, u64, String),
+    /// Milliseconds on the shell's tick clock. The shell sends one at least every second
+    /// however busy the keys keep it, and its ticks are 1000 apart.
     Tick(u64),
     Signal(i32),
 }
@@ -41,6 +46,10 @@ pub enum Effect {
     Open(String),
     /// Text for the system clipboard (OSC 52).
     Clipboard(String),
+    /// Unsaved text for the journal (SAFE-6), keyed by `path` (`None`: an unnamed buffer).
+    Snapshot { path: Option<String>, base: Rope, text: Rope },
+    /// The journal's snapshots are not needed any more: the buffer is clean, or we quit.
+    Unsnapshot,
     Quit(i32),
 }
 
@@ -87,6 +96,10 @@ pub struct App {
     /// Hash of the file as last read or written; `None` for a file that does not exist.
     disk: Option<u64>,
     saving: Option<Pending>,
+    /// The buffer version when `:e` ran: the load is refused if the buffer changed since.
+    pub(super) opening: Option<u64>,
+    /// The version whose text the journal holds, and the tick that asked for it.
+    snap: Option<(u64, u64)>,
 }
 
 impl App {
@@ -119,8 +132,21 @@ impl App {
 
     pub fn update(&mut self, ev: Event) -> Vec<Effect> {
         match ev {
-            Event::Tick(_) => return vec![],
-            Event::Signal(n) => return vec![Effect::Quit(128 + n)],
+            Event::Tick(now) => {
+                let (b, v) = (&self.buf, self.buf.version());
+                if b.dirty() && self.snap.is_none_or(|(s, t)| s != v && now >= t + 1000) {
+                    let (path, base, text) = (self.path.clone(), b.base.clone(), b.text.clone());
+                    self.fx.push(Effect::Snapshot { path, base, text });
+                    self.snap = Some((v, now));
+                }
+                return take(&mut self.fx);
+            }
+            Event::Signal(n) => {
+                self.snap = None; // a signal is a tick that cannot wait
+                let mut fx = self.update(Event::Tick(0));
+                fx.push(Effect::Quit(128 + n));
+                return fx;
+            }
             Event::Key(k) => {
                 self.msg = None;
                 self.key(k);
@@ -141,7 +167,17 @@ impl App {
             Event::Resize(w, h) => self.size = (w.max(1), h.max(2)),
             Event::Saved(r) => self.saved(r),
             Event::SaveConflict(_) => self.conflict(),
-            Event::Opened(path, file) => self.load(Some(path), file),
+            Event::Opened(path, file) => match self.opening.take() {
+                Some(v) if v != self.buf.version() => self.say("not opened: edited meanwhile"),
+                _ => self.load(Some(path), file),
+            },
+            Event::Recover(base, text, ms, file) => self.recover(&base, &text, ms, &file),
+        }
+        // The snapshots go when the buffer is clean again, and before we quit (a signal keeps them).
+        let quit = self.fx.iter().position(|e| matches!(e, Effect::Quit(_)));
+        let clean = !self.buf.dirty() && self.snap.take().is_some();
+        if let Some(at) = quit.or(clean.then_some(self.fx.len())) {
+            self.fx.insert(at, Effect::Unsnapshot);
         }
         let frame = view::render(self);
         self.fx.push(Effect::Render(frame));
@@ -150,6 +186,20 @@ impl App {
 
     pub(super) fn say(&mut self, m: impl Into<String>) {
         self.msg = Some(m.into());
+    }
+
+    /// Applies a snapshot as one undo step if the disk still holds its base (SAFE-6).
+    fn recover(&mut self, base: &[u8], text: &[u8], ms: u64, file: &str) {
+        #[rustfmt::skip]
+        let (n, unit) = match ms / 1000 { s @ 0..60 => (s, "second"), s @ 60..3600 => (s / 60, "minute"), s @ 3600..86400 => (s / 3600, "hour"), s => (s / 86400, "day") };
+        let ago = format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" });
+        if self.buf.readonly.is_some() || base != self.buf.base.to_string().as_bytes() {
+            return self.say(format!("kept unsaved changes from {ago}, not applied: {file}"));
+        }
+        self.buf.checkpoint();
+        self.buf.replace(0..usize::MAX, &String::from_utf8_lossy(text));
+        self.snap = Some((self.buf.version(), 0));
+        self.say(format!("recovered unsaved changes from {ago} · u to undo"));
     }
 
     /// A key in any mode. Ctrl-s saves in all of them; the keys of a change are recorded for `.`.
