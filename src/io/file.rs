@@ -31,6 +31,14 @@ pub fn seq() -> u64 {
 /// What a save is to write: the target, the bytes, and the hash the disk must still have.
 type Job<'a> = (&'a Path, &'a [u8], Option<u64>);
 
+/// O_NOFOLLOW, which std has no name for: the value of the kernel headers (and the libc crate) of
+/// the platforms listed, 0 elsewhere, where only the identity check of `open_same` holds.
+#[rustfmt::skip]
+const NOFOLLOW: i32 = if cfg!(target_os = "macos") { 0x100 }
+    else if cfg!(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "x86"))) { 0x20000 }
+    else if cfg!(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64"))) { 0x8000 }
+    else { 0 };
+
 #[cfg(test)]
 thread_local!(static FAULT: Cell<(usize, usize)> = const { Cell::new((usize::MAX, 0)) });
 
@@ -72,18 +80,43 @@ pub fn resolve(p: &str) -> PathBuf {
     fs::canonicalize(&abs).ok().or_else(beside).unwrap_or(abs)
 }
 
-/// SAFE-1: the first symlink on the way from `p` to its target that `uid` does not own, as it is
-/// named: `p` itself, or the absolute path of a link further on.
-pub fn foreign_link(p: &str, uid: u32) -> Option<String> {
-    let mut abs = std::path::absolute(p).ok()?;
-    for i in 0..40 {
-        let m = fs::symlink_metadata(&abs).ok().filter(Metadata::is_symlink)?;
-        if m.uid() != uid {
-            return Some(if i == 0 { p.into() } else { abs.display().to_string() });
+/// SAFE-1: the symlinks met on the way from `p` to its target, in the order they are followed, as
+/// (name, owner). Every component counts: directory links, and links reached through other links.
+/// `..` follows the links before it, and at most 40 links are followed, like the kernel (a loop ends
+/// the list, and the save then fails on its own with ELOOP). `p` itself is named as it was given,
+/// any other link by its absolute path.
+pub fn symlinks(p: &str) -> Vec<(String, u32)> {
+    let names =
+        |p: &Path| -> Vec<_> { p.components().rev().map(|c| c.as_os_str().to_owned()).collect() };
+    let (mut found, mut at) = (vec![], PathBuf::new());
+    let mut todo = std::path::absolute(p).map(|abs| names(&abs)).unwrap_or_default();
+    while found.len() < 40
+        && let Some(c) = todo.pop()
+    {
+        if c == "/" {
+            at = "/".into();
+        } else if c == ".." {
+            at.pop();
+        } else if c != "." {
+            let next = at.join(&c);
+            let Some(m) = fs::symlink_metadata(&next).ok().filter(Metadata::is_symlink) else {
+                at = next;
+                continue;
+            };
+            let Ok(to) = fs::read_link(&next) else { break };
+            let own = found.is_empty() && todo.is_empty();
+            found.push((if own { p.into() } else { next.display().to_string() }, m.uid()));
+            todo.extend(names(&to));
         }
-        abs = abs.parent()?.join(fs::read_link(&abs).ok()?);
     }
-    None
+    found
+}
+
+/// SAFE-1: the first symlink on the way from `p` to its target that neither `uid` nor root owns.
+/// Root's are the system's own (`/bin`, macOS's `/tmp`, `/var`, `/etc`); a link planted by somebody
+/// else is owned by them, as with Linux's `fs.protected_symlinks`.
+pub fn foreign_link(p: &str, uid: u32) -> Option<String> {
+    symlinks(p).into_iter().find(|l| l.1 != uid && l.1 != 0).map(|l| l.0)
 }
 
 /// `Ok(None)` for a file that does not exist.
@@ -161,7 +194,7 @@ fn changed(t: &Path, expect: Option<u64>) -> io::Result<Option<Option<Vec<u8>>>>
 pub fn save(path: &str, bytes: &[u8], expect: Option<u64>, state: Option<&Path>) -> Result<Saved, String> {
     let t = resolve(path);
     let fail = |e: io::Error| format!("cannot save {path}: {}", why(&e));
-    if fs::symlink_metadata(path).is_ok_and(|m| m.is_symlink()) {
+    if !symlinks(path).is_empty() {
         let dir = Path::new(path).parent().unwrap_or(Path::new(""));
         let me = owner(dir).or_else(|_| owner(&std::env::temp_dir())).map_err(fail)?;
         if let Some(link) = foreign_link(path, me) {
@@ -177,7 +210,7 @@ pub fn save(path: &str, bytes: &[u8], expect: Option<u64>, state: Option<&Path>)
     {
         return Ok(done);
     }
-    in_place((&t, bytes, expect), state)
+    in_place((&t, bytes, expect), meta.as_ref().map(|m| (m.dev(), m.ino())), state)
 }
 
 /// SAFE-1: temp file next to the target, fsync, compare with the disk, rename, fsync of the
@@ -224,8 +257,22 @@ fn atomic((t, bytes, expect): Job, meta: Option<&Metadata>) -> io::Result<Option
     r
 }
 
+/// SAFE-2: opens `t` to be written as the file that was validated, whose (device, inode) is `seen`.
+/// It may have been swapped since: it is opened without following a link and without truncating,
+/// and only if it is that file is it truncated. `Ok(None)`: it is not (it changed while saving).
+pub fn open_same(t: &Path, seen: Option<(u64, u64)>) -> io::Result<Option<File>> {
+    match OpenOptions::new().write(true).custom_flags(NOFOLLOW).open(t) {
+        Err(_) if fs::symlink_metadata(t).is_ok_and(|m| m.is_symlink()) => Ok(None),
+        r => r.and_then(|f| {
+            let m = f.metadata()?;
+            (Some((m.dev(), m.ino())) == seen).then(|| f.set_len(0).map(|()| f)).transpose()
+        }),
+    }
+}
+
 /// SAFE-2: write over the file itself, after a synced recovery copy of the new text.
-fn in_place((t, bytes, expect): Job, state: Option<&Path>) -> Result<Saved, String> {
+fn in_place(job: Job, seen: Option<(u64, u64)>, state: Option<&Path>) -> Result<Saved, String> {
+    let (t, bytes, expect) = job;
     let (name, shown) = (t.file_name().unwrap_or_default().to_string_lossy(), t.display());
     let Some(state) = state else {
         return Err(format!("cannot save {shown}: no recovery copy possible ({NO_STATE})"));
@@ -249,10 +296,11 @@ fn in_place((t, bytes, expect): Job, state: Option<&Path>) -> Result<Saved, Stri
         Ok(Some(disk)) => return Ok(Saved::Conflict(disk)).inspect(|_| gone()),
         Err(e) => return Err(fail(e)).inspect_err(|_| gone()),
     }
-    let mut f = step(|| OpenOptions::new().write(true).truncate(true).open(t)).map_err(|e| {
+    let opened = step(|| open_same(t, seen)).map_err(fail).inspect_err(|_| gone())?;
+    let Some(mut f) = opened else {
         gone();
-        fail(e)
-    })?;
+        return Err(format!("not saved: {shown} changed while saving"));
+    };
     let written = step(|| f.write_all(bytes)).and_then(|()| step(|| f.sync_all()));
     let lost = |e: io::Error| {
         format!("write to {shown} failed ({}); the unsaved text is in {}", why(&e), copy.display())

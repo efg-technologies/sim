@@ -8,9 +8,11 @@
 #   PERF-1  median time of `si +q` on a 10,000-line file, with hyperfine if it is installed
 #           (inside a private tmux server, because si needs a terminal), and with
 #           scripts/pty_bench.py (python3 and a pty; /bin/true timed the same way is the baseline).
-#           `+q` quits before the first frame, so it never waits for the terminal's color (VIS-4);
-#           pty_bench.py also prints the time to the first frame, with the pty answering the OSC 11
-#           query like a terminal and with it silent (the 3 ms wait is in that one)
+#           `+q` quits before the first frame, so it never waits for the terminal's color and never
+#           asks for it (VIS-4); pty_bench.py also prints the time to the first frame and the time
+#           from `:q` to the exit after it, with the pty playing a terminal that answers everything,
+#           one that answers all but OSC 11, and one that answers nothing (the 3 ms wait is in the
+#           first frame, and the 100 ms a quit allows the terminal in the quit)
 #   PERF-5  VmRSS and peak RSS of si with a 10 MB file open (python3 and Linux)
 set -eu
 

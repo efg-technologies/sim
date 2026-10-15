@@ -67,12 +67,13 @@ fn show(evs: &[Event]) -> String {
 }
 
 #[test]
-fn vis_4_the_query_for_the_background_goes_out_with_enter() {
+fn vis_4_the_query_for_the_background_is_not_part_of_enter() {
+    // It goes out after `enter`'s own bytes, and only if the keys given at startup have not quit.
     let enter = String::from_utf8(term::ENTER.to_vec()).unwrap();
-    assert!(enter.contains("\x1b]11;?\x1b\\"), "{enter:?}");
-    assert!(enter.starts_with("\x1b[?1049h"), "the query comes after the screen is switched");
+    assert!(!enter.contains("\x1b]11"), "{enter:?}");
+    assert!(enter.starts_with("\x1b[?1049h"), "the screen is switched first");
+    assert_eq!(term::ASK, b"\x1b]11;?\x1b\\");
 }
-
 #[test]
 fn vis_4_an_answer_ending_with_st_or_bel_becomes_the_color_and_no_key() {
     for (body, rgb) in [
@@ -389,4 +390,41 @@ fn vis_4_an_answer_in_time_colors_the_first_frame() {
     let args = ["firstframe", env!("CARGO_BIN_EXE_si"), file.to_str().unwrap()];
     let Some(m) = pty_bench(&args) else { return };
     assert_eq!((m["colored"], m["faint"]), (1.0, 0.0), "the first frame was not in color");
+}
+
+/// The real binary in a pty (scripts/pty_bench.py asks): `si +q` quits before it asks the terminal
+/// anything, since the answer would come after it had gone, to be typed into the shell. A start
+/// that stays does ask.
+#[test]
+fn vis_4_a_quit_at_startup_asks_for_no_color() {
+    let dir = temp_dir("vis4-asks");
+    let file = dir.0.join("f.rs");
+    std::fs::write(&file, code_text(20, 40)).unwrap();
+    let args = ["asks", env!("CARGO_BIN_EXE_si"), file.to_str().unwrap()];
+    let Some(m) = pty_bench(&args) else { return };
+    assert_eq!((m["queried_quit"], m["queried_open"]), (0.0, 1.0), "+q asks, or a start does not");
+}
+
+/// The real binary in a pty (scripts/pty_bench.py leak), on a terminal that answers 30 ms late, in
+/// order, and `:q` at the first frame: si does not leave before the terminal is done answering, so
+/// nothing of it is left for the shell. A terminal that never answers costs a quit 100 ms at most.
+#[test]
+fn vis_4_a_quit_before_the_color_came_leaves_nothing_for_the_shell() {
+    let dir = temp_dir("vis4-leak");
+    let file = dir.0.join("f.rs");
+    std::fs::write(&file, code_text(20, 40)).unwrap();
+    let (si, file) = (env!("CARGO_BIN_EXE_si"), file.to_str().unwrap());
+    let Some(m) = pty_bench(&["leak", si, file, "30"]) else { return };
+    assert_eq!(m["leaked"], 0.0, "the shell would have typed the terminal's answer");
+    assert!(
+        m["quit_ms"] >= 25.0,
+        "it quit in {:.1} ms, before the answer could be in",
+        m["quit_ms"]
+    );
+    for (kind, most) in [("answering", 80.0), ("no_osc", 80.0), ("silent", 400.0)] {
+        let m = pty_bench(&["quit", si, file, kind]).unwrap();
+        assert!(m["quit_ms"] < most, "a quit with a {kind} terminal took {:.1} ms", m["quit_ms"]);
+        let waits = kind == "silent";
+        assert_eq!(m["quit_ms"] >= 90.0, waits, "{kind}: {:.1} ms", m["quit_ms"]);
+    }
 }

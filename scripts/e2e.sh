@@ -25,6 +25,8 @@
 #   wait_exit [s]      wait until si has exited
 #   exit_code          print the exit code of si (after wait_exit)
 #   now_ms             print the time in milliseconds since the epoch
+#   fail MESSAGE...    fail the case, saying why. `set -e` ignores a negated command (`! cmd`), so a check that
+#                      something is absent is written `if cmd; then fail "..."; fi`, never `! cmd`
 #   restart            end the case's tmux session, so that `start` can run si again (files stay)
 #   $CASE_DIR          the case's temp directory (cwd of si); $HOME and $XDG_STATE_HOME are inside it
 set -eu
@@ -93,6 +95,12 @@ wait_exit() {
 }
 
 exit_code() { cat "$CASE_DIR/.exit_code"; }
+
+# `set -e` does not stop at a failed `! cmd` (unless it is the last command): absence is checked with this.
+fail() {
+  echo "$*" >&2
+  return 1
+}
 
 # GNU date has %N; elsewhere (macOS prints a literal N) perl is the portable way to get milliseconds.
 now_ms() {
@@ -265,7 +273,8 @@ EOF
   keys Enter
   wait_for "git=1"
   [ "$(git -C "$repo" rev-list --count HEAD)" = 1 ]
-  ! git -C "$repo" diff --cached --quiet # b is still staged: nothing was committed
+  # b is still staged: nothing was committed
+  if git -C "$repo" diff --cached --quiet; then fail "nothing is staged: the commit was made"; fi
 }
 
 cli_4_quit_restores_terminal() {
@@ -1033,13 +1042,13 @@ vis_4_colors_follow_the_terminal_background() {
   start f
   wait_for "f  1:1  NORMAL"
   sleep 0.2
-  ! colors | grep -F -q '38;2;'
+  if colors | grep -F -q '38;2;'; then fail "colored before the terminal answered"; fi
   colors | grep -F -q '[2m'
   # A dark terminal (#1e1e1e) answers late: primary 230, secondary 180, change #005ea4.
   reply rgb:1e1e/1e1e/1e1e
   wait_colors '38;2;230;230;230'
   colors | grep -F -q '38;2;180;180;180'
-  ! colors | grep -F -q '[2m'
+  if colors | grep -F -q '[2m'; then fail "still faint after the terminal answered"; fi
   printf 'one\nTWO\nthree\n' > "$CASE_DIR/f"
   wait_for "1 change on disk"
   colors | grep -F -q '48;2;0;94;164'
@@ -1069,6 +1078,29 @@ vis_4_colors_follow_the_terminal_background() {
   keys Enter
   wait_exit
   [ "$(exit_code)" = 0 ]
+}
+
+# VIS-4: `si +q` quits before it asks the terminal for its background, so no answer arrives after it
+# has gone to be typed into the shell. tmux here has no terminal to ask, so this case plays one: when
+# the query shows up in what the pane prints, the answer is typed in, late, as a slow terminal's
+# would be. si runs after a gate, so that the pane's output is piped to a file before it prints.
+vis_4_a_quit_at_startup_leaves_no_answer_in_the_shell() {
+  printf 'one\ntwo\n' > "$CASE_DIR/f"
+  cmd="cd $(shq "$CASE_DIR") && while [ ! -e go ]; do sleep 0.02; done; env HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") $(shq "$SI_BIN") +q f; echo \$? > .exit_code; sleep 30"
+  tm new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" "exec sh -c $(shq "$cmd")" \; set-option -w -t "$SESSION" remain-on-exit on \; set-option -sg escape-time 0
+  tm pipe-pane -O -t "$SESSION" "cat > $(shq "$CASE_DIR/out")"
+  touch "$CASE_DIR/go"
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+  # The pane is a tty in its normal state now, which shows whatever is typed into it.
+  sleep 0.3
+  if grep -a -F -q ']11;?' "$CASE_DIR/out"; then
+    reply rgb:1e1e/1e1e/1e1e
+    sleep 0.3
+  fi
+  if screen | grep -F -q ']11;'; then fail "the terminal's answer was typed into the shell"; fi
+  # And si did not ask in the first place.
+  if grep -a -F -q ']11;?' "$CASE_DIR/out"; then fail "si +q asked the terminal for its background"; fi
 }
 
 main "$@"
