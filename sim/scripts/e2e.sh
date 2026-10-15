@@ -630,7 +630,7 @@ buf_3_sighup_restores_the_terminal() {
 
 buf_3_a_panic_restores_the_terminal() {
   project
-  wrap SIM_E2E_PANIC=1
+  wrap SIM_E2E_PANIC=1 RUST_BACKTRACE=0 # a backtrace would scroll the message off the screen
   start src/lib.rs
   wait_for "SIM_E2E_PANIC is set"
   wait_for "exit=101"

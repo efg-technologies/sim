@@ -26,7 +26,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Edition 2024 needs Rust 1.85 or newer; stable is far past that.
       - uses: dtolnay/rust-toolchain@stable
@@ -46,20 +46,32 @@ jobs:
         run: command -v tmux || brew install tmux
       - run: tmux -V
 
+      # TEMPORARY (removed before merge): every failing test at once, not just the first binary's.
+      - name: diagnostic - cargo test --no-fail-fast
+        continue-on-error: true
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_SYSTEM: /dev/null
+        run: cargo test --workspace --no-fail-fast
+
       # fmt, clippy -D warnings, tests, trace, line cap, release binary size.
       - name: si - scripts/check.sh
+        if: ${{ !cancelled() }}
         run: sh scripts/check.sh
       - name: sim - sim/scripts/check.sh
+        if: ${{ !cancelled() }}
         run: sh sim/scripts/check.sh
 
       # No global or system git configuration may leak into the cases (they carry their own
       # identity through the environment). Benches are timing-sensitive and stay out of CI.
       - name: si - scripts/e2e.sh
+        if: ${{ !cancelled() }}
         env:
           GIT_CONFIG_GLOBAL: /dev/null
           GIT_CONFIG_SYSTEM: /dev/null
         run: sh scripts/e2e.sh
       - name: sim - sim/scripts/e2e.sh
+        if: ${{ !cancelled() }}
         env:
           GIT_CONFIG_GLOBAL: /dev/null
           GIT_CONFIG_SYSTEM: /dev/null
