@@ -113,11 +113,11 @@ fn safe_6_a_successful_save_forgets_the_snapshot() {
     feed(&mut a, "x");
     tick(&mut a, 1000);
     feed(&mut a, ":w\n");
-    assert_eq!(journal(&a.update(Event::Saved(Err("disk full".into())))), [], "a failed save");
+    assert_eq!(journal(&a.update(Event::Saved(Err("disk full".into()), 0))), [], "a failed save");
     feed(&mut a, ":w\n");
-    assert_eq!(journal(&a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far()))), []);
+    assert_eq!(journal(&a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far(), 0))), []);
     feed(&mut a, ":w!\n");
-    assert_eq!(journal(&a.update(Event::Saved(Ok((1, None))))), [J::Unsnap]);
+    assert_eq!(journal(&a.update(Event::Saved(Ok((1, None)), 0))), [J::Unsnap]);
     assert_eq!(tick(&mut a, 2000), [], "clean");
 }
 
@@ -126,7 +126,7 @@ fn safe_6_a_save_with_newer_edits_keeps_a_snapshot_of_them() {
     let mut a = named("a\n");
     feed(&mut a, "x:w\n");
     feed(&mut a, "iq\x1b");
-    assert_eq!(journal(&a.update(Event::Saved(Ok((1, None))))), [], "edited while saving");
+    assert_eq!(journal(&a.update(Event::Saved(Ok((1, None)), 0))), [], "edited while saving");
     assert_eq!(tick(&mut a, 1000), [J::Snap(Some("f"), "", "q")], "the saved text is the base");
 }
 
@@ -153,15 +153,15 @@ fn safe_6_a_successful_save_and_quit_forgets_before_it_quits() {
         feed(&mut a, "x");
         tick(&mut a, 1000);
         assert_eq!(typed_keys(&mut a, keys), [], "{keys:?}: the save comes first");
-        assert_eq!(journal(&a.update(Event::Saved(Ok((1, None))))), [J::Unsnap, J::Quit(0)]);
+        assert_eq!(journal(&a.update(Event::Saved(Ok((1, None)), 0))), [J::Unsnap, J::Quit(0)]);
     }
     let mut a = named("a\n");
     feed(&mut a, "x:wq\n");
-    let fx = a.update(Event::Saved(Err("disk full".into())));
+    let fx = a.update(Event::Saved(Err("disk full".into()), 0));
     assert_eq!(journal(&fx), [], "a failed save keeps the snapshots and does not quit");
     feed(&mut a, ":wq\n");
     feed(&mut a, "iy\x1b");
-    let fx = a.update(Event::Saved(Ok((2, None))));
+    let fx = a.update(Event::Saved(Ok((2, None)), 0));
     assert_eq!(journal(&fx), [], "edited since the save: not quitting, nothing to forget");
 }
 

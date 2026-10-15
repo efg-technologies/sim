@@ -6,8 +6,11 @@
 //! told. A filter (PROP-6) is one more thing the outside does: it starts when the user asks, ends at
 //! a random moment with a result of one of a few kinds (it upper-cases the words, changes nothing,
 //! prints nothing, fails, is cancelled), and the result must leave the text exactly as it is, with
-//! every word it brought in either in the text or in a proposal. `SI_FUZZ_CASES` sets the number of
-//! cases of every property.
+//! every word it brought in either in the text or in a proposal. Every read of the disk is numbered
+//! as it starts, from one counter, like the shell does (PROP-1): the watcher's read when it starts
+//! (it may be sent long after), a load when `:e` asks, a save's answer when the save is done. A
+//! `Disk` that arrives older than something App took in must change nothing. `SI_FUZZ_CASES` sets the
+//! number of cases of every property.
 #![allow(
     clippy::cmp_owned,
     clippy::type_complexity,
@@ -188,7 +191,10 @@ pub struct Sim {
     flag: bool,
     /// The save in flight is a `:w!`.
     forced: bool,
-    held: Option<Option<Vec<u8>>>,
+    /// The read the watcher holds: its number (taken as it started) and what it saw.
+    held: Option<(u64, Option<Vec<u8>>)>,
+    /// The shell's one counter of reads of the disk (PROP-1).
+    seq: u64,
     chan: VecDeque<Event>,
     job: Option<(Vec<u8>, Option<u64>)>,
     done: Option<Event>,
@@ -235,6 +241,7 @@ impl Sim {
             flag: false,
             forced: false,
             held: None,
+            seq: 0,
             chan: VecDeque::new(),
             job: None,
             done: None,
@@ -251,6 +258,12 @@ impl Sim {
         };
         s.log.push(format!("start {t:?}"));
         s
+    }
+
+    /// The next number of a read of the disk, taken as the read starts.
+    fn number(&mut self) -> u64 {
+        self.seq += 1;
+        self.seq
     }
 
     fn tok(&mut self, p: char) -> String {
@@ -280,8 +293,8 @@ impl Sim {
                 // reads after any change: after everything done so far, before what comes next.
                 Effect::Watch(_) => self.flag = true,
                 Effect::Open(path) => {
-                    let r = Ok(self.disk.clone());
-                    self.chan.push_back(Event::Opened(path, r));
+                    let (r, seq) = (Ok(self.disk.clone()), self.number());
+                    self.chan.push_back(Event::Opened(path, r, seq));
                 }
                 Effect::Spawn { input, .. } => {
                     assert!(self.filter.is_none(), "a second filter was started");
@@ -453,12 +466,14 @@ impl Sim {
             let gone = past.flat_map(|d| words_of(&Buffer::decode(d).text.to_string()));
             self.user_removed.extend(gone.collect::<Vec<_>>());
         }
+        // The compare and the rename are one step here, so the answer's number is that step's.
+        let seq = self.number();
         self.done = Some(match expect {
-            Some(w) if w != have => Event::SaveConflict(self.disk.clone(), far()),
+            Some(w) if w != have => Event::SaveConflict(self.disk.clone(), far(), seq),
             _ => {
                 let h = hash(&bytes);
                 self.set_disk(Some(bytes));
-                Event::Saved(Ok((h, None)))
+                Event::Saved(Ok((h, None)), seq)
             }
         });
     }
@@ -472,16 +487,16 @@ impl Sim {
 
     pub fn read(&mut self) {
         if self.flag && self.held.is_none() {
-            self.held = Some(self.disk.clone());
+            self.held = Some((self.number(), self.disk.clone()));
             self.flag = false;
             self.log.push(format!("watcher reads {:?}", self.disk));
         }
     }
 
     pub fn wsend(&mut self) {
-        if let Some(bytes) = self.held.take() {
+        if let Some((seq, bytes)) = self.held.take() {
             self.log.push("watcher sends".into());
-            self.chan.push_back(Event::Disk { bytes, hash: None, deadline: far() });
+            self.chan.push_back(Event::Disk { bytes, hash: None, deadline: far(), seq });
         }
     }
 
@@ -604,7 +619,9 @@ impl Sim {
     pub fn deliver(&mut self) -> Result<(), String> {
         let Some(ev) = self.chan.pop_front() else { return Ok(()) };
         let d = match &ev {
-            Event::Disk { bytes: Some(b), .. } | Event::SaveConflict(Some(b), _) => Some(b.clone()),
+            Event::Disk { bytes: Some(b), .. } | Event::SaveConflict(Some(b), ..) => {
+                Some(b.clone())
+            }
             _ => None,
         };
         let decision = match &ev {
@@ -617,7 +634,7 @@ impl Sim {
             }
             _ => None,
         };
-        let saved = matches!(ev, Event::Saved(Ok(_)));
+        let saved = matches!(ev, Event::Saved(Ok(_), _));
         let user = matches!(ev, Event::Key(_) | Event::Paste(_) | Event::Opened(..));
         self.log.push(format!("deliver {ev:?}"));
         let pre = self.pre();
@@ -931,6 +948,30 @@ model!(prop_6_fuzz_model_racy_with_filters, false, true, true, true, true, true)
 model!(prop_6_fuzz_model_atomic_filters_without_review, true, true, true, false, false, true);
 model!(prop_6_fuzz_model_racy_filters_appends_only, false, false, false, false, false, true);
 
+proptest! {
+    #![proptest_config(ProptestConfig { cases: cases(500), max_shrink_iters: 4000, failure_persistence: None, ..ProptestConfig::default() })]
+
+    /// A read of the watcher that is held up (PROP-1): it is taken first, the outside process writes
+    /// again, and everything else happens before it is sent last, and the user saves once more (ZZ): reloads,
+    /// saves, reviews, filters, newer reads. App must drop it as the older news it is. (The random
+    /// models above hit this only about once in 100,000 cases, the replay below is such a case.)
+    #[test]
+    fn prop_1_fuzz_model_a_read_held_across_reloads_and_saves(
+        first in 1usize..5,
+        mid in prop::collection::vec(
+            op(true, true, true, true, true)
+                .prop_map(|o| if matches!(o, Op::Read | Op::WSend) { Op::Deliver } else { o }),
+            1..100,
+        ),
+    ) {
+        let (head, tail) = ([Op::E(E::Append(0)), Op::Read], [Op::Exec, Op::WSend, Op::Send, Op::U(U::Leave(1))]);
+        let ops: Vec<Op> = head.into_iter().chain(mid).chain(tail).collect();
+        if let Err((e, log)) = run(first, &ops, false) {
+            return Err(TestCaseError::fail(format!("{e}\n{}", log.join("\n"))));
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Recovery (SAFE-6): the snapshot is `mine`, the file is `theirs`, the snapshot's base is `base`
 // ---------------------------------------------------------------------------------------------
@@ -1019,15 +1060,13 @@ proptest! {
     }
 }
 
-/// A known race, found by a long run of the racy model (about 1 case in 100,000), and as old as M3
-/// (it fails on that code too). The watcher read the file before the outside process wrote it twice
-/// more, and sends that old read after `:e!` has loaded the newer file and `:wq` has saved it. App
-/// cannot tell that read from a change, takes it in, and the next save loses the outside words. The
-/// shell would have to number its reads (Disk, Opened, Saved) for App to drop the older ones; the
-/// watcher sends right after it reads, so only a thread held up for as long as these keys take could
-/// do it. `cargo test -- --ignored replay` shows it.
+/// A race found by a long run of the racy model (about 1 case in 100,000), as old as M3. The
+/// watcher read the file before the outside process wrote it twice more, and sends that old read
+/// after `:e!` has loaded the newer file and `:wq` has saved it. Without numbers App could not tell
+/// that read from a change, took it in, and the next save lost the outside words. Now the shell
+/// numbers every read of the disk as it starts, and App drops a read older than what it took in
+/// already (PROP-1); the model numbers its reads the same way.
 #[test]
-#[ignore = "known race, see the comment"]
 fn prop_2_model_replay_a_stale_watcher_read_after_a_reload_and_a_save() {
     use Op::{Deliver, Exec, Read, Send, WSend};
     let (ext, user) = (|e| Op::E(E::Append(e)), |u| Op::U(u));

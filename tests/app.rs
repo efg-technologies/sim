@@ -60,12 +60,12 @@ fn cli_3_exit_codes() {
         let mut a = named("a\n");
         let fx = feed(&mut a, keys);
         assert!(write(&fx).is_some() && quit(&fx).is_none(), "{keys:?}: quits after the save");
-        assert_eq!(quit(&a.update(Event::Saved(Ok((0, None))))), Some(0), "{keys:?}");
+        assert_eq!(quit(&a.update(Event::Saved(Ok((0, None)), 0))), Some(0), "{keys:?}");
     }
     let mut a = named("a\n");
     feed(&mut a, "x:wq\n");
     assert_eq!(
-        quit(&a.update(Event::Saved(Err("disk full".into())))),
+        quit(&a.update(Event::Saved(Err("disk full".into()), 0))),
         None,
         "no exit when it failed"
     );
@@ -78,17 +78,17 @@ fn safe_1_wq_quits_only_after_the_save_succeeded() {
     let mut a = named("a\n");
     let fx = feed(&mut a, "x:wq\n");
     assert!(write(&fx).is_some() && quit(&fx).is_none());
-    let fx = a.update(Event::Saved(Err("cannot save f: disk full".into())));
+    let fx = a.update(Event::Saved(Err("cannot save f: disk full".into()), 0));
     assert!(quit(&fx).is_none());
     assert_eq!(msg(&mut a), "cannot save f: disk full");
     assert!(a.buf.dirty(), "a failed save leaves the buffer modified");
     feed(&mut a, ":wq\n");
-    assert_eq!(quit(&a.update(Event::Saved(Ok((1, None))))), Some(0));
+    assert_eq!(quit(&a.update(Event::Saved(Ok((1, None)), 0))), Some(0));
 }
 
 #[test]
 fn safe_1_a_failing_directory_sync_after_the_rename_is_only_a_warning() {
-    let warn = || Event::Saved(Ok((1, Some("could not sync the directory: busy".into()))));
+    let warn = || Event::Saved(Ok((1, Some("could not sync the directory: busy".into()))), 0);
     let mut a = app_with(Some("f"), b"a\n", (80, 8));
     feed(&mut a, "x:w\n");
     a.update(warn());
@@ -105,7 +105,7 @@ fn safe_1_editing_goes_on_while_a_save_runs() {
     let fx = feed(&mut a, "ib\x1b:w\n");
     assert_eq!(write(&fx).map(|w| w.1), Some(&b"ba\n"[..]));
     feed(&mut a, "ic\x1b");
-    a.update(Event::Saved(Ok((7, None))));
+    a.update(Event::Saved(Ok((7, None)), 0));
     assert!(a.buf.dirty(), "only the saved text is clean");
     assert_eq!(a.buf.base.to_string(), "ba");
     feed(&mut a, "l");
@@ -121,7 +121,7 @@ fn safe_1_editing_goes_on_while_a_save_runs() {
     );
     feed(&mut a, "ia\x1b");
     assert!(
-        quit(&a.update(Event::Saved(Ok((8, None))))).is_none(),
+        quit(&a.update(Event::Saved(Ok((8, None)), 0))).is_none(),
         "edited while saving: not quitting"
     );
 }
@@ -131,18 +131,18 @@ fn safe_1_a_save_is_refused_when_the_disk_changed() {
     let mut a = app_with(Some("f"), b"a\n", (80, 8));
     let w = |fx: &[Effect]| write(fx).map(|w| w.2);
     assert_eq!(w(&feed(&mut a, ":w\n")), Some(Some(hash(b"a\n"))));
-    a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far()));
+    a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far(), 0));
     assert_eq!(msg(&mut a), "not saved: the file changed on disk; merged its changes (:w to save)");
     assert_eq!(text(&a), "other", "SAFE-5: the disk content is merged, and nothing is saved");
     assert_eq!(w(&feed(&mut a, ":w!\n")), Some(None), "`:w!` overwrites");
     assert_eq!(w(&feed(&mut a, ":w other\n")), None, "a save is already running");
-    a.update(Event::Saved(Ok((1, None))));
+    a.update(Event::Saved(Ok((1, None)), 0));
     assert_eq!(
         w(&feed(&mut a, ":w other\n")),
         Some(Some(ABSENT)),
         "another file must not exist yet"
     );
-    a.update(Event::Saved(Ok((2, None))));
+    a.update(Event::Saved(Ok((2, None)), 0));
     assert_eq!(msg(&mut a), "saved other");
     assert_eq!(a.path.as_deref(), Some("f"), "`:w other` writes a copy");
 }
@@ -155,7 +155,7 @@ fn safe_1_an_unnamed_buffer_takes_the_name_of_the_first_write() {
     assert_eq!(msg(&mut a), "no file name");
     let fx = feed(&mut a, "ihi\x1b:w new.txt\n");
     assert_eq!(write(&fx), Some(("new.txt", &b"hi\n"[..], Some(ABSENT))));
-    a.update(Event::Saved(Ok((hash(b"hi\n"), None))));
+    a.update(Event::Saved(Ok((hash(b"hi\n"), None)), 0));
     assert_eq!(msg(&mut a), "saved new.txt");
     assert_eq!(
         write(&feed(&mut a, ":w\n")).map(|w| (w.0, w.2)),

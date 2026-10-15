@@ -6,8 +6,11 @@
 #
 # This script prints:
 #   PERF-1  median time of `si +q` on a 10,000-line file, with hyperfine if it is installed
-#           (inside a private tmux server, because si needs a terminal), otherwise with
-#           scripts/pty_bench.py (python3 and a pty; /bin/true timed the same way is the baseline)
+#           (inside a private tmux server, because si needs a terminal), and with
+#           scripts/pty_bench.py (python3 and a pty; /bin/true timed the same way is the baseline).
+#           `+q` quits before the first frame, so it never waits for the terminal's color (VIS-4);
+#           pty_bench.py also prints the time to the first frame, with the pty answering the OSC 11
+#           query like a terminal and with it silent (the 3 ms wait is in that one)
 #   PERF-5  VmRSS and peak RSS of si with a 10 MB file open (python3 and Linux)
 set -eu
 
@@ -44,10 +47,11 @@ if command -v hyperfine > /dev/null 2>&1 && command -v tmux > /dev/null 2>&1; th
   [ -e "$tmp/done" ] || { echo "bench: hyperfine did not finish" >&2; exit 1; }
   [ -s "$tmp/h.json" ] || { tmux -L si-bench capture-pane -p >&2; echo "bench: hyperfine failed" >&2; exit 1; }
   awk -F'[:,]' '/"median"/ { printf "PERF-1 startup (hyperfine): median %.2f ms\n", $2 * 1000; exit }' "$tmp/h.json"
-elif command -v python3 > /dev/null 2>&1; then
-  echo "PERF-1 (hyperfine or tmux not found; using scripts/pty_bench.py)"
+fi
+if command -v python3 > /dev/null 2>&1; then
+  echo "PERF-1 (scripts/pty_bench.py)"
   python3 scripts/pty_bench.py startup "$bin" "$tmp/ten_thousand_lines.rs" > /dev/null
-else
+elif ! command -v hyperfine > /dev/null 2>&1; then
   echo "bench: PERF-1 needs hyperfine (and tmux) or python3" >&2
 fi
 

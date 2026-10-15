@@ -1,8 +1,9 @@
-//! CLI-4, CLI-6, SAFE-6, PROP-1, PROP-5, VI-7, VI-8, VI-9, VI-11, PERF-1, PERF-5
+//! CLI-4, CLI-6, VIS-4, SAFE-6, PROP-1, PROP-5, VI-7, VI-8, VI-9, VI-11, PERF-1, PERF-5
 //! The event loop, and running Effects.
 use notify::RecommendedWatcher;
 use si::core::app::{App, Effect, Event};
 use si::core::cli::parse;
+use si::core::color;
 use si::io::file::{self, Saved, read};
 use si::io::filter;
 use si::io::journal::{self, NO_STATE, Snapshot};
@@ -40,9 +41,9 @@ fn filter_done(tx: &Sender<Event>, status: Option<i32>, out: Vec<u8>, err: Vec<u
 fn watching(tx: &Sender<Event>, path: &str, first: bool) -> Option<RecommendedWatcher> {
     let t = tx.clone();
     // The hash is made here, on the watcher's thread, so that no key waits for it (P3).
-    let on = move |bytes: Option<Vec<u8>>| {
+    let on = move |seq: u64, bytes: Option<Vec<u8>>| {
         let hash = bytes.as_deref().map(si::core::buffer::hash);
-        drop(t.send(Event::Disk { bytes, hash, deadline: Instant::now() + MERGE }));
+        drop(t.send(Event::Disk { bytes, hash, deadline: Instant::now() + MERGE, seq }));
     };
     watch(&file::resolve(path), on, first)
         .inspect_err(|e| drop(tx.send(Event::Notice(format!("cannot watch {path}: {e}")))))
@@ -153,10 +154,12 @@ fn main() -> ExitCode {
         eprintln!("si: cannot set up the terminal");
         return ExitCode::FAILURE;
     }
+    let asked = Instant::now(); // the query for the background color went out with `enter`
     let t = tx.clone();
     thread::spawn(move || {
+        let mut reply = term::Reply::default(); // VIS-4: the background color arrives as keys
         while let Ok(ev) = crossterm::event::read() {
-            if term::convert_all(ev).into_iter().any(|e| t.send(e).is_err()) {
+            if reply.feed(ev).into_iter().any(|e| t.send(e).is_err()) {
                 return;
             }
         }
@@ -176,6 +179,14 @@ fn main() -> ExitCode {
     let (jobs, finished) = journal_thread(state.clone(), held, tx.clone());
     let mut term = Term::new(io::stdout(), env::var_os("TMUX").is_some());
     fx.extend(app.start(&cli.keys));
+    // VIS-4: the first frame waits at most 3 ms for the terminal's color, which it gets as it is
+    // drawn. The wait overlaps the work above, and a quit needs no frame. What else came meanwhile
+    // is App's too.
+    if !fx.iter().any(|e| matches!(e, Effect::Quit(_))) {
+        let (bg, early) = term::wait_bg(&rx, asked + Duration::from_millis(3));
+        app.pal = bg.map(color::palette);
+        fx.extend(early.into_iter().flat_map(|e| app.update(e)));
+    }
     let (mut first, mut pgid) = (true, None::<u32>);
     loop {
         let mut frame = None;
@@ -186,17 +197,18 @@ fn main() -> ExitCode {
                     let (tx, state) = (tx.clone(), state.clone());
                     thread::spawn(move || {
                         let ev = match file::save(&path, &bytes, expect_hash, state.as_deref()) {
-                            Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn))),
+                            Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn)), file::seq()),
                             Ok(Saved::Conflict(disk)) => {
-                                Event::SaveConflict(disk, Instant::now() + MERGE)
+                                Event::SaveConflict(disk, Instant::now() + MERGE, file::seq())
                             }
-                            Err(e) => Event::Saved(Err(e)),
+                            Err(e) => Event::Saved(Err(e), file::seq()),
                         };
                         drop(tx.send(ev));
                     });
                 }
                 Effect::Open(path) => {
-                    drop(tx.send(Event::Opened(path.clone(), read(&path))));
+                    let seq = file::seq(); // taken before the read starts
+                    drop(tx.send(Event::Opened(path.clone(), read(&path), seq)));
                     drop(jobs.send(Effect::Open(path)));
                 }
                 Effect::Spawn { cmd, input } => {
@@ -237,7 +249,7 @@ fn main() -> ExitCode {
             }
         }
         if let Some(f) = frame
-            && term.draw(f).is_err()
+            && term.draw(si::core::view::Frame { pal: app.pal, ..f }).is_err()
         {
             drop(tx.send(Event::Signal(SIGHUP))); // the terminal is gone
         }

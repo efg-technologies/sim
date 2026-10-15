@@ -72,14 +72,19 @@ enum Ev {
     Keys(String),
     Paste(String),
     Resize(u16, u16),
-    SavedOk(bool, bool),
-    SavedErr,
-    Conflict(Option<Vec<u8>>, bool),
-    Disk(Option<Vec<u8>>, bool),
+    SavedOk(bool, bool, u64),
+    SavedErr(u64),
+    Conflict(Option<Vec<u8>>, bool, u64),
+    Disk(Option<Vec<u8>>, bool, u64),
     Notice,
-    Opened(Option<Vec<u8>>, bool),
+    Opened(Option<Vec<u8>>, bool, u64),
     Tick(u64),
     Signal,
+}
+
+/// The number of a read of the disk (PROP-1): a few, so that older and newer ones meet.
+fn seq_s() -> impl Strategy<Value = u64> {
+    0u64..8
 }
 
 fn ev() -> impl Strategy<Value = Ev> {
@@ -92,12 +97,12 @@ fn ev() -> impl Strategy<Value = Ev> {
         ]).prop_map(|s| Ev::Keys(s.into())),
         3 => text_s().prop_map(Ev::Paste),
         1 => (0u16..30, 0u16..10).prop_map(|(w, h)| Ev::Resize(w, h)),
-        4 => (any::<bool>(), any::<bool>()).prop_map(|(a, b)| Ev::SavedOk(a, b)),
-        1 => Just(Ev::SavedErr),
-        4 => (prop::option::of(bytes_s()), any::<bool>()).prop_map(|(b, p)| Ev::Conflict(b, p)),
-        12 => (prop::option::of(bytes_s()), any::<bool>()).prop_map(|(b, p)| Ev::Disk(b, p)),
+        4 => (any::<bool>(), any::<bool>(), seq_s()).prop_map(|(a, b, n)| Ev::SavedOk(a, b, n)),
+        1 => seq_s().prop_map(Ev::SavedErr),
+        4 => (prop::option::of(bytes_s()), any::<bool>(), seq_s()).prop_map(|(b, p, n)| Ev::Conflict(b, p, n)),
+        12 => (prop::option::of(bytes_s()), any::<bool>(), seq_s()).prop_map(|(b, p, n)| Ev::Disk(b, p, n)),
         1 => Just(Ev::Notice),
-        2 => (prop::option::of(bytes_s()), any::<bool>()).prop_map(|(b, e)| Ev::Opened(b, e)),
+        2 => (prop::option::of(bytes_s()), any::<bool>(), seq_s()).prop_map(|(b, e, n)| Ev::Opened(b, e, n)),
         2 => (0u64..100_000).prop_map(Ev::Tick),
         1 => Just(Ev::Signal),
     ]
@@ -159,7 +164,7 @@ proptest! {
         }
         for e in evs {
             let real = match &e {
-                Ev::SavedOk(true, _) => inflight.clone(),
+                Ev::SavedOk(true, ..) => inflight.clone(),
                 _ => None,
             };
             let event = match e {
@@ -177,15 +182,15 @@ proptest! {
                 }
                 Ev::Paste(s) => Event::Paste(s),
                 Ev::Resize(w, h) => Event::Resize(w, h),
-                Ev::SavedOk(real_hash, warn) => {
+                Ev::SavedOk(real_hash, warn, n) => {
                     let h = match (&real, real_hash) { (Some(b), true) => hash(b), _ => 7 };
-                    Event::Saved(Ok((h, warn.then(|| "warning".to_string()))))
+                    Event::Saved(Ok((h, warn.then(|| "warning".to_string()))), n)
                 }
-                Ev::SavedErr => Event::Saved(Err("disk full".into())),
-                Ev::Conflict(b, p) => Event::SaveConflict(b, deadline(p)),
-                Ev::Disk(b, p) => Event::Disk { bytes: b, hash: None, deadline: deadline(p) },
+                Ev::SavedErr(n) => Event::Saved(Err("disk full".into()), n),
+                Ev::Conflict(b, p, n) => Event::SaveConflict(b, deadline(p), n),
+                Ev::Disk(b, p, n) => Event::Disk { bytes: b, hash: None, deadline: deadline(p), seq: n },
                 Ev::Notice => Event::Notice("n".into()),
-                Ev::Opened(b, e) => Event::Opened("f".into(), if e { Err("boom".into()) } else { Ok(b) }),
+                Ev::Opened(b, e, n) => Event::Opened("f".into(), if e { Err("boom".into()) } else { Ok(b) }, n),
                 Ev::Tick(t) => Event::Tick(t),
                 Ev::Signal => Event::Signal(15),
             };
@@ -212,7 +217,7 @@ proptest! {
         let mut a = app_with(Some("f"), b"a b c\nd e f\ng h i\n", (80, 12));
         for o in ops {
             if o == "OPENED" {
-                a.update(Event::Opened("f".into(), Ok(Some(b"a b c\nd e f\ng h i\n".to_vec()))));
+                a.update(Event::Opened("f".into(), Ok(Some(b"a b c\nd e f\ng h i\n".to_vec())), 0));
             } else {
                 feed(&mut a, o);
             }

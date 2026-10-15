@@ -16,7 +16,12 @@ const CONFLICTS: &str = "unresolved conflicts with the disk: ]c to review, :w! k
 const PROPOSALS: &str = "unresolved proposals: ]c to review, :q! discards";
 
 fn disk(a: &mut App, text: &str) -> Vec<Effect> {
-    a.update(Event::Disk { bytes: Some(text.as_bytes().to_vec()), hash: None, deadline: far() })
+    a.update(Event::Disk {
+        bytes: Some(text.as_bytes().to_vec()),
+        hash: None,
+        deadline: far(),
+        seq: 0,
+    })
 }
 
 /// Mine is "A1 b A2 c A3" and the file says "X1 b X2 c X3" (it was "a1 b a2 c a3"): three hunks,
@@ -366,7 +371,7 @@ fn prop_8_review_ends_when_something_else_settles_the_hunks() {
     assert_eq!(a.buf.hunks.len(), 2, "and its keys work as before");
     let w = write_of(&feed(&mut a, ":w!\n")).unwrap();
     let h = hash(&w);
-    a.update(Event::Saved(Ok((h, None))));
+    a.update(Event::Saved(Ok((h, None)), 0));
     assert_eq!((a.vi.mode, a.buf.hunks.len()), (Mode::Normal, 0));
 }
 
@@ -547,7 +552,7 @@ fn safe_7_saving_another_file_is_allowed_it_is_how_to_keep_mine() {
     let fx = feed(&mut a, ":w g\n");
     assert_eq!(writes(&fx), 1);
     assert!(fx.iter().any(|e| matches!(e, Effect::Write { path, bytes, .. } if path == "g" && bytes == b"A1\nb\nA2\nc\nA3\n")));
-    a.update(Event::Saved(Ok((0, None))));
+    a.update(Event::Saved(Ok((0, None)), 0));
     assert_eq!(a.buf.hunks.len(), 3, "the conflicts are with f, and f was not written");
 }
 
@@ -562,7 +567,7 @@ fn safe_7_w_bang_saves_mine_and_drops_the_disk_hunks_once_it_is_saved() {
     ));
     assert_eq!(w, b"A1\nb\nA2\nc\nA3\n", "mine, whatever the disk holds");
     assert_eq!(a.buf.hunks.len(), 3, "still there while the save is in flight");
-    a.update(Event::Saved(Ok((hash(&w), None))));
+    a.update(Event::Saved(Ok((hash(&w), None)), 0));
     assert_eq!(a.buf.hunks.len(), 0);
     assert!(!a.buf.dirty());
     assert_eq!(st(&mut a), "saved f");
@@ -575,7 +580,7 @@ fn safe_7_w_bang_saves_mine_and_drops_the_disk_hunks_once_it_is_saved() {
 fn safe_7_a_forced_save_that_fails_drops_nothing() {
     let mut a = three();
     feed(&mut a, ":w!\n");
-    a.update(Event::Saved(Err("cannot save f: disk full".into())));
+    a.update(Event::Saved(Err("cannot save f: disk full".into()), 0));
     assert_eq!(a.buf.hunks.len(), 3);
     assert_eq!(st(&mut a), "cannot save f: disk full");
     let fx = feed(&mut a, ":w\n");
@@ -583,7 +588,7 @@ fn safe_7_a_forced_save_that_fails_drops_nothing() {
     // A plain save answered by a conflict is a merge, not a drop.
     let mut a = three();
     feed(&mut a, ":w!\n");
-    a.update(Event::SaveConflict(Some(b"Z1\nb\nZ2\nc\nZ3\n".to_vec()), far()));
+    a.update(Event::SaveConflict(Some(b"Z1\nb\nZ2\nc\nZ3\n".to_vec()), far(), 0));
     assert_eq!(a.buf.hunks.len(), 3, "the newer say of the disk replaced the older");
 }
 
@@ -594,19 +599,19 @@ fn safe_7_proposals_from_filters_stay_after_a_forced_save_and_do_not_stop_a_plai
     a.buf.hunks = Arc::new(vec![proposal(1..2, "B\n")]);
     let fx = feed(&mut a, ":w\n");
     let w = write_of(&fx).unwrap();
-    a.update(Event::Saved(Ok((hash(&w), None))));
+    a.update(Event::Saved(Ok((hash(&w), None)), 0));
     assert_eq!(a.buf.hunks.len(), 1, "a save of mine does not decide a filter's proposal");
     feed(&mut a, "x");
     let fx = feed(&mut a, ":w!\n");
     let w = write_of(&fx).unwrap();
-    a.update(Event::Saved(Ok((hash(&w), None))));
+    a.update(Event::Saved(Ok((hash(&w), None)), 0));
     assert_eq!(a.buf.hunks.len(), 1);
     // Disk and filter hunks together: :w! settles the first kind only.
     let mut a = three();
     a.buf.hunks = Arc::new([&a.buf.hunks[..], &[proposal(1..2, "B\n")]].concat());
     let fx = feed(&mut a, ":w!\n");
     let w = write_of(&fx).unwrap();
-    a.update(Event::Saved(Ok((hash(&w), None))));
+    a.update(Event::Saved(Ok((hash(&w), None)), 0));
     assert_eq!(a.buf.hunks.iter().map(|h| h.disk).collect::<Vec<_>>(), [false]);
 }
 
@@ -639,7 +644,7 @@ fn safe_7_a_quit_that_waits_for_its_save_does_not_quit_if_a_hunk_came_back_meanw
     feed(&mut a, "]cN");
     let w = write_of(&feed(&mut a, ":wq\n")).unwrap();
     feed(&mut a, "u"); // the three proposals are back, and the text is the one that is being saved
-    let fx = a.update(Event::Saved(Ok((hash(&w), None))));
+    let fx = a.update(Event::Saved(Ok((hash(&w), None)), 0));
     assert_eq!(quit(&fx), None);
     assert_eq!(st(&mut a), format!("saved f; {PROPOSALS}"));
     assert_eq!(a.buf.hunks.len(), 3);
@@ -648,7 +653,7 @@ fn safe_7_a_quit_that_waits_for_its_save_does_not_quit_if_a_hunk_came_back_meanw
     feed(&mut a, "]cN");
     let w = write_of(&feed(&mut a, ":wq!\n")).unwrap();
     feed(&mut a, "u");
-    assert_eq!(quit(&a.update(Event::Saved(Ok((hash(&w), None))))), Some(0));
+    assert_eq!(quit(&a.update(Event::Saved(Ok((hash(&w), None)), 0))), Some(0));
 }
 
 #[test]
@@ -659,7 +664,7 @@ fn safe_7_q_bang_zq_and_cq_discard_the_proposals() {
         // `:x!` writes (forced) and quits once that is saved.
         if keys == ":x!\n" {
             let w = write_of(&fx).unwrap();
-            let fx = a.update(Event::Saved(Ok((hash(&w), None))));
+            let fx = a.update(Event::Saved(Ok((hash(&w), None)), 0));
             assert_eq!(quit(&fx), Some(0), "{keys:?}");
         } else {
             assert_eq!(quit(&fx), Some(code), "{keys:?}");
@@ -672,7 +677,7 @@ fn safe_7_q_bang_zq_and_cq_discard_the_proposals() {
     let fx = feed(&mut a, ":wq!\n");
     let w = write_of(&fx).unwrap();
     assert_eq!(quit(&fx), None);
-    assert_eq!(quit(&a.update(Event::Saved(Ok((hash(&w), None))))), Some(0));
+    assert_eq!(quit(&a.update(Event::Saved(Ok((hash(&w), None)), 0))), Some(0));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -877,7 +882,7 @@ fn session(base: &str, steps: &[Step], size: (u16, u16)) -> Result<(), String> {
             Step::Keys(k) => feed(&mut a, k),
             Step::Disk(t) => disk(&mut a, t),
             Step::Saved => match write.take() {
-                Some(b) => a.update(Event::Saved(Ok((hash(&b), None)))),
+                Some(b) => a.update(Event::Saved(Ok((hash(&b), None)), 0)),
                 None => vec![],
             },
             Step::Resize(w, h) => a.update(Event::Resize(*w, *h)),
@@ -984,7 +989,7 @@ fn big() -> App {
         })
         .collect();
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
-    a.update(Event::Disk { bytes: Some(theirs.into_bytes()), hash: None, deadline });
+    a.update(Event::Disk { bytes: Some(theirs.into_bytes()), hash: None, deadline, seq: 0 });
     a
 }
 
@@ -1036,7 +1041,7 @@ fn prop_8_bench_review_one_hunk_as_big_as_the_word_diff_allows_and_one_as_big_as
         a.buf.replace(0..usize::MAX, &mine);
         let theirs: String = (0..n).map(|i| format!("alpha {i} THEIRS gamma\n")).collect();
         let deadline = Instant::now() + std::time::Duration::from_millis(500);
-        a.update(Event::Disk { bytes: Some(theirs.into_bytes()), hash: None, deadline });
+        a.update(Event::Disk { bytes: Some(theirs.into_bytes()), hash: None, deadline, seq: 0 });
         assert_eq!(a.buf.hunks.len(), 1);
         assert_eq!(a.buf.hunks[0].words.is_some(), words, "{n} lines");
         feed(&mut a, "gg]c");

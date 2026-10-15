@@ -16,7 +16,12 @@ fn named(text: &str) -> App {
 
 /// The file now holds `text`.
 fn disk(a: &mut App, text: &str) -> Vec<Effect> {
-    a.update(Event::Disk { bytes: Some(text.as_bytes().to_vec()), hash: None, deadline: far() })
+    a.update(Event::Disk {
+        bytes: Some(text.as_bytes().to_vec()),
+        hash: None,
+        deadline: far(),
+        seq: 0,
+    })
 }
 
 fn msg(a: &mut App) -> String {
@@ -222,6 +227,7 @@ fn prop_2_a_file_that_is_no_longer_text_is_not_merged() {
         bytes: Some(b"one\xff\x00two".to_vec()),
         hash: None,
         deadline: far(),
+        seq: 0,
     });
     assert!(status(last_frame(&fx)).starts_with("changed on disk, not as text: not merged"));
     assert_eq!(at(&a), before);
@@ -267,21 +273,32 @@ fn prop_1_a_disk_event_brings_the_hash_of_its_content_so_that_no_key_hashes_it()
         bytes: Some(b"quite different\n".to_vec()),
         hash: Some(same),
         deadline: far(),
+        seq: 0,
     });
     assert_eq!((text(&a), a.buf.version()), before, "the given hash says it is the file we know");
     // A different hash is a change, and becomes what is known: the same again is ignored.
     let new = b"one\nTWO\n".to_vec();
-    a.update(Event::Disk { bytes: Some(new.clone()), hash: Some(hash(&new)), deadline: far() });
+    a.update(Event::Disk {
+        bytes: Some(new.clone()),
+        hash: Some(hash(&new)),
+        deadline: far(),
+        seq: 0,
+    });
     assert_eq!(marks(&a), [(1, '~')]);
     let v = a.buf.version();
-    a.update(Event::Disk { bytes: Some(new.clone()), hash: Some(hash(&new)), deadline: far() });
+    a.update(Event::Disk {
+        bytes: Some(new.clone()),
+        hash: Some(hash(&new)),
+        deadline: far(),
+        seq: 0,
+    });
     assert_eq!(a.buf.version(), v);
     // Without one, App makes it: the same result.
     let mut b = named("one\ntwo\n");
     disk(&mut b, "one\nTWO\n");
     assert_eq!((text(&b), marks(&b)), (text(&a), marks(&a)));
     // A file that is gone has no content to hash.
-    a.update(Event::Disk { bytes: None, hash: None, deadline: far() });
+    a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
     assert!(a.gone);
 }
 
@@ -293,14 +310,14 @@ fn prop_1_our_own_save_is_ignored_while_it_is_in_flight_and_after() {
     let (bytes, _) = write(&fx).unwrap();
     let (bytes, saved) = (bytes.to_vec(), hash(bytes));
     // The watcher can be quicker than the thread that saved.
-    a.update(Event::Disk { bytes: Some(bytes.clone()), hash: None, deadline: far() });
+    a.update(Event::Disk { bytes: Some(bytes.clone()), hash: None, deadline: far(), seq: 0 });
     assert_eq!(
         (text(&a).as_str(), a.buf.marks.is_empty(), a.buf.hunks.is_empty()),
         ("ne\ntwo", true, true)
     );
     feed(&mut a, "ix\x1b"); // edited while it runs
-    a.update(Event::Saved(Ok((saved, None))));
-    a.update(Event::Disk { bytes: Some(bytes), hash: None, deadline: far() });
+    a.update(Event::Saved(Ok((saved, None)), 0));
+    a.update(Event::Disk { bytes: Some(bytes), hash: None, deadline: far(), seq: 0 });
     assert_eq!(text(&a), "xne\ntwo", "and when the answer came first");
     assert!(a.buf.marks.is_empty() && a.buf.hunks.is_empty());
     assert!(a.buf.dirty(), "only the saved text is clean");
@@ -310,7 +327,7 @@ fn prop_1_our_own_save_is_ignored_while_it_is_in_flight_and_after() {
 fn prop_1_a_deleted_file_keeps_its_text_and_counts_as_modified() {
     let mut a = named("one\ntwo\n");
     assert!(!a.buf.dirty());
-    let fx = a.update(Event::Disk { bytes: None, hash: None, deadline: far() });
+    let fx = a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
     assert_eq!(text(&a), "one\ntwo");
     assert!(a.buf.dirty());
     assert_eq!(status(last_frame(&fx)), "f  1:1  NORMAL  modified · deleted on disk");
@@ -318,11 +335,11 @@ fn prop_1_a_deleted_file_keeps_its_text_and_counts_as_modified() {
     assert!(!quits(&fx), "`:q` is refused: the text is only here");
     assert_eq!(msg(&mut a), "no write since last change (:q! to override)");
     // Telling it twice changes nothing.
-    a.update(Event::Disk { bytes: None, hash: None, deadline: far() });
+    a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
     // The next save recreates the file: it expects no file.
     let fx = feed(&mut a, ":w\n");
     assert_eq!(write(&fx).unwrap(), (&b"one\ntwo\n"[..], Some(ABSENT)));
-    a.update(Event::Saved(Ok((hash(b"one\ntwo\n"), None))));
+    a.update(Event::Saved(Ok((hash(b"one\ntwo\n"), None)), 0));
     assert!(!a.buf.dirty() && !a.gone);
     assert_eq!(msg(&mut a), "saved f");
     let fx = feed(&mut a, ":w\n");
@@ -333,7 +350,7 @@ fn prop_1_a_deleted_file_keeps_its_text_and_counts_as_modified() {
 fn prop_1_a_file_created_again_is_merged() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
-    a.update(Event::Disk { bytes: None, hash: None, deadline: far() });
+    a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
     disk(&mut a, "one\ntwo\nthree\n");
     assert_eq!(text(&a), "ne\ntwo\nthree", "mine and the new file");
     assert!(!a.gone && a.buf.dirty());
@@ -342,7 +359,7 @@ fn prop_1_a_file_created_again_is_merged() {
     assert_eq!(write(&fx).unwrap().1, Some(hash(b"one\ntwo\nthree\n")));
     // Clean and deleted, then created again.
     let mut a = named("one\n");
-    a.update(Event::Disk { bytes: None, hash: None, deadline: far() });
+    a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
     disk(&mut a, "one\nnew\n");
     assert_eq!((text(&a).as_str(), a.buf.dirty(), a.gone), ("one\nnew", false, false));
 }
@@ -361,17 +378,17 @@ fn prop_1_the_app_asks_to_watch_the_file_it_has() {
     };
     let mut a = named("one\n");
     feed(&mut a, ":e other.txt\n");
-    let fx = a.update(Event::Opened("other.txt".into(), Ok(Some(b"x\n".to_vec()))));
+    let fx = a.update(Event::Opened("other.txt".into(), Ok(Some(b"x\n".to_vec())), 0));
     assert_eq!(watched(&fx).as_deref(), Some("other.txt"));
     // An unnamed buffer takes the name of its first save, and is watched from then on.
     let mut a = app("");
     feed(&mut a, "ihi\x1b:w new.txt\n");
-    let fx = a.update(Event::Saved(Ok((hash(b"hi\n"), None))));
+    let fx = a.update(Event::Saved(Ok((hash(b"hi\n"), None)), 0));
     assert_eq!(watched(&fx).as_deref(), Some("new.txt"));
     // A refused `:e` (edited meanwhile) keeps the file it had.
     let mut a = named("one\n");
     feed(&mut a, ":e other.txt\nx");
-    let fx = a.update(Event::Opened("other.txt".into(), Ok(Some(b"x\n".to_vec()))));
+    let fx = a.update(Event::Opened("other.txt".into(), Ok(Some(b"x\n".to_vec())), 0));
     assert_eq!(watched(&fx), None);
 }
 
@@ -491,7 +508,7 @@ fn safe_5_a_save_that_finds_another_file_merges_and_does_not_save() {
     feed(&mut a, "rO");
     let fx = feed(&mut a, ":wq\n");
     assert!(write(&fx).is_some());
-    let fx = a.update(Event::SaveConflict(Some(b"one\ntwo\nTHREE\n".to_vec()), far()));
+    let fx = a.update(Event::SaveConflict(Some(b"one\ntwo\nTHREE\n".to_vec()), far(), 0));
     assert!(write(&fx).is_none() && !quits(&fx), "nothing is saved again, and :wq does not quit");
     assert_eq!(text(&a), "One\ntwo\nTHREE");
     assert_eq!(marks(&a), [(2, '~')]);
@@ -504,7 +521,7 @@ fn safe_5_a_save_that_finds_another_file_merges_and_does_not_save() {
     let fx = feed(&mut a, ":wq\n");
     let (bytes, expect) = write(&fx).unwrap();
     assert_eq!((bytes, expect), (&b"One\ntwo\nTHREE\n"[..], Some(hash(b"one\ntwo\nTHREE\n"))));
-    let fx = a.update(Event::Saved(Ok((hash(bytes), None))));
+    let fx = a.update(Event::Saved(Ok((hash(bytes), None)), 0));
     assert!(quits(&fx));
 }
 
@@ -521,7 +538,7 @@ fn safe_5_a_save_conflict_for_content_already_merged_makes_no_second_undo_step()
         disk(&mut a, theirs);
         let (merged, version, marks_, hunks_) = (text(&a), a.buf.version(), marks(&a), hunks(&a));
         let (m2, h2) = (marks_.clone(), hunks_.clone());
-        let fx = a.update(Event::SaveConflict(Some(theirs.as_bytes().to_vec()), far()));
+        let fx = a.update(Event::SaveConflict(Some(theirs.as_bytes().to_vec()), far(), 0));
         assert!(write(&fx).is_none() && !quits(&fx));
         assert_eq!(
             status(last_frame(&fx)),
@@ -545,7 +562,7 @@ fn safe_5_a_save_conflict_for_content_already_merged_makes_no_second_undo_step()
 fn safe_5_conflicts_found_by_a_save_are_counted() {
     let mut a = named("a\nb\nc\n");
     feed(&mut a, "rXjjrZ:w\n");
-    let fx = a.update(Event::SaveConflict(Some(b"a2\nb\nc2\n".to_vec()), far()));
+    let fx = a.update(Event::SaveConflict(Some(b"a2\nb\nc2\n".to_vec()), far(), 0));
     assert_eq!(
         status(last_frame(&fx)),
         "not saved: the file changed on disk; merged its changes · 2 conflicts to review"
@@ -553,7 +570,7 @@ fn safe_5_conflicts_found_by_a_save_are_counted() {
     assert_eq!(hunks(&a).len(), 2);
     feed(&mut a, "u");
     feed(&mut a, ":w\n");
-    let fx = a.update(Event::SaveConflict(Some(b"a3\nb\nZ\n".to_vec()), far()));
+    let fx = a.update(Event::SaveConflict(Some(b"a3\nb\nZ\n".to_vec()), far(), 0));
     assert_eq!(
         status(last_frame(&fx)),
         "not saved: the file changed on disk; merged its changes · 1 conflict to review"
@@ -564,7 +581,7 @@ fn safe_5_conflicts_found_by_a_save_are_counted() {
 fn safe_5_a_save_that_finds_no_file_says_so_and_the_next_one_creates_it() {
     let mut a = named("one\n");
     feed(&mut a, "x:w\n");
-    let fx = a.update(Event::SaveConflict(None, far()));
+    let fx = a.update(Event::SaveConflict(None, far(), 0));
     assert_eq!(
         status(last_frame(&fx)),
         "not saved: the file was deleted on disk (:w to create it again)"
@@ -586,7 +603,7 @@ fn safe_5_the_disk_content_goes_through_the_same_merge_as_a_watched_change() {
     let (mut x, mut y) = (build(), build());
     disk(&mut x, new);
     feed(&mut y, ":w\n");
-    y.update(Event::SaveConflict(Some(new.as_bytes().to_vec()), far()));
+    y.update(Event::SaveConflict(Some(new.as_bytes().to_vec()), far(), 0));
     assert_eq!((text(&x), marks(&x), hunks(&x)), (text(&y), marks(&y), hunks(&y)));
     assert_eq!(text(&x), "a X c\nd\nE f g");
 }
@@ -595,7 +612,7 @@ fn safe_5_the_disk_content_goes_through_the_same_merge_as_a_watched_change() {
 fn safe_5_a_conflict_for_another_file_name_is_not_a_merge() {
     let mut a = named("one\n");
     feed(&mut a, ":w other\n");
-    a.update(Event::SaveConflict(Some(b"something else\n".to_vec()), far()));
+    a.update(Event::SaveConflict(Some(b"something else\n".to_vec()), far(), 0));
     assert_eq!(msg(&mut a), "not saved: other exists (:w! to overwrite)");
     assert_eq!(text(&a), "one");
 }
@@ -956,6 +973,7 @@ fn prop_7_bench_taking_in_a_change_to_100k_lines_stays_within_the_deadline() {
                 bytes: Some(bytes),
                 hash: None,
                 deadline: start + Duration::from_millis(50),
+                seq: 0,
             });
             let took = start.elapsed();
             assert!(last_frame(&fx).rows.len() == 24 && a.buf.lines() > 90_000);
@@ -990,7 +1008,12 @@ fn prop_7_bench_a_second_change_on_top_of_100k_marks_and_hunks_stays_within_the_
     for round in 0..4 {
         let start = Instant::now();
         let bytes = Some(rewrite(&format!("round{round}")).into_bytes());
-        a.update(Event::Disk { bytes, hash: None, deadline: start + Duration::from_millis(50) });
+        a.update(Event::Disk {
+            bytes,
+            hash: None,
+            deadline: start + Duration::from_millis(50),
+            seq: 0,
+        });
         let took = start.elapsed();
         eprintln!(
             "round {round}: {took:?}, {} marks, {} hunks",
@@ -1080,7 +1103,7 @@ proptest! {
                         // A half-typed command is cancelled first; `:w!` asks for a save even when the
                         // conflicts of an earlier one are open (the answer below is made up anyway).
                         feed(&mut a, "\x1b\x1b:w!\n");
-                        a.update(Event::SaveConflict(Some(t.as_bytes().to_vec()), far()));
+                        a.update(Event::SaveConflict(Some(t.as_bytes().to_vec()), far(), 0));
                     }
                     known = hash(t.as_bytes());
                     // (Content that App has taken in already is not merged again, even in a save's
@@ -1091,7 +1114,7 @@ proptest! {
                     }
                 }
                 Step::Gone => {
-                    a.update(Event::Disk { bytes: None, hash: None, deadline: far() });
+                    a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
                     known = 0;
                 }
             }
@@ -1147,7 +1170,12 @@ fn prop_7_bench_hard_inputs_through_update_give_up_at_the_deadline() {
         }
         let start = Instant::now();
         let bytes = Some(disk_text.as_bytes().to_vec());
-        a.update(Event::Disk { bytes, hash: None, deadline: start + Duration::from_millis(50) });
+        a.update(Event::Disk {
+            bytes,
+            hash: None,
+            deadline: start + Duration::from_millis(50),
+            seq: 0,
+        });
         let took = start.elapsed();
         eprintln!(
             "bench hard: {took:?} ({} marks, {} hunks)",

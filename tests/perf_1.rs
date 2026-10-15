@@ -2,8 +2,10 @@
 //! terminal, so scripts/pty_bench.py spawns the release binary 200 times with a pty as stdin,
 //! stdout and stderr. Its time includes starting the process from Python; the same harness
 //! spawning `/bin/true` is the baseline, and both are reported. The assertion is on the raw
-//! median, so it holds with the harness's own cost included. (`sh scripts/bench.sh` uses
-//! hyperfine instead, when it is installed.)
+//! median, so it holds with the harness's own cost included. `+q` quits before the first frame, so
+//! it does not wait for the terminal's color (VIS-4); the time to the first frame is printed too,
+//! with the pty answering the OSC 11 query like a terminal and with it staying silent (the 3 ms
+//! wait is in that one). (`sh scripts/bench.sh` uses hyperfine instead, when it is installed.)
 //!
 //!   cargo test --release --test perf_1 -- --ignored bench --nocapture
 mod common;
@@ -22,6 +24,10 @@ fn perf_1_bench_startup_under_5ms() {
     eprintln!(
         "PERF-1 median {si:.2} ms; baseline {base:.2} ms; minus baseline {:.2} ms",
         si - base
+    );
+    eprintln!(
+        "PERF-1 first frame (what `+q` quits before): {:.2} ms; with no answer to the OSC 11 query {:.2} ms",
+        m["first_frame_ms"], m["first_frame_unanswered_ms"]
     );
     assert!(si <= 5.0, "si +q took {si:.2} ms at the median (/bin/true: {base:.2} ms), over 5 ms");
 }

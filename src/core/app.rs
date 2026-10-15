@@ -1,6 +1,7 @@
-//! CLI-1, CLI-3, CLI-6, SAFE-1, SAFE-4, SAFE-6, SAFE-7, PROP-1, PROP-5, PROP-6, PROP-9, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14
+//! CLI-1, CLI-3, CLI-6, VIS-4, SAFE-1, SAFE-4, SAFE-6, SAFE-7, PROP-1, PROP-5, PROP-6, PROP-9, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14
 //! `App::update(&mut self, Event) -> Vec<Effect>`: the state, and what each Event does to it.
 use super::buffer::{ABSENT, Buffer, Format, hash};
+use super::color::{Palette, Rgb, palette};
 use super::review::{CONFLICTS, PROPOSALS};
 use super::vi::{Mode, Parser};
 use super::view::{self, Frame};
@@ -27,21 +28,24 @@ pub enum Event {
     Key(Key),
     Paste(String),
     Resize(u16, u16),
-    /// The hash of what was written and a warning, or why it could not be written.
-    Saved(Result<(u64, Option<String>), String>),
+    /// The hash of what was written and a warning, or why it could not be written; the number of
+    /// the answer (see `Disk`).
+    Saved(Result<(u64, Option<String>), String>, u64),
     /// The save was refused because the disk holds this instead (`None`: no file). The diff of
-    /// the merge gives up at the instant, as for `Disk` (PROP-7).
-    SaveConflict(Option<Vec<u8>>, Instant),
+    /// the merge gives up at the instant, as for `Disk` (PROP-7). The number is the answer's.
+    SaveConflict(Option<Vec<u8>>, Instant, u64),
     /// The file changed on disk (PROP-1): its new content, `None` if it is gone. The shell stamps
     /// each one with the time its diff must be done by (PROP-7), since the core reads no clock, and
     /// with the hash of the content when the thread that read the file has made it: 10 MB take 8 ms
-    /// to hash, which no key should wait for (P3). `None`: App makes it.
+    /// to hash, which no key should wait for (P3). `None`: App makes it. `seq` numbers every read of
+    /// the disk (this one, a load, a save's answer) from the shell's one counter, taken when the
+    /// read starts: App drops a read that is older than what it took in already (PROP-1).
     #[rustfmt::skip]
-    Disk { bytes: Option<Vec<u8>>, hash: Option<u64>, deadline: Instant },
+    Disk { bytes: Option<Vec<u8>>, hash: Option<u64>, deadline: Instant, seq: u64 },
     /// A thread has something to tell the user, e.g. that snapshots cannot be written (SAFE-6).
     Notice(String),
     /// The result of reading the file an `Effect::Open` asked for.
-    Opened(String, Read),
+    Opened(String, Read, u64),
     /// Unsaved text left by a session that ended abnormally (SAFE-6): the base it was edited
     /// from, the text, its age in ms, the file that holds it, and the instant its diff gives up
     /// at. It is applied (as one undo step) if the disk still holds the base, merged otherwise.
@@ -55,6 +59,8 @@ pub enum Event {
     FilterDone(Option<i32>, Vec<u8>, Vec<u8>, Instant),
     /// Where the file just opened was left (CLI-6): path, line and column, 0-based.
     Place(String, usize, usize),
+    /// The terminal's background color, from its answer to the OSC 11 query (VIS-4).
+    Bg(Rgb),
 }
 
 #[rustfmt::skip]
@@ -151,6 +157,10 @@ pub struct App {
     pub hook: Option<String>,
     pub cwd: Option<String>,
     pub(super) filter: Option<Run>,
+    /// The newest number of a read of the disk that was taken in (PROP-1).
+    seen: u64,
+    /// The colors for the Frame's styles, once the terminal has told its background (VIS-4).
+    pub pal: Option<Palette>,
     /// The last tick, in ms (PROP-5), and the mode the last update ended in (VI-11).
     pub(super) tick: u64,
     was: Mode,
@@ -195,7 +205,7 @@ impl App {
     }
 
     pub fn update(&mut self, ev: Event) -> Vec<Effect> {
-        let answer = matches!(ev, Event::Saved(_) | Event::SaveConflict(..));
+        let answer = matches!(ev, Event::Saved(..) | Event::SaveConflict(..));
         match ev {
             Event::Tick(now) => {
                 self.tick = now;
@@ -240,14 +250,19 @@ impl App {
                 }
             }
             Event::Resize(w, h) => self.size = (w.max(1), h.max(2)),
-            Event::Saved(r) => self.saved(r),
-            Event::SaveConflict(disk, by) => self.conflict(disk, by),
-            Event::Disk { bytes, hash, deadline } => self.disk(bytes, hash, deadline),
+            Event::Saved(r, seq) => self.saved(r, seq),
+            Event::SaveConflict(disk, by, seq) => self.conflict(disk, by, seq),
+            Event::Disk { seq, .. } if self.stale(seq) => {}
+            Event::Disk { bytes, hash, deadline, .. } => self.disk(bytes, hash, deadline),
             Event::Notice(m) => self.say(m),
-            Event::Opened(path, file) => match self.opening.pop_front() {
+            Event::Opened(path, file, seq) => match self.opening.pop_front() {
                 None => {}
                 Some(v) if v != self.buf.version() => self.say("not opened: edited meanwhile"),
                 Some(_) if self.filter.is_some() => self.say("not opened: a filter is running"),
+                // The same file, read before something newer was taken in: the load would undo it.
+                Some(_) if self.stale(seq) && self.path.as_deref() == Some(path.as_str()) => {
+                    self.say("not opened: the file changed meanwhile (:e! again)")
+                }
                 Some(_) => {
                     self.load(Some(path.clone()), file);
                     self.fx.push(Effect::Watch(path));
@@ -256,6 +271,7 @@ impl App {
             Event::Recover(base, text, ms, file, by) => self.recover(&base, &text, ms, &file, by),
             Event::FilterDone(status, out, err, by) => self.filter_done(status, &out, &err, by),
             Event::Place(path, line, col) => self.resume(&path, line, col),
+            Event::Bg(rgb) => self.pal = Some(palette(rgb)),
         }
         // The snapshots go when the buffer is clean again, and before we quit (a signal keeps them).
         if answer {
@@ -301,6 +317,13 @@ impl App {
         let line = line.min(b.lines() - 1);
         (b.cursor, self.center) = (b.start(line) + col.min(b.line_len(line)), true);
         self.clamp();
+    }
+
+    /// PROP-1: whether a disk read numbered `seq` is older than what App took in already: a load, a
+    /// save's answer, or a newer read. Otherwise it is the newest from now on.
+    pub(super) fn stale(&mut self, seq: u64) -> bool {
+        let top = self.seen.max(seq);
+        std::mem::replace(&mut self.seen, top) > seq
     }
 
     pub(super) fn say(&mut self, m: impl Into<String>) {
@@ -423,7 +446,8 @@ impl App {
         self.fx.push(Effect::Write { path, bytes, expect_hash });
     }
 
-    fn saved(&mut self, r: Result<(u64, Option<String>), String>) {
+    fn saved(&mut self, r: Result<(u64, Option<String>), String>, seq: u64) {
+        self.stale(seq); // an answer is never dropped, but reads older than it are
         let Some(p) = self.saving.take() else { return };
         let (h, warn) = match r {
             Ok(done) => done,
@@ -456,10 +480,14 @@ impl App {
     }
 
     /// The save found something else on disk (SAFE-5): that is merged, and nothing is saved.
-    fn conflict(&mut self, disk: Option<Vec<u8>>, by: Instant) {
+    fn conflict(&mut self, disk: Option<Vec<u8>>, by: Instant, seq: u64) {
+        let old = self.stale(seq);
         let Some(p) = self.saving.take() else { return };
         if self.path.as_deref() != Some(p.path.as_str()) {
             return self.say(format!("not saved: {} exists (:w! to overwrite)", p.path));
+        } else if old {
+            // A newer read was taken in (and merged) already: this one would undo it.
+            return self.say("not saved: the file changed on disk meanwhile (:w to save again)");
         }
         let Some(bytes) = disk else {
             self.vanished();

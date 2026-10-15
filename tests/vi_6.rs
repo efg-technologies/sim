@@ -123,7 +123,7 @@ fn vi_6_ctrl_s_saves_and_stays_in_insert_mode() {
     assert_eq!((writes, a.vi.mode), (1, Mode::Insert));
     feed(&mut a, "y<Esc>");
     assert_eq!(text(&a), "xya");
-    a.update(Event::Saved(Ok((1, None))));
+    a.update(Event::Saved(Ok((1, None)), 0));
 }
 
 /// Every row is what `nvim --headless` (autoindent on) gives for the same text and keys.

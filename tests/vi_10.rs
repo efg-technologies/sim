@@ -24,7 +24,12 @@ fn fw(s: &str) -> String {
 }
 
 fn disk(a: &mut App, text: &str) {
-    a.update(Event::Disk { bytes: Some(text.as_bytes().to_vec()), hash: None, deadline: far() });
+    a.update(Event::Disk {
+        bytes: Some(text.as_bytes().to_vec()),
+        hash: None,
+        deadline: far(),
+        seq: 0,
+    });
 }
 
 // ---------------------------------------------------------------------------------------------

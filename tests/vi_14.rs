@@ -295,6 +295,7 @@ fn vi_14_marks_of_changes_stay_on_the_lines_the_preview_passes() {
         bytes: Some(b"one\ntwo\nTHREE\nfour\n".to_vec()),
         hash: None,
         deadline: far(),
+        seq: 0,
     });
     assert_eq!(a.buf.marks.len(), 1);
     feed(&mut a, "/thr");
@@ -313,7 +314,12 @@ fn vi_14_a_change_on_disk_while_typing_is_taken_in_and_nothing_is_left_stale() {
     feed(&mut a, "3l/row 250");
     assert_eq!(shown(&a), 249);
     // The file shrinks under the search: the line shown is gone.
-    a.update(Event::Disk { bytes: Some(lines(5).into_bytes()), hash: None, deadline: far() });
+    a.update(Event::Disk {
+        bytes: Some(lines(5).into_bytes()),
+        hash: None,
+        deadline: far(),
+        seq: 0,
+    });
     assert_eq!(a.vi.mode, Mode::Cmd);
     assert!(a.buf.cursor <= a.buf.text.len_chars());
     drop(screen(&mut a));
@@ -325,7 +331,12 @@ fn vi_14_a_change_on_disk_while_typing_is_taken_in_and_nothing_is_left_stale() {
     // A change that keeps the cursor where it was: Esc leaves it there, whatever was shown.
     let mut a = named("a\nb\nc\nd\ne\n");
     feed(&mut a, "j/d");
-    a.update(Event::Disk { bytes: Some(b"a\nb\nc\nd\nE\n".to_vec()), hash: None, deadline: far() });
+    a.update(Event::Disk {
+        bytes: Some(b"a\nb\nc\nd\nE\n".to_vec()),
+        hash: None,
+        deadline: far(),
+        seq: 0,
+    });
     feed(&mut a, "<Esc>");
     assert_eq!(at(&a).0, 1, "where the search started");
 }
@@ -337,7 +348,7 @@ fn vi_14_a_file_that_loads_while_typing_the_search_leaves_nothing_stale() {
     let mut a = named(&lines(300));
     feed(&mut a, "3l:e g\n/row 250");
     assert_eq!(shown(&a), 249);
-    a.update(Event::Opened("g".into(), Ok(Some(b"n\n".to_vec()))));
+    a.update(Event::Opened("g".into(), Ok(Some(b"n\n".to_vec())), 0));
     assert_eq!((a.vi.mode, text(&a)), (Mode::Normal, "n".to_string()));
     drop(screen(&mut a));
     for keys in ["/n", "<Esc>", "/n<CR>", "?x", "<BS><BS>"] {
@@ -349,12 +360,12 @@ fn vi_14_a_file_that_loads_while_typing_the_search_leaves_nothing_stale() {
     // A new file with as many lines: it is shown from its top, not around the old match.
     let mut a = named(&lines(300));
     feed(&mut a, "3l:e g\n/row 250");
-    a.update(Event::Opened("g".into(), Ok(Some(lines(400).into_bytes()))));
+    a.update(Event::Opened("g".into(), Ok(Some(lines(400).into_bytes())), 0));
     assert!(screen(&mut a).rows[0].text.contains("row 1 of"), "{:?}", screen(&mut a).rows[0]);
     // The file is not there: an empty buffer.
     let mut a = named(&lines(300));
     feed(&mut a, "3l:e g\n/row 250");
-    a.update(Event::Opened("g".into(), Ok(None)));
+    a.update(Event::Opened("g".into(), Ok(None), 0));
     feed(&mut a, "/x<Esc>");
     assert_eq!((a.vi.mode, at(&a)), (Mode::Normal, (0, 0)));
     drop(screen(&mut a));

@@ -2,6 +2,7 @@
 //! State to Frame (a grid of characters and styles), wrapping, kinsoku.
 use super::app::{App, plural};
 use super::buffer::{Buffer, Hunk};
+use super::color::Palette;
 use super::proposal::clip;
 use super::vi::Mode;
 use std::mem::take;
@@ -25,7 +26,7 @@ pub struct Row { pub text: String, pub spans: Vec<(Range<u16>, Style)>, pub unde
 
 #[rustfmt::skip]
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Frame { pub width: u16, pub height: u16, pub rows: Vec<Row>, pub cursor: (u16, u16), pub shape: Shape }
+pub struct Frame { pub width: u16, pub height: u16, pub rows: Vec<Row>, pub cursor: (u16, u16), pub shape: Shape, pub pal: Option<Palette> }
 
 /// The safe spelling of a char that must never reach the terminal raw (SAFE-8).
 #[rustfmt::skip]
@@ -64,24 +65,31 @@ pub fn width(cs: &[char], i: usize, col: usize) -> usize {
     }
 }
 
-/// Where each row of a wrapped line starts (char indexes). A row breaks after a space or
-/// between two wide chars when it can, and is cut at the edge otherwise.
-fn wrap(cs: &[char], max: usize) -> Vec<usize> {
+/// Kinsoku (VIS-7): these never start a row, and these never end one.
+const NOT_START: &str = "、。，．）」』】〕〉》ー…‥・！？";
+const NOT_END: &str = "（「『【〔〈《";
+
+/// Where each row of a wrapped line starts (char indexes). A row breaks after a space or between
+/// two wide chars when it can, else wherever kinsoku allows, else at the edge (VIS-7).
+pub fn wrap(cs: &[char], max: usize) -> Vec<usize> {
     let wide = |c: char| c.width() == Some(2);
-    let (mut starts, mut s, mut i, mut col, mut brk) = (vec![0], 0, 0, 0, 0);
+    // Never inside a cluster (a joined emoji or a variation selector takes no columns of its own).
+    let ok = |p: usize| {
+        width(cs, p, 0) > 0 && !NOT_START.contains(cs[p]) && !NOT_END.contains(cs[p - 1])
+    };
+    let soft = |p: usize| matches!(cs[p - 1], ' ' | '\t') || (wide(cs[p - 1]) && wide(cs[p]));
+    let (mut starts, mut s, mut i, mut col) = (vec![0], 0, 0, 0);
     while i < cs.len() {
         let w = width(cs, i, col);
         if col + w > max && i > s {
-            s = if brk > s { brk } else { i };
+            let back = || (s + 1..=i).rev();
+            s = back().find(|&p| ok(p) && soft(p)).or_else(|| back().find(|&p| ok(p))).unwrap_or(i);
             starts.push(s);
-            (i, col, brk) = (s, 0, 0);
+            (i, col) = (s, 0);
             continue;
         }
         col += w;
         i += 1;
-        if matches!(cs[i - 1], ' ' | '\t') || (i < cs.len() && wide(cs[i - 1]) && wide(cs[i])) {
-            brk = i;
-        }
     }
     starts
 }
@@ -402,7 +410,7 @@ pub fn render(a: &mut App) -> Frame {
     }
     let y = if a.vi.mode == Mode::Cmd { rows } else { cur.1.min(rows - 1) };
     let cursor = (x.min(w - 1) as u16, y as u16);
-    Frame { width: w as u16, height: h as u16, rows: out, cursor, shape }
+    Frame { width: w as u16, height: h as u16, rows: out, cursor, shape, pal: a.pal }
 }
 
 /// CLI-5: what si is and the keys to start with, centered below the first row, as many lines as fit.

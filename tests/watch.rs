@@ -54,7 +54,7 @@ fn fixture_with(initial: bool) -> Fixture {
         fs::write(&file, "v0").unwrap();
     }
     let (tx, rx) = mpsc::channel();
-    let _watcher = watch(&file, move |c| drop(tx.send(c)), false).unwrap();
+    let _watcher = watch(&file, move |_, c| drop(tx.send(c)), false).unwrap();
     Fixture { dir, file, rx, _watcher }
 }
 
@@ -171,7 +171,7 @@ fn prop_1_latency_from_write_to_callback_is_under_100ms() {
 #[test]
 fn prop_1_watching_a_missing_directory_is_an_error_not_a_panic() {
     let dir = Tmp::new();
-    let r = watch(&dir.0.join("no-such-dir").join("a.txt"), |_| {}, false);
+    let r = watch(&dir.0.join("no-such-dir").join("a.txt"), |_, _| {}, false);
     assert!(r.is_err());
 }
 
@@ -192,7 +192,7 @@ fn prop_1_a_watcher_asked_to_read_first_reads_the_file_once_on_its_own_thread() 
     let (tx, rx) = mpsc::channel();
     let main = std::thread::current().id();
     let _watcher =
-        watch(&file, move |c| drop(tx.send((c, std::thread::current().id()))), true).unwrap();
+        watch(&file, move |_, c| drop(tx.send((c, std::thread::current().id()))), true).unwrap();
     let (got, thread) = rx.recv_timeout(PATIENCE).unwrap();
     assert_eq!(got.as_deref(), Some(&b"v0"[..]), "the file as it is, without any change");
     assert_ne!(thread, main, "never on the caller's thread");
@@ -209,6 +209,25 @@ fn prop_1_a_watcher_asked_to_read_first_reads_the_file_once_on_its_own_thread() 
     let dir2 = Tmp::new();
     let missing = dir2.0.join("none.txt");
     let (tx, rx) = mpsc::channel();
-    let _w = watch(&missing, move |c| drop(tx.send(c)), true).unwrap();
+    let _w = watch(&missing, move |_, c| drop(tx.send(c)), true).unwrap();
     assert_eq!(rx.recv_timeout(PATIENCE).unwrap(), None);
+}
+
+#[test]
+fn prop_1_every_read_is_numbered_as_it_starts_from_one_counter() {
+    let dir = Tmp::new();
+    let file = dir.0.join("a.txt");
+    fs::write(&file, "v0").unwrap();
+    let (tx, rx) = mpsc::channel();
+    let _w = watch(&file, move |n, c| drop(tx.send((n, c))), true).unwrap();
+    let (first, c) = rx.recv_timeout(PATIENCE).unwrap();
+    assert_eq!(c.as_deref(), Some(&b"v0"[..]));
+    // A number taken after this read ended is larger; one taken before the next one started is
+    // smaller: the numbers order the reads of every thread, not only the watcher's own.
+    let between = si::io::file::seq();
+    assert!(first < between);
+    fs::write(&file, "v1").unwrap();
+    let (second, c) = rx.recv_timeout(PATIENCE).unwrap();
+    assert_eq!(c.as_deref(), Some(&b"v1"[..]));
+    assert!(between < second && second < si::io::file::seq(), "{first} {between} {second}");
 }

@@ -183,7 +183,7 @@ fn prop_5_it_is_refused_where_it_could_not_be_used() {
     feed(&mut a, ":1!sleep 30\n");
     let fx = feed(&mut a, ":e g\n");
     assert!(fx.iter().any(|e| matches!(e, Effect::Open(_))));
-    a.update(Event::Opened("g".into(), Ok(Some(b"other\n".to_vec()))));
+    a.update(Event::Opened("g".into(), Ok(Some(b"other\n".to_vec())), 0));
     assert_eq!(
         (st(&mut a).as_str(), text(&a).as_str()),
         ("not opened: a filter is running", THREE.trim_end())
@@ -386,7 +386,7 @@ fn prop_6_proposals_do_not_stop_a_save_but_stop_quitting() {
     let mut a = three();
     let fx = feed(&mut a, ":w\n");
     assert!(fx.iter().any(|e| matches!(e, Effect::Write { .. })), "SAFE-7: filter hunks allow :w");
-    a.update(Event::Saved(Ok((hash_of(&a), None))));
+    a.update(Event::Saved(Ok((hash_of(&a), None)), 0));
     for keys in [":q\n", "q", ":x\n", ":wq\n", "ZZ"] {
         let fx = feed(&mut a, keys);
         assert!(!fx.iter().any(|e| matches!(e, Effect::Quit(_))), "{keys:?}");

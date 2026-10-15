@@ -223,6 +223,7 @@ fn perf_2_bench_keys_after_a_rewrite_of_every_line_have_100k_marks_to_carry() {
         bytes: Some(new.into_bytes()),
         hash: None,
         deadline: t + Duration::from_secs(1),
+        seq: 0,
     });
     eprintln!("PERF-2 the rewrite took {:?}: {} marks", t.elapsed(), r.a.buf.marks.len());
     assert_eq!(r.a.buf.marks.len(), LINES);

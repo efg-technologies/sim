@@ -123,7 +123,7 @@ fn safe_3_deleting_all_the_text_writes_an_empty_file_and_undo_brings_the_newline
     // An emptied file that was saved stays empty when it is saved again.
     let mut a = app_with(Some("f"), b"a\n", (40, 8));
     feed(&mut a, "dd:w\n");
-    a.update(si::core::app::Event::Saved(Ok((si::core::buffer::hash(b""), None))));
+    a.update(si::core::app::Event::Saved(Ok((si::core::buffer::hash(b""), None)), 0));
     let fx = feed(&mut a, ":w\n");
     let bytes = fx.iter().find_map(|e| match e {
         si::core::app::Effect::Write { bytes, .. } => Some(bytes.clone()),

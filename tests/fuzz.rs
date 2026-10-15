@@ -865,13 +865,13 @@ fn event_session(bytes: &[u8], steps: &[Step]) -> Result<(), String> {
                 feed(&mut a, k)
             }
             Step::Saved(n) => match writes.first().cloned() {
-                None => a.update(Event::Saved(Ok((1, None)))), // nobody asked: must be ignored
+                None => a.update(Event::Saved(Ok((1, None)), 0)), // nobody asked: must be ignored
                 Some((_, bytes)) => {
                     writes.remove(0);
                     match n {
-                        0 => a.update(Event::Saved(Ok((hash(&bytes), None)))),
-                        1 => a.update(Event::Saved(Err("disk full".into()))),
-                        _ => a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far())),
+                        0 => a.update(Event::Saved(Ok((hash(&bytes), None)), 0)),
+                        1 => a.update(Event::Saved(Err("disk full".into()), 0)),
+                        _ => a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far(), 0)),
                     }
                 }
             },
@@ -880,7 +880,7 @@ fn event_session(bytes: &[u8], steps: &[Step]) -> Result<(), String> {
                 let Some(i) = opens.iter().position(|(q, _)| q == p) else { continue };
                 let (_, asked_at) = opens.remove(i);
                 let before = (text(&a), a.path.clone());
-                let fx = a.update(Event::Opened((*p).into(), Ok(Some(b"from disk\n".to_vec()))));
+                let fx = a.update(Event::Opened((*p).into(), Ok(Some(b"from disk\n".to_vec())), 0));
                 if a.buf.version() != asked_at && before.0 != text(&a) && a.buf.dirty() {
                     return Err(format!(
                         "{what}: dropped edits made since :e: {:?} -> {:?}",
@@ -911,6 +911,7 @@ fn event_session(bytes: &[u8], steps: &[Step]) -> Result<(), String> {
                     bytes: Some(t.as_bytes().to_vec()),
                     hash: None,
                     deadline: far(),
+                    seq: 0,
                 })
             }
             Step::Filter(k) => {

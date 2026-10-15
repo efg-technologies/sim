@@ -66,7 +66,7 @@ fn cli_6_a_save_and_quit_remembers_after_the_save_succeeds() {
     feed(&mut a, "5jx");
     let fx = feed(&mut a, ":wq\n");
     assert!(remembered(&fx).is_empty() && fx.iter().any(|e| matches!(e, Effect::Write { .. })));
-    let fx = a.update(Event::Saved(Ok((si::core::buffer::hash(&a.buf.encode()), None))));
+    let fx = a.update(Event::Saved(Ok((si::core::buffer::hash(&a.buf.encode()), None)), 0));
     assert_eq!(remembered(&fx), [("a.txt".to_string(), 5, 0)]);
     assert!(fx.iter().any(|e| matches!(e, Effect::Quit(0))));
 }
@@ -202,7 +202,7 @@ fn cli_6_the_place_comes_with_the_open_after_an_edit_command() {
     // The shell answers `:e` with the file, then its place; the file loads first and the cursor follows.
     let mut a = named("a.txt", &lines(5));
     feed(&mut a, ":e b.txt\n");
-    a.update(Event::Opened("b.txt".into(), Ok(Some(lines(50).into_bytes()))));
+    a.update(Event::Opened("b.txt".into(), Ok(Some(lines(50).into_bytes())), 0));
     assert_eq!(at(&a), (0, 0));
     place(&mut a, "b.txt", 30, 3);
     assert_eq!(at(&a), (30, 3));
