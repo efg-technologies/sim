@@ -4,7 +4,7 @@
 mod common;
 use common::{TempDir, temp_dir};
 use si::core::buffer::{ABSENT, hash};
-use si::io::file::{Saved, read, save};
+use si::io::file::{Saved, foreign_link, read, save};
 use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
@@ -64,6 +64,94 @@ fn safe_1_symlink_is_written_through_and_stays() {
     save(link.to_str().unwrap(), NEW, None, Some(&state)).unwrap();
     assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
     assert_eq!(fs::read(&f).unwrap(), NEW);
+}
+
+/// The uid that owns the files we create.
+fn me(d: &TempDir) -> u32 {
+    let p = d.0.join("who");
+    File::create(&p).unwrap();
+    fs::metadata(&p).unwrap().uid()
+}
+
+#[test]
+fn safe_1_a_symlink_is_written_through_only_if_the_user_owns_it() {
+    let (d, f, state) = setup("symlink-owner");
+    let me = me(&d);
+    let (link, dangling, chain) =
+        (f.with_file_name("link"), f.with_file_name("dangling"), f.with_file_name("chain"));
+    symlink(&f, &link).unwrap();
+    symlink("missing", &dangling).unwrap();
+    symlink("link", &chain).unwrap();
+    for l in [&link, &dangling, &chain] {
+        let name = l.to_str().unwrap();
+        assert_eq!(foreign_link(name, me), None, "mine: {name}");
+        assert_eq!(foreign_link(name, me + 1).as_deref(), Some(name), "someone else's: {name}");
+    }
+    // Not links at all: a file, a directory, a name that is not there.
+    for p in [f.clone(), d.0.clone(), d.0.join("nothing")] {
+        assert_eq!(foreign_link(p.to_str().unwrap(), me + 1), None, "{p:?}");
+    }
+    // A relative name is looked at from the current directory, like the save does.
+    assert_eq!(foreign_link("Cargo.toml", me + 1), None);
+    // The user's own links are written through, dangling or not, and the message stays out of it.
+    for l in [&link, &dangling, &chain] {
+        let r = save(l.to_str().unwrap(), NEW, None, Some(&state));
+        assert!(matches!(r, Ok(Saved::Done(..))), "{l:?}: {:?}", r.err());
+    }
+}
+
+/// A link someone else owns is not written through. The system has some (`/etc/os-release` on Arch,
+/// `/etc`, `/tmp` and `/var` on macOS); a test run by root has none to refuse, and skips.
+#[test]
+fn safe_1_a_symlink_owned_by_someone_else_is_refused() {
+    let (d, f, state) = setup("symlink-foreign");
+    let me = me(&d);
+    let theirs = |p: &&str| fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink() && m.uid() != me);
+    let all =
+        ["/etc/os-release", "/etc/mtab", "/etc/localtime", "/etc/resolv.conf", "/bin", "/lib"];
+    let all = all.into_iter().chain(["/tmp", "/etc", "/var", "/usr/bin/sh"]);
+    let Some(link) = all.into_iter().find(theirs).filter(|_| me != 0) else {
+        eprintln!("skipped: no symlink owned by someone else here, or run by root");
+        return;
+    };
+    let r = save(link, NEW, None, Some(&state));
+    assert_eq!(
+        r.err().as_deref(),
+        Some(&*format!("not saved: {link} is a symlink owned by someone else"))
+    );
+    let r = save(link, NEW, Some(ABSENT), Some(&state));
+    assert!(r.is_err_and(|e| e.starts_with("not saved: ")), "the compare-and-swap form too");
+    assert_eq!(fs::read(&f).unwrap(), OLD, "nothing else was touched");
+}
+
+/// As root a link can be given to somebody else: then the whole path is testable.
+#[test]
+fn safe_1_a_link_given_away_is_refused_whatever_its_place_in_the_chain() {
+    let (d, f, state) = setup("symlink-given");
+    if me(&d) != 0 {
+        eprintln!("skipped: only root can give a symlink away (lchown)");
+        return;
+    }
+    let (first, second, dangling) =
+        (f.with_file_name("first"), f.with_file_name("second"), f.with_file_name("dangling"));
+    symlink("second", &first).unwrap();
+    symlink(&f, &second).unwrap();
+    symlink("nowhere", &dangling).unwrap();
+    std::os::unix::fs::lchown(&second, Some(12345), None).unwrap();
+    std::os::unix::fs::lchown(&dangling, Some(12345), None).unwrap();
+    let r = save(first.to_str().unwrap(), NEW, None, Some(&state));
+    assert_eq!(
+        r.err(),
+        Some(format!("not saved: {} is a symlink owned by someone else", second.display()))
+    );
+    let r = save(dangling.to_str().unwrap(), NEW, None, Some(&state));
+    assert_eq!(
+        r.err(),
+        Some(format!("not saved: {} is a symlink owned by someone else", dangling.display()))
+    );
+    assert_eq!(fs::read(&f).unwrap(), OLD);
+    assert!(!f.with_file_name("nowhere").exists(), "the missing target was not created");
+    assert_eq!(temps(&f), 0);
 }
 
 #[test]

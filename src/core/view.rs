@@ -1,4 +1,4 @@
-//! CLI-5, VIS-1, VIS-2, VIS-3, VIS-6, VIS-7, VIS-8, VIS-9, VIS-10, VIS-11, VIS-12, VI-5, VI-12, SAFE-8, PERF-2, PROP-8
+//! CLI-5, VIS-1, VIS-2, VIS-3, VIS-6, VIS-7, VIS-8, VIS-9, VIS-10, VIS-11, VIS-12, VI-5, VI-12, SAFE-8, PERF-2, PROP-5, PROP-8
 //! State to Frame (a grid of characters and styles), wrapping, kinsoku.
 use super::app::{App, plural};
 use super::buffer::{Buffer, Hunk};
@@ -131,6 +131,9 @@ fn status(a: &App) -> String {
         a.gone.then(|| "deleted on disk".into()),
         count(runs.count(), "change on disk", "changes on disk"),
         count(b.hunks.len(), "proposal", "proposals"),
+        a.filter
+            .as_ref()
+            .map(|r| format!("filter {}s · Ctrl-c cancel", a.tick.saturating_sub(r.at) / 1000)),
     ]
     .into_iter()
     .flatten()
@@ -285,7 +288,10 @@ pub fn render(a: &mut App) -> Frame {
     let ext = a.path.as_deref().and_then(|p| Path::new(p).extension());
     let cap = if ext.is_none_or(|e| e == "md" || e == "txt") { 72 } else { usize::MAX };
     let max = cap.min(w.saturating_sub(gutter)).max(1);
-    let cl = b.line_of(b.cursor);
+    // While a search is typed the screen is drawn around its first match (VI-14).
+    let peek = a.pv.filter(|_| a.vi.mode == Mode::Cmd).map(|p| p.min(b.text.len_chars()));
+    let cursor = peek.unwrap_or(b.cursor);
+    let cl = b.line_of(cursor);
     let (lo, hi) = (cl.saturating_sub(rows), (cl + rows + 1).min(b.lines()));
     // The hunks that can touch a row of this screen, found once: they are sorted by their first
     // line, and there may be thousands of them.
@@ -303,14 +309,14 @@ pub fn render(a: &mut App) -> Frame {
     let height = |l: usize| lay[l - lo].iter().map(|g| g.0.len()).sum::<usize>();
     // In REVIEW the cursor stands at the start of the hunk's first row.
     let (st, d0) = &lay[cl - lo][0];
-    let ci = if review { 0 } else { (b.cursor - b.start(cl)).min(d0.cs.len()) };
+    let ci = if review { 0 } else { (cursor - b.start(cl)).min(d0.cs.len()) };
     let r = st.partition_point(|&s| s <= ci) - 1;
     // Keep min(8, ...) rows of context around the cursor, or centre it when asked to.
     let ctx = 8.min((rows - 1) / 2);
     let above = |t: usize| (t..cl).map(height).sum::<usize>() + r;
     let tail = height(cl) - 1 - r + (cl + 1..hi).map(height).sum::<usize>();
     let mut top = a.top.clamp(lo, cl);
-    let centered = std::mem::take(&mut a.center);
+    let centered = std::mem::take(&mut a.center) || peek.is_some();
     if centered {
         top = (lo..=cl).rev().find(|&t| above(t) >= (rows - 1) / 2).unwrap_or(lo);
     } else {
@@ -391,8 +397,9 @@ pub fn render(a: &mut App) -> Frame {
         (fit(&a.msg.clone().unwrap_or_else(|| status(a)), w), cur.0)
     };
     out.push(Row { text, ..Row::default() });
-    a.top = top;
-    a.skip = skip;
+    if peek.is_none() {
+        (a.top, a.skip) = (top, skip);
+    }
     let y = if a.vi.mode == Mode::Cmd { rows } else { cur.1.min(rows - 1) };
     let cursor = (x.min(w - 1) as u16, y as u16);
     Frame { width: w as u16, height: h as u16, rows: out, cursor, shape }

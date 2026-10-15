@@ -1,9 +1,9 @@
-//! PROP-1, PROP-2, PROP-8, PROP-9, SAFE-5, SAFE-6
+//! PROP-1, PROP-2, PROP-6, PROP-8, PROP-9, SAFE-5, SAFE-6
 //! What the buffer does when the file changes under it: reload or merge, mark the changes, and
-//! keep the conflicts as hunks.
-use super::app::App;
-use super::buffer::{Buffer, Hunk, Mark, hash};
-use super::proposal::{clip, lines, merge3, words};
+//! keep the conflicts as hunks. The same for what a filter prints.
+use super::app::{App, plural};
+use super::buffer::{Buffer, Hunk, Mark, Words, hash};
+use super::proposal::{Merged, clip, lines, merge3, words};
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
@@ -20,7 +20,59 @@ fn covers(n: &Range<usize>, o: &Range<usize>) -> bool {
     if o.is_empty() { n == o || (n.start < o.start && o.start < n.end) } else { n.start <= o.start && o.end <= n.end }
 }
 
+/// Word diffs that stop being made once `WORDS_BUDGET` bytes of text have been looked at.
+fn budgeted(by: Instant) -> impl FnMut(&str, &str) -> Option<Words> {
+    let mut budget = WORDS_BUDGET;
+    move |a, b| {
+        let n = a.len() + b.len();
+        (n <= budget).then(|| {
+            budget -= n;
+            words(a, b, Some(by))
+        })
+    }
+}
+
+/// The hunks of a merge, with their word diffs. `disk`: conflicts with the disk, else a filter's.
+fn hunks(m: &Merged, diff: &mut impl FnMut(&str, &str) -> Option<Words>, disk: bool) -> Vec<Hunk> {
+    let ls = lines(&m.text);
+    let hunk = |h: &super::proposal::Hunk| {
+        let words = diff(&ls[h.mine.clone()].concat(), &h.theirs).map(Arc::new);
+        Hunk { mine: h.mine.clone(), theirs: h.theirs.as_str().into(), disk, words }
+    };
+    m.hunks.iter().map(hunk).collect()
+}
+
 impl App {
+    /// PROP-6: the filter ended. After a clean exit what it printed, in place of the lines it was
+    /// given, is `theirs` of a merge with the buffer as it is now, and every change in it becomes a
+    /// proposal; the text stays as it is, edits made meanwhile included. Otherwise it is discarded.
+    pub(super) fn filter_done(&mut self, status: Option<i32>, out: &[u8], err: &[u8], by: Instant) {
+        let Some(run) = self.filter.take() else { return };
+        let why = String::from_utf8_lossy(err);
+        let why = why.lines().map(str::trim).find(|l| !l.is_empty());
+        let out = std::str::from_utf8(out).ok().filter(|s| !s.contains('\0'));
+        if run.killed {
+            return self.say("filter cancelled");
+        } else if status != Some(0) {
+            let how = status.map_or("killed".into(), |n| format!("exit {n}"));
+            return self.say(why.map_or(format!("filter failed ({how})"), String::from));
+        }
+        let Some(out) = out else { return self.say("filter output is not text: discarded") };
+        let [base, mine] = [run.text.to_string(), self.buf.text.to_string()].map(|t| t + "\n");
+        let ls = lines(&base);
+        let nl = if out.is_empty() || out.ends_with('\n') { "" } else { "\n" };
+        let theirs =
+            [&ls[..run.lines.start].concat(), out, nl, &ls[run.lines.end..].concat()].concat();
+        let m = merge3(&base, &mine, &theirs, true, Some(by));
+        let new = hunks(&m, &mut budgeted(by), false);
+        let n = new.len();
+        if n == 0 {
+            return self.say("no changes from the filter");
+        }
+        self.buf.propose(new);
+        self.say(format!("{} from the filter · ]c to review", plural(n, "proposal", "proposals")));
+    }
+
     /// PROP-1: the watcher read the file (`None`: it is gone). Our own saves are told by their hash.
     pub(super) fn disk(&mut self, bytes: Option<Vec<u8>>, known: Option<u64>, by: Instant) {
         let h = bytes.as_deref().map(|b| known.unwrap_or_else(|| hash(b)));
@@ -69,17 +121,10 @@ impl App {
         let mut m = merge3(base, mine, &theirs, false, Some(by));
         m.text = if m.text.is_empty() { "\n".into() } else { m.text }; // a buffer has a line
         let ls = lines(&m.text);
-        let (mut marks, mut regs, mut delta, mut budget) =
-            (Vec::<Mark>::new(), vec![], 0isize, WORDS_BUDGET);
+        let (mut marks, mut regs, mut delta) = (Vec::<Mark>::new(), vec![], 0isize);
         // `regs` are the places where a change of the file replaced lines of mine: where mine had
         // them, how many it had, how many replace them, and the change in line count so far.
-        let mut diff = |a: &str, b: &str| {
-            let n = a.len() + b.len();
-            (n <= budget).then(|| {
-                budget -= n;
-                words(a, b, Some(by))
-            })
-        };
+        let mut diff = budgeted(by);
         for mk in &m.marks {
             let (n, k) = (mk.lines.len(), mk.old.split_inclusive('\n').count());
             let start = (mk.lines.start as isize - delta) as usize;
@@ -121,14 +166,7 @@ impl App {
         all.extend(marks);
         all.sort_by_key(|k| (k.line, k.kind == '-'));
         all.dedup_by_key(|k| k.line);
-        let new: Vec<Hunk> = m
-            .hunks
-            .iter()
-            .map(|h| {
-                let words = diff(&ls[h.mine.clone()].concat(), &h.theirs).map(Arc::new);
-                Hunk { mine: h.mine.clone(), theirs: h.theirs.as_str().into(), disk: true, words }
-            })
-            .collect();
+        let new = hunks(&m, &mut diff, true);
         let covered = |o: &Hunk| {
             let i = new.partition_point(|n| n.mine.start <= o.mine.start);
             o.disk && new[i.saturating_sub(2)..i].iter().any(|n| covers(&n.mine, &o.mine))

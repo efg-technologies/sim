@@ -1,9 +1,13 @@
-//! PROP-1, PROP-2, PROP-8, SAFE-6, SAFE-7: a model of the shell (one event channel, a save thread, a watcher, an
+//! PROP-1, PROP-2, PROP-5, PROP-6, PROP-8, SAFE-6, SAFE-7: a model of the shell (one event channel, a save thread, a watcher, an
 //! outside process) driving `App::update` with random, interleaved events. Words are the unit of
 //! account: `b*` come from the first file, `e*` are written by the outside process, `m*` are typed
 //! by the user. `check_merge` holds what every merge must keep, `check_end` what must be true when
 //! everything has settled: nobody's words are lost, a clean buffer is the file, a deleted file is
-//! told. `SI_FUZZ_CASES` sets the number of cases of every property.
+//! told. A filter (PROP-6) is one more thing the outside does: it starts when the user asks, ends at
+//! a random moment with a result of one of a few kinds (it upper-cases the words, changes nothing,
+//! prints nothing, fails, is cancelled), and the result must leave the text exactly as it is, with
+//! every word it brought in either in the text or in a proposal. `SI_FUZZ_CASES` sets the number of
+//! cases of every property.
 #![allow(
     clippy::cmp_owned,
     clippy::type_complexity,
@@ -15,7 +19,7 @@ mod common;
 use common::*;
 use proptest::prelude::*;
 use si::core::app::{App, Effect, Event, Key};
-use si::core::buffer::{ABSENT, Buffer, Hunk, hash};
+use si::core::buffer::{ABSENT, Buffer, Hunk, Mark, hash};
 use si::core::vi::Mode;
 use std::collections::{HashSet, VecDeque};
 
@@ -54,6 +58,9 @@ pub enum U {
     Review(u8),
     /// SAFE-7: `:q`, `ZZ`, `:x`, `:wq` and Ctrl-s, none of which may lose a hunk.
     Leave(u8),
+    /// PROP-5: `:%!f` and friends, and Ctrl-c in Normal mode (which cancels a running filter).
+    Filter(u8),
+    Cancel,
 }
 
 #[derive(Clone, Debug)]
@@ -80,6 +87,8 @@ pub enum Op {
     Read,
     WSend,
     Tick,
+    /// The running filter (if any) ends with a result of this kind.
+    FilterEnd(u8),
 }
 
 pub fn op(
@@ -87,6 +96,7 @@ pub fn op(
     allow_undo: bool,
     allow_edit_bang: bool,
     review: bool,
+    filter: bool,
 ) -> impl Strategy<Value = Op> {
     let mut us = vec![
         U::Append,
@@ -121,6 +131,10 @@ pub fn op(
         us.extend((0..5).map(U::Leave));
         us.push(U::ForceSave);
     }
+    if filter {
+        us.extend((0..5).map(U::Filter));
+        us.push(U::Cancel);
+    }
     let es = prop_oneof![
         (0..12usize).prop_map(E::Insert),
         (0..12usize).prop_map(E::Delete),
@@ -134,7 +148,7 @@ pub fn op(
     ];
     // A person going through proposals waits for the screen to catch up between keys.
     let deliver = if review { 30 } else { 8 };
-    prop_oneof![
+    let base = prop_oneof![
         10 => prop::sample::select(us).prop_map(Op::U),
         4 => es.prop_map(Op::E),
         deliver => Just(Op::Deliver),
@@ -143,7 +157,12 @@ pub fn op(
         3 => Just(Op::Read),
         3 => Just(Op::WSend),
         2 => Just(Op::Tick),
-    ]
+    ];
+    if filter {
+        prop_oneof![10 => base, 1 => (0..6u8).prop_map(Op::FilterEnd)].boxed()
+    } else {
+        base.boxed()
+    }
 }
 
 struct Pre {
@@ -155,6 +174,7 @@ struct Pre {
     cur_line: String,
     version: u64,
     all_words: Words,
+    marks: Vec<Mark>,
 }
 
 pub struct Sim {
@@ -179,6 +199,11 @@ pub struct Sim {
     ever: Words,
     ext_last: Words,
     user_removed: Words,
+    /// The input of the filter that runs, the input of the one that last ended, and whether Ctrl-c
+    /// has been sent to it (PROP-5).
+    filter: Option<String>,
+    last_input: Words,
+    killed: bool,
     pub log: Vec<String>,
 }
 
@@ -219,6 +244,9 @@ impl Sim {
             ever: lines_of(&t),
             ext_last: Words::new(),
             user_removed: Words::new(),
+            filter: None,
+            last_input: Words::new(),
+            killed: false,
             log: vec![],
         };
         s.log.push(format!("start {t:?}"));
@@ -255,6 +283,12 @@ impl Sim {
                     let r = Ok(self.disk.clone());
                     self.chan.push_back(Event::Opened(path, r));
                 }
+                Effect::Spawn { input, .. } => {
+                    assert!(self.filter.is_none(), "a second filter was started");
+                    self.filter = Some(String::from_utf8(input).unwrap());
+                    self.killed = false;
+                }
+                Effect::Kill => self.killed = true,
                 _ => {}
             }
         }
@@ -297,6 +331,12 @@ impl Sim {
             U::Leave(k) => {
                 ["<Esc>:q\n", "<Esc>ZZ", "<Esc>:x\n", "<Esc>:wq\n", "<C-s>"][usize::from(*k)].into()
             }
+            U::Filter(k) => {
+                ["<Esc>:%!f\n", "<Esc>:.!f\n", "<Esc>:1,2!f\n", "<Esc>Vj!f\n", "<Esc>:$!f\n"]
+                    [usize::from(*k)]
+                .into()
+            }
+            U::Cancel => "<Esc><C-c>".into(),
             U::Paste => {
                 self.chan.push_back(Event::Paste(format!("{t}\n{t}x")));
                 self.log.push(format!("user {u:?}"));
@@ -489,7 +529,75 @@ impl Sim {
             cur_line: cur_line(&self.app),
             version: self.app.buf.version(),
             all_words: all_words(&self.app),
+            marks: self.app.buf.marks.to_vec(),
         }
+    }
+
+    /// The running filter ends with a result of kind `k`: the words upper-cased, nothing changed,
+    /// nothing printed, a failure, a signal, or the words upper-cased with a new one and no final
+    /// line break. The answer joins the other events in the channel (PROP-6).
+    fn filter_end(&mut self, k: u8) {
+        let Some(input) = self.filter.take() else { return };
+        self.last_input = words_of(&input);
+        let tok = self.tok('f');
+        let up = input.to_uppercase();
+        let (status, out, err) = match k {
+            0 => (Some(0), up, ""),
+            1 => (Some(0), input, ""),
+            2 => (Some(0), String::new(), ""),
+            3 => (Some(1), up, "oops\nmore"),
+            4 => (None, String::new(), ""),
+            _ => (Some(0), format!("{}{tok}", up.trim_end()), ""),
+        };
+        self.log.push(format!("filter ends {status:?} {out:?}"));
+        let (stdout, stderr) = (out.into_bytes(), err.as_bytes().to_vec());
+        self.chan.push_back(Event::FilterDone(status, stdout, stderr, far()));
+    }
+
+    /// PROP-6: a result changes the proposals and nothing else, and every word it brings is in the
+    /// text or in a proposal (or was removed by the user meanwhile).
+    fn check_filter(&mut self, pre: &Pre, status: Option<i32>, out: &str) -> Result<(), String> {
+        let a = &self.app;
+        let cancelled = std::mem::take(&mut self.killed);
+        if text(a) != pre.text
+            || a.buf.version() != pre.version
+            || a.buf.marks.to_vec() != pre.marks
+        {
+            return Err(format!(
+                "a filter's result changed the text or the marks: {:?} -> {:?}",
+                pre.text,
+                text(a)
+            ));
+        }
+        let after: Vec<_> = a.buf.hunks.iter().map(|h| (h.theirs.to_string(), h.disk)).collect();
+        for h in &pre.hunks {
+            if !after.contains(&(h.theirs.to_string(), h.disk)) {
+                return Err(format!("a filter's result dropped a proposal: {h:?}"));
+            }
+        }
+        if status != Some(0) || cancelled {
+            return if a.buf.hunks.len() == pre.hunks.len() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "a filter that failed or was cancelled left proposals: {:?}",
+                    a.buf.hunks
+                ))
+            };
+        }
+        // A word the filter only passed on is not a change, so it is not proposed: the buffer may have
+        // lost it to the disk meanwhile. A word it brought is in the text or in a proposal.
+        let have = all_words(a);
+        for w in words_of(out).difference(&self.last_input) {
+            if !have.contains(w) && !self.user_removed.contains(w) {
+                return Err(format!(
+                    "the filter's word {w:?} is neither in the text nor in a proposal: {:?} {:?}",
+                    text(a),
+                    a.buf.hunks
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Delivers the next event of the channel to the app, checking what it must do.
@@ -503,12 +611,21 @@ impl Sim {
             Event::Key(Key::Char(c @ ('y' | 'n' | 'Y' | 'N'))) => Some(c.to_string()),
             _ => None,
         };
+        let fdone = match &ev {
+            Event::FilterDone(status, out, ..) => {
+                Some((*status, String::from_utf8_lossy(out).to_string()))
+            }
+            _ => None,
+        };
         let saved = matches!(ev, Event::Saved(Ok(_)));
         let user = matches!(ev, Event::Key(_) | Event::Paste(_) | Event::Opened(..));
         self.log.push(format!("deliver {ev:?}"));
         let pre = self.pre();
         let tick = matches!(ev, Event::Tick(_));
         let fx = self.app.update(ev);
+        if let Some((status, out)) = fdone {
+            self.check_filter(&pre, status, &out)?;
+        }
         let snaps: Vec<_> = fx
             .iter()
             .filter_map(|e| match e {
@@ -694,6 +811,7 @@ impl Sim {
                 self.tick_ms += 1000;
                 self.chan.push_back(Event::Tick(self.tick_ms));
             }
+            Op::FilterEnd(k) => self.filter_end(*k),
         }
         Ok(())
     }
@@ -701,6 +819,7 @@ impl Sim {
     /// Lets every thread finish and the app see every event, then checks the end state.
     pub fn quiesce(&mut self) -> Result<(), String> {
         for _ in 0..200 {
+            self.filter_end(0);
             let busy = self.job.is_some()
                 || self.done.is_some()
                 || self.flag
@@ -775,11 +894,11 @@ fn run(first: usize, ops: &[Op], atomic: bool) -> Result<(), (String, Vec<String
 }
 
 macro_rules! model {
-    ($name:ident, $atomic:expr, $del:expr, $undo:expr, $reload:expr, $review:expr) => {
+    ($name:ident, $atomic:expr, $del:expr, $undo:expr, $reload:expr, $review:expr, $filter:expr) => {
         proptest! {
             #![proptest_config(ProptestConfig { cases: cases(500), max_shrink_iters: 4000, failure_persistence: None, ..ProptestConfig::default() })]
             #[test]
-            fn $name(first in 1usize..5, ops in prop::collection::vec(op($del, $undo, $reload, $review), 1..(if $review { 120 } else { 40 }))) {
+            fn $name(first in 1usize..5, ops in prop::collection::vec(op($del, $undo, $reload, $review, $filter), 1..(if $review || $filter { 120 } else { 40 }))) {
                 if let Err((e, log)) = run(first, &ops, $atomic) {
                     return Err(TestCaseError::fail(format!("{e}\n{}", log.join("\n"))));
                 }
@@ -789,21 +908,28 @@ macro_rules! model {
 }
 
 // Appends only on the user side, no undo: no word of anyone is lost, ever.
-model!(prop_2_fuzz_model_atomic_appends_only, true, false, false, false, false);
-model!(prop_2_fuzz_model_atomic_with_deletes, true, true, false, false, false);
-model!(prop_2_fuzz_model_atomic_with_undo, true, true, true, false, false);
-model!(prop_2_fuzz_model_atomic_with_reload, true, true, true, true, false);
+model!(prop_2_fuzz_model_atomic_appends_only, true, false, false, false, false, false);
+model!(prop_2_fuzz_model_atomic_with_deletes, true, true, false, false, false, false);
+model!(prop_2_fuzz_model_atomic_with_undo, true, true, true, false, false, false);
+model!(prop_2_fuzz_model_atomic_with_reload, true, true, true, true, false, false);
 // The same, with the watcher and the save thread free to interleave.
-model!(prop_2_fuzz_model_racy_appends_only, false, false, false, false, false);
-model!(prop_2_fuzz_model_racy_with_deletes, false, true, false, false, false);
-model!(prop_2_fuzz_model_racy_with_undo, false, true, true, false, false);
-model!(prop_2_fuzz_model_racy_with_reload, false, true, true, true, false);
+model!(prop_2_fuzz_model_racy_appends_only, false, false, false, false, false, false);
+model!(prop_2_fuzz_model_racy_with_deletes, false, true, false, false, false, false);
+model!(prop_2_fuzz_model_racy_with_undo, false, true, true, false, false, false);
+model!(prop_2_fuzz_model_racy_with_reload, false, true, true, true, false, false);
 // The hands of a person going through proposals (PROP-8), and the refusals of SAFE-7: nothing is
 // saved over a conflict or quit away with a hunk open, and every decision does what it says.
-model!(prop_8_fuzz_model_atomic_with_review, true, true, true, true, true);
-model!(prop_8_fuzz_model_racy_with_review, false, true, true, true, true);
-model!(prop_8_fuzz_model_atomic_review_without_undo, true, true, false, false, true);
-model!(prop_8_fuzz_model_racy_review_without_undo, false, true, false, false, true);
+model!(prop_8_fuzz_model_atomic_with_review, true, true, true, true, true, false);
+model!(prop_8_fuzz_model_racy_with_review, false, true, true, true, true, false);
+model!(prop_8_fuzz_model_atomic_review_without_undo, true, true, false, false, true, false);
+model!(prop_8_fuzz_model_racy_review_without_undo, false, true, false, false, true, false);
+// Filters (PROP-5, PROP-6): they start on request and end at any moment between the keys, the saves
+// and the disk's changes, with every kind of result; Ctrl-c cancels them. Their proposals are
+// reviewed like the disk's.
+model!(prop_6_fuzz_model_atomic_with_filters, true, true, true, true, true, true);
+model!(prop_6_fuzz_model_racy_with_filters, false, true, true, true, true, true);
+model!(prop_6_fuzz_model_atomic_filters_without_review, true, true, true, false, false, true);
+model!(prop_6_fuzz_model_racy_filters_appends_only, false, false, false, false, false, true);
 
 // ---------------------------------------------------------------------------------------------
 // Recovery (SAFE-6): the snapshot is `mine`, the file is `theirs`, the snapshot's base is `base`
@@ -890,5 +1016,28 @@ proptest! {
         feed(&mut a, "u");
         feed(&mut a, "<C-r>");
         prop_assert_eq!(text(&a), before);
+    }
+}
+
+/// A known race, found by a long run of the racy model (about 1 case in 100,000), and as old as M3
+/// (it fails on that code too). The watcher read the file before the outside process wrote it twice
+/// more, and sends that old read after `:e!` has loaded the newer file and `:wq` has saved it. App
+/// cannot tell that read from a change, takes it in, and the next save loses the outside words. The
+/// shell would have to number its reads (Disk, Opened, Saved) for App to drop the older ones; the
+/// watcher sends right after it reads, so only a thread held up for as long as these keys take could
+/// do it. `cargo test -- --ignored replay` shows it.
+#[test]
+#[ignore = "known race, see the comment"]
+fn prop_2_model_replay_a_stale_watcher_read_after_a_reload_and_a_save() {
+    use Op::{Deliver, Exec, Read, Send, WSend};
+    let (ext, user) = (|e| Op::E(E::Append(e)), |u| Op::U(u));
+    #[rustfmt::skip]
+    let ops = [
+        ext(0), Read, user(U::Visual(true)), user(U::Review(0)), user(U::EditBang), Deliver, ext(0), Deliver,
+        ext(0), Deliver, Deliver, Deliver, Deliver, Deliver, Deliver, user(U::Leave(3)), Deliver, Deliver,
+        Deliver, Deliver, Deliver, Deliver, Exec, WSend, Send, user(U::Leave(1)),
+    ];
+    if let Err((e, log)) = run(1, &ops, false) {
+        panic!("{e}\n{}", log.join("\n"));
     }
 }

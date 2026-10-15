@@ -234,6 +234,29 @@ const TOKENS: &[&str] = &[
     "99b",
     "99e",
     "99$",
+    // Full-width keys (VI-10), the ends of their range and the chars next to it, and a search typed
+    // and not finished (VI-14).
+    "ｄｄ",
+    "ｊ",
+    "ｘ",
+    "ｇｇ",
+    "Ｇ",
+    "ｆａ",
+    "ｒａ",
+    "ｄｉ（",
+    "ｖｊｄ",
+    "：",
+    "／",
+    "！",
+    "～",
+    "\u{ff00}",
+    "\u{ff5f}",
+    "/a",
+    "?a",
+    "/(",
+    "/a<BS>",
+    "/a<Esc>",
+    "ｙｙｐ",
 ];
 
 /// Counts that overflow `usize` (20 digits) or are merely huge: no panic, no spin, no giant allocation.
@@ -728,6 +751,11 @@ enum Step {
     Resize(u16, u16),
     /// The file on disk now holds this (the watcher's read).
     Disk(&'static str),
+    /// The filter that was started (if any) ends: upper-cased, unchanged, empty, failed, killed, not
+    /// text (PROP-6); with none running the answer comes unasked and must be ignored.
+    Filter(u8),
+    /// The place the file was left at, arriving after the file (CLI-6).
+    Place(usize, usize),
 }
 
 fn steps() -> impl Strategy<Value = Vec<Step>> {
@@ -763,6 +791,10 @@ fn steps() -> impl Strategy<Value = Vec<Step>> {
         "]c",
         "]c",
         "[c",
+        ":%!f<CR>",
+        ":.!f<CR>",
+        "Vj!f<CR>",
+        "<C-c>",
         "y",
         "n",
         "Y",
@@ -780,6 +812,8 @@ fn steps() -> impl Strategy<Value = Vec<Step>> {
             2 => prop::sample::select(vec!["f", "g"]).prop_map(Step::Opened),
             1 => prop::sample::select(vec!["pasted", "a\nb\n", ""]).prop_map(Step::Paste),
             1 => (1u16..60, 2u16..12).prop_map(|(w, h)| Step::Resize(w, h)),
+            2 => (0u8..6).prop_map(Step::Filter),
+            1 => (0usize..8, 0usize..8).prop_map(|(l, c)| Step::Place(l, c)),
         ],
         0..40,
     )
@@ -791,6 +825,7 @@ fn event_session(bytes: &[u8], steps: &[Step]) -> Result<(), String> {
     let mut a = app_with(Some("f"), bytes, (40, 8));
     let mut writes: Vec<(String, Vec<u8>)> = vec![]; // in flight
     let mut opens: Vec<(String, u64)> = vec![]; // asked, with the version that asked
+    let mut ran: Option<Vec<u8>> = None; // the input of the filter that was started
     let mut loaded_clean = false; // the buffer was just loaded and not touched since
     let check = |a: &mut App,
                  fx: &[Effect],
@@ -878,7 +913,41 @@ fn event_session(bytes: &[u8], steps: &[Step]) -> Result<(), String> {
                     deadline: far(),
                 })
             }
+            Step::Filter(k) => {
+                let input = String::from_utf8_lossy(&ran.take().unwrap_or_default()).to_string();
+                let (version, before, marks) = (a.buf.version(), text(&a), a.buf.marks.len());
+                let up = input.to_uppercase();
+                let (status, out): (_, Vec<u8>) = match k {
+                    0 => (Some(0), up.into()),
+                    1 => (Some(0), input.into()),
+                    2 => (Some(0), vec![]),
+                    3 => (Some(2), b"changed\n".to_vec()),
+                    4 => (None, vec![]),
+                    _ => (Some(0), vec![0xff, b'\n']),
+                };
+                let fx = a.update(Event::FilterDone(status, out, b"err\n".to_vec(), far()));
+                if (text(&a), a.buf.version(), a.buf.marks.len()) != (before, version, marks) {
+                    return Err(format!("{what}: a filter's result changed the text"));
+                }
+                fx
+            }
+            Step::Place(l, c) => {
+                let (cursor, version, before) = (a.buf.cursor, a.buf.version(), text(&a));
+                let fx = a.update(Event::Place(a.path.clone().unwrap_or_default(), *l, *c));
+                if (text(&a), a.buf.version()) != (before, version) {
+                    return Err(format!("{what}: a place changed the text"));
+                }
+                if cursor != 0 && a.buf.cursor != cursor {
+                    return Err(format!("{what}: a place moved a cursor that had moved"));
+                }
+                fx
+            }
         };
+        for e in &fx {
+            if let Effect::Spawn { input, .. } = e {
+                ran = Some(input.clone());
+            }
+        }
         check(&mut a, &fx, &what, &mut writes, &mut opens, discard)?;
         if loaded_clean && a.buf.dirty() {
             return Err(format!("{what}: a buffer just read from disk reads as modified"));
@@ -898,6 +967,112 @@ proptest! {
             prop_assert!(false, "{e}\nbytes {bytes:?}\nsteps {steps:?}");
         }
     }
+}
+
+// ---- filters (PROP-6) -----------------------------------------------------------------------------
+
+fn small_lines(max: usize) -> impl Strategy<Value = Vec<String>> {
+    prop::collection::vec("[a-c ]{0,4}", 0..max)
+}
+
+/// The output of a filter that prints these lines, with or without a final line break.
+fn printed(out: &[String], final_nl: bool) -> String {
+    let mut s: String = out.iter().map(|l| format!("{l}\n")).collect();
+    if !final_nl && out.last().is_some_and(|l| !l.is_empty()) {
+        s.pop();
+    }
+    s
+}
+
+fn filtered(lines: &[String], lo: usize, hi: usize, out: &str) -> App {
+    let mut a = app_with(Some("f"), format!("{}\n", lines.join("\n")).as_bytes(), (40, 10));
+    let fx = feed(&mut a, &format!(":{},{}!f<CR>", lo + 1, hi + 1));
+    let input = fx.iter().find_map(|e| match e {
+        si::core::app::Effect::Spawn { input, .. } => {
+            Some(String::from_utf8_lossy(input).to_string())
+        }
+        _ => None,
+    });
+    assert_eq!(input, Some(format!("{}\n", lines[lo..=hi].join("\n"))));
+    let (stdout, stderr) = (out.as_bytes().to_vec(), vec![]);
+    a.update(Event::FilterDone(Some(0), stdout, stderr, far()));
+    a
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { failure_persistence: None, ..ProptestConfig::with_cases(cases(3000)) })]
+
+    /// With no edit in between, accepting every proposal of a filter gives the buffer with the
+    /// lines of its range replaced by the output, and rejecting them gives the buffer back; the
+    /// result itself leaves the buffer unmodified. (PROP-4 for filters.)
+    #[test]
+    fn prop_6_fuzz_accept_all_is_the_output_in_place_of_the_range(
+        lines in small_lines(8).prop_filter("a line", |l| !l.is_empty()),
+        (x, y) in (0usize..8, 0usize..8),
+        out in small_lines(8),
+        final_nl in any::<bool>(),
+    ) {
+        let (lo, hi) = (x.min(y).min(lines.len() - 1), x.max(y).min(lines.len() - 1));
+        let out_text = printed(&out, final_nl);
+        let mut want = lines[..lo].to_vec();
+        want.extend(out.iter().cloned());
+        want.extend(lines[hi + 1..].iter().cloned());
+        let before = lines.join("\n");
+        let mut a = filtered(&lines, lo, hi, &out_text);
+        prop_assert_eq!(text(&a), before.clone());
+        prop_assert!(!a.buf.dirty());
+        prop_assert!(a.buf.hunks.iter().all(|h| !h.disk && h.mine.end <= a.buf.lines()));
+        prop_assert!(a.buf.hunks.windows(2).all(|w| w[0].mine.start <= w[1].mine.start));
+        if a.buf.hunks.is_empty() {
+            prop_assert_eq!(want.join("\n"), before.clone(), "no change: the output is the input");
+        } else {
+            let mut n = filtered(&lines, lo, hi, &out_text);
+            feed(&mut a, "gg]cY");
+            prop_assert_eq!(text(&a), want.join("\n"), "accept all");
+            feed(&mut n, "gg]cN");
+            prop_assert_eq!((text(&n), n.buf.dirty()), (before, false), "reject all");
+        }
+    }
+
+    /// With edits in between, a result changes only the proposals, rejecting them all gives back
+    /// mine, and accepting them all brings in every line of the output that is new.
+    #[test]
+    fn prop_6_fuzz_edits_meanwhile_are_kept_and_the_new_lines_can_all_be_accepted(
+        lines in small_lines(8).prop_filter("a line", |l| !l.is_empty()),
+        (x, y) in (0usize..8, 0usize..8),
+        out in small_lines(8),
+        edits in prop::collection::vec(prop::sample::select(vec!["x", "dd", "Onew<Esc>", "A!<Esc>", "yyp", "jj", "gg", "G", "J", "ox<Esc>", "u", "cwq<Esc>"]), 0..6),
+    ) {
+        let (lo, hi) = (x.min(y).min(lines.len() - 1), x.max(y).min(lines.len() - 1));
+        let mut a = app_with(Some("f"), format!("{}\n", lines.join("\n")).as_bytes(), (40, 10));
+        feed(&mut a, &format!(":{},{}!f<CR>", lo + 1, hi + 1));
+        for e in &edits {
+            feed(&mut a, e);
+        }
+        feed(&mut a, "<Esc>");
+        let (mine, version, dirty) = (text(&a), a.buf.version(), a.buf.dirty());
+        let out_text = printed(&out, true);
+        a.update(Event::FilterDone(Some(0), out_text.into(), vec![], far()));
+        prop_assert_eq!((text(&a), a.buf.version(), a.buf.dirty()), (mine.clone(), version, dirty));
+        prop_assert!(a.buf.hunks.iter().all(|h| !h.disk && h.mine.end <= a.buf.lines()));
+        let mut n = a_clone(&a);
+        feed(&mut a, "gg]cY");
+        let after = text(&a);
+        let have: Vec<&str> = after.split('\n').collect();
+        let input = &lines[lo..=hi];
+        for l in out.iter().filter(|l| !input.contains(l)) {
+            prop_assert!(have.contains(&l.as_str()), "{l:?} of the output is lost: {after:?}");
+        }
+        feed(&mut n, "gg]cN");
+        prop_assert_eq!(text(&n), mine, "reject all gives mine back");
+    }
+}
+
+/// A second App in the state of `a`, by replaying nothing: tests build both the same way.
+fn a_clone(a: &App) -> App {
+    let mut n = app_with(a.path.as_deref(), a.buf.encode().as_slice(), a.size);
+    n.buf.hunks = a.buf.hunks.clone();
+    n
 }
 
 // ---- the command line ----------------------------------------------------------------------------
