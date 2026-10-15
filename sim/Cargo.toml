@@ -1,0 +1,24 @@
+[package]
+name = "sim"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# syntect, trimmed to what sim uses (SYN-1, SYN-4):
+# - default-features off: no onig (C regex), no html, no default themes (sim never uses a color)
+# - default-syntaxes: the bundled syntax set, loaded from its compressed dump
+# - regex-fancy: the pure-Rust regex backend (fancy-regex)
+[dependencies]
+si = { path = ".." }
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
+
+[dev-dependencies]
+proptest = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

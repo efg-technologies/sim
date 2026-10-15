@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+# sim is built on si and lives in sim/. A bare `cargo test` or `cargo clippy` here still checks si
+# alone (the root package is the default member); sim has its own sim/scripts/check.sh.
+[workspace]
+members = [".", "sim"]
+
 # Features are trimmed to what si uses (CLAUDE.md: the binary stays <= 2 MB):
 # - ropey: only LF ends a line (SAFE-3 keeps a lone `\r` as a character)
 # - unicode-width: no CJK-ambiguous widths; terminals draw ambiguous width as 1

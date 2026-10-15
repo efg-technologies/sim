@@ -1,0 +1,29 @@
+tool.py: Python
+|#!/usr/bin/env python3|
+|----------------------|
+|# comment with def and return|
+|-----------------------------|
+|import os|
+|BBBBBB...|
+||
+||
+|class A:|
+|BBBBB...|
+|    """Docstring with return and if."""|
+|....-----------------------------------|
+||
+||
+|    def f(self, x):|
+|....BBB............|
+|        s = 'single' + "double" + f"{x} fmt"|
+|............iiiiiiii...iiiiiiii....i...iiiii|
+|        if x and not s:|
+|........BB.............|
+|            return None  # done|
+|............BBBBBB.......------|
+|        for i in range(3):|
+|........BBB...BB..........|
+|            pass|
+|............BBBB|
+|        return x|
+|........BBBBBB..|
