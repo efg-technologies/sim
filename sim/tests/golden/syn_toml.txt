@@ -1,0 +1,11 @@
+Cargo.toml: TOML
+|[package]|
+|.........|
+|name = "sim" # c|
+|.......SSSSS.ccc|
+|edition = 2024|
+|..........NNNN|
+|flag = true|
+|.......NNNN|
+|list = ["a", 1.5]|
+|........SSS..NNN.|

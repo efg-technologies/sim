@@ -1,13 +1,13 @@
 deploy.sh: Bourne Again Shell (bash)
 |#!/bin/sh|
-|---------|
+|ccccccccc|
 |# a comment with if and then|
-|----------------------------|
+|cccccccccccccccccccccccccccc|
 |if [ -f "$HOME/x" ]; then echo 'single' "double $USER"; fi|
-|BB......iiiiiiiii....BBBB......iiiiiiii.iiiiiiiiiiiiii..BB|
+|KK.F....SSSSSSSSS.F..KKKK.FFFF.SSSSSSSS.SSSSSSSSSSSSSS..KK|
 |for i in 1 2 3; do ls -l | grep x; done|
-|BBB...BB........BB.................BBBB|
+|KKK...KK........KK.FF......FFFF....KKKK|
 |case $x in a) echo a ;; *) echo b ;; esac|
-|BBBB....BB..B............B...........BBBB|
+|KKKK....KK..K.FFFF.......K.FFFF......KKKK|
 |x=$(date) # trailing|
-|..........----------|
+|....FFFF..cccccccccc|

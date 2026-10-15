@@ -1,0 +1,11 @@
+Dockerfile: Dockerfile
+|FROM rust:1.98 AS build|
+|KKKK......TTTT.KK......|
+|ARG X=1|
+|KKKK...|
+|RUN cargo build --release && echo "done"|
+|KKKK..............................SSSSSS|
+|CMD ["sim"]|
+|KKKK.SSSSS.|
+|# comment|
+|ccccccccc|

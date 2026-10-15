@@ -43,13 +43,12 @@ impl History {
     /// The `n` likeliest paths under `root`, relative to it, with their likelihood, best first.
     pub fn top(&self, root: &str, n: usize, now: u64) -> Vec<(String, f64)> {
         let prefix = format!("{}/", root.trim_end_matches('/'));
-        let rel = |(p, o): (&String, &Vec<u64>)| {
-            Some((p.strip_prefix(&prefix)?.to_string(), weight(o, now)))
-        };
-        let mut v: Vec<_> = self.0.iter().filter_map(rel).collect();
-        v.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let rel =
+            self.0.iter().filter_map(|(p, o)| Some((p.strip_prefix(&prefix)?, weight(o, now))));
+        let mut v: Vec<(&str, f64)> = rel.collect();
+        v.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(b.0)));
         v.truncate(n);
-        v
+        v.into_iter().map(|(p, w)| (p.to_string(), w)).collect()
     }
 
     /// Forgets the least likely paths beyond the bound.

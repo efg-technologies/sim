@@ -1,8 +1,8 @@
-//! TREE-3, TREE-4, TREE-5
+//! TREE-3, TREE-4, TREE-5, FIND-1
 //! The tree of the project (pure): entries in a stable order, expansion, and the visible rows.
 //! The data side only: keys, the panel and the background reads belong to the event loop.
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// One entry of a directory listing.
@@ -76,11 +76,26 @@ fn natural(mut a: &str, mut b: &str) -> Ordering {
 
 /// TREE-3: directories first, then the natural order of the names, then the bytes (so that
 /// `a01` and `a1`, or `A` and `a`, still have one fixed order).
-fn order(a: &Entry, b: &Entry) -> Ordering {
-    b.is_dir
-        .cmp(&a.is_dir)
-        .then_with(|| natural(&a.name, &b.name))
-        .then_with(|| a.name.cmp(&b.name))
+fn order((a, a_dir): (&str, bool), (b, b_dir): (&str, bool)) -> Ordering {
+    b_dir.cmp(&a_dir).then_with(|| natural(a, b)).then_with(|| a.cmp(b))
+}
+
+/// The order of the rows for two paths (relative, `/`-separated): every component but the last
+/// is a directory, and `a_dir` / `b_dir` say what the last one is. A directory comes before
+/// what is inside it (FIND-1: `n` and `N` walk the matches in the order they are on screen).
+pub fn cmp_paths(a: &str, a_dir: bool, b: &str, b_dir: bool) -> Ordering {
+    let (mut x, mut y) = (a.split('/').peekable(), b.split('/').peekable());
+    loop {
+        match (x.next(), y.next()) {
+            (Some(p), Some(q)) => {
+                let o = order((p, x.peek().is_some() || a_dir), (q, y.peek().is_some() || b_dir));
+                if o != Ordering::Equal {
+                    return o;
+                }
+            }
+            (p, q) => return p.is_some().cmp(&q.is_some()),
+        }
+    }
 }
 
 impl Tree {
@@ -120,7 +135,7 @@ impl Tree {
     pub fn insert_listing(&mut self, dir: &Path, mut entries: Vec<Entry>) -> bool {
         let Some(d) = self.find(dir).filter(|&d| self.nodes[d].is_dir) else { return false };
         entries.retain(|e| e.name != ".git");
-        entries.sort_by(order);
+        entries.sort_by(|a, b| order((&a.name, a.is_dir), (&b.name, b.is_dir)));
         let mut old: HashMap<String, usize> =
             self.kids(d).iter().map(|&k| (self.nodes[k].name.clone(), k)).collect();
         let mut kids = Vec::with_capacity(entries.len());
@@ -157,6 +172,28 @@ impl Tree {
             (n.open, n.rows) = (false, 1);
         }
         self.refresh(0);
+    }
+
+    /// The directories that are open (a closed directory above one does not close it).
+    pub fn open_dirs(&self) -> HashSet<PathBuf> {
+        let open = (1..self.nodes.len()).filter(|&i| self.nodes[i].open && self.nodes[i].is_dir);
+        open.map(|mut i| {
+            let mut parts = vec![];
+            while i != 0 {
+                parts.push(self.nodes[i].name.as_str());
+                i = self.nodes[i].parent;
+            }
+            parts.iter().rev().collect()
+        })
+        .collect()
+    }
+
+    /// FIND-1: closes every directory that is open and not in `keep`, so that the expansion is
+    /// what it was when `open_dirs` gave `keep`. Listings that arrived are kept.
+    pub fn restore(&mut self, keep: &HashSet<PathBuf>) {
+        for dir in self.open_dirs().difference(keep) {
+            self.collapse(dir);
+        }
     }
 
     /// How many rows are visible.

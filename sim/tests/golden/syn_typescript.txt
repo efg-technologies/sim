@@ -1,0 +1,15 @@
+app.ts: TypeScript
+|import { a } from "x";|
+|KKKKKK.......KKKK.SSS.|
+|interface Foo<T> { a: string }|
+|KKKKKKKKK.TTT.T.......TTTTTT..|
+|export class Bar extends Baz {|
+|KKKKKK.KKKKK.TTT.KKKKKKK.TTT..|
+|  private x: number = 3;|
+|..KKKKKKK....TTTTTT...N.|
+|  async run(): Promise<void> { if (this.x) { return; } } // c|
+|..KKKKK.FFF....TTTTTTT.TTTT....KK..KKKK......KKKKKK......cccc|
+|}|
+|.|
+|const r = `t${1}`;|
+|KKKKK.....SSSSSSS.|

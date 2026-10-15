@@ -72,8 +72,11 @@ pub fn golden(name: &str, actual: &str) {
 use si::core::app::{App, Effect, Event, Key};
 use si::core::view::{Frame, Style};
 use sim::io;
-use sim::sim::{Sim, SimEffect, SimEvent, start};
+use sim::paint::{Look, Looks, Screen};
+use sim::rank::History;
+use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, start};
 use std::collections::VecDeque;
+use std::mem::take;
 use unicode_width::UnicodeWidthChar;
 
 /// Key notation of si's tests: a char is itself (`\n` Enter, `\x1b` Esc, `\t` Tab); `<Esc> <CR>
@@ -129,6 +132,16 @@ pub struct Rig {
     pub cwd: PathBuf,
     pub state: PathBuf,
     pub screen: Frame,
+    /// The whole last screen: the frame, its looks and its palette.
+    pub shot: Screen,
+    /// The background jobs Sim asked for, by name (`files`, `status`, `history`, `highlight`).
+    pub jobs: Vec<&'static str>,
+    /// The last history Sim asked to have saved.
+    pub history: Option<History>,
+    /// Hold back the highlighter's requests until `deliver_spans` (SYN-3).
+    pub hold_spans: bool,
+    pub held: Vec<Req>,
+    hl: io::Highlighter,
     /// Every effect Sim has asked for, except the frames.
     pub log: Vec<SimEffect>,
     pub quit: Option<i32>,
@@ -145,6 +158,20 @@ pub fn rig(name: &str, files: &[&str], args: &[&str]) -> Rig {
 }
 
 pub fn rig_sized(name: &str, files: &[&str], args: &[&str], size: (u16, u16)) -> Rig {
+    rig_env(name, files, args, size, |_| {})
+}
+
+/// The time (seconds) a Rig starts at.
+pub const NOW: u64 = 1_700_000_000;
+
+/// `rig_sized`, with the chance to change what Sim starts with (the history, the palette).
+pub fn rig_env(
+    name: &str,
+    files: &[&str],
+    args: &[&str],
+    size: (u16, u16),
+    tweak: impl FnOnce(&mut Env),
+) -> Rig {
     let (dir, state) = (temp_dir(name), temp_dir(&format!("{name}-state")));
     for f in files {
         // `name=content` makes a file with that content; a bare name holds its own name.
@@ -159,15 +186,24 @@ pub fn rig_sized(name: &str, files: &[&str], args: &[&str], size: (u16, u16)) ->
     let (cwd, state_dir) = (dir.0.clone(), state.0.clone());
     let args: Vec<String> = args.iter().map(ToString::to_string).collect();
     let s = start(&args, &cwd, |f| cwd.join(f).exists(), |d| d.is_dir()).unwrap();
-    let (sim, fx) = Sim::new(s, cwd.clone(), size);
+    let mut env = Env { cwd: cwd.clone(), size, now: NOW, ..Env::default() };
+    tweak(&mut env);
+    let (sim, fx) = Sim::new(s, env);
+    let blank = Frame {
+        width: 0,
+        height: 0,
+        rows: vec![],
+        cursor: (0, 0),
+        shape: si::core::view::Shape::Block,
+    };
     let mut r = Rig {
-        screen: Frame {
-            width: 0,
-            height: 0,
-            rows: vec![],
-            cursor: (0, 0),
-            shape: si::core::view::Shape::Block,
-        },
+        shot: Screen { frame: blank.clone(), looks: vec![], pal: Default::default() },
+        screen: blank,
+        jobs: vec![],
+        history: None,
+        hold_spans: false,
+        held: vec![],
+        hl: io::Highlighter::default(),
         sim,
         cwd,
         state: state_dir,
@@ -188,7 +224,21 @@ impl Rig {
         loop {
             while let Some(e) = todo.pop_front() {
                 match e {
-                    SimEffect::Render(f) => self.screen = f,
+                    SimEffect::Render(s) => (self.screen, self.shot) = (s.frame.clone(), s),
+                    SimEffect::Files => {
+                        self.jobs.push("files");
+                        self.queue.push_back(SimEvent::Files(io::files(&self.sim.root)));
+                    }
+                    SimEffect::Status => {
+                        self.jobs.push("status");
+                        self.queue.push_back(SimEvent::Status(io::status(&self.sim.root)));
+                    }
+                    SimEffect::History(h) => (self.jobs.push("history"), self.history = Some(h)).0,
+                    SimEffect::Highlight(req) if self.hold_spans => self.held.push(req),
+                    SimEffect::Highlight(req) => {
+                        self.jobs.push("highlight");
+                        self.queue.push_back(self.hl.run(req));
+                    }
                     SimEffect::Read(dir) if self.defer => self.waiting.push(dir),
                     SimEffect::Read(dir) => {
                         let r = io::read_dir(&dir);
@@ -196,7 +246,7 @@ impl Rig {
                     }
                     SimEffect::Open(id, path) => {
                         let at = self.cwd.join(&path);
-                        self.queue.push_back(io::open(&self.state, id, &path, &at));
+                        self.queue.push_back(io::open(Some(&self.state), id, &path, &at));
                     }
                     SimEffect::App(id, Effect::Write { path, bytes, expect_hash }) => {
                         let at = self.cwd.join(&path).to_string_lossy().into_owned();
@@ -237,6 +287,15 @@ impl Rig {
             self.send(SimEvent::Term(Event::Key(k)));
         }
         self
+    }
+
+    /// Delivers the highlighter's requests held back by `hold_spans`.
+    pub fn deliver_spans(&mut self) {
+        for req in take(&mut self.held) {
+            self.jobs.push("highlight");
+            let ev = self.hl.run(req);
+            self.send(ev);
+        }
     }
 
     /// Delivers the directory reads held back by `defer`.
@@ -315,9 +374,20 @@ impl Rig {
 /// A Frame as text: its rows between bars, each followed by one style symbol per column (`.`
 /// Primary, `-` Secondary, `#` Change, `x` Deleted, `_` underlined, blank past the text).
 pub fn dump(f: &Frame) -> String {
+    dump_rows(f, &[])
+}
+
+/// A Screen as text: the same, and under a row that has looks one more line with a symbol per
+/// column: `K` keyword, `S` string, `N` number or constant, `T` type, `F` function, `c` comment,
+/// `B` bold, `g` the selection's gray; `.` where there is none.
+pub fn dump_screen(s: &Screen) -> String {
+    dump_rows(&s.frame, &s.looks)
+}
+
+fn dump_rows(f: &Frame, looks: &[Looks]) -> String {
     let mut out =
         format!("{}x{} cursor {},{} {:?}\n", f.width, f.height, f.cursor.0, f.cursor.1, f.shape);
-    for r in &f.rows {
+    for (i, r) in f.rows.iter().enumerate() {
         let mut styles = String::new();
         for c in r.text.chars() {
             for _ in 0..c.width().unwrap_or(0) {
@@ -335,6 +405,21 @@ pub fn dump(f: &Frame) -> String {
         }
         let pad = " ".repeat(f.width as usize - styles.len());
         out += &format!("|{}{pad}|\n|{styles}{pad}|\n", r.text);
+        if let Some(l) = looks.get(i).filter(|l| !l.is_empty()) {
+            let sym = |col: u16| match l.iter().find(|(r, _)| r.contains(&col)).map(|l| l.1) {
+                None => '.',
+                Some(Look::Kw) => 'K',
+                Some(Look::Str) => 'S',
+                Some(Look::Num) => 'N',
+                Some(Look::Ty) => 'T',
+                Some(Look::Fun) => 'F',
+                Some(Look::Com) => 'c',
+                Some(Look::Bold) => 'B',
+                Some(Look::Sel) => 'g',
+            };
+            let line: String = (0..f.width).map(sym).collect();
+            out += &format!("|{line}|\n");
+        }
     }
     out
 }

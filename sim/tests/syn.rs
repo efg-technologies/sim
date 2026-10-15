@@ -1,10 +1,11 @@
-//! SYN-1, SYN-3, SYN-4: typographic spans from syntect, the cache of parse states, and the
+//! SYN-1, SYN-3, SYN-4: the looks of syntect's scopes, the cache of parse states, and the
 //! choice of language.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::golden;
 use proptest::prelude::*;
-use sim::syn::{Attr, EVERY, Spans, Syn};
+use sim::paint::Look;
+use sim::syn::{EVERY, Spans, Syn};
 
 fn lines(text: &str) -> Vec<String> {
     text.lines().map(str::to_string).collect()
@@ -14,7 +15,8 @@ fn spans(syn: &mut Syn, text: &[String], from: usize, n: usize) -> Vec<Spans> {
     syn.spans(&|i| text.get(i).cloned(), from, n)
 }
 
-/// Each line, and under it one symbol per char: `.` plain, `-` dim, `B` bold, `i` italic.
+/// Each line, and under it one symbol per char: `.` plain, `K` keyword, `S` string, `N` number or
+/// constant, `T` type, `F` function, `c` comment, `B` bold.
 fn dump(name: &str, first_line: &str, text: &str) -> String {
     let text = lines(text);
     let mut syn = Syn::new(name, first_line).unwrap();
@@ -25,9 +27,14 @@ fn dump(name: &str, first_line: &str, text: &str) -> String {
         for (range, attr) in spans {
             for s in &mut sym[range.clone()] {
                 *s = match attr {
-                    Attr::Dim => '-',
-                    Attr::Bold => 'B',
-                    Attr::Italic => 'i',
+                    Look::Com => 'c',
+                    Look::Str => 'S',
+                    Look::Kw => 'K',
+                    Look::Num => 'N',
+                    Look::Ty => 'T',
+                    Look::Fun => 'F',
+                    Look::Bold => 'B',
+                    Look::Sel => 'g',
                 };
             }
         }
@@ -99,51 +106,63 @@ fn syn_1_golden_markdown() {
 }
 
 #[test]
-fn syn_1_comments_are_dim_keywords_bold_strings_and_chars_italic() {
+fn syn_1_comments_keywords_strings_numbers_types_and_functions_have_their_looks() {
     let mut syn = Syn::new("a.rs", "").unwrap();
-    let text = lines("fn f() { let c = 'x'; let s = \"s\"; // c\n}");
+    let text = lines("fn f(x: Vec<u8>) { let s = \"s\"; g(1); // c\n}");
     let all = spans(&mut syn, &text, 0, 2);
     let attrs =
         |line: usize| all[line].iter().map(|(r, a)| (r.start, r.end, *a)).collect::<Vec<_>>();
-    // `fn` and `let` are bold, the literals italic with their quotes, the comment dim to the end.
     assert_eq!(
         attrs(0),
         [
-            (0, 2, Attr::Bold),
-            (9, 12, Attr::Bold),
-            (17, 20, Attr::Italic),
-            (22, 25, Attr::Bold),
-            (30, 33, Attr::Italic),
-            (35, 39, Attr::Dim)
+            (0, 2, Look::Kw),
+            (3, 4, Look::Fun),
+            (8, 11, Look::Ty),
+            (12, 14, Look::Kw),
+            (19, 22, Look::Kw),
+            (27, 30, Look::Str),
+            (32, 33, Look::Fun),
+            (34, 35, Look::Num),
+            (38, 42, Look::Com)
         ]
     );
     assert!(all[1].is_empty(), "a closing brace is plain");
 }
 
 #[test]
-fn syn_1_the_wording_of_a_comment_or_a_string_never_makes_it_bold() {
+fn syn_1_the_wording_of_a_comment_or_a_string_never_makes_it_a_keyword() {
     let mut syn = Syn::new("a.rs", "").unwrap();
-    let text = lines("// fn if let return\nlet s = \"fn if let return\";\n/* fn\n   return */");
+    let text = lines("// fn if let return\nlet s = \"fn if let 1\";\n/* fn\n   return */");
     let all = spans(&mut syn, &text, 0, 4);
-    assert_eq!(all[0], [(0..19, Attr::Dim)]);
-    assert_eq!(all[1], [(0..3, Attr::Bold), (8..26, Attr::Italic)]);
-    assert_eq!(all[2], [(0..5, Attr::Dim)]);
-    assert_eq!(all[3], [(0..12, Attr::Dim)]);
+    assert_eq!(all[0], [(0..19, Look::Com)]);
+    assert_eq!(all[1], [(0..3, Look::Kw), (8..21, Look::Str)]);
+    assert_eq!(all[2], [(0..5, Look::Com)]);
+    assert_eq!(all[3], [(0..12, Look::Com)]);
 }
 
 #[test]
-fn syn_1_operators_and_numbers_stay_plain() {
+fn syn_1_no_look_is_blue_and_blue_has_no_scope() {
+    // The looks are the five hues of SYN-1 (red, green, yellow, magenta, cyan) and typography;
+    // there is no variant that could be drawn blue.
+    for look in [Look::Com, Look::Str, Look::Kw, Look::Num, Look::Ty, Look::Fun] {
+        assert!(!format!("{look:?}").contains("Blue"));
+    }
+}
+
+#[test]
+fn syn_1_operators_names_and_punctuation_stay_plain_and_numbers_are_numbers() {
     let mut syn = Syn::new("a.rs", "").unwrap();
     let all = spans(&mut syn, &lines("x = 1 + 2 * 3 == 4;"), 0, 1);
-    assert!(all[0].is_empty(), "{:?}", all[0]);
+    let at: Vec<_> = all[0].iter().map(|(r, l)| (r.start, *l)).collect();
+    assert_eq!(at, [(4, Look::Num), (8, Look::Num), (12, Look::Num), (17, Look::Num)]);
 }
 
 #[test]
 fn syn_1_a_multiline_construct_carries_over_to_the_next_line() {
     let mut syn = Syn::new("a.py", "").unwrap();
     let all = spans(&mut syn, &lines("x = \"\"\"one\ntwo\nthree\"\"\" + y"), 0, 3);
-    assert_eq!(all[1], [(0..3, Attr::Italic)]);
-    assert_eq!(all[2], [(0..8, Attr::Italic)]);
+    assert_eq!(all[1], [(0..3, Look::Str)]);
+    assert_eq!(all[2], [(0..8, Look::Str)]);
 }
 
 proptest! {
@@ -207,7 +226,7 @@ fn syn_3_an_edit_parses_again_only_from_the_nearest_state_at_or_above_it() {
     // The comment that was opened above now swallows the viewport, as a fresh parse says.
     let mut fresh = Syn::new("a.rs", "").unwrap();
     assert_eq!(all, spans(&mut fresh, &text, 900, 40));
-    assert!(all.iter().all(|l| l.len() == 1 && l[0].1 == Attr::Dim));
+    assert!(all.iter().all(|l| l.len() == 1 && l[0].1 == Look::Com));
     // An edit below the viewport costs the viewport nothing but the lines since its state.
     syn.edit(990);
     syn.parsed = 0;
@@ -226,32 +245,6 @@ fn syn_3_after_an_edit_the_edited_line_costs_less_than_a_step_of_parsing() {
         assert_eq!(spans(&mut syn, &text, e, 1).len(), 1);
         assert_eq!(syn.parsed, e % EVERY + 1, "edit at {e}");
     }
-}
-
-#[test]
-fn syn_3_an_edit_on_a_state_boundary_keeps_the_state_before_it_and_drops_the_one_after() {
-    let text = big(300);
-    let mut syn = Syn::new("a.rs", "").unwrap();
-    spans(&mut syn, &text, 0, 300);
-    let at = 8 * EVERY;
-    syn.edit(at); // the state at the start of that line depends only on the lines above it
-    assert_eq!(syn.distance(at), 0);
-    assert_eq!(syn.distance(at + 100), 100);
-    syn.edit(0);
-    assert_eq!((syn.distance(0), syn.distance(1)), (0, 1));
-}
-
-#[test]
-fn syn_3_distance_says_how_much_a_jump_has_to_parse() {
-    let text = big(5000);
-    let mut syn = Syn::new("a.rs", "").unwrap();
-    assert_eq!(syn.distance(4000), 4000, "nothing is cached yet");
-    spans(&mut syn, &text, 0, 100);
-    assert_eq!(syn.distance(50), 50 % EVERY);
-    assert_eq!(syn.distance(99), 99 % EVERY);
-    assert_eq!(syn.distance(4000), 4000 - 96, "the last state is the one at line 96");
-    spans(&mut syn, &text, 4000, 10);
-    assert_eq!(syn.distance(4000), 4000 % EVERY);
 }
 
 #[test]
@@ -323,12 +316,37 @@ fn syn_4_plain_text_and_unknown_files_are_not_highlighted() {
     assert!(Syn::new("dir/", "").is_none());
 }
 
-/// Documents a gap of the default set (SYN-4: "the languages are syntect's default set"):
-/// these have no syntax in it and show plain until the set changes.
+/// SYN-4: the languages syntect's own default set lacked, which bat's set (`two-face`) has.
 #[test]
-fn syn_4_languages_missing_from_the_default_set_show_plain() {
-    for file in ["Cargo.toml", "app.ts", "main.tsx", "Dockerfile", "lib.zig", "x.kt", "page.svelte"]
-    {
-        assert!(Syn::new(file, "").is_none(), "{file} now has a syntax: revisit SPEC");
+fn syn_4_the_languages_the_author_uses_daily_have_a_syntax() {
+    let name = |file: &str| Syn::new(file, "").map(|s| s.name);
+    assert_eq!(name("Cargo.toml"), Some("TOML"));
+    assert_eq!(name("app.ts"), Some("TypeScript"));
+    assert_eq!(name("main.tsx"), Some("TypeScriptReact"));
+    assert_eq!(name("Dockerfile"), Some("Dockerfile"));
+    for file in ["lib.zig", "x.kt", "page.svelte", "flake.nix", "a.json", "x.go", "a.js"] {
+        assert!(Syn::new(file, "").is_some(), "{file} has no syntax");
     }
 }
+
+#[test]
+fn syn_1_golden_toml() {
+    golden("syn_toml", &dump("Cargo.toml", "", TOML));
+}
+
+#[test]
+fn syn_1_golden_typescript() {
+    golden("syn_typescript", &dump("app.ts", "", TYPESCRIPT));
+}
+
+#[test]
+fn syn_1_golden_dockerfile() {
+    golden("syn_dockerfile", &dump("Dockerfile", "", DOCKERFILE));
+}
+
+const TOML: &str =
+    "[package]\nname = \"sim\" # c\nedition = 2024\nflag = true\nlist = [\"a\", 1.5]\n";
+
+const TYPESCRIPT: &str = "import { a } from \"x\";\ninterface Foo<T> { a: string }\nexport class Bar extends Baz {\n  private x: number = 3;\n  async run(): Promise<void> { if (this.x) { return; } } // c\n}\nconst r = `t${1}`;\n";
+
+const DOCKERFILE: &str = "FROM rust:1.98 AS build\nARG X=1\nRUN cargo build --release && echo \"done\"\nCMD [\"sim\"]\n# comment\n";

@@ -4,7 +4,7 @@ README.md: Markdown
 ||
 ||
 |Some *emphasis* and **strong** text, plain again.|
-|.....iiiiiiiiii.....BBBBBBBBBB...................|
+|....................BBBBBBBBBB...................|
 ||
 ||
 |- item one|
@@ -18,9 +18,9 @@ README.md: Markdown
 ||
 ||
 |```rust|
-|.......|
+|...NNNN|
 |fn main() {}|
-|............|
+|KK.FFFF.....|
 |```|
 |...|
 ||
@@ -30,4 +30,4 @@ README.md: Markdown
 ||
 ||
 |<!-- hidden -->|
-|---------------|
+|ccccccccccccccc|

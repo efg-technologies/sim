@@ -103,7 +103,11 @@ fn buf_1_e_with_a_directory_reveals_it_in_the_panel() {
     r.keys(":e a/b\n");
     assert_eq!(r.open_files(), ["f.txt"], "no buffer");
     assert!(r.sim.panel.open && r.sim.panel.focus);
-    assert_eq!(r.panel(), ["▾ a/", "  ▾ b/", "    ▸ c/", "    e.txt", "  f.txt"]);
+    assert_eq!(
+        r.panel(),
+        ["▾ a/", "  ▾ b/", "    ▸ c/", "    e.txt", "• f.txt"],
+        "f.txt is likely"
+    );
     assert_eq!(r.selected().as_deref(), Some("  ▾ b/"));
     r.keys("<Esc>:e a/b/c\n");
     assert_eq!(r.selected().as_deref(), Some("    ▾ c/"));
@@ -135,7 +139,11 @@ fn buf_1_a_disk_change_to_a_file_that_is_not_on_screen_is_merged_there() {
     assert_eq!(r.text(), "B1\nB2");
     assert_eq!(r.sim.bufs[0].app.buf.text.to_string(), "ONE\ntwo", "a.txt took it in");
     assert!(!r.sim.bufs[0].app.buf.marks.is_empty(), "and marked it");
-    assert_eq!(r.screen.rows, before.rows, "nothing on screen moved");
+    // Nothing on screen moved; the only news is the change color on a.txt in the panel (MARK-1).
+    let mut after = r.screen.rows.clone();
+    after[0].spans.retain(|s| s.1 != si::core::view::Style::Change);
+    assert_eq!(after, before.rows, "nothing on screen moved");
+    assert!(r.screen.rows[0].spans.iter().any(|s| s.1 == si::core::view::Style::Change));
     // A change to the file on screen merges there, and only there.
     r.send(SimEvent::App(
         b,

@@ -1,29 +1,29 @@
 src/lib.rs: Rust
 |//! Module docs|
-|---------------|
+|ccccccccccccccc|
 |use std::io;|
-|BBB.........|
+|KKK.........|
 ||
 ||
 |/// Adds one.|
-|-------------|
+|ccccccccccccc|
 |pub fn add(x: u32) -> u32 {|
-|BBB.BB........BBB.....BBB..|
+|KKK.KK.FFF....KKK.....KKK..|
 |    let s = "a \"quoted\" word"; // trailing|
-|....BBB.....iiiiiiiiiiiiiiiiiii..-----------|
+|....KKK.....SSSSSSSSSSSSSSSSSSS..ccccccccccc|
 |    let c = 'x';|
-|....BBB.....iii.|
+|....KKK.....SSS.|
 |    /* block|
-|....--------|
+|....cccccccc|
 |       comment fn if */|
-|-----------------------|
+|ccccccccccccccccccccccc|
 |    if x == 1 { return x + 1; } // else|
-|....BB..........BBBBBB..........-------|
+|....KK......N...KKKKKK.....N....ccccccc|
 |    match x { _ => x }|
-|....BBBBB.............|
+|....KKKKK.............|
 |}|
 |.|
 ||
 ||
 |pub struct S<T: Clone> where T: 'static { a: u8, 日本: &'static str }|
-|BBB.BBBBBB...................................BB...............BBB..|
+|KKK.KKKKKK.T....TTTTT........................KK...............KKK..|
