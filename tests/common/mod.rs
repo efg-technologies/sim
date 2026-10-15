@@ -94,8 +94,11 @@ impl Drop for TempDir {
     }
 }
 
+/// Canonical, so that no link of the system's lies on the way to it: macOS's `$TMPDIR` is under
+/// `/var`, a link to `/private/var`, which would be in front of every link a test looks at.
 pub fn temp_dir(name: &str) -> TempDir {
-    let d = std::env::temp_dir().join(format!("si-it-{}-{name}", std::process::id()));
+    let base = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let d = base.join(format!("si-it-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     TempDir(d)

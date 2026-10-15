@@ -306,7 +306,7 @@ cli_4_sighup_restores_terminal() {
 }
 
 cli_4_panic_restores_terminal() {
-  wrap SI_E2E_PANIC=1
+  wrap SI_E2E_PANIC=1 RUST_BACKTRACE=0 # a backtrace would scroll the message off the screen
   start f
   wait_for "SI_E2E_PANIC is set"
   wait_for "exit=101"

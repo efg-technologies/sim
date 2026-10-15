@@ -324,11 +324,14 @@ fn root_link(me: u32, dir: bool) -> Option<&'static str> {
 }
 
 /// The directory of `d` spelled through a link of root's, so that a save there goes through one:
-/// `/proc/self` on Linux, `/var` on macOS (where `$TMPDIR` is under it). `None` when run by root.
+/// `/proc/self` on Linux, `/var` on macOS (where `$TMPDIR` is under it: `/private/var/...` is the
+/// directory itself, `/var/...` the same one through root's link). `None` when run by root.
 fn via_root(d: &TempDir, me: u32) -> Option<String> {
     let dir = d.0.display().to_string();
+    let short = dir.strip_prefix("/private").map(str::to_string);
     let through = |p: &String| symlinks(&format!("{p}/f")).iter().any(|l| l.1 == 0);
-    [format!("/proc/self/root{dir}"), dir].into_iter().find(through).filter(|_| me != 0)
+    let spellings = [format!("/proc/self/root{dir}")].into_iter().chain(short).chain([dir]);
+    spellings.into_iter().find(through).filter(|_| me != 0)
 }
 
 /// SAFE-1: a path that goes through links of root's is saved through, in front, and behind links of
