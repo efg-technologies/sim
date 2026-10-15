@@ -142,28 +142,39 @@ fn mark_1_a_clean_repository_has_no_marks_and_a_plain_directory_is_an_error() {
 }
 
 // ---- the guard: git is not run where the repository's own config could run commands ----
+// The config is read by git itself (`git config --list --show-scope -z`), so the cases below are
+// texts that git and a parser of sim's own could read differently.
 
 /// Configs that define a command git would run, or could bring one in.
-const RUNS: [&str; 15] = [
+const RUNS: [&str; 24] = [
     "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n",
-    "[filter \"x\"]\n",
     "[FILTER \"x\"]\n\tSmudge = cat\n",
     "[filter.x]\n\tprocess = cat\n",
+    "[filter.x]\n\tclean = cat\n", // git's older way to write [filter "x"]
+    "[Filter.X]\n\tClean = cat\n",
+    "[filter \"a b\\\"c\\\\d ;# ]\"]\n\tclean = cat\n", // a subsection with odd characters
+    "[filter]\n\tclean = cat\n",
     "[core]\n\tfsmonitor = /tmp/monitor\n",
     "[core]\n\tFsMonitor=true\n",
+    "[Core] FsMonitor = /tmp/monitor\n",
     "[core] fsmonitor = true\n",
+    "[core] ; a comment\n\tfsmonitor = true\n",
     "[core]\n\tbare = false\n\tfsmonitor = false\n",
+    "[core]\n\tfsmonitor = \"true\" ; [user]\n",
+    "[core]\n\tx = 1 \\\n[user]\n\tfsmonitor = true\n", // the header is the end of a continued value
+    "[user]\n\tname = \"a\\\n[core]\"\n[core]\n\tfsmonitor = true\n",
     "[core]\n\thooksPath = /tmp/hooks\n",
-    "[Core]\n\thookspath\n",
+    "[Core]\n\thookspath\n", // no value: git cannot read it at all
+    "[core]\n\talternateRefsCommand = /tmp/refs\n",
     "[include]\n\tpath = ../other\n",
     "[includeIf \"gitdir:~/work/\"]\n\tpath = work\n",
+    "[includeIf \"hasconfig:remote.*.url:*github.com*/**\"]\n\tpath = work\n",
     "\u{feff}[core]\n\tfsmonitor = true\n",
     "[user]\r\n\tname = a\r\n[core]\r\n\tfsmonitor = true\r\n",
-    "[alias]\n\tx = y \\\n[filter]\n",
 ];
 
 /// Configs that cannot run anything in `status` or `ls-files`.
-const SAFE: [&str; 5] = [
+const SAFE: [&str; 8] = [
     "",
     "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n\
      [remote \"origin\"]\n\turl = https://example.com/filter.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n\
@@ -171,6 +182,9 @@ const SAFE: [&str; 5] = [
     "# [filter \"x\"]\n; fsmonitor = true\n[core]\n\t# hooksPath = x\n\tautocrlf = true\n",
     "[remote \"origin\"]\n\turl = x\n\tfsmonitor = not-core\n\thookspath = nor-this\n",
     "[alias]\n\tst = status\n[diff]\n\talgorithm = patience\n[core.fsmonitor]\n\tx = 1\n",
+    "[filter \"x\"]\n[include]\n[core]\n", // sections with nothing in them define nothing
+    "[remote \"filter\"]\n\turl = x\n[branch \"include\"]\n\tremote = origin\n[remote \"o r\\\"i\\\\g;#\"]\n\turl = y\n",
+    "[alias]\n\tx = y \\\n[filter]\n[core]\n\tautocrlf = true\n", // a header in a continued value
 ];
 
 fn skipped(dir: &Path) {
@@ -189,14 +203,9 @@ fn ignoring_repo(dir: &Path) {
     git(dir, &["commit", "-q", "-m", "init"]);
 }
 
-#[test]
-fn mark_1_a_config_that_could_run_commands_is_told_from_one_that_could_not() {
-    for c in RUNS {
-        assert!(io::runs_commands(c), "{c:?}");
-    }
-    for c in SAFE {
-        assert!(!io::runs_commands(c), "{c:?}");
-    }
+fn append(file: &Path, text: &str) {
+    let old = std::fs::read_to_string(file).unwrap_or_default();
+    std::fs::write(file, old + text).unwrap();
 }
 
 #[test]
@@ -204,9 +213,7 @@ fn mark_1_git_is_not_run_in_a_repository_whose_config_could_run_commands() {
     for (i, config) in RUNS.iter().enumerate() {
         let d = temp_dir(&format!("mark1-unsafe-{i}"));
         ignoring_repo(&d.0);
-        let mut text = std::fs::read_to_string(d.0.join(".git/config")).unwrap();
-        text.push_str(config);
-        std::fs::write(d.0.join(".git/config"), text).unwrap();
+        append(&d.0.join(".git/config"), config);
         skipped(&d.0);
         skipped(&d.0.join("target"));
         // The list of files comes from a walk then: ignored files and all (and never `.git`).
@@ -217,67 +224,208 @@ fn mark_1_git_is_not_run_in_a_repository_whose_config_could_run_commands() {
     for (i, config) in SAFE.iter().enumerate() {
         let d = temp_dir(&format!("mark1-safe-{i}"));
         ignoring_repo(&d.0);
-        let mut text = std::fs::read_to_string(d.0.join(".git/config")).unwrap();
-        text.push_str(config);
-        std::fs::write(d.0.join(".git/config"), text).unwrap();
+        append(&d.0.join(".git/config"), config);
         assert_eq!(io::git_status(&d.0), Ok(vec![]), "{config:?}");
-        assert!(!io::git_files(&d.0).unwrap().is_empty());
+        assert!(!io::git_files(&d.0).unwrap().is_empty(), "{config:?}");
     }
+}
+
+#[test]
+fn mark_1_an_included_file_counts_as_the_repository_s_own() {
+    let d = temp_dir("mark1-include");
+    ignoring_repo(&d.0);
+    // `inc` defines a filter; the config that includes it says nothing else of its own.
+    std::fs::write(d.0.join(".git/inc"), "[filter \"x\"]\n\tclean = cat\n").unwrap();
+    let dir = format!("{}/.git/", d.0.display());
+    for include in
+        ["[include]\n\tpath = inc\n", &format!("[includeIf \"gitdir:{dir}\"]\n\tpath = inc\n")]
+    {
+        let config = d.0.join(".git/config");
+        let safe = std::fs::read_to_string(&config).unwrap();
+        append(&config, include);
+        skipped(&d.0);
+        std::fs::write(&config, safe).unwrap();
+        assert!(io::git_status(&d.0).is_ok());
+    }
+}
+
+#[test]
+fn mark_1_the_config_worktree_file_counts_once_git_reads_it() {
+    let d = temp_dir("mark1-config-worktree");
+    ignoring_repo(&d.0);
+    let worktree = d.0.join(".git/config.worktree");
+    std::fs::write(&worktree, "[core]\n\tfsmonitor = true\n").unwrap();
+    assert_eq!(io::git_status(&d.0), Ok(vec![]), "git does not read it yet");
+    git(&d.0, &["config", "extensions.worktreeConfig", "true"]);
+    skipped(&d.0);
+    std::fs::write(&worktree, "[user]\n\tname = filter\n").unwrap();
+    assert_eq!(io::git_status(&d.0), Ok(vec![]), "read, and safe");
+    // The `config.worktree` of a linked worktree is in the repository's directory for it.
+    git(&d.0, &["worktree", "add", "-q", &d.0.join("wt").display().to_string()]);
+    let wt = d.0.join("wt");
+    assert_eq!(io::git_prefix(&wt), Ok(String::new()));
+    std::fs::write(d.0.join(".git/worktrees/wt/config.worktree"), "[core]\n\tfsmonitor = x\n")
+        .unwrap();
+    skipped(&wt);
+    assert_eq!(io::git_prefix(&d.0), Ok(String::new()), "the main worktree has its own file");
+}
+
+#[test]
+fn mark_1_the_user_s_own_config_is_trusted_and_the_repository_s_is_not() {
+    use std::process::Command;
+    let d = temp_dir("mark1-scopes");
+    repo(&d.0, &["a.rs"]);
+    let global = d.0.join("global-config");
+    let defines = "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n[core]\n\tfsmonitor = true\n\thooksPath = /h\n";
+    std::fs::write(&global, format!("{defines}[include]\n\tpath = more\n")).unwrap();
+    std::fs::write(d.0.join("more"), "[filter \"inc\"]\n\tsmudge = cat\n").unwrap();
+    // What sim asks git, with a global config of its own.
+    let list = |dir: &Path| {
+        let out = Command::new("git")
+            .args(["-c", "core.fsmonitor=false", "config", "--list", "--show-scope", "-z"])
+            .current_dir(dir)
+            .env("GIT_CONFIG_GLOBAL", &global)
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        out.stdout
+    };
+    let own = list(&d.0);
+    let has = |l: &[u8], what: &[u8]| l.windows(what.len()).any(|w| w == what);
+    assert!(has(&own, b"global\0filter.lfs.clean\ngit-lfs"), "{own:?}");
+    assert!(has(&own, b"global\0filter.inc.smudge\ncat\0"), "an included file has its scope");
+    assert!(has(&own, b"command\0core.fsmonitor\nfalse\0"));
+    assert!(!io::runs_commands(&own));
+    append(&d.0.join(".git/config"), "[filter \"mine\"]\n\tclean = cat\n");
+    let mixed = list(&d.0);
+    assert!(has(&mixed, b"local\0filter.mine.clean\ncat\0"));
+    assert!(io::runs_commands(&mixed));
+    // The same by hand, for the scopes a test cannot make: system, and what does not parse.
+    assert!(!io::runs_commands(b"system\0core.fsmonitor\ntrue\0global\0include.path\nx\0"));
+    assert!(io::runs_commands(b"worktree\0core.hookspath\0"));
+    assert!(
+        io::runs_commands(b"submodule\0filter.x.clean\ncat\0"),
+        "an unknown scope is not the user's"
+    );
+    assert!(!io::runs_commands(b"") && !io::runs_commands(b"local\0user.name\nx\0"));
+    assert!(io::runs_commands(b"local"), "a listing that stops in the middle of an entry");
+}
+
+/// A repository with `.gitattributes` that sends every file through the filter `canary`, a
+/// modified `a.txt` that git must read again (the same size, an mtime that moved), and a script
+/// that would be its file system monitor. Returns the script.
+fn canary_repo(dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(dir.join(".gitattributes"), "* filter=canary\n").unwrap();
+    std::fs::write(dir.join("a.txt"), "aaaa\n").unwrap();
+    git(dir, &["init", "-q"]);
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-q", "-m", "init"]);
+    std::fs::write(dir.join("a.txt"), "bbbb\n").unwrap();
+    let file = std::fs::File::options().write(true).open(dir.join("a.txt")).unwrap();
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
+    let hook = dir.join(".git/monitor.sh");
+    let witness = dir.join("witness-monitor");
+    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\necho\n", witness.display())).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    hook
 }
 
 #[test]
 fn mark_1_a_filter_or_a_monitor_of_the_repository_never_runs() {
+    // Two ways to define them: by `git config`, and by hand in forms that a parser of sim's own
+    // read differently from git: a monitor after a header that is the end of a continued value,
+    // and a filter in a dotted section of the `config.worktree` file.
+    for by_hand in [false, true] {
+        let d = temp_dir(&format!("mark1-witness-{by_hand}"));
+        let hook = canary_repo(&d.0);
+        let filter = format!("touch '{}-filter'; cat", d.0.join("witness").display());
+        let monitor = hook.display().to_string();
+        if by_hand {
+            let hidden = format!("[core]\n\tx = 1 \\\n[user]\n\tfsmonitor = {monitor}\n");
+            append(&d.0.join(".git/config"), &hidden);
+            git(&d.0, &["config", "extensions.worktreeConfig", "true"]);
+            let dotted = format!("[filter.canary]\n\tclean = \"{filter}\"\n");
+            std::fs::write(d.0.join(".git/config.worktree"), dotted).unwrap();
+        } else {
+            git(&d.0, &["config", "filter.canary.clean", &filter]);
+            git(&d.0, &["config", "core.fsmonitor", &monitor]);
+        }
+        // The control: git as the user runs it does run both, so this test can tell.
+        git(&d.0, &["status", "--porcelain"]);
+        for what in ["filter", "monitor"] {
+            let w = d.0.join(format!("witness-{what}"));
+            assert!(
+                w.exists(),
+                "{by_hand} {what}: the repository's own command runs under plain git"
+            );
+            std::fs::remove_file(w).unwrap();
+        }
+        skipped(&d.0);
+        assert!(!d.0.join("witness-filter").exists() && !d.0.join("witness-monitor").exists());
+    }
+}
+
+#[test]
+fn mark_1_a_submodule_s_own_filter_or_monitor_never_runs() {
     use std::os::unix::fs::PermissionsExt;
-    let d = temp_dir("mark1-witness");
-    let witness = d.0.join("witness");
-    let witness = witness.display();
-    // A file git must read again: the same size, an mtime that moved.
-    std::fs::write(d.0.join(".gitattributes"), "* filter=canary\n").unwrap();
-    std::fs::write(d.0.join("a.txt"), "aaaa\n").unwrap();
-    git(&d.0, &["init", "-q"]);
-    git(&d.0, &["add", "-A"]);
-    git(&d.0, &["commit", "-q", "-m", "init"]);
-    std::fs::write(d.0.join("a.txt"), "bbbb\n").unwrap();
-    let file = std::fs::File::options().write(true).open(d.0.join("a.txt")).unwrap();
-    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
-    let hook = d.0.join(".git/monitor.sh");
-    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{witness}-monitor'\necho\n")).unwrap();
+    let d = temp_dir("mark1-submodule");
+    let (src, sup) = (d.0.join("src"), d.0.join("sup"));
+    for dir in [&src, &sup] {
+        std::fs::create_dir(dir).unwrap();
+    }
+    repo(&src, &["s.txt=aaaa\n"]);
+    repo(&sup, &["f.rs"]);
+    let url = src.display().to_string();
+    git(&sup, &["-c", "protocol.file.allow=always", "submodule", "add", "-q", &url, "sub"]);
+    git(&sup, &["commit", "-q", "-m", "submodule"]);
+    // The submodule's config is its own (`.git/modules/sub/config`), not the repository's: a
+    // filter for every file in it, and a monitor.
+    let (own, sub) = (sup.join(".git/modules/sub"), sup.join("sub"));
+    std::fs::create_dir_all(own.join("info")).unwrap();
+    std::fs::write(own.join("info/attributes"), "* filter=canary\n").unwrap();
+    let filter = format!("touch '{}-filter'; cat", d.0.join("witness").display());
+    git(&sub, &["config", "filter.canary.clean", &filter]);
+    let hook = sup.join(".git/monitor.sh");
+    let witness = d.0.join("witness-monitor");
+    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\necho\n", witness.display())).unwrap();
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    git(&d.0, &["config", "filter.canary.clean", &format!("touch '{witness}-filter'; cat")]);
-    git(&d.0, &["config", "core.fsmonitor", &hook.display().to_string()]);
-    // The control: git as the user runs it does run both, so this test can tell.
-    git(&d.0, &["status", "--porcelain"]);
+    git(&sub, &["config", "core.fsmonitor", &hook.display().to_string()]);
+    // A file of the submodule that git must read again: the same size, an mtime that moved.
+    std::fs::write(sub.join("s.txt"), "bbbb\n").unwrap();
+    let file = std::fs::File::options().write(true).open(sub.join("s.txt")).unwrap();
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
+    // The control: the user's git, asking for the repository's status, does run them.
+    git(&sup, &["status", "--porcelain"]);
     for what in ["filter", "monitor"] {
         let w = d.0.join(format!("witness-{what}"));
-        assert!(w.exists(), "{what}: the repository's own command runs under plain git");
+        assert!(w.exists(), "{what}: the submodule's own command runs under plain git");
         std::fs::remove_file(w).unwrap();
     }
-    skipped(&d.0);
-    assert!(!d.0.join("witness-filter").exists() && !d.0.join("witness-monitor").exists());
+    // The repository's own config is safe, so git runs; none of it reaches the submodule.
+    let (status, files, prefix) = (io::git_status(&sup), io::git_files(&sup), io::git_prefix(&sup));
+    assert!(!d.0.join("witness-filter").exists(), "the submodule's filter ran");
+    assert!(!d.0.join("witness-monitor").exists(), "the submodule's monitor ran");
+    assert_eq!(status, Ok(vec![]), "a submodule is not looked at");
+    assert!(String::from_utf8_lossy(&files.unwrap()).contains("sub\0"));
+    assert_eq!(prefix, Ok(String::new()));
 }
 
 /// The shell side of an unsafe config in a worktree's repository or a separate git directory.
 fn unsafe_config(dir: &Path) {
-    let text = std::fs::read_to_string(dir.join("config")).unwrap();
-    std::fs::write(dir.join("config"), text + "[filter \"x\"]\n\tclean = cat\n").unwrap();
+    append(&dir.join("config"), "[filter \"x\"]\n\tclean = cat\n");
 }
 
 #[test]
-fn mark_1_the_config_git_would_read_is_the_one_of_the_worktree_s_repository_or_the_named_directory()
-{
+fn mark_1_the_config_of_the_worktree_s_repository_or_of_the_named_directory_counts() {
     let d = temp_dir("mark1-worktree");
     let (main, wt, sep) = (d.0.join("main"), d.0.join("wt"), d.0.join("elsewhere.git"));
     std::fs::create_dir(&main).unwrap();
     repo(&main, &["a.rs"]);
     git(&main, &["worktree", "add", "-q", &wt.display().to_string()]);
-    let configs: Vec<_> =
-        io::git_configs(&wt).iter().map(|c| c.components().collect::<PathBuf>()).collect();
-    let common = main.join(".git");
-    let real = |c: &PathBuf| std::fs::canonicalize(c).ok();
-    assert!(configs.iter().any(|c| real(c) == real(&common.join("config"))), "{configs:?}");
-    assert!(configs.iter().all(|c| c.starts_with(&common)), "nothing else is read: {configs:?}");
     assert_eq!(io::git_prefix(&wt), Ok(String::new()), "safe: git runs");
-    unsafe_config(&common);
+    unsafe_config(&main.join(".git"));
     skipped(&wt);
     skipped(&main);
     // A `.git` file that names a directory somewhere else (--separate-git-dir, a submodule's).
@@ -285,11 +433,9 @@ fn mark_1_the_config_git_would_read_is_the_one_of_the_worktree_s_repository_or_t
     std::fs::create_dir(&work).unwrap();
     git(&work, &["init", "-q", "--separate-git-dir", &sep.display().to_string()]);
     assert!(work.join(".git").is_file());
-    assert_eq!(io::git_configs(&work)[0], sep.join("config"));
     assert_eq!(io::git_prefix(&work), Ok(String::new()));
     unsafe_config(&sep);
     skipped(&work);
-    skipped(&work.join("sub")); // a directory that is not there yet is under the same repository
 }
 
 #[test]
@@ -304,10 +450,8 @@ fn mark_1_a_fake_git_directory_does_not_hide_the_repository_above_it() {
         if fake == "head" {
             make(&dot, &["HEAD=not a ref\n", "objects/", "refs/"]);
         }
-        // Git passes it by; so does the search for the config.
+        // Git passes it by, and uses the one above.
         assert_eq!(io::git_prefix(&sub), Ok("sub/".into()), "{fake}: git uses the outer one");
-        let configs = io::git_configs(&sub);
-        assert!(configs.contains(&d.0.join(".git/config")), "{fake}: {configs:?}");
     }
     unsafe_config(&d.0.join(".git"));
     skipped(&sub);
@@ -322,8 +466,6 @@ fn mark_1_only_the_nearest_repository_counts() {
     unsafe_config(&d.0.join(".git"));
     skipped(&d.0);
     git(&inner, &["init", "-q"]); // a repository of its own, with a safe config
-    let configs = io::git_configs(&inner);
-    assert!(configs.iter().all(|c| c.starts_with(inner.join(".git"))), "{configs:?}");
     assert_eq!(io::git_prefix(&inner), Ok(String::new()), "git runs there");
 }
 
@@ -341,6 +483,10 @@ fn mark_1_a_config_that_cannot_be_read_counts_as_one_that_could_run_commands() {
     }
     std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
     assert!(io::git_status(&d.0).is_ok());
+    let text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(&config, "[core\n\tfsmonitor = true\n").unwrap(); // git cannot read it
+    skipped(&d.0);
+    std::fs::write(&config, text).unwrap();
     std::fs::remove_file(&config).unwrap(); // no config at all: nothing to run
     assert!(io::git_status(&d.0).is_ok());
 }
