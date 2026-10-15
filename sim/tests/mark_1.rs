@@ -146,7 +146,7 @@ fn mark_1_a_clean_repository_has_no_marks_and_a_plain_directory_is_an_error() {
 // texts that git and a parser of sim's own could read differently.
 
 /// Configs that define a command git would run, or could bring one in.
-const RUNS: [&str; 24] = [
+const RUNS: [&str; 32] = [
     "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n",
     "[FILTER \"x\"]\n\tSmudge = cat\n",
     "[filter.x]\n\tprocess = cat\n",
@@ -166,6 +166,14 @@ const RUNS: [&str; 24] = [
     "[core]\n\thooksPath = /tmp/hooks\n",
     "[Core]\n\thookspath\n", // no value: git cannot read it at all
     "[core]\n\talternateRefsCommand = /tmp/refs\n",
+    "[core]\n\tsshCommand = /tmp/ssh\n",
+    "[core]\n\teditor = /tmp/ed\n\tpager = /tmp/pg\n",
+    "[credential]\n\thelper = /tmp/cred\n",
+    "[gpg]\n\tprogram = /tmp/gpg\n",
+    "[diff \"x\"]\n\ttextconv = /tmp/conv\n",
+    "[difftool \"x\"]\n\tCmd = /tmp/d\n",
+    "[merge \"x\"]\n\tdriver = /tmp/m\n",
+    "[future]\n\trunHook = /tmp/h\n", // a setting git does not have yet
     "[include]\n\tpath = ../other\n",
     "[includeIf \"gitdir:~/work/\"]\n\tpath = work\n",
     "[includeIf \"hasconfig:remote.*.url:*github.com*/**\"]\n\tpath = work\n",
@@ -180,7 +188,11 @@ const SAFE: [&str; 8] = [
      [remote \"origin\"]\n\turl = https://example.com/filter.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n\
      [branch \"main\"]\n\tremote = origin\n[user]\n\tname = filter\n\temail = include@example.com\n",
     "# [filter \"x\"]\n; fsmonitor = true\n[core]\n\t# hooksPath = x\n\tautocrlf = true\n",
-    "[remote \"origin\"]\n\turl = x\n\tfsmonitor = not-core\n\thookspath = nor-this\n",
+    "[remote \"origin\"]\n\turl = x\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n\
+     [branch \"release-1.0\"]\n\tremote = origin\n\tmerge = refs/heads/main\n\
+     [submodule \"sub\"]\n\turl = x\n\tactive = true\n[lfs]\n\turl = https://example.com/lfs\n\
+     \tconcurrenttransfers = 4\n[core]\n\tignorecase = true\n\tautocrlf = true\n\
+     [extensions]\n\tworktreeConfig = true\n[url \"https://x.example/\"]\n\tinsteadOf = x:\n",
     "[alias]\n\tst = status\n[diff]\n\talgorithm = patience\n[core.fsmonitor]\n\tx = 1\n",
     "[filter \"x\"]\n[include]\n[core]\n", // sections with nothing in them define nothing
     "[remote \"filter\"]\n\turl = x\n[branch \"include\"]\n\tremote = origin\n[remote \"o r\\\"i\\\\g;#\"]\n\turl = y\n",
@@ -310,6 +322,112 @@ fn mark_1_the_user_s_own_config_is_trusted_and_the_repository_s_is_not() {
     );
     assert!(!io::runs_commands(b"") && !io::runs_commands(b"local\0user.name\nx\0"));
     assert!(io::runs_commands(b"local"), "a listing that stops in the middle of an entry");
+}
+
+/// The listing git prints (`scope NUL key NL value NUL`) for entries of one scope.
+fn listing(scope: &str, keys: &[&str]) -> Vec<u8> {
+    keys.iter().flat_map(|k| format!("{scope}\0{k}\nv\0").into_bytes()).collect()
+}
+
+#[test]
+fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not() {
+    // The names of the class, in a section git does not use them in, in a subsection, and in a
+    // subsection with dots; and the ends.
+    let names = [
+        "command",
+        "cmd",
+        "program",
+        "driver",
+        "textconv",
+        "helper",
+        "process",
+        "clean",
+        "smudge",
+        "askpass",
+        "editor",
+        "pager",
+        "gitproxy",
+        "hookspath",
+        "fsmonitor",
+        "sshcommand",
+        "hook",
+        "alternaterefscommand",
+        "uploadpackcommand",
+        "my-program",
+        "precmd",
+        "pre-commit-hook",
+    ];
+    for name in names {
+        for key in [format!("core.{name}"), format!("x.sub.{name}"), format!("x.a.b.c.{name}")] {
+            assert!(io::runs_commands(&listing("local", &[&key])), "{key}");
+            assert!(io::runs_commands(&listing("worktree", &[&key])), "{key}");
+            let bare = format!("local\0{key}\0");
+            assert!(io::runs_commands(bare.as_bytes()), "{key}: without a value");
+            for trusted in ["system", "global", "command"] {
+                assert!(!io::runs_commands(&listing(trusted, &[&key])), "{trusted} {key}");
+            }
+        }
+    }
+    // Whatever the variable: the section decides.
+    for key in [
+        "filter.lfs.required",
+        "filter.x.anything",
+        "filter.y",
+        "include.path",
+        "includeif.gitdir:/a.b/.path",
+        "includeif.hasconfig:remote.*.url:*.example/**.path",
+        "core.fsmonitor",
+        "core.hookspath",
+    ] {
+        assert!(io::runs_commands(&listing("local", &[key])), "{key}");
+    }
+    // What git writes and uses in every repository, and what tools keep there.
+    let ordinary = [
+        "core.repositoryformatversion",
+        "core.filemode",
+        "core.bare",
+        "core.logallrefupdates",
+        "core.ignorecase",
+        "core.autocrlf",
+        "core.symlinks",
+        "core.worktree",
+        "core.fsmonitor.x",
+        "remote.origin.url",
+        "remote.origin.fetch",
+        "remote.origin.pushurl",
+        "remote.filter.url",
+        "branch.main.remote",
+        "branch.main.merge",
+        "branch.release-1.0.remote",
+        "branch.a.command.merge",
+        "branch.include.remote",
+        "user.name",
+        "user.email",
+        "user.signingkey",
+        "lfs.url",
+        "lfs.concurrenttransfers",
+        "lfs.repositoryformatversion",
+        "lfs.locksverify",
+        "extensions.worktreeconfig",
+        "submodule.sub.url",
+        "submodule.sub.active",
+        "submodule.sub.update",
+        "url.https://x.example/.insteadof",
+        "alias.st",
+        "diff.algorithm",
+        "pull.rebase",
+        "init.defaultbranch",
+        "gc.auto",
+        "tag.sort",
+        "rerere.enabled",
+    ];
+    for key in ordinary {
+        assert!(!io::runs_commands(&listing("local", &[key])), "{key}");
+        assert!(!io::runs_commands(&listing("worktree", &[key])), "{key}");
+    }
+    assert!(!io::runs_commands(&listing("local", &ordinary)));
+    let mixed = [&ordinary[..], &["x.y.smudge"]].concat();
+    assert!(io::runs_commands(&listing("local", &mixed)), "one is enough, wherever it is");
 }
 
 /// A repository with `.gitattributes` that sends every file through the filter `canary`, a
