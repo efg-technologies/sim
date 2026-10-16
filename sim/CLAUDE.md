@@ -42,6 +42,7 @@ sim/
 ## Tests and checks
 
 - Unit/property tests for the pure modules, integration tests that feed events to sim's state, goldens for composed frames, E2E in tmux on its own socket, benches for SPEED
+- `tests/buf_model.rs` is si's `tests/model.rs` for many files: a model of the shell (one event channel, a save thread, a watcher and a filter for each file, late listings and highlights, the real journal thread, an outside process that edits, deletes and moves files) drives `Sim::update` with random events and checks that no word is lost or crosses to another file, that no watcher outlives its file and that no row of the screen holds a char SAFE-8 forbids. `SI_FUZZ_CASES=30000 cargo test --release -p sim --test buf_model` runs it longer (the default is 2000 cases)
 - `sim/scripts/check.sh`: fmt, clippy, tests, `sim/scripts/trace.sh`, sim/src ≤ 3,000 lines. si's own check.sh must keep passing too
 - Never touch the real `$HOME` / `$XDG_STATE_HOME` / git config in tests (check.sh runs them with no global git config; repositories in tests are made with none either)
 - Goldens are in `sim/tests/golden/`; `SIM_BLESS=1` rewrites them. Benches are the ignored `*_bench_*` tests: `cargo test --release -p sim -- --ignored bench --nocapture`

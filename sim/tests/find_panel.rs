@@ -152,6 +152,53 @@ fn find_1_enter_opens_the_best_match_at_once_and_the_tree_shows_where_it_is() {
     assert_eq!(r.status(), "/");
 }
 
+/// The directories that are open, as sorted names.
+fn open_dirs(r: &Rig) -> Vec<String> {
+    let mut dirs: Vec<String> =
+        r.sim.tree.open_dirs().iter().map(|d| d.to_string_lossy().into_owned()).collect();
+    dirs.sort();
+    dirs
+}
+
+#[test]
+fn find_1_enter_puts_the_expansion_back_and_opens_only_the_directories_of_the_file() {
+    // The cursor follows the best match of every key: `m`, `ma`, ... lead to src/main.rs, and
+    // only `mainm` leads on to docs/notes/main.md. Those were never chosen: `src/` closes again.
+    let mut r = rig("f1-enter-debris", &FILES, &[]);
+    r.keys("/mainm");
+    assert!(open_dirs(&r).contains(&"src".to_string()), "the cursor went through src/");
+    r.keys("<CR>");
+    assert_eq!(r.open_files(), ["docs/notes/main.md"]);
+    assert_eq!(
+        open_dirs(&r),
+        ["docs", "docs/notes"],
+        "what was open before the search, and the way"
+    );
+    // What the user had opened before the search stays open.
+    let mut r = rig("f1-enter-kept", &FILES, &[]);
+    r.keys("jl"); // src/ opened by hand
+    r.keys("/mainm<CR>");
+    assert_eq!(open_dirs(&r), ["docs", "docs/notes", "src"]);
+    assert_eq!(r.selected(), None, "the focus is in the text");
+    assert!(r.panel().contains(&"    • main.md".to_string()), "{:?}", r.panel());
+}
+
+#[test]
+fn find_1_enter_on_a_file_after_stepping_through_the_matches_does_the_same() {
+    let mut r = rig("f1-enter-step", &FILES, &[]);
+    r.keys("/main<Down>"); // the matches stay lit; the cursor is on the next one
+    r.keys("<CR>");
+    let opened = r.open_files()[0].clone();
+    let mut want: Vec<String> = std::path::Path::new(&opened)
+        .ancestors()
+        .skip(1)
+        .filter(|a| !a.as_os_str().is_empty())
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    want.sort();
+    assert_eq!(open_dirs(&r), want, "only the directories of {opened}");
+}
+
 #[test]
 fn find_1_enter_opens_the_best_match_even_before_its_directory_has_been_read() {
     let mut r = rig("f1-late", &FILES, &[]);
@@ -211,6 +258,19 @@ fn find_1_backspace_edits_the_query_and_ends_the_search_when_there_is_nothing_le
 }
 
 #[test]
+fn find_1_a_long_query_keeps_the_count_and_the_cursor_on_the_screen() {
+    let name = "q".repeat(100);
+    let mut r = rig("f1-long", &[&name], &[]);
+    r.keys(&format!("/{name}"));
+    let (text, w) = (r.status().to_string(), 80);
+    assert!(text.starts_with("…q") && text.ends_with("q  1 match"), "{text}");
+    assert_eq!(width(&text), w, "{text}");
+    assert!(usize::from(r.screen.cursor.0) < w && r.screen.cursor.1 == 23, "{:?}", r.screen.cursor);
+    r.keys("z");
+    assert!(r.status().ends_with("z  no match") && width(r.status()) <= w, "{}", r.status());
+}
+
+#[test]
 fn find_1_the_query_is_text_and_every_key_but_the_few_is_ignored() {
     let mut r = rig("f1-keys", &FILES, &[]);
     r.keys("/njq.<Left><C-d><PageDown>");
@@ -246,8 +306,23 @@ fn find_2_the_likelihood_of_a_file_decides_between_equal_matches() {
     let mut r = rig_env("f2-tie3", &["a/utility.rs", "b/util.rs"], &[], (80, 24), |e: &mut Env| {
         e.history.record(&e.cwd.join("a/utility.rs").to_string_lossy(), NOW - 120);
     });
-    r.keys("/util.");
-    assert_eq!(&r.panel()[..3], ["▸ a/", "▾ b/", "    util.rs"]);
+    r.keys("/util.<CR>");
+    assert_eq!(r.open_files(), ["b/util.rs"]);
+}
+
+#[test]
+fn find_2_the_file_opened_before_wins_over_a_shorter_path_of_the_same_name() {
+    // The common case for the history: `review.rs` in src and in tests, and the long path is the
+    // one that was opened.
+    let two = ["src/core/review.rs", "tests/review.rs"];
+    let mut r = rig_env("f2-same", &two, &[], (80, 24), |e: &mut Env| {
+        e.history.record(&e.cwd.join("src/core/review.rs").to_string_lossy(), NOW - 120);
+    });
+    r.keys("/review<CR>");
+    assert_eq!(r.open_files(), ["src/core/review.rs"]);
+    let mut r = rig("f2-same2", &two, &[]);
+    r.keys("/review<CR>");
+    assert_eq!(r.open_files(), ["tests/review.rs"], "with no history the shorter path");
 }
 
 #[test]
@@ -327,6 +402,15 @@ fn find_3_outside_git_the_files_come_from_a_walk_that_skips_dot_git_and_links() 
     std::os::unix::fs::symlink("a.txt", d.0.join("link")).unwrap();
     let got = io::files(&d.0);
     assert_eq!(got, [".hidden", "a.txt", "link", "sub/b.txt", "sub/deeper/c.txt", "sub/loop"]);
+}
+
+#[test]
+fn find_3_a_walk_stops_at_its_limit_even_inside_one_directory() {
+    let d = temp_dir("f3-walk-max");
+    let files: Vec<String> = (0..150).map(|i| format!("big/f{i}")).collect();
+    make(&d.0, &files.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_eq!(io::walk(&d.0, 100).len(), 100, "the limit was checked between directories only");
+    assert_eq!(io::walk(&d.0, 1000).len(), 150);
 }
 
 #[test]

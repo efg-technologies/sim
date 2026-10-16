@@ -168,7 +168,10 @@ run_one() {
           echo "---------------------------"
         fi
         panes=$(tm list-panes -a -F "#{pane_pid}" 2> /dev/null || true)
+        sock=$(tm display-message -p "#{socket_path}" 2> /dev/null || true)
         tm kill-server 2> /dev/null || true
+        # tmux leaves its socket behind when the server is killed: one file for every case, for ever
+        rm -f "${sock:-${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$SOCKET}"
         # sim saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
         for pid in $panes; do
           tries=100
@@ -482,6 +485,34 @@ buf_1_a_change_on_disk_after_a_save_is_still_merged() {
   printf 'fn lib() {} // edit\nfn more() {}\n' > "$W/src/lib.new"
   mv "$W/src/lib.new" "$W/src/lib.rs"
   wait_for "+  2 fn more() {}" # taken in and marked, though the message of the save still shows
+}
+
+buf_1_a_reload_does_not_merge_what_the_old_watcher_read_of_the_file_it_left() {
+  printf 'alpha\n' > "$W/a"
+  printf 'beta\n' > "$W/b"
+  ln -s a "$W/cur"
+  start cur
+  wait_for "cur  1:1  NORMAL"
+  # a is rewritten every few milliseconds, so the watcher of `cur` (which is a) always has a read on
+  # its way when the link moves to b and `:e` reads it: a Disk carries no name, and that read, begun
+  # after the number of the `:e`'s read was taken, was merged into b's buffer as news of the disk
+  (
+    i=0
+    while [ "$i" -lt 300 ]; do
+      printf 'rewritten %s\n' "$i" > "$W/a"
+      i=$((i + 1))
+      sleep 0.01
+    done
+  ) &
+  writer=$!
+  sleep 0.2
+  ln -sf b "$W/cur"
+  typed ":e"
+  keys Enter
+  wait_for "beta"
+  sleep 0.5
+  gone "rewritten" # b's buffer holds b, and no word of a's
+  wait "$writer"
 }
 
 buf_1_kill_9_leaves_a_snapshot_for_every_modified_file() {
@@ -947,6 +978,22 @@ syn_2_zh_turns_the_colors_off_and_on() {
   typed zh
   wait_for "syntax colors on"
   wait_esc '31mfn'
+}
+
+syn_3_a_parse_that_never_ends_is_given_up_and_the_other_files_keep_their_colors() {
+  # syntect loops for ever on this text in QML; sim stays at its keys, says so after the
+  # highlighter's 5 s, and highlights the next file
+  printf 'x = y /* c */\ny\nz\n' > "$W/loop.qml"
+  printf 'fn main() { let s = "x"; }\n' > "$W/a.rs"
+  start loop.qml
+  wait_for "loop.qml  1:1  NORMAL"
+  typed jj
+  wait_for "loop.qml  3:1  NORMAL" # the keys are answered while it loops
+  wait_for "syntax colors stopped for loop.qml" 15
+  typed ":e a.rs"
+  keys Enter
+  wait_for "a.rs  1:1  NORMAL  2/2"
+  wait_esc '31mfn' # and a.rs has its colors
 }
 
 syn_3_a_file_over_10_mb_is_not_highlighted() {

@@ -54,8 +54,8 @@ pub enum SimEvent {
     Listing(PathBuf, Result<Vec<Entry>, String>),
     /// The answer to `SimEffect::Open`: the file, read.
     Opened(Opened),
-    /// The answer to `SimEffect::Open` when the path is a directory.
-    Dir(String),
+    /// The answer to `SimEffect::Open` when the path is a directory: the id asked for, and the path.
+    Dir(Id, String),
     /// FIND-3: the files under the root, sorted, relative to it.
     Files(Vec<String>),
     /// MARK-1: git's status, and where the root lies below the top of the repository.
@@ -236,22 +236,50 @@ pub fn start(
     })
 }
 
+/// The history's key for a path: the same file under `./a` and `a` is one key.
+fn key_of(path: &Path) -> String {
+    path.components().collect::<PathBuf>().to_string_lossy().into_owned()
+}
+
 /// Line `l` of the buffer without its line break; none past the end.
 fn text_of(buf: &Buffer, l: usize) -> Option<String> {
     (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
 }
 
+/// What follows the line address at the start of `s` (si's: `.` `$` `'<` `'>` or digits).
+fn after_address(s: &str) -> Option<&str> {
+    match s.chars().next()? {
+        '.' | '$' => Some(&s[1..]),
+        '\'' => s[1..].strip_prefix(['<', '>']),
+        '0'..='9' => Some(s.trim_start_matches(|c: char| c.is_ascii_digit())),
+        _ => None,
+    }
+}
+
+/// What follows the range at the start of `s`, as si reads one: `%`, or an address and perhaps a
+/// `,` and another.
+fn after_range(s: &str) -> &str {
+    let Some(rest) = s.strip_prefix('%').map_or_else(|| after_address(s), Some) else { return s };
+    rest.strip_prefix(',').and_then(after_address).unwrap_or(rest)
+}
+
 /// The commands for all the files at once, which si's App does not know (BUF-3), and `:e name`,
-/// which opens another file instead of replacing this one (BUF-1): name, `!`, argument.
+/// which opens another file instead of replacing this one (BUF-1): name, `!`, argument. si takes
+/// a range before `:e` and ignores it, and would replace this file by the other: `:%e name` is
+/// `:e name` here too.
 fn all(line: &str) -> Option<(&str, bool, &str)> {
+    fn parse(s: &str) -> Option<(&str, bool, &str)> {
+        let (name, rest) =
+            s.split_at(s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len()));
+        let (bang, arg) = rest.strip_prefix('!').map_or((false, rest), |a| (true, a));
+        let ok = matches!(
+            (name, arg.trim().is_empty()),
+            ("qa" | "qall" | "wa" | "wall", true) | ("e" | "edit", false)
+        );
+        ok.then_some((name, bang, arg.trim()))
+    }
     let s = line.strip_prefix(':')?.trim();
-    let (name, rest) = s.split_at(s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len()));
-    let (bang, arg) = rest.strip_prefix('!').map_or((false, rest), |a| (true, a));
-    let ok = matches!(
-        (name, arg.trim().is_empty()),
-        ("qa" | "qall" | "wa" | "wall", true) | ("e" | "edit", false)
-    );
-    ok.then_some((name, bang, arg.trim()))
+    parse(s).or_else(|| parse(after_range(s).trim_start()).filter(|c| c.0.starts_with('e')))
 }
 
 impl Sim {
@@ -312,7 +340,13 @@ impl Sim {
             }
             SimEvent::Listing(dir, r) => self.listing(&dir, r, &mut out),
             SimEvent::Opened(o) => self.opened(o, &mut out),
-            SimEvent::Dir(path) => self.reveal_dir(&path, &mut out),
+            SimEvent::Dir(id, path) => {
+                out.push(SimEffect::Close(id)); // no file is open: its watcher is not needed
+                // `open` noted it before it was known to be a directory: it is no file that was opened (MARK-2).
+                self.history.forget(&key_of(&self.cwd.join(&path)));
+                out.push(SimEffect::History(self.history.clone()));
+                self.reveal_dir(&path, &mut out)
+            }
             SimEvent::Files(files) => {
                 self.files = files;
                 self.search_run(&mut out);
@@ -394,7 +428,7 @@ impl Sim {
 
     /// MARK-2: notes that the user opened a file, and has the history saved.
     fn note(&mut self, path: &Path, out: &mut Vec<SimEffect>) {
-        self.history.record(&path.to_string_lossy(), self.now);
+        self.history.record(&key_of(path), self.now);
         out.push(SimEffect::History(self.history.clone()));
     }
 
@@ -651,26 +685,37 @@ impl Sim {
             rows.into_iter().map(|r| self.mark(r, &likely)).collect();
         let at = self.row(self.panel.cur);
         let root = self.root.display().to_string();
-        let tree = at.as_ref().map_or(root.clone(), |r| {
-            format!("{}{}", r.path.display(), if r.is_dir { "/" } else { "" })
+        // (a directory's name ends with `/`, which is part of the state words: a path is cut as a list of components)
+        let (tree, slash) = at.as_ref().map_or((root.clone(), ""), |r| {
+            (r.path.display().to_string(), if r.is_dir { "/" } else { "" })
         });
-        let (mut status, mut cursor, mut shape) = (root, (off, 0), Shape::Block);
-        let mut cmd = false;
+        // BUF-2: the position `2/5` follows the status, which is cut to what is left of the width;
+        // on the command line, which has the whole width, there is none.
+        let cmd = !focus && self.bufs.get(self.cur).is_some_and(|b| b.app.vi.mode == Mode::Cmd);
+        let pos = if self.bufs.len() > 1 && !cmd {
+            format!("  {}/{}", self.cur + 1, self.bufs.len())
+        } else {
+            String::new()
+        };
+        let room = usize::from(w).saturating_sub(pos.width());
+        let (mut status, mut cursor, mut shape) =
+            (layout::short(&root, room), (off, 0), Shape::Block);
         if let Some(b) = self.bufs.get_mut(self.cur) {
             if b.frame.as_ref().is_some_and(|f| (f.width, f.height) != (ew, h)) {
                 b.frame = None;
             }
             let f = b.frame.get_or_insert_with(|| view::render(&mut b.app));
-            (cmd, shape, cursor) =
-                (b.app.vi.mode == Mode::Cmd && !focus, f.shape, (f.cursor.0 + off, f.cursor.1));
+            (shape, cursor) = (f.shape, (f.cursor.0 + off, f.cursor.1));
             status = f.rows.last().map_or(String::new(), |r| r.text.clone());
-            // The App cuts its status line to its own width; the screen has more.
+            // The App cuts its status line to its own width; the screen has more (all of it for
+            // the command line, what the position leaves for the status), or less (no panel, a position).
             if !cmd {
                 b.wide = 0;
             }
-            if pw > 0 && (cmd || status.width() + 2 >= usize::from(ew)) {
+            let width = if cmd { w } else { room.max(1) as u16 };
+            if width != ew && (cmd || status.width() + 2 >= usize::from(ew.min(width))) {
                 let (top, skip, center, size) = (b.app.top, b.app.skip, b.app.center, b.app.size);
-                (b.app.size.0, b.app.vi.off) = (w, b.wide);
+                (b.app.size.0, b.app.vi.off) = (width, b.wide);
                 let wide = view::render(&mut b.app);
                 b.wide = b.app.vi.off;
                 (b.app.top, b.app.skip, b.app.center, b.app.size) = (top, skip, center, size);
@@ -679,23 +724,24 @@ impl Sim {
             }
         }
         if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
-            status = format!("{tree}  TREE");
+            status = layout::stated(&tree, &format!("{slash}  TREE"), room);
         }
         if let (true, Some(s)) = (focus, &self.panel.search) {
             let n = s.found.hits.len();
-            status = match (s.query.is_empty(), n) {
-                (true, _) => format!("/{}", s.query),
-                (_, 0) => format!("/{}  no match", s.query),
-                _ => format!("/{}  {n} match{}", s.query, if n == 1 { "" } else { "es" }),
+            let found = match (s.query.is_empty(), n) {
+                (true, _) => String::new(),
+                (_, 0) => "  no match".into(),
+                _ => format!("  {n} match{}", if n == 1 { "" } else { "es" }),
             };
+            let (found, used) = layout::fit(&found, room);
+            let head = layout::tail(&format!("/{}", s.query), room - used);
+            let cols = layout::fit(&head, usize::MAX).1;
+            status = head + &found;
             if s.typing {
-                (cursor, shape) = ((1 + s.query.width() as u16, h - 1), Shape::Bar);
+                (cursor, shape) = ((cols.min(usize::from(w) - 1) as u16, h - 1), Shape::Bar);
             }
         }
-        status = self.msg.clone().unwrap_or(status);
-        if self.bufs.len() > 1 && !cmd {
-            status += &format!("  {}/{}", self.cur + 1, self.bufs.len());
-        }
+        status = layout::fit(&self.msg.clone().unwrap_or(status), room).0 + &pos;
         let sel = focus.then(|| self.panel.cur - self.panel.top);
         let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
         if let (Some(i), false) = (sel, typing) {

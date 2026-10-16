@@ -3,6 +3,7 @@
 //! arrive, the search that lights up matches, and the narrowed tree.
 use super::{Sim, SimEffect};
 use crate::find::{Found, Query};
+use crate::layout;
 use crate::tree::{self, Entry, Row as TreeRow, Tree};
 use si::core::app::Key;
 use std::cmp::Ordering;
@@ -125,13 +126,13 @@ impl Sim {
         self.panel.cur = to.min(last);
     }
 
-    /// `l`, Right and Enter: expand a directory, open a file (which ends a search, leaving the
-    /// tree as the search made it, so that the file is shown in its place).
+    /// `l`, Right and Enter: expand a directory, open a file (which ends a search, so that the
+    /// tree shows the file in its place and nothing else of the search).
     pub(super) fn enter(&mut self, out: Out) {
         let Some(r) = self.row(self.panel.cur) else { return };
         let abs = self.root.join(&r.path);
         if !r.is_dir {
-            self.panel.search = None;
+            self.end_search_at(r.path, out);
             self.open(abs, out);
         } else if !r.open && self.view_mut().expand(&r.path) {
             out.push(SimEffect::Read(abs));
@@ -153,7 +154,9 @@ impl Sim {
     pub(super) fn listing(&mut self, dir: &Path, r: Result<Vec<Entry>, String>, out: Out) {
         let Ok(rel) = dir.strip_prefix(&self.root) else { return };
         let entries = r.unwrap_or_else(|e| {
-            self.msg = Some(e);
+            let name = if rel.as_os_str().is_empty() { &self.root } else { rel };
+            self.msg =
+                Some(format!("cannot read {}: {e}", layout::short(&name.to_string_lossy(), 32)));
             vec![]
         });
         let kept =
@@ -172,8 +175,12 @@ impl Sim {
     pub(super) fn reveal_dir(&mut self, path: &str, out: Out) {
         let abs = self.cwd.join(path);
         let Ok(rel) = abs.strip_prefix(&self.root) else {
-            return self.msg =
-                Some(format!("{} is not under {}", abs.display(), self.root.display()));
+            let (root, abs) = (self.root.to_string_lossy(), abs.to_string_lossy());
+            return self.msg = Some(format!(
+                "not under {}: {}",
+                layout::short(&root, 28),
+                layout::short(&abs, 34)
+            ));
         };
         (self.panel.reveal, self.focus) = (Some(rel.to_path_buf()), None);
         self.end_search();
@@ -230,13 +237,26 @@ impl Sim {
         self.place(&s.at);
     }
 
+    /// Enter ends the search on a file that is opened: the expansion is put back to what it was
+    /// before the search, then only the directories of that file are opened (as `:e` reveals
+    /// one), so the tree shows where the file is and nothing the cursor passed on its way.
+    fn end_search_at(&mut self, path: PathBuf, out: Out) {
+        let Some(s) = self.panel.search.take() else { return };
+        self.tree.restore(&s.open);
+        self.panel.reveal = Some(path);
+        self.reveal(out);
+    }
+
     /// FIND-1, FIND-2: finds the matches of the query among the files and takes the cursor to
     /// the best, expanding the directories on its way.
     pub(super) fn search_run(&mut self, out: Out) {
         let Some(s) = self.panel.search.as_mut() else { return };
         let found = Query::new(&s.query).search(&self.files);
-        let (root, now, h) = (self.root.to_string_lossy(), self.now, &self.history);
-        let best = found.best(&self.files, |p| h.likelihood(&format!("{root}/{p}"), now));
+        // The likelihoods are the history's (at most 1,000 paths), by their place in the list.
+        let history = self.history.top(&self.root.to_string_lossy(), usize::MAX, self.now);
+        let place = |(p, l): (String, f64)| Some((self.files.binary_search(&p).ok()?, l));
+        let liked: Vec<(usize, f64)> = history.into_iter().filter_map(place).collect();
+        let best = found.best(&self.files, &liked);
         let target = best.map(|hit| self.files[hit.index].clone());
         (s.found, s.target) = (found, target.clone());
         if let Some(t) = target {
@@ -255,7 +275,7 @@ impl Sim {
             Key::Esc => return self.end_search(),
             Key::Enter => {
                 let Some(t) = s.target.clone() else { return };
-                self.panel.search = None;
+                self.end_search_at(PathBuf::from(&t), out);
                 return self.open(self.root.join(t), out);
             }
             Key::Down | Key::Up => {

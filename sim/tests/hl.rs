@@ -10,7 +10,7 @@ use si::core::app::{Event, Key};
 use si::core::color::{apca, palette as si_palette, parse_osc11};
 use si::core::view::{Frame, Row, Shape, Style};
 use sim::color::{self, Input, Syntax};
-use sim::io::Highlighter;
+use sim::io::{Highlighter, HlJob};
 use sim::paint::{Look, Painter, Screen};
 use sim::sim::{Env, Req, SimEvent};
 
@@ -74,6 +74,35 @@ fn syn_1_emoji_sequences_and_every_bidirectional_control_keep_the_colors_in_plac
     let num: Vec<_> = r.shot.looks[0].iter().filter(|l| l.1 == Look::Num).collect();
     assert_eq!(num.len(), 1);
     assert_eq!(usize::from(num[0].0.start), col(one), "the number after it");
+}
+
+#[test]
+fn syn_3_a_line_of_many_spans_is_laid_out_in_the_time_of_a_key() {
+    // 200,000 spans (every other char of a line of 400,000), 23 rows of 75 chars on the screen.
+    // Finding the span of a char by scanning the line's spans made every plain char cost all of
+    // them: 900 plain chars on screen times 200,000 spans, at every key.
+    let (n, digits) = (400_000, 3);
+    let text: String = "ab".repeat(n / 2);
+    let spans: sim::syn::Spans = (0..n / 2).map(|i| (2 * i..2 * i + 1, Look::Num)).collect();
+    let chars: Vec<char> = text.chars().collect();
+    let rows = (0..23)
+        .map(|i| {
+            let gutter = if i == 0 { "   1 " } else { "     " };
+            let body: String = chars[i * 75..(i + 1) * 75].iter().collect();
+            Row { text: format!("{gutter}{body}"), ..Row::default() }
+        })
+        .collect();
+    let frame =
+        Frame { width: 80, height: 24, rows, cursor: (5, 0), shape: Shape::Block, pal: None };
+    let (t, line) = (std::time::Instant::now(), text.clone());
+    let (looks, win) =
+        sim::layout::colors(&frame, digits, &|l| (l == 0).then(|| line.clone()), &|l| {
+            (l == 0).then_some(&spans)
+        });
+    let took = t.elapsed();
+    assert_eq!(win, Some((0, 0)));
+    assert_eq!(looks[0].len(), 38, "every other char of the first row is a number");
+    assert!(took < std::time::Duration::from_millis(150), "{took:?}");
 }
 
 #[test]
@@ -356,6 +385,25 @@ fn syn_1_a_reply_to_osc_4_is_put_together_from_keys_and_the_one_to_osc_11_is_si_
 }
 
 #[test]
+fn syn_1_a_reply_that_comes_late_is_still_a_reply_and_is_never_typed_into_the_text() {
+    // Over a slow link the terminal's answer can take seconds. Parsed as keys it would be typed
+    // into the editor: `4;1;rgb:cc/00/00` is a count, `r` and `c` commands, and text.
+    let mut input = Input::new(true);
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    assert_eq!(heard(&mut input, osc("4;1;rgb:cc/00/00")), "osc:4;1;rgb:cc/00/00");
+    // Once the five colors that were asked for are in, an Alt+`]` is not held for a sixth.
+    for i in [2, 3, 5, 6] {
+        assert_eq!(
+            heard(&mut input, osc(&format!("4;{i};rgb:cc/00/00"))),
+            format!("osc:4;{i};rgb:cc/00/00")
+        );
+    }
+    let (alt, none) = (KeyModifiers::ALT, KeyModifiers::NONE);
+    let evs = vec![key(KeyCode::Char(']'), alt), key(KeyCode::Char('4'), none)];
+    assert_eq!(heard(&mut input, evs), "^]4");
+}
+
+#[test]
 fn syn_1_keys_that_are_not_a_reply_go_on_as_keys_in_order() {
     let (alt, none) = (KeyModifiers::ALT, KeyModifiers::NONE);
     let mut input = Input::new(true);
@@ -632,6 +680,21 @@ fn req(id: usize, name: &str, ver: u64, text: &str, from: usize, n: usize) -> Re
     Req { id, name: name.into(), ver, text: ropey::Rope::from_str(text), from, n }
 }
 
+#[test]
+fn syn_3_the_highlighter_forgets_a_file_that_is_closed() {
+    // Its parse states and a copy of its text (shared with a buffer that is gone) would stay for
+    // as long as sim runs, for every file ever opened.
+    let mut h = Highlighter::default();
+    h.run(req(1, "a.rs", 1, "fn a() {}\n", 0, 5));
+    h.run(req(2, "b.rs", 1, "fn b() {}\n", 0, 5));
+    assert_eq!(h.files(), 2);
+    h.forget(1);
+    assert_eq!(h.files(), 1);
+    h.forget(1);
+    h.forget(7);
+    assert_eq!(h.files(), 1, "forgetting what is not there does nothing");
+}
+
 fn spans_of(ev: SimEvent) -> Vec<Vec<(std::ops::Range<usize>, Look)>> {
     match ev {
         SimEvent::Spans(h) => h.spans,
@@ -684,13 +747,58 @@ proptest! {
 }
 
 #[test]
+fn syn_3_a_parse_that_never_ends_is_given_up_and_the_other_files_are_still_highlighted() {
+    // syntect 5.3 loops for ever on some text, in bat's QML (`x = y /* c */`, a statement without
+    // a semicolon that ends in a comment; JavaScript has the same fault, and is read with
+    // TypeScript's syntax, SYN-4): the one thread that highlights every file would be lost, and a
+    // core kept busy, for the rest of the session.
+    use std::time::Duration;
+    let looped = "x = y /* c */\n";
+    let (tx, rx) = std::sync::mpsc::channel();
+    let jobs = sim::io::highlight_thread_within(tx, Duration::from_millis(300));
+    let next =
+        |what: &str| rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| panic!("{what}"));
+    jobs.send(HlJob::Run(req(1, "a.qml", 1, looped, 0, 1))).unwrap();
+    let mut told = false;
+    let plain = loop {
+        match next("the parse that never ends was not given up") {
+            SimEvent::Notice(m) => told |= m.contains("a.qml") && m.contains("colors"),
+            SimEvent::Spans(h) => break h,
+            e => panic!("{e:?}"),
+        }
+    };
+    assert_eq!((plain.id, plain.spans.len()), (1, 1));
+    assert!(plain.spans.iter().all(Vec::is_empty), "the lines are plain");
+    // Another file is highlighted afterwards.
+    jobs.send(HlJob::Run(req(2, "b.rs", 1, "fn f() {}\n", 0, 1))).unwrap();
+    let mut other = None;
+    while other.is_none() {
+        match next("the other file was not answered") {
+            SimEvent::Spans(h) if h.id == 2 => other = Some(h),
+            SimEvent::Notice(m) => told |= m.contains("a.qml"),
+            e => panic!("{e:?}"),
+        }
+    }
+    assert_eq!(other.unwrap().spans[0], [(0..2, Look::Kw), (3..4, Look::Fun)]);
+    // The file that was given up is answered at once at its next edit, plain, and not parsed again.
+    let t = std::time::Instant::now();
+    jobs.send(HlJob::Run(req(1, "a.qml", 2, "x = y /* c */\nz\n", 0, 2))).unwrap();
+    match next("the file that was given up was parsed again") {
+        SimEvent::Spans(h) => assert!(h.id == 1 && h.ver == 2 && h.spans.iter().all(Vec::is_empty)),
+        e => panic!("{e:?}"),
+    }
+    assert!(t.elapsed() < Duration::from_millis(250), "{:?}", t.elapsed());
+    assert!(told, "the user is told that the colors of a.qml stopped");
+}
+
+#[test]
 fn syn_3_the_highlighter_thread_answers_the_newest_request_of_each_file() {
     let (tx, rx) = std::sync::mpsc::channel();
     let jobs = sim::io::highlight_thread(tx);
     for v in 1..=5 {
-        jobs.send(req(7, "a.rs", v, "fn f() {}\n", 0, 1)).unwrap();
+        jobs.send(HlJob::Run(req(7, "a.rs", v, "fn f() {}\n", 0, 1))).unwrap();
     }
-    jobs.send(req(8, "b.rs", 1, "let x = 1;\n", 0, 1)).unwrap();
+    jobs.send(HlJob::Run(req(8, "b.rs", 1, "let x = 1;\n", 0, 1))).unwrap();
     let mut seen = std::collections::HashMap::new();
     while seen.len() < 2 {
         match rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() {

@@ -131,7 +131,7 @@ fn cols(s: &str) -> usize {
 
 /// `path` for a status line of `w` columns whose other words are `tail` (VIS-9): the whole path if
 /// the line fits, else `…/` and as many of its last components as fit, the file name at least.
-fn shorten(path: &str, tail: &str, w: usize) -> String {
+pub fn shorten(path: &str, tail: &str, w: usize) -> String {
     let parts: Vec<_> = path.split('/').filter(|p| !p.is_empty()).collect();
     let last = |k: usize| format!("…/{}", parts[parts.len() - k..].join("/"));
     let mut all = std::iter::once(path.to_string()).chain((1..parts.len()).rev().map(last));

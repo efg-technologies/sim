@@ -5,7 +5,7 @@
 use crate::paint::{Look, Looks};
 use crate::syn::Spans;
 use crate::tree;
-use si::core::view::{Frame, Row, Style, width};
+use si::core::view::{Frame, Row, Style, shorten, width};
 
 /// What the editor area shows while no file is open (TREE-1).
 const HELP: [&str; 5] =
@@ -26,6 +26,40 @@ pub fn fit(s: &str, max: usize) -> (String, usize) {
         (end, cols) = (end + 1, cols + width(&cs, end, cols));
     }
     (cs[..end].iter().collect(), cols)
+}
+
+/// `s` cut from the left to `max` columns, so that its end stays: `…` and the last chars (a query
+/// as it is typed). Hostile chars are replaced.
+pub fn tail(s: &str, max: usize) -> String {
+    let all = fit(s, usize::MAX).0;
+    let cs: Vec<char> = all.chars().collect();
+    let cols = |from: usize| fit(&cs[from..].iter().collect::<String>(), usize::MAX).1;
+    if cols(0) <= max {
+        return all;
+    } else if max == 0 {
+        return String::new();
+    }
+    // The first char kept is the smallest one whose tail fits next to the `…`.
+    let (mut lo, mut hi) = (0, cs.len());
+    while hi - lo > 1 {
+        let mid = (lo + hi) / 2;
+        *(if cols(mid) < max { &mut hi } else { &mut lo }) = mid;
+    }
+    format!("…{}", cs[hi..].iter().collect::<String>())
+}
+
+/// A path made to fit `max` columns, the way si's status line does it (`shorten`): `…/` and as
+/// many of its last components as fit, the file name at least; a file name wider than that is cut
+/// from the left (`tail`).
+pub fn short(path: &str, max: usize) -> String {
+    tail(&shorten(&fit(path, usize::MAX).0, "", max), max)
+}
+
+/// A line of a path and the words that say the state: the state is never cut, the path is made to
+/// fit what is left (`short`).
+pub fn stated(path: &str, state: &str, max: usize) -> String {
+    let (state, used) = fit(state, max);
+    short(path, max - used) + &state
 }
 
 /// What the panel shows about a row besides its name: MARK-1 (`change` the change color on the
@@ -151,8 +185,8 @@ pub fn colors<'a>(
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         while used < len && ci < cs.len() {
             let (n, w) = shown(&cs, ci, col);
-            let look = sp.and_then(|s| s.iter().find(|s| s.0.contains(&ci))).filter(|_| w > 0);
-            let look = look.map(|s| s.1);
+            let look = sp.and_then(|s| s.get(s.partition_point(|s| s.0.end <= ci)));
+            let look = look.filter(|s| s.0.contains(&ci) && w > 0).map(|s| s.1);
             let cols = (gutter + col) as u16..(gutter + col + w) as u16;
             match (look, out[i].last_mut()) {
                 (Some(k), Some((p, pk))) if *pk == k && p.end == cols.start => p.end = cols.end,

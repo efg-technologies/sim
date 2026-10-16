@@ -13,7 +13,7 @@ use si::io::watch::watch;
 use si::io::{filter, journal, term};
 use signal_hook::consts::{SIGHUP, SIGTERM, SIGWINCH};
 use sim::color::{self, Input, Syntax};
-use sim::io::{self as sio, Job, MERGE};
+use sim::io::{self as sio, HlJob, Job, MERGE};
 use sim::paint::{MOUSE_ON, Painter, leave};
 use sim::rank::History;
 use sim::sim::{Env, Id, Sim, SimEffect, SimEvent, start};
@@ -21,6 +21,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
@@ -32,24 +33,25 @@ const DRAIN: Duration = Duration::from_millis(100);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 const USAGE: &str = "usage: sim [+cmd] [dir | file]\n       sim [+cmd] -- file";
 
-/// A watcher, kept alive by holding it (PROP-1).
-type Held = Box<dyn Any>;
+/// A watcher, kept alive by holding it, and the switch that silences it (PROP-1).
+type Held = (Box<dyn Any>, Arc<AtomicBool>);
 
 /// Watches `path` for file `id` (PROP-1), as si's main does for its one file. The deadline of each
 /// change is stamped when the watcher reads the file, since the core reads no clock (PROP-7), and
 /// its hash is made there too, so that no key waits for it (P3). With `first`, the watcher's thread
 /// also reads the file once at the start, ordered before the debounced reads.
 fn watching(tx: &Sender<SimEvent>, id: Id, path: &str, first: bool) -> Option<(Id, Held)> {
-    let t = tx.clone();
+    let (t, live) = (tx.clone(), Arc::new(AtomicBool::new(true)));
+    let on_ = live.clone();
     let on = move |seq: u64, bytes: Option<Vec<u8>>| {
         let hash = bytes.as_deref().map(hash);
         let ev = Event::Disk { bytes, hash, deadline: Instant::now() + MERGE, seq };
-        drop(t.send(SimEvent::App(id, ev)))
+        on_.load(SeqCst).then(|| drop(t.send(SimEvent::App(id, ev))));
     };
     watch(&file::resolve(path), on, first)
         .inspect_err(|e| drop(tx.send(SimEvent::Notice(format!("cannot watch {path}: {e}")))))
         .ok()
-        .map(|w| (id, Box::new(w) as Held))
+        .map(|w| (id, (Box::new(w) as Box<dyn Any>, live)))
 }
 
 /// Tells file `id`'s App that its filter ended (PROP-6). The diff of its result gives up after
@@ -68,7 +70,12 @@ fn e2e_panic() {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
+    // (`env::args` panics on an argument that is not UTF-8; every path in sim is text)
+    let args: Option<Vec<String>> = env::args_os().skip(1).map(|a| a.into_string().ok()).collect();
+    let Some(args) = args else {
+        eprintln!("sim: a file name that is not valid UTF-8 cannot be opened\n{USAGE}");
+        return ExitCode::from(2);
+    };
     let cwd = env::current_dir().unwrap_or_default();
     let Some(mut s) = start(&args, &cwd, |f| std::path::Path::new(f).exists(), |d| d.is_dir())
     else {
@@ -146,6 +153,7 @@ fn main() -> ExitCode {
     let (r1, r2) = (sim.root.clone(), sim.root.clone());
     let files = sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1)));
     let git = sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2)));
+    let reads = sio::Reads::default();
     let (mut painter, tmux) = (Painter::new(io::stdout()), env::var_os("TMUX").is_some());
     let (mut watchers, mut local, mut first) = (HashMap::<Id, Held>::new(), vec![], true);
     let (mut pgids, mut waiting) = (HashMap::<Id, u32>::new(), true);
@@ -156,16 +164,17 @@ fn main() -> ExitCode {
                 match e {
                     SimEffect::Render(f) => frame = Some(f),
                     SimEffect::Read(dir) => {
-                        let t = tx.clone();
+                        let (t, reads, ticket) = (tx.clone(), reads.clone(), reads.start());
                         thread::spawn(move || {
                             let r = sio::read_dir(&dir);
-                            drop(t.send(SimEvent::Listing(dir, r)));
+                            let to = dir.clone();
+                            reads.answer(&to, ticket, || drop(t.send(SimEvent::Listing(dir, r))));
                         });
                     }
                     SimEffect::Files => drop(files.send(())),
                     SimEffect::Status => drop(git.send(())),
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
-                    SimEffect::Highlight(req) => drop(highlights.send(req)),
+                    SimEffect::Highlight(req) => drop(highlights.send(HlJob::Run(req))),
                     SimEffect::Open(id, path) => {
                         // Watching starts before the file is read, so that no change slips in between.
                         watchers.extend(watching(&tx, id, &path, false));
@@ -174,6 +183,7 @@ fn main() -> ExitCode {
                     }
                     SimEffect::Close(id) => {
                         drop(watchers.remove(&id));
+                        drop(highlights.send(HlJob::Forget(id)));
                         pgids.remove(&id).into_iter().for_each(filter::cancel); // nobody waits for it
                     }
                     SimEffect::Hold(id, key, pid) => drop(jobs.send(Job::Hold(id, key, pid))),
@@ -182,6 +192,12 @@ fn main() -> ExitCode {
                             drop(saves.send((id, path, bytes, expect_hash)))
                         }
                         Effect::Open(path) => {
+                            // The watcher of the file being left goes quiet before the read's number
+                            // is taken: what it says later began earlier, and App drops it (PROP-1).
+                            watchers
+                                .get(&id)
+                                .iter()
+                                .for_each(|(_, live)| live.store(false, SeqCst));
                             let seq = file::seq(); // taken before the read starts (PROP-1)
                             let opened = Event::Opened(path.clone(), read(&path), seq);
                             local.push(SimEvent::App(id, opened));

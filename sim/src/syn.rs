@@ -21,6 +21,11 @@ pub type Text<'a> = &'a dyn Fn(usize) -> Option<String>;
 /// states of 70,000 lines at 16, measured).
 pub const EVERY: usize = 16;
 
+/// A line of more than this many bytes is plain and is not parsed: some syntaxes take time that
+/// grows with the square of a line (a shell heredoc whose word is 100,000 chars: 5.8 s), and the
+/// highlighter is one thread for every file. Code with lines this long is minified or generated.
+pub const MAX_LINE: usize = 10_000;
+
 /// The syntaxes of bat (the `two-face` crate), which has the languages syntect's own set lacks
 /// (SYN-4). The first call decodes their index, and the first highlight of a language its
 /// contexts and regexes: do both in a thread, never before the first frame.
@@ -78,17 +83,31 @@ pub struct Syn {
     pub parsed: usize,
 }
 
+/// SYN-4: the extensions of JavaScript that are read with TypeScript's syntax (see `Syn::new`).
+fn alias(ext: &str) -> String {
+    match ext.to_ascii_lowercase().as_str() {
+        "js" | "mjs" | "cjs" | "es6" => "ts".into(),
+        "jsx" => "tsx".into(),
+        e => e.into(),
+    }
+}
+
 impl Syn {
     /// SYN-4: the syntax for a file, from its name (the whole name, then the extension: `Makefile`,
     /// `.bashrc`, `a.rs`), then from its first line (`#!/usr/bin/env python`). None if there is
-    /// none, or only plain text.
+    /// none, or only plain text. bat's "JavaScript" is never used: with the pure-Rust regex engine
+    /// syntect 5.3 loops for ever on `x = y /* c */` in it, and the set has no `.mjs`, `.cjs` or
+    /// `.jsx`; TypeScript's syntax reads JavaScript, so that is what these files get.
     pub fn new(name: &str, first_line: &str) -> Option<Syn> {
         let set = syntaxes();
         let path = Path::new(name);
         let by_name = path.file_name().and_then(|f| set.find_syntax_by_extension(f.to_str()?));
-        let by_ext = || path.extension().and_then(|e| set.find_syntax_by_extension(e.to_str()?));
-        let syntax =
+        let by_ext =
+            || path.extension().and_then(|e| set.find_syntax_by_extension(&alias(e.to_str()?)));
+        let found =
             by_name.or_else(by_ext).or_else(|| set.find_syntax_by_first_line(first_line))?;
+        let ts = set.find_syntax_by_extension("ts");
+        let syntax = if found.name == "JavaScript" { ts.unwrap_or(found) } else { found };
         let start = (ParseState::new(syntax), ScopeStack::new());
         (syntax.name != "Plain Text").then_some(Syn {
             name: &syntax.name,
@@ -122,6 +141,9 @@ impl Syn {
     }
 
     fn line(&mut self, parse: &mut ParseState, stack: &mut ScopeStack, line: &str) -> Spans {
+        if line.len() > MAX_LINE {
+            return vec![]; // the state stays as it was: the lines after it do not start from a guess
+        }
         self.parsed += 1;
         let text = format!("{line}\n");
         let Ok(ops) = parse.parse_line(&text, syntaxes()) else { return vec![] };

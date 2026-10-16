@@ -1,15 +1,16 @@
 //! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, and the history file in sim's state directory.
+use crate::layout;
 use crate::rank::History;
 use crate::sim::{Found, Hl, Id, Opened, Req, SimEvent};
 use crate::syn::{Spans, Syn};
-use crate::tree::Entry;
+use crate::tree::{self, Entry};
 use ropey::Rope;
 use si::core::app::{Effect, Event};
 use si::io::file::{self, Saved, why};
 use si::io::journal::{self, NO_STATE, Snapshot};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};
@@ -17,6 +18,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -37,7 +39,7 @@ fn key(path: &Path) -> String {
 /// dead session left for it (SAFE-6) is looked up.
 pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
     if at.is_dir() {
-        return SimEvent::Dir(shown.into());
+        return SimEvent::Dir(id, shown.into());
     }
     let key = key(at);
     let found = state.and_then(|state| {
@@ -47,7 +49,13 @@ pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
         Some(Found(s, file.display().to_string(), age, Instant::now() + MERGE))
     });
     let place = state.and_then(|state| journal::place(state, &key));
-    let file = file::read(&at.to_string_lossy());
+    // A listing shows a name that is not UTF-8 with U+FFFD, and every path in sim is text: that
+    // name is no file, and opening it as a new one would create it under another name (SAFE-8).
+    let file = if shown.contains('\u{fffd}') && !at.exists() {
+        Err("the name is not valid UTF-8, so the file cannot be opened".into())
+    } else {
+        file::read(&at.to_string_lossy())
+    };
     SimEvent::Opened(Opened { id, path: shown.into(), key, file, found, place })
 }
 
@@ -149,11 +157,12 @@ pub fn save_thread(state: Option<PathBuf>, answers: Sender<SimEvent>) -> Sender<
     jobs
 }
 
-/// The entries of a directory. A symlink to a directory counts as one, unless it leads back to
-/// the directory itself or to one above it (a loop); a link that cannot be followed is a file.
+/// The entries of a directory, or why it cannot be read (the panel says which directory, by its
+/// short name, so that a long path never cuts the reason off the status line). A symlink to a
+/// directory counts as one, unless it leads back to the directory itself or to one above it (a
+/// loop); a link that cannot be followed is a file.
 pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
-    let list =
-        fs::read_dir(dir).map_err(|e| format!("cannot read {}: {}", dir.display(), why(&e)))?;
+    let list = fs::read_dir(dir).map_err(|e| why(&e))?;
     let here = fs::canonicalize(dir).ok();
     let is_dir = |e: &fs::DirEntry| match e.file_type() {
         Ok(t) if t.is_symlink() => {
@@ -163,10 +172,12 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
         Ok(t) => t.is_dir(),
         Err(_) => false,
     };
-    Ok(list
+    let entries = list
         .filter_map(Result::ok)
-        .map(|e| Entry { name: e.file_name().to_string_lossy().into_owned(), is_dir: is_dir(&e) })
-        .collect())
+        .map(|e| Entry { name: e.file_name().to_string_lossy().into_owned(), is_dir: is_dir(&e) });
+    let mut entries: Vec<Entry> = entries.collect();
+    tree::sort(&mut entries);
+    Ok(entries)
 }
 
 /// MARK-1: what is said (once) when git is not run because the repository's config could make it
@@ -183,9 +194,9 @@ fn holds_command(key: &[u8]) -> bool {
     let (section, var) = (key.split(|&b| b == b'.').next(), key.rsplit(|&b| b == b'.').next());
     let (section, var) = (section.unwrap_or_default(), var.unwrap_or_default());
     let names = b"driver textconv helper process clean smudge askpass editor pager gitproxy \
-                  hookspath fsmonitor";
+                  hookspath fsmonitor uploadpack receivepack vcs";
     section.len() == key.len()
-        || matches!(section, b"filter" | b"include" | b"includeif")
+        || matches!(section, b"filter" | b"include" | b"includeif" | b"protocol")
         || names.split(|&b| b == b' ').any(|name| name == var)
         || [&b"command"[..], b"cmd", b"program", b"hook"].iter().any(|end| var.ends_with(end))
 }
@@ -214,14 +225,22 @@ fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
         .args(args)
         .current_dir(dir)
         .env("LC_ALL", "C")
+        // Git never fetches for sim: in a partial clone with objects missing a `git status`
+        // would, from the promisor remote, and run what the repository says serves a fetch (its
+        // `uploadpack`, an `ext::` url) or ask for a password on the terminal sim draws on.
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_ALLOW_PROTOCOL", "sim-none")
+        .env("GIT_TERMINAL_PROMPT", "0")
         .output();
-    let out = out.map_err(|e| format!("cannot run git in {}: {}", dir.display(), why(&e)))?;
+    let shown = layout::short(&dir.to_string_lossy(), 30); // (the reason is what matters: it is last)
+    let out = out.map_err(|e| format!("cannot run git in {shown}: {}", why(&e)))?;
     if out.status.success() {
         return Ok(out.stdout);
     }
     let err = String::from_utf8_lossy(&out.stderr);
     let err = err.lines().next().unwrap_or_default();
-    Err(if err.contains("not a git repository") {
+    // (a bare repository, or inside `.git`, has no marks to give: it is no repository to this)
+    Err(if err.contains("not a git repository") || err.contains("must be run in a work tree") {
         format!("not a git repository: {}", dir.display())
     } else {
         format!("git {}: {err}", args[0])
@@ -271,11 +290,15 @@ pub fn git_prefix(dir: &Path) -> Result<String, String> {
 /// home directory must not eat the memory.
 const WALK_MAX: usize = 200_000;
 
-/// The files below `root` without git, relative to it. Links are files, never followed.
-fn walk(root: &Path) -> Vec<String> {
+/// The files below `root` without git, relative to it, at most `max`. Links are files, never
+/// followed.
+pub fn walk(root: &Path, max: usize) -> Vec<String> {
     let (mut out, mut todo) = (vec![], vec![PathBuf::new()]);
-    while let Some(rel) = todo.pop().filter(|_| out.len() < WALK_MAX) {
+    while let Some(rel) = todo.pop() {
         for e in fs::read_dir(root.join(&rel)).into_iter().flatten().flatten() {
+            if out.len() >= max {
+                return out; // (a directory of millions of files is one directory)
+            }
             let path = rel.join(e.file_name());
             match e.file_type() {
                 Ok(t) if t.is_dir() => todo.extend((e.file_name() != ".git").then_some(path)),
@@ -293,10 +316,36 @@ pub fn files(root: &Path) -> Vec<String> {
         let names = out.split(|&b| b == 0).filter(|p| !p.is_empty());
         names.map(|p| String::from_utf8_lossy(p).into_owned()).collect()
     };
-    let mut list = git_files(root).map_or_else(|_| walk(root), listed);
+    let mut list = git_files(root).map_or_else(|_| walk(root, WALK_MAX), listed);
     list.sort_unstable();
     list.dedup();
     list
+}
+
+/// TREE-5: the reads of directories, each in a thread of its own, so two reads of one directory
+/// can end in the other order, and the older one would put a listing that is gone over the new
+/// one. A read takes a ticket when it starts, and its answer is sent only if no read of that
+/// directory that started later has sent its own.
+#[derive(Clone, Default)]
+pub struct Reads(Arc<Mutex<(u64, HashMap<PathBuf, u64>)>>);
+
+impl Reads {
+    pub fn start(&self) -> u64 {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state.0 += 1;
+        state.0
+    }
+
+    /// Runs `send` (under the lock, so that two answers are sent in the order of their tickets)
+    /// unless an answer for `dir` of a later ticket has been sent already.
+    pub fn answer(&self, dir: &Path, ticket: u64, send: impl FnOnce()) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let newest = state.1.entry(dir.to_path_buf()).or_default();
+        if *newest < ticket {
+            *newest = ticket;
+            send();
+        }
+    }
 }
 
 /// A background job that never runs twice at once: a request while it runs is one more run
@@ -336,8 +385,11 @@ pub fn load_history(dir: &Path) -> History {
 /// synced, then renamed over the old one, so the file is always whole.
 pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {
     let fail = |what: &str, e: std::io::Error| {
-        format!("history: cannot {what} {}: {}", dir.display(), why(&e))
+        format!("history: cannot {what} {}: {}", layout::short(&dir.to_string_lossy(), 30), why(&e))
     };
+    if fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(fail("use", io::Error::other("it is a link")));
+    }
     DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(|e| fail("create", e))?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| fail("protect", e))?;
     let tmp = dir.join(format!("history.{}.tmp", std::process::id()));
@@ -376,6 +428,16 @@ fn first_diff(a: &Rope, b: &Rope) -> usize {
 pub struct Highlighter(HashMap<Id, (Option<Syn>, Rope)>);
 
 impl Highlighter {
+    /// How many files it keeps parse states and text for.
+    pub fn files(&self) -> usize {
+        self.0.len()
+    }
+
+    /// The file is closed: its states and the text they were made from are not needed.
+    pub fn forget(&mut self, id: Id) {
+        self.0.remove(&id);
+    }
+
     pub fn run(&mut self, req: Req) -> SimEvent {
         let Req { id, name, ver, text, from, n } = req;
         let line =
@@ -398,20 +460,78 @@ impl Highlighter {
     }
 }
 
+/// What the highlighter's thread is asked: a window to highlight, or to forget a closed file.
+pub enum HlJob {
+    Run(Req),
+    Forget(Id),
+}
+
+/// How long a request may take, besides 100 us for each line it parses from the top of what is
+/// cached: far longer than any parse (a first window 50,000 lines down takes 2.6 s), but not for
+/// ever, which syntect can take (see `highlight_thread_within`).
+pub const HL_BUDGET: Duration = Duration::from_secs(5);
+
+pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<HlJob> {
+    highlight_thread_within(tx, HL_BUDGET)
+}
+
 /// The thread of the highlighter. Of the requests waiting for it, only the newest for each file
-/// is answered: the others are about text that is gone.
-pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<Req> {
-    let (jobs, rx) = mpsc::channel::<Req>();
+/// is answered: the others are about text that is gone. syntect can loop for ever on some text
+/// (5.3 with bat's JavaScript: a regex literal that starts a file or a statement and ends its
+/// line, then a `/*`), so every request runs in a thread of its own that the highlighter waits for
+/// `budget` (and 100 us a line); a request that does not finish is given up: the file is plain
+/// from then on, the user is told once, and the highlighter goes on with a new one for the other
+/// files. The thread that loops stays, busy, until sim ends: nothing in Rust stops a thread.
+pub fn highlight_thread_within(tx: Sender<SimEvent>, budget: Duration) -> Sender<HlJob> {
+    let (jobs, rx) = mpsc::channel::<HlJob>();
     thread::spawn(move || {
-        let mut hl = Highlighter::default();
+        let (mut hl, mut given_up) = (Highlighter::default(), HashSet::<Id>::new());
         while let Ok(first) = rx.recv() {
-            let mut latest = HashMap::from([(first.id, first)]);
-            rx.try_iter().for_each(|r| drop(latest.insert(r.id, r)));
+            let (mut latest, mut closed) = (HashMap::new(), vec![]);
+            for job in std::iter::once(first).chain(rx.try_iter()) {
+                match job {
+                    HlJob::Run(r) => drop(latest.insert(r.id, r)),
+                    HlJob::Forget(id) => closed.push(id),
+                }
+            }
+            closed.iter().for_each(|id| drop(latest.remove(id)));
             for (_, r) in latest {
-                if tx.send(hl.run(r)).is_err() {
+                let (id, ver, name, from, n) = (r.id, r.ver, r.name.clone(), r.from, r.n);
+                let lines = r.text.len_lines();
+                let wait = budget + Duration::from_micros(100) * (from + n).min(1 << 20) as u32;
+                let plain = |lines: usize| {
+                    let spans = vec![Spans::new(); n.min(lines.saturating_sub(from))];
+                    SimEvent::Spans(Hl { id, ver, lines, from, spans })
+                };
+                let answer = if given_up.contains(&id) {
+                    plain(lines)
+                } else {
+                    let (done, finished) = mpsc::channel();
+                    let mut worker = std::mem::take(&mut hl);
+                    thread::spawn(move || {
+                        let ev = worker.run(r);
+                        drop(done.send((worker, ev)));
+                    });
+                    match finished.recv_timeout(wait) {
+                        Ok((back, ev)) => {
+                            hl = back;
+                            ev
+                        }
+                        Err(_) => {
+                            given_up.insert(id);
+                            let why = format!(
+                                "syntax colors stopped for {name}: the highlighter did not finish"
+                            );
+                            drop(tx.send(SimEvent::Notice(why)));
+                            plain(lines)
+                        }
+                    }
+                };
+                if tx.send(answer).is_err() {
                     return;
                 }
             }
+            closed.into_iter().for_each(|id| hl.forget(id));
         }
     });
     jobs

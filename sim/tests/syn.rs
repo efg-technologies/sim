@@ -5,7 +5,7 @@ mod common;
 use common::golden;
 use proptest::prelude::*;
 use sim::paint::Look;
-use sim::syn::{EVERY, Spans, Syn};
+use sim::syn::{EVERY, MAX_LINE, Spans, Syn};
 
 fn lines(text: &str) -> Vec<String> {
     text.lines().map(str::to_string).collect()
@@ -248,6 +248,32 @@ fn syn_3_after_an_edit_the_edited_line_costs_less_than_a_step_of_parsing() {
 }
 
 #[test]
+fn syn_3_a_line_over_the_limit_is_plain_and_not_parsed_and_the_lines_around_it_are_not_hurt() {
+    // The parse time of one line is bounded: a shell heredoc whose word is 100,000 chars took
+    // 5.8 s (release) in the one thread that highlights every file; minified code, a megabyte
+    // on a line, takes seconds at every edit.
+    let long = format!("cat <<{}", "E".repeat(MAX_LINE));
+    assert!(long.len() > MAX_LINE);
+    let text = vec!["if true; then".to_string(), long, "fi # done".to_string()];
+    let mut syn = Syn::new("a.sh", "").unwrap();
+    let all = spans(&mut syn, &text, 0, 3);
+    assert_eq!(syn.parsed, 2, "the long line was not parsed");
+    assert!(all[1].is_empty(), "and is plain");
+    assert_eq!(all[0], [(0..2, Look::Kw), (3..7, Look::Fun), (9..13, Look::Kw)]);
+    assert_eq!(
+        all[2],
+        [(0..2, Look::Kw), (3..9, Look::Com)],
+        "the lines around it have their looks"
+    );
+    // One byte less is parsed.
+    let text = vec![format!("cat <<{}", "E".repeat(MAX_LINE - 6))];
+    spans(&mut Syn::new("a.sh", "").unwrap(), &text, 0, 1);
+    let mut syn = Syn::new("a.sh", "").unwrap();
+    spans(&mut syn, &text, 0, 1);
+    assert_eq!(syn.parsed, 1);
+}
+
+#[test]
 fn syn_3_lines_past_the_end_give_nothing_and_an_empty_window_costs_nothing() {
     let text = big(10);
     let mut syn = Syn::new("a.rs", "").unwrap();
@@ -327,6 +353,33 @@ fn syn_4_the_languages_the_author_uses_daily_have_a_syntax() {
     for file in ["lib.zig", "x.kt", "page.svelte", "flake.nix", "a.json", "x.go", "a.js"] {
         assert!(Syn::new(file, "").is_some(), "{file} has no syntax");
     }
+}
+
+#[test]
+fn syn_4_javascript_is_read_with_typescript_s_syntax_because_the_one_for_javascript_loops() {
+    // bat's "JavaScript" syntax loops for ever in syntect 5.3 with the pure-Rust regex engine on
+    // `x = y /* c */`, a statement without a semicolon that ends in a comment, and has no `.mjs`,
+    // `.cjs` or `.jsx` (bat maps those itself). TypeScript's syntax reads JavaScript, and does not.
+    let name = |file: &str, first: &str| Syn::new(file, first).map(|s| s.name);
+    for file in ["a.js", "a.mjs", "a.cjs", "a.es6", "A.JS"] {
+        assert_eq!(name(file, ""), Some("TypeScript"), "{file}");
+    }
+    assert_eq!(name("a.jsx", ""), Some("TypeScriptReact"));
+    assert_eq!(
+        name("cli", "#!/usr/bin/env node"),
+        Some("TypeScript"),
+        "a first line that names node"
+    );
+    assert_eq!(name("a.ts", ""), Some("TypeScript"));
+    // The text that loops, in a thread that is given up on if it does.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let text = ["x = y /* c */".to_string(), "/".into(), "/".into(), " /*".into()];
+        let mut syn = Syn::new("a.js", "").unwrap();
+        let _ = tx.send(syn.spans(&|i| text.get(i).cloned(), 0, 4));
+    });
+    let spans = rx.recv_timeout(std::time::Duration::from_secs(10)).expect("a.js did not finish");
+    assert!(spans[0].contains(&(6..13, Look::Com)), "{:?}", spans[0]);
 }
 
 #[test]

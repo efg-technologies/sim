@@ -401,6 +401,11 @@ impl Rig {
     }
 }
 
+/// The columns a text takes.
+pub fn width(s: &str) -> usize {
+    unicode_width::UnicodeWidthStr::width(s)
+}
+
 /// A Frame as text: its rows between bars, each followed by one style symbol per column (`.`
 /// Primary, `-` Secondary, `#` Change, `x` Deleted, `_` underlined, blank past the text).
 pub fn dump(f: &Frame) -> String {

@@ -35,12 +35,49 @@ fn tree_5_read_dir_gives_names_and_kinds_dotfiles_and_git_included() {
 }
 
 #[test]
+fn tree_5_read_dir_gives_the_entries_in_the_order_of_the_tree() {
+    // Sorting a directory of 100,000 entries takes 0.8 s (release): it is done by the thread that
+    // reads it, so that the main thread finds the listing in order and only has to see that.
+    let d = temp_dir("io-readdir-order");
+    let names: Vec<String> = (0..40).flat_map(|i| [format!("f{i}"), format!("D{i}.txt")]).collect();
+    make(&d.0, &names.iter().map(String::as_str).collect::<Vec<_>>());
+    make(&d.0, &["z-dir/", "a-dir/"]);
+    let got = io::read_dir(&d.0).unwrap();
+    let mut want = got.clone();
+    sim::tree::sort(&mut want);
+    assert!(got == want, "not in the order of the tree: {:?}", &got[..6]);
+    assert!(got[0].is_dir && got[1].is_dir, "directories first");
+}
+
+#[test]
+fn tree_5_the_answer_of_an_older_read_never_replaces_the_answer_of_a_newer_one() {
+    // Reads run in threads of their own and can end in the other order (a slow disk, a busy
+    // machine): the panel would show a listing that was already out of date.
+    let reads = io::Reads::default();
+    let (a, b) = (Path::new("/p/a"), Path::new("/p/b"));
+    let (old, new, other) = (reads.start(), reads.start(), reads.start());
+    let sent = std::cell::RefCell::new(vec![]);
+    reads.answer(a, new, || sent.borrow_mut().push("a new"));
+    reads.answer(a, old, || sent.borrow_mut().push("a old"));
+    reads.answer(b, other, || sent.borrow_mut().push("b"));
+    assert_eq!(
+        *sent.borrow(),
+        ["a new", "b"],
+        "the old answer is dropped, other directories are free"
+    );
+    let (again, late) = (reads.start(), reads.start());
+    reads.answer(a, again, || sent.borrow_mut().push("a again"));
+    reads.answer(a, late, || sent.borrow_mut().push("a late"));
+    assert_eq!(sent.borrow().len(), 4, "answers in order are all sent");
+}
+
+#[test]
 fn tree_5_read_dir_says_why_it_cannot_read() {
     let d = temp_dir("io-readdir-err");
     make(&d.0, &["file"]);
     let err = io::read_dir(&d.0.join("missing")).unwrap_err();
-    assert!(err.starts_with("cannot read ") && err.contains("missing"), "{err}");
-    assert!(io::read_dir(&d.0.join("file")).unwrap_err().starts_with("cannot read "));
+    assert!(!err.is_empty() && !err.contains("missing"), "the reason, not the path: {err}");
+    assert!(!io::read_dir(&d.0.join("file")).unwrap_err().is_empty());
 }
 
 #[test]
@@ -113,6 +150,10 @@ fn find_3_not_a_repository_is_a_clear_error_and_so_is_a_missing_directory() {
     assert!(err.starts_with("not a git repository: ") && err.contains("io-notrepo"), "{err}");
     let err = io::git_files(&d.0.join("missing")).unwrap_err();
     assert!(err.starts_with("cannot run git in "), "{err}");
+    // A long path is cut from the left, so that the reason fits on the status line.
+    let err = io::git_files(&d.0.join("x".repeat(100))).unwrap_err();
+    assert!(err.starts_with("cannot run git in …"), "{err}");
+    assert!(err.ends_with(": No such file or directory") && err.chars().count() <= 78, "{err}");
 }
 
 // ---- BUF-1: the state directory is si's (SAFE-6) ----

@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
+use proptest::prelude::*;
 use sim::sim::start;
 use std::path::Path;
 
@@ -88,6 +89,95 @@ fn tree_1_names_that_would_do_harm_in_a_terminal_are_never_sent_raw() {
     assert!(r.panel().contains(&"  日本語.md".to_string()));
 }
 
+/// What is not sim's own in the bytes a Painter wrote: a control char other than the ESC that
+/// starts one of its CSI sequences (`ESC [ params final`), a C1 control, a bidirectional control.
+fn foreign(bytes: &[u8]) -> Vec<String> {
+    let (mut bad, mut i) = (vec![], 0);
+    let text = String::from_utf8_lossy(bytes);
+    bad.extend(
+        text.chars()
+            .filter(|c| "\u{202a}\u{202e}\u{2066}\u{2069}\u{200b}\u{feff}".contains(*c))
+            .map(|c| format!("{c:?}")),
+    );
+    while i < bytes.len() {
+        match bytes[i] {
+            0x1b if bytes.get(i + 1) == Some(&b'[') => {
+                let end = bytes[i + 2..].iter().position(|b| (0x40..=0x7e).contains(b));
+                let end = i + 2 + end.unwrap_or(bytes.len());
+                let params = &bytes[i + 2..end.min(bytes.len())];
+                let sgr = bytes.get(end).is_some_and(|f| b"mHKJhlq".contains(f));
+                if !sgr || !params.iter().all(|b| b"0123456789;? ".contains(b)) {
+                    bad.push(format!(
+                        "{:?}",
+                        String::from_utf8_lossy(&bytes[i..=end.min(bytes.len() - 1)])
+                    ));
+                }
+                i = end + 1;
+            }
+            b @ (0..=0x1f | 0x7f) => {
+                bad.push(format!("control {b:#x}"));
+                i += 1;
+            }
+            0xc2 if bytes.get(i + 1).is_some_and(|b| (0x80..=0x9f).contains(b)) => {
+                bad.push("C1 control".into());
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+    bad
+}
+
+#[test]
+fn tree_1_whatever_a_name_holds_the_bytes_written_to_the_terminal_are_sims_own() {
+    // Names with an escape sequence (clear the screen, set the title, a CSI), a line break, a C1
+    // control, the bidirectional controls: through the panel, the search, the status line, a
+    // file opened by name, an error that names a directory, and the narrowed tree.
+    let names = [
+        "esc\x1b[2Jx",
+        "nl\nx",
+        "osc\x1b]0;pwned\x07x",
+        "c1\u{9b}31mx",
+        "rlo\u{202e}txt",
+        "del\x7fx",
+        "zw\u{200b}x",
+        "bom\u{feff}x",
+        "csi\x1b[31m",
+        "日本語\x1b",
+        "cr\r\ny",
+        "tab\tx",
+        "dir\x1b[2J/f",
+    ];
+    let files: Vec<String> = names.iter().map(|n| format!("{n}.txt")).collect();
+    let mut r =
+        rig_sized("t1-bytes", &files.iter().map(String::as_str).collect::<Vec<_>>(), &[], (60, 12));
+    let mut painter = sim::paint::Painter::new(Vec::<u8>::new());
+    let mut check = |r: &Rig, what: &str| {
+        painter.draw(r.shot.clone()).unwrap();
+        let bytes = std::mem::take(&mut painter.out);
+        assert_eq!(foreign(&bytes), Vec::<String>::new(), "after {what}");
+    };
+    check(&r, "the start");
+    for step in [
+        "j", "j", "j", "l", "jjjjj", "<CR>", "<C-n>", "/esc", "<CR>", "<C-p>nl", "<Down>", ":w\n",
+        ":e esc\n", "<Esc>", "<C-n>.", "-", "<Esc>gg", "<Tab>",
+    ] {
+        r.keys(step);
+        check(&r, step);
+    }
+    // A directory that cannot be read is named in the status line.
+    r.keys("<C-n>");
+    std::fs::remove_dir_all(r.cwd.join("dir\x1b[2J")).unwrap();
+    r.keys("<C-n><C-n>");
+    r.keys("kkkkkkkkkkkkkkkk<CR>");
+    check(&r, "an error that names a directory");
+    // The checker itself sees what it is for.
+    assert!(
+        !foreign(b"\x1b[2Jtext\x1b]0;x\x07").is_empty()
+            && foreign(b"\x1b[2;3Hok\x1b[0m").is_empty()
+    );
+}
+
 #[test]
 fn tree_1_the_panel_is_as_wide_as_its_columns_even_with_wide_characters() {
     let r = rig_sized("t1-wide", &["日本語のとても長いファイル名.md", "x.rs"], &[], (60, 8));
@@ -106,6 +196,67 @@ fn tree_1_without_a_file_the_editor_shows_a_help_in_the_secondary_gray() {
     let r = rig_sized("t1-help", &FILES, &[], (60, 10));
     golden("tree_1_help", &dump(&r.screen));
     assert_eq!(r.status(), "docs/  TREE");
+}
+
+#[test]
+fn tree_1_a_name_that_is_not_utf8_is_listed_but_never_opened_as_another_file() {
+    use std::os::unix::ffi::OsStrExt;
+    // (Some file systems, macOS's among them, refuse such a name: there is nothing to test.)
+    let mut r = rig("t1-nonutf8", &["b.txt"], &[]);
+    let name = std::ffi::OsStr::from_bytes(b"a\xff.txt");
+    if std::fs::write(r.cwd.join(name), "mine\n").is_err() {
+        return;
+    }
+    r.keys("<C-n><C-n>"); // (the panel is shut and opened again: the root is read again)
+    assert_eq!(r.panel(), ["  a\u{fffd}.txt", "  b.txt"]);
+    r.keys("k<CR>"); // (the cursor stayed on b.txt)
+    // Every path in sim is text, so the name that was listed is not the file's: opening it would
+    // be a new empty file that a save then creates under a name that is not the file's.
+    assert_eq!(r.open_files(), ["a\u{fffd}.txt"]);
+    assert!(r.app().buf.readonly.is_some(), "so it is read-only, and says why: {}", r.status());
+    assert!(r.status().contains("not valid UTF-8"), "{}", r.status());
+    r.keys("ix<Esc>:w\n");
+    assert!(!r.cwd.join("a\u{fffd}.txt").exists(), "nothing is created under another name");
+    assert_eq!(std::fs::read(r.cwd.join(name)).unwrap(), b"mine\n");
+}
+
+#[test]
+fn tree_1_an_argument_that_is_not_utf8_is_a_usage_error_and_not_a_panic() {
+    use std::os::unix::ffi::OsStrExt;
+    let arg = std::ffi::OsStr::from_bytes(b"a\xff.txt");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_sim")).arg(arg).output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("not valid UTF-8") && !err.contains("panicked"), "{err}");
+    assert_eq!(out.status.code(), Some(2), "a usage error, as for any argument sim cannot use");
+}
+
+/// A name of 60 chars, to build paths that are longer than the screen.
+fn long(n: char) -> String {
+    format!("{}{n}", "d".repeat(59))
+}
+
+#[test]
+fn tree_1_a_long_path_is_cut_from_the_left_and_the_word_tree_stays() {
+    let (a, b) = (long('1'), long('2'));
+    let mut r = rig("t1-long", &[&format!("{a}/{b}/file.txt")], &[]);
+    r.keys("ljl"); // the first directory, the second, open
+    assert_eq!(r.status(), format!("…/{b}/  TREE"), "a directory");
+    r.keys("j");
+    assert_eq!(r.status(), format!("…/{b}/file.txt  TREE"));
+    assert!(width(r.status()) <= 80, "{}", r.status());
+    let narrow = rig_sized("t1-narrow", &[&format!("{a}/file.txt")], &[], (30, 6));
+    assert_eq!(narrow.status(), format!("…{}/  TREE", &a[a.len() - 22..]), "cut inside a name");
+    assert_eq!(width(narrow.status()), 30, "{}", narrow.status());
+}
+
+#[test]
+fn tree_1_with_no_file_open_and_no_focus_the_root_is_cut_from_the_left() {
+    let mut r = rig_sized("t1-root", &["a"], &[], (20, 6));
+    r.keys("<Esc>");
+    let root = r.sim.root.to_string_lossy().into_owned();
+    let status = r.status().to_string();
+    assert!(root.len() > 20 && status.starts_with('…') && width(&status) <= 20, "{status}");
+    assert!(root.ends_with(&status['…'.len_utf8()..]), "{status} is the end of {root}");
 }
 
 #[test]
@@ -345,17 +496,13 @@ fn tree_5_the_cursor_stays_on_its_entry_when_rows_arrive_above_it() {
 
 #[test]
 fn tree_5_a_directory_that_cannot_be_read_says_why_and_stays_empty() {
-    // Wide, so that the status line shows the whole path however long the temp directory is
-    // (macOS's is 50 characters, and the message would be cut before the name).
-    let mut r = rig_sized("t5-fail", &["gone/x", "f"], &[], (200, 24));
+    let mut r = rig("t5-fail", &["gone/x", "f"], &[]);
     std::fs::remove_dir_all(r.cwd.join("gone")).unwrap();
     r.keys("l");
     assert_eq!(r.panel(), ["▾ gone/", "  f"]);
-    assert!(
-        r.status().starts_with("cannot read ") && r.status().contains("gone"),
-        "{}",
-        r.status()
-    );
+    // The name is the panel's (below the root), so a long temp directory (macOS's is 50
+    // characters) never cuts the reason off the status line.
+    assert_eq!(r.status(), "cannot read gone: No such file or directory");
 }
 
 #[test]
@@ -407,4 +554,41 @@ fn tree_2_a_notice_from_a_thread_is_told_on_the_status_line_until_the_next_key()
     assert_eq!(r.status(), "cannot write snapshots: disk full");
     r.keys("j");
     assert_eq!(r.status(), "f.txt  TREE");
+}
+
+proptest! {
+    #[test]
+    fn tree_1_a_cut_text_fits_and_is_the_end_of_the_text(
+        text in "[a-z/日本é\u{200d}\u{1f600}]{0,40}",
+        max in 0..45usize,
+    ) {
+        let (cut, whole) = (sim::layout::tail(&text, max), width(&text));
+        prop_assert!(width(&cut) <= max, "{cut:?} in {max}");
+        if whole <= max {
+            prop_assert_eq!(&cut, &text);
+        } else if max > 0 {
+            let rest = cut.strip_prefix('…').unwrap_or("");
+            prop_assert!(cut.starts_with('…') && text.ends_with(rest), "{cut:?} of {text:?}");
+        }
+    }
+
+    #[test]
+    fn tree_1_a_path_made_to_fit_ends_as_the_path_does_and_the_state_words_stay(
+        path in "[a-z/日本é\u{200d}\u{1f600}]{0,40}",
+        max in 0..45usize,
+    ) {
+        // si's `shorten` keeps the last components (`…/dir/file`); a name wider than the room is cut.
+        let short = sim::layout::short(&path, max);
+        prop_assert!(width(&short) <= max, "{short:?} in {max}");
+        let last = path.rsplit('/').find(|c| !c.is_empty()).unwrap_or("");
+        if width(&path) > max && max > 3 + width(last) {
+            prop_assert!(short.starts_with("…/") && short.ends_with(last), "{short:?} of {path:?}");
+        }
+        // The state words are never cut: `stated` keeps them whole while there is room for them.
+        let line = sim::layout::stated(&path, "  TREE", max);
+        prop_assert!(width(&line) <= max);
+        if max >= 6 {
+            prop_assert!(line.ends_with("  TREE"), "{line:?} in {max}");
+        }
+    }
 }
