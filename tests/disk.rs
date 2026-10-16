@@ -385,11 +385,29 @@ fn prop_1_the_app_asks_to_watch_the_file_it_has() {
     feed(&mut a, "ihi\x1b:w new.txt\n");
     let fx = a.update(Event::Saved(Ok((hash(b"hi\n"), None)), 0));
     assert_eq!(watched(&fx).as_deref(), Some("new.txt"));
-    // A refused `:e` (edited meanwhile) keeps the file it had.
+    // The shell silences the watcher when an `:e` begins to read (PROP-1), so every answer, also a
+    // refused one, is followed by a watch of the file the buffer has: here the one it keeps.
     let mut a = named("one\n");
     feed(&mut a, ":e other.txt\nx");
     let fx = a.update(Event::Opened("other.txt".into(), Ok(Some(b"x\n".to_vec())), 0));
+    assert_eq!(watched(&fx).as_deref(), Some("f"), "edited meanwhile");
+    let mut a = named("one\n");
+    feed(&mut a, ":e other.txt\n");
+    a.update(Event::Disk { bytes: Some(b"new\n".to_vec()), hash: None, deadline: far(), seq: 9 });
+    let fx = a.update(Event::Opened("f".into(), Ok(Some(b"one\n".to_vec())), 1));
+    assert_eq!(
+        watched(&fx).as_deref(),
+        Some("f"),
+        "a read of the same file older than a newer one"
+    );
+    // An unnamed buffer has nothing to watch, and an answer nobody asked for is followed by a watch too.
+    let mut a = app("");
+    feed(&mut a, ":e other.txt\nihi\x1b");
+    let fx = a.update(Event::Opened("other.txt".into(), Ok(Some(b"x\n".to_vec())), 0));
     assert_eq!(watched(&fx), None);
+    let mut a = named("one\n");
+    let fx = a.update(Event::Opened("other.txt".into(), Ok(Some(b"x\n".to_vec())), 0));
+    assert_eq!(watched(&fx).as_deref(), Some("f"));
 }
 
 // ---------------------------------------------------------------------------------------------

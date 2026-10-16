@@ -13,6 +13,7 @@ use signal_hook::consts::{SIGHUP, SIGTERM, SIGWINCH};
 use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -40,18 +41,24 @@ fn filter_done(tx: &Sender<Event>, status: Option<i32>, out: Vec<u8>, err: Vec<u
     drop(tx.send(Event::FilterDone(status, out, err, Instant::now() + MERGE)));
 }
 
+/// A watcher, and the switch that silences it (PROP-1).
+type Watching = (RecommendedWatcher, Arc<AtomicBool>);
+
 /// Watches `path` (PROP-1) from now on. The deadline of each change is stamped when the watcher
 /// reads the file, since the core reads no clock (PROP-7). With `first`, the watcher thread also
 /// reads the file once at the start (never the main thread, P3).
-fn watching(tx: &Sender<Event>, path: &str, first: bool) -> Option<RecommendedWatcher> {
-    let t = tx.clone();
+fn watching(tx: &Sender<Event>, path: &str, first: bool) -> Option<Watching> {
+    let (t, live) = (tx.clone(), Arc::new(AtomicBool::new(true)));
+    let on_ = live.clone();
     // The hash is made here, on the watcher's thread, so that no key waits for it (P3).
     let on = move |seq: u64, bytes: Option<Vec<u8>>| {
         let hash = bytes.as_deref().map(si::core::buffer::hash);
-        drop(t.send(Event::Disk { bytes, hash, deadline: Instant::now() + MERGE, seq }));
+        let ev = Event::Disk { bytes, hash, deadline: Instant::now() + MERGE, seq };
+        on_.load(SeqCst).then(|| drop(t.send(ev)));
     };
     watch(&file::resolve(path), on, first)
         .inspect_err(|e| drop(tx.send(Event::Notice(format!("cannot watch {path}: {e}")))))
+        .map(|w| (w, live))
         .ok()
 }
 
@@ -222,6 +229,9 @@ fn main() -> ExitCode {
                     });
                 }
                 Effect::Open(path) => {
+                    // The watcher of the file being left goes quiet before the read's number is
+                    // taken: what it says later began earlier, and App drops it (PROP-1).
+                    watcher.iter().for_each(|(_, live)| live.store(false, SeqCst));
                     let seq = file::seq(); // taken before the read starts
                     drop(tx.send(Event::Opened(path.clone(), read(&path), seq)));
                     drop(jobs.send(Effect::Open(path)));
