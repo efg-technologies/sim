@@ -385,8 +385,11 @@ pub fn load_history(dir: &Path) -> History {
 /// synced, then renamed over the old one, so the file is always whole.
 pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {
     let fail = |what: &str, e: std::io::Error| {
-        format!("history: cannot {what} {}: {}", dir.display(), why(&e))
+        format!("history: cannot {what} {}: {}", layout::tail(&dir.to_string_lossy(), 30), why(&e))
     };
+    if fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(fail("use", io::Error::other("it is a link")));
+    }
     DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(|e| fail("create", e))?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| fail("protect", e))?;
     let tmp = dir.join(format!("history.{}.tmp", std::process::id()));
