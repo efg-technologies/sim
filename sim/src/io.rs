@@ -419,6 +419,16 @@ fn first_diff(a: &Rope, b: &Rope) -> usize {
 pub struct Highlighter(HashMap<Id, (Option<Syn>, Rope)>);
 
 impl Highlighter {
+    /// How many files it keeps parse states and text for.
+    pub fn files(&self) -> usize {
+        self.0.len()
+    }
+
+    /// The file is closed: its states and the text they were made from are not needed.
+    pub fn forget(&mut self, id: Id) {
+        self.0.remove(&id);
+    }
+
     pub fn run(&mut self, req: Req) -> SimEvent {
         let Req { id, name, ver, text, from, n } = req;
         let line =
@@ -441,20 +451,33 @@ impl Highlighter {
     }
 }
 
+/// What the highlighter's thread is asked: a window to highlight, or to forget a closed file.
+pub enum HlJob {
+    Run(Req),
+    Forget(Id),
+}
+
 /// The thread of the highlighter. Of the requests waiting for it, only the newest for each file
 /// is answered: the others are about text that is gone.
-pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<Req> {
-    let (jobs, rx) = mpsc::channel::<Req>();
+pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<HlJob> {
+    let (jobs, rx) = mpsc::channel::<HlJob>();
     thread::spawn(move || {
         let mut hl = Highlighter::default();
         while let Ok(first) = rx.recv() {
-            let mut latest = HashMap::from([(first.id, first)]);
-            rx.try_iter().for_each(|r| drop(latest.insert(r.id, r)));
+            let (mut latest, mut closed) = (HashMap::new(), vec![]);
+            for job in std::iter::once(first).chain(rx.try_iter()) {
+                match job {
+                    HlJob::Run(r) => drop(latest.insert(r.id, r)),
+                    HlJob::Forget(id) => closed.push(id),
+                }
+            }
+            closed.iter().for_each(|id| drop(latest.remove(id)));
             for (_, r) in latest {
                 if tx.send(hl.run(r)).is_err() {
                     return;
                 }
             }
+            closed.into_iter().for_each(|id| hl.forget(id));
         }
     });
     jobs
