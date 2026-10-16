@@ -464,6 +464,31 @@ prop_1_an_external_edit_appears_and_is_marked() {
   gone "1 change on disk"
 }
 
+prop_1_a_file_left_by_e_is_not_merged_into_the_one_opened() {
+  printf 'one\ntwo\n' > "$CASE_DIR/f"
+  printf 'other\nfile\n' > "$CASE_DIR/g"
+  start f
+  wait_for "f  1:1  NORMAL"
+  # f is rewritten every few milliseconds, so the old watcher always has a read on its way when :e runs
+  (
+    i=0
+    while [ "$i" -lt 300 ]; do
+      printf 'rewritten %s\n' "$i" > "$CASE_DIR/f"
+      i=$((i + 1))
+      sleep 0.01
+    done
+  ) &
+  writer=$!
+  sleep 0.2
+  typed ':e g'
+  keys Enter
+  wait_for "g  1:1  NORMAL"
+  sleep 0.5
+  screen | grep -F -q "other"
+  if screen | grep -F -q "rewritten"; then fail "f's text was merged into g's buffer"; fi
+  wait "$writer"
+}
+
 prop_2_a_conflicting_external_edit_becomes_a_proposal_and_loses_nothing() {
   printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
   start f
