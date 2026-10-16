@@ -50,6 +50,28 @@ fn tree_5_read_dir_gives_the_entries_in_the_order_of_the_tree() {
 }
 
 #[test]
+fn tree_5_the_answer_of_an_older_read_never_replaces_the_answer_of_a_newer_one() {
+    // Reads run in threads of their own and can end in the other order (a slow disk, a busy
+    // machine): the panel would show a listing that was already out of date.
+    let reads = io::Reads::default();
+    let (a, b) = (Path::new("/p/a"), Path::new("/p/b"));
+    let (old, new, other) = (reads.start(), reads.start(), reads.start());
+    let sent = std::cell::RefCell::new(vec![]);
+    reads.answer(a, new, || sent.borrow_mut().push("a new"));
+    reads.answer(a, old, || sent.borrow_mut().push("a old"));
+    reads.answer(b, other, || sent.borrow_mut().push("b"));
+    assert_eq!(
+        *sent.borrow(),
+        ["a new", "b"],
+        "the old answer is dropped, other directories are free"
+    );
+    let (again, late) = (reads.start(), reads.start());
+    reads.answer(a, again, || sent.borrow_mut().push("a again"));
+    reads.answer(a, late, || sent.borrow_mut().push("a late"));
+    assert_eq!(sent.borrow().len(), 4, "answers in order are all sent");
+}
+
+#[test]
 fn tree_5_read_dir_says_why_it_cannot_read() {
     let d = temp_dir("io-readdir-err");
     make(&d.0, &["file"]);

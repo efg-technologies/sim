@@ -18,6 +18,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -313,6 +314,32 @@ pub fn files(root: &Path) -> Vec<String> {
     list.sort_unstable();
     list.dedup();
     list
+}
+
+/// TREE-5: the reads of directories, each in a thread of its own, so two reads of one directory
+/// can end in the other order, and the older one would put a listing that is gone over the new
+/// one. A read takes a ticket when it starts, and its answer is sent only if no read of that
+/// directory that started later has sent its own.
+#[derive(Clone, Default)]
+pub struct Reads(Arc<Mutex<(u64, HashMap<PathBuf, u64>)>>);
+
+impl Reads {
+    pub fn start(&self) -> u64 {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state.0 += 1;
+        state.0
+    }
+
+    /// Runs `send` (under the lock, so that two answers are sent in the order of their tickets)
+    /// unless an answer for `dir` of a later ticket has been sent already.
+    pub fn answer(&self, dir: &Path, ticket: u64, send: impl FnOnce()) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let newest = state.1.entry(dir.to_path_buf()).or_default();
+        if *newest < ticket {
+            *newest = ticket;
+            send();
+        }
+    }
 }
 
 /// A background job that never runs twice at once: a request while it runs is one more run
