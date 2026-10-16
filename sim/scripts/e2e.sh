@@ -168,7 +168,10 @@ run_one() {
           echo "---------------------------"
         fi
         panes=$(tm list-panes -a -F "#{pane_pid}" 2> /dev/null || true)
+        sock=$(tm display-message -p "#{socket_path}" 2> /dev/null || true)
         tm kill-server 2> /dev/null || true
+        # tmux leaves its socket behind when the server is killed: one file for every case, for ever
+        rm -f "${sock:-${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$SOCKET}"
         # sim saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
         for pid in $panes; do
           tries=100
