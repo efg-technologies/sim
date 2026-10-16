@@ -205,7 +205,7 @@ impl App {
     }
 
     pub fn update(&mut self, ev: Event) -> Vec<Effect> {
-        let answer = matches!(ev, Event::Saved(..) | Event::SaveConflict(..));
+        let answer = matches!(ev, Event::Saved(..) | Event::SaveConflict(..) | Event::Opened(..));
         match ev {
             Event::Tick(now) => {
                 self.tick = now;
@@ -255,21 +255,16 @@ impl App {
             Event::Disk { seq, .. } if self.stale(seq) => {}
             Event::Disk { bytes, hash, deadline, .. } => self.disk(bytes, hash, deadline),
             Event::Notice(m) => self.say(m),
-            Event::Opened(path, file, seq) => {
-                match self.opening.pop_front() {
-                    None => {}
-                    Some(v) if v != self.buf.version() => self.say("not opened: edited meanwhile"),
-                    Some(_) if self.filter.is_some() => self.say("not opened: a filter is running"),
-                    // The same file, read before something newer was taken in: the load would undo it.
-                    Some(_) if self.stale(seq) && self.path.as_deref() == Some(path.as_str()) => {
-                        self.say("not opened: the file changed meanwhile (:e! again)")
-                    }
-                    Some(_) => self.load(Some(path), file),
+            Event::Opened(path, file, seq) => match self.opening.pop_front() {
+                None => {}
+                Some(v) if v != self.buf.version() => self.say("not opened: edited meanwhile"),
+                Some(_) if self.filter.is_some() => self.say("not opened: a filter is running"),
+                // The same file, read before something newer was taken in: the load would undo it.
+                Some(_) if self.stale(seq) && self.path.as_deref() == Some(path.as_str()) => {
+                    self.say("not opened: the file changed meanwhile (:e! again)")
                 }
-                // The shell silenced the watcher when it began to read: the buffer's file is watched
-                // afresh, the one just loaded or the one it keeps (PROP-1).
-                self.fx.extend(self.path.clone().map(Effect::Watch));
-            }
+                Some(_) => self.load(Some(path), file),
+            },
             Event::Recover(base, text, ms, file, by) => self.recover(&base, &text, ms, &file, by),
             Event::FilterDone(status, out, err, by) => self.filter_done(status, &out, &err, by),
             Event::Place(path, line, col) => self.resume(&path, line, col),
@@ -278,7 +273,9 @@ impl App {
         // The snapshots go when the buffer is clean again, and before we quit (a signal keeps them).
         if answer {
             // What the watcher said while the save was in flight cannot be ordered against its rename:
-            // the shell reads the file once more, and `Watch` does (PROP-1).
+            // the shell reads the file once more, and `Watch` does (PROP-1). It silenced the watcher
+            // when an `:e` began to read, so an answer to that is followed by a watch as well, of the
+            // file just loaded or the one the buffer keeps.
             self.fx.extend(self.path.clone().map(Effect::Watch));
         }
         if self.buf.hunks.is_empty() && self.vi.mode == Mode::Review {
