@@ -68,7 +68,12 @@ fn e2e_panic() {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
+    // (`env::args` panics on an argument that is not UTF-8; every path in sim is text)
+    let args: Option<Vec<String>> = env::args_os().skip(1).map(|a| a.into_string().ok()).collect();
+    let Some(args) = args else {
+        eprintln!("sim: a file name that is not valid UTF-8 cannot be opened\n{USAGE}");
+        return ExitCode::from(2);
+    };
     let cwd = env::current_dir().unwrap_or_default();
     let Some(mut s) = start(&args, &cwd, |f| std::path::Path::new(f).exists(), |d| d.is_dir())
     else {

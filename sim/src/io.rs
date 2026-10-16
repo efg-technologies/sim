@@ -48,7 +48,13 @@ pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
         Some(Found(s, file.display().to_string(), age, Instant::now() + MERGE))
     });
     let place = state.and_then(|state| journal::place(state, &key));
-    let file = file::read(&at.to_string_lossy());
+    // A listing shows a name that is not UTF-8 with U+FFFD, and every path in sim is text: that
+    // name is no file, and opening it as a new one would create it under another name (SAFE-8).
+    let file = if shown.contains('\u{fffd}') && !at.exists() {
+        Err("the name is not valid UTF-8, so the file cannot be opened".into())
+    } else {
+        file::read(&at.to_string_lossy())
+    };
     SimEvent::Opened(Opened { id, path: shown.into(), key, file, found, place })
 }
 
