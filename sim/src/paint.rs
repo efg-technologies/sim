@@ -6,6 +6,7 @@ use crate::color::{Syntax, fade};
 use si::core::color::{Palette, Rgb};
 use si::core::view::{Frame, Row, Shape, Style, width};
 use si::io::term::{self, sgr as base};
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::ops::Range;
 
@@ -42,11 +43,12 @@ pub type Looks = Vec<(Range<u16>, Look)>;
 /// What a run of cells has beside its style and look (LOOK-2 to LOOK-7): colors of its own, which
 /// `layout` has worked out from the palette (a tint behind the text, the color of a box's line),
 /// and how far its text fades toward the page, in percent.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Paint {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
     pub fade: u8,
+    pub bold: bool,
 }
 
 /// Column ranges of a row and their paints; the first range a column is in decides.
@@ -107,6 +109,7 @@ fn sgr(
             Style::Change => None,
         }),
     };
+    s += ["", ";1"][usize::from(paint.bold)];
     if let Some((r, g, b)) = paint.bg {
         s += &format!(";48;2;{r};{g};{b}");
     }
@@ -126,6 +129,7 @@ fn paint(
     row: &Row,
     (looks, paints): (&Looks, &[(Range<u16>, Paint)]),
     (pal, syn): (Option<Palette>, &Syntax),
+    memo: &mut Memo,
 ) {
     let (mut now, mut col) = (None, 0u16);
     let cs: Vec<char> = row.text.chars().collect();
@@ -136,7 +140,12 @@ fn paint(
         let look = looks.iter().find(|(r, _)| r.contains(&col)).map(|l| l.1);
         let by = paints.iter().find(|(r, _)| r.contains(&col)).map(|p| p.1).unwrap_or_default();
         if now != Some((style, underline, look, by)) {
-            b.extend(sgr(style, underline, look, by, pal, syn).as_bytes());
+            let key = (style as u8, underline, look.map(|l| l as u8), by);
+            b.extend(
+                memo.entry(key)
+                    .or_insert_with(|| sgr(style, underline, look, by, pal, syn))
+                    .as_bytes(),
+            );
             now = Some((style, underline, look, by));
         }
         b.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
@@ -144,17 +153,22 @@ fn paint(
     }
 }
 
+/// The SGR sequences already made, by style, underline, look and paint: a screen has few of them,
+/// and a row asks for dozens.
+type Memo = HashMap<(u8, bool, Option<u8>, Paint), String>;
+
 /// Draws Screens, rewriting only the rows that differ from the previous one (si's `Term::draw`
 /// with looks).
 pub struct Painter<W: Write> {
     pub out: W,
     prev: Option<Screen>,
     shape: Option<Shape>,
+    memo: Memo,
 }
 
 impl<W: Write> Painter<W> {
     pub fn new(out: W) -> Painter<W> {
-        Painter { out, prev: None, shape: None }
+        Painter { out, prev: None, shape: None, memo: Memo::new() }
     }
 
     /// Writes bytes of the terminal's own (the clipboard, the color query) between two frames.
@@ -174,6 +188,7 @@ impl<W: Write> Painter<W> {
             b.extend(b"\x1b[?2026h");
         }
         if same.is_none() {
+            self.memo.clear(); // (the palette or the syntax colors may be new)
             b.extend(b"\x1b[2J");
         }
         for (i, row) in f.rows.iter().enumerate() {
@@ -187,7 +202,7 @@ impl<W: Write> Painter<W> {
                 continue;
             }
             write!(b, "\x1b[{};1H", i + 1)?;
-            paint(&mut b, row, (&s.looks[i], paints), (f.pal, &s.syn));
+            paint(&mut b, row, (&s.looks[i], paints), (f.pal, &s.syn), &mut self.memo);
             b.extend(b"\x1b[0m\x1b[K");
         }
         write!(b, "\x1b[{};{}H", f.cursor.1 + 1, f.cursor.0 + 1)?;

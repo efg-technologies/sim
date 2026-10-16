@@ -307,27 +307,28 @@ fn look_2_what_comes_is_green_what_goes_red_and_the_gutter_says_which() {
 }
 
 #[test]
-fn look_2_a_proposal_is_a_neutral_row_with_the_words_it_would_replace_on_red() {
-    // Outside REVIEW the rows of a hunk are mine, with the words a proposal would replace marked.
-    let r = conflicted("l2-hunk", Skin::Flat, (80, 24));
+fn look_2_a_proposal_is_like_a_mark_outside_review_and_a_neutral_hunk_in_it() {
+    // Outside REVIEW the rows of a hunk are mine, with the words a proposal would replace on the
+    // change style: green and a tint of a gain, as a mark's; in REVIEW they are a hunk's, neutral.
+    let mut r = conflicted("l2-hunk", Skin::Depth, (80, 24));
     let (g, t) = (r.sim.geo(), tones());
     assert_eq!(r.app().vi.mode, Mode::Normal);
     let y = row_of(&r, "n two()");
     assert_eq!(text(&r, y).chars().nth(usize::from(g.ex)), Some('~'));
-    assert_eq!(bg_at(&r.shot.paints[y], g.ex), Some(t.add), "`~` is on green, as for a mark");
+    assert_eq!(ink_at(&r, y, g.ex).0, Some(t.add), "`~` is on green");
     let words: Vec<u16> =
         (g.ex + 5..g.ex + g.ew).filter(|&x| style_at(&r, y, x) == Some(Style::Change)).collect();
     assert!(
         !words.is_empty()
-            && words.iter().all(|&x| ink_at(&r, y, x) == (Some(t.del), Some(t.del_text))),
-        "{:?}",
-        r.shot.paints[y]
+            && words.iter().all(|&x| ink_at(&r, y, x) == (Some(t.add), Some(t.add_text)))
     );
-    let rest = g.ex + g.ew - 1;
-    assert_eq!(bg_at(&r.shot.paints[y], rest), Some(t.hunk), "the row is neutral: it holds both");
-    // The other hunk is the same: neutral at the end of its row.
-    let o = row_of(&r, "n five");
-    assert_eq!(bg_at(&r.shot.paints[o], g.ex + g.ew - 1), Some(t.hunk));
+    assert_eq!(bg_at(&r.shot.paints[y], g.ex + g.ew - 1), Some(t.gain));
+    r.keys("]c");
+    assert_eq!(r.app().vi.mode, Mode::Review);
+    let y = usize::from(r.shot.frame.cursor.1);
+    assert_eq!(bg_at(&r.shot.paints[y], g.ex + g.ew - 1), Some(t.card), "the hunk being decided");
+    let o = row_of(&r, "FIVE");
+    assert_eq!(bg_at(&r.shot.paints[o], g.ex + g.ew - 1), Some(t.hunk), "the other one");
 }
 // ---- LOOK-3: the boxes ----
 
@@ -401,12 +402,8 @@ fn look_3_the_borders_carry_the_numbers_the_titles_and_the_badge() {
     // The number is the secondary gray in the focused box and dimmed in the other; the title is bold.
     assert_eq!(paint_at(&r.shot.paints[0], g.ex + 1).fg, Some(t.focus));
     assert_eq!(paint_at(&r.shot.paints[0], 2).fg, Some(t.dim));
-    assert!(
-        r.shot.looks[0].iter().any(|(s, l)| *l == Look::Bold && s.start == g.ex + 2),
-        "{:?}",
-        r.shot.looks[0]
-    );
-    assert!(r.shot.looks[0].iter().any(|(s, l)| *l == Look::Bold && s.start == 3));
+    assert!(paint_at(&r.shot.paints[0], g.ex + 2).bold && paint_at(&r.shot.paints[0], 3).bold);
+    assert!(!paint_at(&r.shot.paints[0], g.ex + 1).bold, "the number is not");
     // The panel has the focus: the other way round.
     r.keys("<C-n>");
     assert_eq!(paint_at(&r.shot.paints[0], 0).fg, Some(t.focus));
@@ -453,16 +450,14 @@ fn look_3_review_shows_which_hunk_and_the_keys_in_the_borders() {
         bottom.contains("╰─ REVIEW  y accept  n reject  Y all  N none  Esc back ─"),
         "{bottom}"
     );
-    // Letters are primary and bold, words secondary: the words by style, the letters by none.
+    // Letters are primary and bold (no color of their own), words secondary.
     let col = |s: &str| bottom.find(s).map(|i| bottom[..i].chars().count() as u16).unwrap();
     let (y, accept) = (col(" y accept"), col(" accept"));
-    assert_eq!(style_at(&r, 22, y + 1), None);
-    assert!(
-        r.shot.looks[22].iter().any(|(s, l)| *l == Look::Bold && s.contains(&(y + 1))),
-        "{:?}",
-        r.shot.looks[22]
+    assert_eq!(paint_at(&r.shot.paints[22], y + 1), Paint { bold: true, ..Paint::default() });
+    assert_eq!(
+        paint_at(&r.shot.paints[22], accept + 1),
+        Paint { fg: Some(t.focus), ..Paint::default() }
     );
-    assert_eq!(style_at(&r, 22, accept + 1), Some(Style::Secondary));
     assert_eq!(paint_at(&r.shot.paints[22], g.ex).fg, Some(t.focus));
     // i is the hunk REVIEW is on.
     r.keys("]c");
@@ -653,10 +648,8 @@ fn look_5_review_raises_the_hunk_being_decided_as_a_card() {
         dn.chars().skip(usize::from(text0)).take(usize::from(g.ew - 5)).collect::<String>(),
         "▀".repeat(usize::from(g.ew - 5))
     );
-    assert!(
-        (text0..g.ex + g.ew).all(|x| paint_at(rows_of(y + 1), x)
-            == Paint { fg: Some(t.card), bg: Some(t.shadow), fade: 0 })
-    );
+    assert!((text0..g.ex + g.ew).all(|x| paint_at(rows_of(y + 1), x)
+        == Paint { fg: Some(t.card), bg: Some(t.shadow), ..Paint::default() }));
     assert!(
         text(&r, y - 1).chars().skip(usize::from(g.ex)).take(5).all(|c| c == ' '),
         "the gutter of a half row is blank"
@@ -777,6 +770,107 @@ fn look_6_rows_of_other_changes_never_fade_and_context_keeps_its_syntax_colors()
     }
 }
 
+#[test]
+fn look_6_the_text_fades_by_its_distance_from_the_cursor_row_and_changes_and_the_status_line_do_not()
+ {
+    let src: String = (0..60).map(|i| format!("let x{i} = {i};\n")).collect();
+    let mut r = looked("l6-grad", Skin::Depth, &[&format!("a.rs={src}")], (80, 24));
+    r.keys("<CR>30G");
+    let g = r.sim.geo();
+    let edge = g.ex..g.ex + g.ew;
+    let fades = |r: &Rig| -> Vec<u8> {
+        (1..=usize::from(g.rows)).map(|y| fade_over(r, y, edge.clone())).collect()
+    };
+    let crow = usize::from(r.shot.frame.cursor.1 - g.y0);
+    for (i, f) in fades(&r).into_iter().enumerate() {
+        assert_eq!(f, ramp(i.abs_diff(crow), 3.0, 24.0, 0.45), "row {i}, the cursor on {crow}");
+        // the line numbers are faded with the text
+        assert_eq!(paint_at(&r.shot.paints[i + 1], g.ex + 1).fade, f);
+    }
+    assert!(fades(&r).iter().any(|&f| f >= 15), "{:?}", fades(&r));
+    // The borders, the ruler and the status line are not.
+    assert!(r.shot.paints[0].iter().all(|(_, p)| p.fade == 0));
+    assert!(r.shot.paints[usize::from(g.rows) + 1].iter().all(|(_, p)| p.fade == 0));
+    assert!(r.shot.paints[23].is_empty());
+    assert!(
+        r.shot.paints[1].iter().filter(|(rg, _)| rg.start >= g.ex + g.ew).all(|(_, p)| p.fade == 0)
+    );
+    // The distance is from the cursor: at the top of the file the fade grows down the screen.
+    r.keys("gg");
+    let top = fades(&r);
+    assert_eq!(top, (0..usize::from(g.rows)).map(|i| ramp(i, 3.0, 24.0, 0.45)).collect::<Vec<_>>());
+    // On the command line the cursor is in the status row, and the fade stays where it was.
+    r.keys(":");
+    assert_eq!(r.app().vi.mode, Mode::Cmd);
+    assert_eq!(fades(&r), top);
+    r.keys("<Esc>");
+    // Flat and calm have no fog.
+    for skin in [Skin::Flat, Skin::Calm] {
+        let mut f = looked("l6-grad-flat", skin, &[&format!("a.rs={src}")], (80, 24));
+        f.keys("<CR>30G");
+        assert!(f.shot.paints.iter().flatten().all(|(_, p)| p.fade == 0), "{skin:?}");
+    }
+}
+
+#[test]
+fn look_6_a_row_of_a_change_does_not_fade_however_far_it_is_from_the_cursor() {
+    let src: String = (0..40).map(|i| format!("let x{i} = {i};\n")).collect();
+    let mut r = looked("l6-change", Skin::Depth, &[&format!("a.rs={src}")], (80, 24));
+    r.keys("<CR>");
+    let id = r.sim.bufs[0].id;
+    let new = src.replace("let x15 = 15;", "let x15 = 99;");
+    r.send(SimEvent::App(id, disk(new.as_bytes())));
+    r.keys("gg");
+    let g = r.sim.geo();
+    let y = row_of(&r, "x15 = 99");
+    assert_eq!(y, 1 + 15);
+    assert!(r.shot.paints[y].iter().all(|(_, p)| p.fade == 0), "{:?}", r.shot.paints[y]);
+    let (above, below) =
+        (fade_over(&r, y - 1, g.ex..g.ex + g.ew), fade_over(&r, y + 1, g.ex..g.ex + g.ew));
+    assert_eq!((above, below), (ramp(14, 3.0, 24.0, 0.45), ramp(16, 3.0, 24.0, 0.45)));
+    assert!(above > 0);
+}
+
+#[test]
+fn look_6_the_preview_of_a_search_is_drawn_in_the_editor_box_and_the_results_in_the_panels() {
+    let files = [
+        "a.txt=alpha needle\nbeta\n",
+        "sub/b.txt=gamma\nneedle again and Needle\n",
+        "c.txt=nothing here\n",
+    ];
+    let mut r = looked("l6-live", Skin::Depth, &files, (100, 24));
+    r.keys("<C-f>needle");
+    let g = r.sim.geo();
+    assert_eq!(r.status(), "/needle  2 matches in 2 files");
+    // The boxes are whole, and the results are in the panel's: a file, its line, the next file.
+    for y in 0..=22 {
+        assert_eq!(width(text(&r, y)), 100, "row {y}: {}", text(&r, y));
+    }
+    let panel = |y: usize| -> String {
+        text(&r, y).chars().skip(1).take(usize::from(g.pw)).collect::<String>().trim().to_string()
+    };
+    assert_eq!((panel(1).as_str(), panel(2).as_str()), ("a.txt  1", "1  alpha needle"));
+    assert_eq!(panel(3), "sub/b.txt  1");
+    assert!(text(&r, 1).contains("alpha needle") || text(&r, 2).contains("alpha needle"));
+    let preview = (1..=4).any(|y| {
+        text(&r, y).chars().skip(usize::from(g.ex)).collect::<String>().contains("alpha needle")
+    });
+    assert!(
+        preview,
+        "the file under the cursor is shown in the editor's box:\n{}",
+        dump(&r.shot.frame)
+    );
+    // While the query is typed the terminal's cursor is at its end, in the status line.
+    assert_eq!(r.shot.frame.cursor, (7, 23));
+    // The rows without a match fade by their distance from it, the lines with a match do not.
+    let cols = g.px..g.px + g.pw;
+    let find = |d: usize| ((0.12 + d as f64 / 16.0 * 0.6).min(0.7) * 100.0).round() as u8;
+    assert_eq!(fade_over(&r, 1, cols.clone()), find(1));
+    assert_eq!(fade_over(&r, 3, cols.clone()), find(1));
+    assert_eq!(fade_over(&r, 2, cols.clone()), 0);
+    assert_eq!(fade_over(&r, 4, cols), 0);
+}
+
 // ---- LOOK-7: the panel recedes, and a search fades it ----
 
 /// The tree's order: `a.txt`, `alpha.rs`, `beta.rs`, `delta.rs`, `epsilon.rs`, `eta.rs`, `gamma.rs`,
@@ -793,39 +887,87 @@ const FILES: [&str; 9] = [
     "a.txt=one\n",
 ];
 
+/// The fade in percent, from `from` rows away over `span` rows up to `top`: the SPEC's formulas.
+fn ramp(d: usize, from: f64, span: f64, top: f64) -> u8 {
+    (((d as f64 - from) / span * top).clamp(0.0, top) * 100.0).round() as u8
+}
+
+/// The fade of the first and the last column of a column range of a row, which must agree.
+fn fade_over(r: &Rig, y: usize, cols: std::ops::Range<u16>) -> u8 {
+    let (a, b) =
+        (paint_at(&r.shot.paints[y], cols.start), paint_at(&r.shot.paints[y], cols.end - 1));
+    assert_eq!(a.fade, b.fade, "row {y}: {:?}", r.shot.paints[y]);
+    a.fade
+}
+
 #[test]
-fn look_7_the_panel_recedes_while_the_editor_has_the_focus() {
-    let mut r = looked("l7-recede", Skin::Depth, &FILES, (80, 24));
+fn look_7_the_tree_fades_by_its_distance_from_the_open_files_row_or_from_its_cursor() {
+    let mut r = looked("l7-near", Skin::Depth, &FILES, (80, 24));
     assert!(r.sim.panel.focus);
-    assert!(r.shot.paints.iter().flatten().all(|(_, p)| p.fade == 0), "the panel has the focus");
-    r.keys("<CR>"); // a.txt, the first row
+    // The tree has the focus: the distance is from its cursor row (row 0, then row 7).
+    let g = r.sim.geo();
+    let cols = g.px..g.px + g.pw;
+    for y in 1..=9 {
+        assert_eq!(fade_over(&r, y, cols.clone()), ramp(y - 1, 1.0, 14.0, 0.6), "row {y}");
+    }
+    r.keys("jjjjjjj");
+    for y in 1..=9 {
+        assert_eq!(
+            fade_over(&r, y, cols.clone()),
+            ramp((y - 1).abs_diff(7), 1.0, 14.0, 0.6),
+            "row {y}"
+        );
+    }
+    // `eta.rs` is row 5; with it open and the focus in the text, the distance is from there.
+    r.keys("gg<CR>"); // a.txt
+    r.keys("<C-n>jjjjj<CR>");
+    assert_eq!(r.open_files(), ["a.txt", "eta.rs"]);
     assert!(!r.sim.panel.focus);
+    let expect = |y: usize| ramp((y - 1).abs_diff(5), 1.0, 14.0, 0.6);
+    for y in 1..=9 {
+        assert_eq!(fade_over(&r, y, cols.clone()), expect(y), "row {y}");
+    }
+    assert!((1..=9).any(|y| expect(y) > 0) && expect(6) == 0 && expect(5 + 1) == 0);
+    // The rows past the tree's last are empty: nothing to fade.
+    assert_eq!(fade_over(&r, 10, cols.clone()), 0);
+    // A changed file's row (on green) never fades, however far it is: a.txt, row 0.
+    let a = r.sim.bufs[0].id;
+    r.send(SimEvent::App(a, disk(b"changed\n")));
+    assert_eq!(fade_over(&r, 1, cols.clone()), 0, "{:?}", r.shot.paints[1]);
+    assert_eq!(fade_over(&r, 2, cols.clone()), expect(2));
+    // Flat and calm have no gradient.
+    for skin in [Skin::Flat, Skin::Calm] {
+        let mut f = looked("l7-flat", skin, &FILES, (80, 24));
+        f.keys("jjjjj<CR>");
+        assert!(f.shot.paints.iter().flatten().all(|(_, p)| p.fade == 0), "{skin:?}");
+    }
+}
+
+#[test]
+fn look_7_the_anchor_of_a_file_in_a_closed_directory_is_the_directory_and_with_no_file_the_cursor()
+{
+    let mut files: Vec<String> = (1..=8).map(|i| format!("m{i}.rs")).collect();
+    files.push("d/f.rs=x\n".into());
+    let names: Vec<&str> = files.iter().map(String::as_str).collect();
+    let mut r = looked_with("l7-closed", Skin::Depth, &names, &["d/f.rs"], (80, 24));
+    r.keys("<C-n>jjjj<Esc>"); // the tree, `d/` closed (row 0), its cursor on row 4, the focus in the text
+    assert!(!r.sim.panel.focus && r.open_files() == ["d/f.rs"]);
     let g = r.sim.geo();
     for y in 1..=9 {
-        let fades: Vec<u8> =
-            (g.px..g.px + g.pw).map(|x| paint_at(&r.shot.paints[y], x).fade).collect();
-        assert!(fades.iter().all(|&f| f == 45), "row {y}: {fades:?}");
+        // from `d/`, the nearest row of the file that is shown, and not from the cursor
+        assert_eq!(fade_over(&r, y, g.px..g.px + g.pw), ramp(y - 1, 1.0, 14.0, 0.6), "row {y}");
     }
-    assert!(r.shot.paints[10].iter().all(|(_, p)| p.fade == 0), "no row, nothing to fade");
-    // A row on the change background does not recede: it has the tint instead.
-    let id = r.sim.bufs[0].id;
-    r.send(SimEvent::App(id, disk(b"two\n")));
-    let (y, band) = (1, tones().gain);
-    assert!(
-        (g.px..g.px + g.pw).all(|x| paint_at(&r.shot.paints[y], x).fade == 0
-            && [Some(band), Some(tones().add)].contains(&bg_at(&r.shot.paints[y], x))),
-        "{:?}",
-        r.shot.paints[y]
-    );
-    assert_eq!(paint_at(&r.shot.paints[y + 1], g.px).fade, 45);
-    // The editor does not recede for it.
-    assert!(
-        r.shot.paints.iter().flatten().filter(|(rg, _)| rg.start >= g.ex).all(|(_, p)| p.fade == 0)
-    );
-    // Flat has no recede.
-    let mut f = looked("l7-flat", Skin::Flat, &FILES, (80, 24));
-    f.keys("<CR>");
-    assert!(f.shot.paints.iter().flatten().all(|(_, p)| p.fade == 0));
+    // With no file open the anchor is the cursor.
+    let mut n = looked("l7-nofile", Skin::Depth, &names, (80, 24));
+    n.keys("jjj<Esc>");
+    assert!(!n.sim.panel.focus && n.open_files().is_empty());
+    for y in 1..=9 {
+        assert_eq!(
+            fade_over(&n, y, g.px..g.px + g.pw),
+            ramp((y - 1).abs_diff(3), 1.0, 14.0, 0.6),
+            "row {y}"
+        );
+    }
 }
 
 #[test]
@@ -880,16 +1022,16 @@ fn look_8_without_a_palette_or_truecolor_depth_is_its_boxes_in_the_default_color
             "{name}: {}",
             text(&r, 0)
         );
+        let bare = |p: &Paint| p.fg.is_none() && p.bg.is_none() && p.fade == 0;
         assert!(
-            r.shot.paints.iter().all(Vec::is_empty),
-            "{name}: no tint, fog, shading or border colors"
+            r.shot.paints.iter().flatten().all(|(_, p)| bare(p)),
+            "{name}: no tint, fog, shading or border colors (bold only)"
         );
         let top = text(&r, 0);
         let col = top[..top.find(" 2 changes on disk ").unwrap()].chars().count() as u16;
-        assert_eq!(
-            style_at(&r, 0, col + 1),
-            Some(Style::Change),
-            "{name}: the badge is on the change style (reverse video)"
+        assert!(
+            paint_at(&r.shot.paints[0], col + 1).bold,
+            "{name}: the badge is bold, with no color"
         );
     }
     // Flat is calm.

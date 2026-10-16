@@ -171,6 +171,8 @@ pub struct Buf {
     /// Where the command line scrolls to on the full-width status line (VI-12): the App's own
     /// `vi.off` is that of its narrower frame, which every one of its updates renders.
     wide: usize,
+    /// The row of the frame the text's cursor is on, kept while the command line has the cursor (LOOK-6).
+    crow: usize,
 }
 
 #[derive(Default)]
@@ -328,19 +330,8 @@ impl Sim {
         let panel = Panel { open: s.file.is_none(), focus: s.file.is_none(), ..Panel::default() };
         let (root, keys, size) = (s.root, s.keys, (env.size.0.max(1), env.size.1.max(2)));
         let (history, syn, cwd) = (env.history, env.syn, env.cwd);
-        let skin = env.skin;
-        let mut sim = Sim {
-            panel,
-            cwd,
-            size,
-            keys,
-            root,
-            history,
-            syn,
-            skin,
-            hook: env.hook,
-            ..Sim::default()
-        };
+        let mut sim = Sim { panel, cwd, size, keys, root, history, syn, ..Sim::default() };
+        (sim.skin, sim.hook) = (env.skin, env.hook);
         (sim.now, sim.t0) = (env.now, env.now);
         let mut out = vec![SimEffect::Read(sim.root.clone())];
         out.push(SimEffect::Files);
@@ -708,6 +699,7 @@ impl Sim {
             hl: None,
             asked: None,
             wide: 0,
+            crow: 0,
         });
         self.cur = self.bufs.len() - 1;
         self.refocus();
@@ -762,23 +754,21 @@ impl Sim {
         self.geo().boxed && self.tones.is_some()
     }
 
-    /// LOOK-2: which rows of the current file's frame have a change, when flat or depth tints them.
+    /// LOOK-2: what each row of the current file's frame is, when flat or depth tints them.
     fn changes(&self) -> Vec<Kind> {
         let b = self.bufs.get(self.cur).filter(|_| self.skin != Skin::Calm && self.tones.is_some());
         b.and_then(|b| {
-            let (buf, f) = (&b.app.buf, b.frame.as_ref()?);
-            // A hunk's line: in the range its proposal would replace, or where an empty one is put.
-            let hunk = |l: usize| {
-                let i = buf.hunks.partition_point(|h| h.mine.start <= l);
-                let near = [i.checked_sub(1), Some(i)].into_iter().flatten();
-                near.filter_map(|j| buf.hunks.get(j)).any(|h| {
-                    h.mine.contains(&l)
-                        || h.mine.is_empty() && h.mine.start.min(buf.lines() - 1) == l
-                })
-            };
-            Some(layout::changed(f, digits(buf), &hunk))
+            let review = b.app.vi.mode == Mode::Review;
+            Some(layout::changed(b.frame.as_ref()?, digits(&b.app.buf), review))
         })
         .unwrap_or_default()
+    }
+
+    /// LOOK-7: the row the open file is shown on in the tree: its own, or its nearest directory's.
+    fn open_row(&self) -> Option<usize> {
+        let path = self.cwd.join(self.bufs.get(self.cur)?.app.path.as_ref()?);
+        let rel = path.strip_prefix(&self.root).ok()?;
+        rel.ancestors().find_map(|a| self.view().row_of(a))
     }
 
     /// LOOK-5: the rows of the card in the current file's frame, while REVIEW has one (`ch` is
@@ -830,6 +820,9 @@ impl Sim {
                 b.frame = None;
             }
             let f = b.frame.get_or_insert_with(|| view::render(&mut b.app));
+            if b.app.vi.mode != Mode::Cmd {
+                b.crow = usize::from(f.cursor.1);
+            }
             (shape, cursor) = (f.shape, (f.cursor.0 + g.ex, f.cursor.1 + g.y0));
             status = f.rows.last().map_or(String::new(), |r| r.text.clone());
             // The App cuts its status line to its own width; the screen has more (all of it for
@@ -899,33 +892,34 @@ impl Sim {
             cursor.1 += 1;
         }
         let tones = self.tones.filter(|_| self.skin != Skin::Calm);
+        let anchor = if focus { self.panel.cur } else { self.open_row().unwrap_or(self.panel.cur) };
         let fade = match (g.boxed, focus, sel) {
             (false, ..) => Fade::None,
-            (_, false, _) => Fade::Recede,
-            _ if live => Fade::Find(usize::from(self.live_cursor())),
-            (_, _, Some(i)) if self.panel.search.is_some() => Fade::Find(i),
-            _ => Fade::None,
+            (_, true, _) if live => Fade::Find(usize::from(self.live_cursor())),
+            (_, true, Some(i)) if self.panel.search.is_some() => Fade::Find(i),
+            _ => Fade::Near(anchor, self.panel.top),
         };
-        let app = self.bufs.get(self.cur).map(|b| &b.app);
-        let chrome = g.boxed.then(|| layout::chrome(app, win, usize::from(g.rows), focus));
+        let pane = self.live_pane();
         let deck = Deck {
             geo: g,
             tones: tones.as_ref(),
             fade,
-            chrome,
             gray: self.syn.sel().is_some(),
             live: self.live_rows(g),
+            app: self.bufs.get(self.cur).map(|b| &b.app),
+            win,
+            focus,
         };
-        let pane = self.live_pane();
-        let ed = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
-        let editor = match (&pane, ed) {
-            (Some((f, l)), _) => {
-                Some(Ed { frame: f, looks: l, digits: 3, ch: vec![], card: None, review: false })
-            }
-            (_, Some((b, f))) => {
-                let review = b.app.vi.mode == Mode::Review;
-                Some(Ed { frame: f, looks: &elooks, digits: digits(&b.app.buf), ch, card, review })
-            }
+        let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
+        let editor = match (&pane, cur) {
+            (Some((f, l)), _) => Some(Ed::new(f, l)),
+            (_, Some((b, f))) => Some(Ed {
+                digits: digits(&b.app.buf),
+                ch,
+                card,
+                crow: b.crow,
+                ..Ed::new(f, &elooks)
+            }),
             _ => None,
         };
         let (mut rows, mut looks, mut paints) = layout::body(&deck, &marked, sel, editor.as_ref());

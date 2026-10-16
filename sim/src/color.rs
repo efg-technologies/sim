@@ -8,6 +8,8 @@ use crate::sim::SimEvent;
 use crossterm::event::{Event as Ev, KeyCode, KeyModifiers};
 use si::core::color::{Palette, Rgb, apca, oklch, parse_osc11};
 use si::io::term::Reply;
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// What is asked of the terminal besides its background (which si's `term::enter` asks, VIS-4): the
 /// five ANSI colors that carry syntax (red, green, yellow, magenta, cyan), each ended with ST.
@@ -73,21 +75,24 @@ fn lerp(p: [f64; 3], q: [f64; 3], t: f64) -> Rgb {
 /// |Lc| 40 against it (found by bisecting the fade, five steps). Text that is under 40 already
 /// is left as it is.
 pub fn fade(fg: Rgb, bg: Rgb, f: f64) -> Rgb {
+    thread_local!(static MEMO: RefCell<HashMap<(Rgb, Rgb, u64), Rgb>> = RefCell::default());
+    let key = (fg, bg, f.to_bits());
+    if let Some(c) = MEMO.with(|m| m.borrow().get(&key).copied()) {
+        return c;
+    }
     let (p, q) = (to_lab(fg), to_lab(bg));
     let reads = |t: f64| apca(lerp(p, q, t), bg).abs() >= 40.0;
-    if f <= 0.0 || !reads(0.0) {
-        return fg;
-    }
-    let (mut lo, mut hi) = (0.0, f);
-    if reads(f) {
-        lo = f;
+    let step = |(lo, hi): (f64, f64), _| {
+        let mid = (lo + hi) / 2.0;
+        if reads(mid) { (mid, hi) } else { (lo, mid) }
+    };
+    let c = if !reads(0.0) {
+        fg
     } else {
-        for _ in 0..5 {
-            let mid = (lo + hi) / 2.0;
-            *(if reads(mid) { &mut lo } else { &mut hi }) = mid;
-        }
-    }
-    lerp(p, q, lo)
+        lerp(p, q, if reads(f) { f } else { (0..5).fold((0.0, f), step).0 })
+    };
+    MEMO.with(|m| m.borrow_mut().insert(key, c));
+    c
 }
 
 /// The most chromatic sRGB color at OKLCH lightness `l` and hue `hue` (bisection on the chroma:
@@ -115,16 +120,8 @@ fn hued(bg: Rgb, hue: f64) -> Rgb {
 /// The text on `c`, as si's `change_text`: the gray nearest to `primary`, on its side of the page,
 /// with |Lc| 75 (and the margin) against `c`; black or white, whichever reads better, if that is
 /// out of reach.
-fn text_on(bg: Rgb, primary: Rgb, c: Rgb) -> Rgb {
-    let lc = |g: u8| apca((g, g, g), c).abs();
-    let reach = |g: &u8| lc(*g) >= 75.5;
-    let g = if apca(primary, bg) < 0.0 {
-        (primary.0..=255).find(reach).unwrap_or(255)
-    } else {
-        (0..=primary.0).rev().find(reach).unwrap_or(0)
-    };
-    let g = if lc(255 - g) > lc(g) && !reach(&g) { 255 - g } else { g };
-    (g, g, g)
+fn text_on(primary: Rgb, c: Rgb) -> Rgb {
+    contrast(primary, c, 75.5)
 }
 
 /// LOOK-2 to LOOK-6: the colors the looks add to si's palette. Green (OKLCH hue 150) is what comes
@@ -159,9 +156,9 @@ impl Tones {
         let by = |c, t| mix(p.bg, c, t);
         Tones {
             add,
-            add_text: text_on(p.bg, p.primary, add),
+            add_text: text_on(p.primary, add),
             del,
-            del_text: text_on(p.bg, p.primary, del),
+            del_text: text_on(p.primary, del),
             gain: by(add, 0.30),
             loss: by(del, 0.30),
             hunk: by(p.secondary, 0.12),

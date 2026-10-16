@@ -889,7 +889,7 @@ grep_4_the_pane_previews_the_result_enter_opens_it_there_and_esc_puts_the_tree_b
   gone "line 55"
   keys Up
   wait_for "  55 line 55"
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null)" ] # not an open: no history yet
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -v '^look$')" ] # not an open: no history yet (`look` is the seeded look)
   keys Enter
   wait_for "big.txt  60:5  NORMAL" # the line, and the column of the match
   screen | grep -F -q "▸ src/" # the tree is back
@@ -1402,6 +1402,26 @@ look_5_review_raises_the_hunk_being_decided_as_a_card() {
   typed "]c"
   wait_for "REVIEW 1/1"
   gone "▄" # calm has no card
+}
+
+look_6_the_text_fades_with_its_distance_from_the_cursor() {
+  i=1
+  while [ "$i" -le 40 ]; do echo "line $i" >> "$W/a.txt"; i=$((i + 1)); done
+  look depth
+  CT=truecolor
+  start a.txt
+  wait_for "a.txt  1:1  NORMAL"
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_esc '38;2;[0-9;]*m'
+  # The color of the text just before `$1` on the screen (the last SGR color on its row).
+  color_of() { screen_esc | grep -a "$1" | sed 's/.*\x1b\[\([0-9;]*38;2;[0-9;]*\)m[^m]*'"$1"'.*/\1/' | tail -1; }
+  near=$(color_of "line 2$")
+  far=$(color_of "line 20$")
+  [ -n "$near" ] && [ -n "$far" ] && [ "$near" != "$far" ] # the far row is dimmer
+  # Calm has no gradient: the same text, the same colors.
+  typed zl
+  wait_for "look: calm"
+  [ "$(color_of 'line 2$')" = "$(color_of 'line 20$')" ]
 }
 
 main "$@"
