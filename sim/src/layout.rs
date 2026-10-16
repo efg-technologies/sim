@@ -181,8 +181,8 @@ pub fn colors<'a>(
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         while used < len && ci < cs.len() {
             let (n, w) = shown(&cs, ci, col);
-            let look = sp.and_then(|s| s.iter().find(|s| s.0.contains(&ci))).filter(|_| w > 0);
-            let look = look.map(|s| s.1);
+            let look = sp.and_then(|s| s.get(s.partition_point(|s| s.0.end <= ci)));
+            let look = look.filter(|s| s.0.contains(&ci) && w > 0).map(|s| s.1);
             let cols = (gutter + col) as u16..(gutter + col + w) as u16;
             match (look, out[i].last_mut()) {
                 (Some(k), Some((p, pk))) if *pk == k && p.end == cols.start => p.end = cols.end,
