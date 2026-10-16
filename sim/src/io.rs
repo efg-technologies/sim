@@ -149,11 +149,12 @@ pub fn save_thread(state: Option<PathBuf>, answers: Sender<SimEvent>) -> Sender<
     jobs
 }
 
-/// The entries of a directory. A symlink to a directory counts as one, unless it leads back to
-/// the directory itself or to one above it (a loop); a link that cannot be followed is a file.
+/// The entries of a directory, or why it cannot be read (the panel says which directory, by its
+/// short name, so that a long path never cuts the reason off the status line). A symlink to a
+/// directory counts as one, unless it leads back to the directory itself or to one above it (a
+/// loop); a link that cannot be followed is a file.
 pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
-    let list =
-        fs::read_dir(dir).map_err(|e| format!("cannot read {}: {}", dir.display(), why(&e)))?;
+    let list = fs::read_dir(dir).map_err(|e| why(&e))?;
     let here = fs::canonicalize(dir).ok();
     let is_dir = |e: &fs::DirEntry| match e.file_type() {
         Ok(t) if t.is_symlink() => {

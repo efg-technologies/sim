@@ -28,6 +28,36 @@ pub fn fit(s: &str, max: usize) -> (String, usize) {
     (cs[..end].iter().collect(), cols)
 }
 
+/// `s` cut from the left to `max` columns, so that its end stays: `…/dir/file` for a path (the cut
+/// is at a `/` when one lets it fit), the last chars of a query. Hostile chars are replaced.
+pub fn tail(s: &str, max: usize) -> String {
+    let all = fit(s, usize::MAX).0;
+    let cs: Vec<char> = all.chars().collect();
+    let cols = |from: usize| fit(&cs[from..].iter().collect::<String>(), usize::MAX).1;
+    if cols(0) <= max || max == 0 {
+        return if max == 0 { String::new() } else { all };
+    }
+    // The first char kept is the smallest one whose tail fits next to the `…`.
+    let (mut lo, mut hi) = (0, cs.len());
+    while hi - lo > 1 {
+        let mid = (lo + hi) / 2;
+        *(if cols(mid) < max { &mut hi } else { &mut lo }) = mid;
+    }
+    let slash = (hi..cs.len().saturating_sub(1)).find(|&j| cs[j] == '/');
+    let before = hi.checked_sub(1).filter(|&j| cs[j] == '/' && cols(j) < max);
+    let from = slash.or(before).unwrap_or(hi);
+    format!("…{}", cs[from..].iter().collect::<String>())
+}
+
+/// A line of a head (a path, a query) and the words that say the state: the state is never cut,
+/// the head is shortened from the left to make room (`tail`). With the columns the head takes.
+pub fn stated(head: &str, state: &str, max: usize) -> (String, usize) {
+    let (state, used) = fit(state, max);
+    let head = tail(head, max - used);
+    let cols = fit(&head, usize::MAX).1;
+    (head + &state, cols)
+}
+
 /// What the panel shows about a row besides its name: MARK-1 (`change` the change color on the
 /// name of a file, `below` the `~` of a directory), MARK-2 (`likely`, the `•`), and FIND-1
 /// (`hit`: none when no search runs; bold for a match or a directory leading to one, dimmed else).

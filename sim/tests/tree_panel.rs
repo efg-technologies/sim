@@ -108,6 +108,35 @@ fn tree_1_without_a_file_the_editor_shows_a_help_in_the_secondary_gray() {
     assert_eq!(r.status(), "docs/  TREE");
 }
 
+/// A name of 60 chars, to build paths that are longer than the screen.
+fn long(n: char) -> String {
+    format!("{}{n}", "d".repeat(59))
+}
+
+#[test]
+fn tree_1_a_long_path_is_cut_from_the_left_and_the_word_tree_stays() {
+    let (a, b) = (long('1'), long('2'));
+    let mut r = rig("t1-long", &[&format!("{a}/{b}/file.txt")], &[]);
+    r.keys("ljl"); // the first directory, the second, open
+    assert_eq!(r.status(), format!("…/{b}/  TREE"), "a directory");
+    r.keys("j");
+    assert_eq!(r.status(), format!("…/{b}/file.txt  TREE"));
+    assert!(width(r.status()) <= 80, "{}", r.status());
+    let narrow = rig_sized("t1-narrow", &[&format!("{a}/file.txt")], &[], (30, 6));
+    assert_eq!(narrow.status(), format!("…{}/  TREE", &a[a.len() - 22..]), "cut inside a name");
+    assert_eq!(width(narrow.status()), 30, "{}", narrow.status());
+}
+
+#[test]
+fn tree_1_with_no_file_open_and_no_focus_the_root_is_cut_from_the_left() {
+    let mut r = rig_sized("t1-root", &["a"], &[], (20, 6));
+    r.keys("<Esc>");
+    let root = r.sim.root.to_string_lossy().into_owned();
+    let status = r.status().to_string();
+    assert!(root.len() > 20 && status.starts_with('…') && width(&status) <= 20, "{status}");
+    assert!(root.ends_with(&status['…'.len_utf8()..]), "{status} is the end of {root}");
+}
+
 #[test]
 fn tree_1_the_status_line_is_not_cut_at_the_width_of_the_editor() {
     let mut r = rig_sized("t1-status", &["f.txt"], &["f.txt"], (40, 8));
@@ -345,17 +374,13 @@ fn tree_5_the_cursor_stays_on_its_entry_when_rows_arrive_above_it() {
 
 #[test]
 fn tree_5_a_directory_that_cannot_be_read_says_why_and_stays_empty() {
-    // Wide, so that the status line shows the whole path however long the temp directory is
-    // (macOS's is 50 characters, and the message would be cut before the name).
-    let mut r = rig_sized("t5-fail", &["gone/x", "f"], &[], (200, 24));
+    let mut r = rig("t5-fail", &["gone/x", "f"], &[]);
     std::fs::remove_dir_all(r.cwd.join("gone")).unwrap();
     r.keys("l");
     assert_eq!(r.panel(), ["▾ gone/", "  f"]);
-    assert!(
-        r.status().starts_with("cannot read ") && r.status().contains("gone"),
-        "{}",
-        r.status()
-    );
+    // The name is the panel's (below the root), so a long temp directory (macOS's is 50
+    // characters) never cuts the reason off the status line.
+    assert_eq!(r.status(), "cannot read gone: No such file or directory");
 }
 
 #[test]

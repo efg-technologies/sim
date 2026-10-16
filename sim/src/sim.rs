@@ -657,23 +657,33 @@ impl Sim {
         let tree = at.as_ref().map_or(root.clone(), |r| {
             format!("{}{}", r.path.display(), if r.is_dir { "/" } else { "" })
         });
-        let (mut status, mut cursor, mut shape) = (root, (off, 0), Shape::Block);
-        let mut cmd = false;
+        // BUF-2: the position `2/5` follows the status, which is cut to what is left of the width;
+        // on the command line, which has the whole width, there is none.
+        let cmd = !focus && self.bufs.get(self.cur).is_some_and(|b| b.app.vi.mode == Mode::Cmd);
+        let pos = if self.bufs.len() > 1 && !cmd {
+            format!("  {}/{}", self.cur + 1, self.bufs.len())
+        } else {
+            String::new()
+        };
+        let room = usize::from(w).saturating_sub(pos.width());
+        let (mut status, mut cursor, mut shape) =
+            (layout::tail(&root, room), (off, 0), Shape::Block);
         if let Some(b) = self.bufs.get_mut(self.cur) {
             if b.frame.as_ref().is_some_and(|f| (f.width, f.height) != (ew, h)) {
                 b.frame = None;
             }
             let f = b.frame.get_or_insert_with(|| view::render(&mut b.app));
-            (cmd, shape, cursor) =
-                (b.app.vi.mode == Mode::Cmd && !focus, f.shape, (f.cursor.0 + off, f.cursor.1));
+            (shape, cursor) = (f.shape, (f.cursor.0 + off, f.cursor.1));
             status = f.rows.last().map_or(String::new(), |r| r.text.clone());
-            // The App cuts its status line to its own width; the screen has more.
+            // The App cuts its status line to its own width; the screen has more (all of it for
+            // the command line, what the position leaves for the status), or less (no panel, a position).
             if !cmd {
                 b.wide = 0;
             }
-            if pw > 0 && (cmd || status.width() + 2 >= usize::from(ew)) {
+            let width = if cmd { w } else { room.max(1) as u16 };
+            if width != ew && (cmd || status.width() + 2 >= usize::from(ew.min(width))) {
                 let (top, skip, center, size) = (b.app.top, b.app.skip, b.app.center, b.app.size);
-                (b.app.size.0, b.app.vi.off) = (w, b.wide);
+                (b.app.size.0, b.app.vi.off) = (width, b.wide);
                 let wide = view::render(&mut b.app);
                 b.wide = b.app.vi.off;
                 (b.app.top, b.app.skip, b.app.center, b.app.size) = (top, skip, center, size);
@@ -682,23 +692,22 @@ impl Sim {
             }
         }
         if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
-            status = format!("{tree}  TREE");
+            status = layout::stated(&tree, "  TREE", room).0;
         }
         if let (true, Some(s)) = (focus, &self.panel.search) {
             let n = s.found.hits.len();
-            status = match (s.query.is_empty(), n) {
-                (true, _) => format!("/{}", s.query),
-                (_, 0) => format!("/{}  no match", s.query),
-                _ => format!("/{}  {n} match{}", s.query, if n == 1 { "" } else { "es" }),
+            let found = match (s.query.is_empty(), n) {
+                (true, _) => String::new(),
+                (_, 0) => "  no match".into(),
+                _ => format!("  {n} match{}", if n == 1 { "" } else { "es" }),
             };
+            let (text, cols) = layout::stated(&format!("/{}", s.query), &found, room);
+            status = text;
             if s.typing {
-                (cursor, shape) = ((1 + s.query.width() as u16, h - 1), Shape::Bar);
+                (cursor, shape) = ((cols.min(usize::from(w) - 1) as u16, h - 1), Shape::Bar);
             }
         }
-        status = self.msg.clone().unwrap_or(status);
-        if self.bufs.len() > 1 && !cmd {
-            status += &format!("  {}/{}", self.cur + 1, self.bufs.len());
-        }
+        status = layout::fit(&self.msg.clone().unwrap_or(status), room).0 + &pos;
         let sel = focus.then(|| self.panel.cur - self.panel.top);
         let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
         if let (Some(i), false) = (sel, typing) {
