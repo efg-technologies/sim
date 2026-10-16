@@ -108,6 +108,38 @@ fn tree_1_without_a_file_the_editor_shows_a_help_in_the_secondary_gray() {
     assert_eq!(r.status(), "docs/  TREE");
 }
 
+#[test]
+fn tree_1_a_name_that_is_not_utf8_is_listed_but_never_opened_as_another_file() {
+    use std::os::unix::ffi::OsStrExt;
+    // (Some file systems, macOS's among them, refuse such a name: there is nothing to test.)
+    let mut r = rig("t1-nonutf8", &["b.txt"], &[]);
+    let name = std::ffi::OsStr::from_bytes(b"a\xff.txt");
+    if std::fs::write(r.cwd.join(name), "mine\n").is_err() {
+        return;
+    }
+    r.keys("<C-n><C-n>"); // (the panel is shut and opened again: the root is read again)
+    assert_eq!(r.panel(), ["  a\u{fffd}.txt", "  b.txt"]);
+    r.keys("k<CR>"); // (the cursor stayed on b.txt)
+    // Every path in sim is text, so the name that was listed is not the file's: opening it would
+    // be a new empty file that a save then creates under a name that is not the file's.
+    assert_eq!(r.open_files(), ["a\u{fffd}.txt"]);
+    assert!(r.app().buf.readonly.is_some(), "so it is read-only, and says why: {}", r.status());
+    assert!(r.status().contains("not valid UTF-8"), "{}", r.status());
+    r.keys("ix<Esc>:w\n");
+    assert!(!r.cwd.join("a\u{fffd}.txt").exists(), "nothing is created under another name");
+    assert_eq!(std::fs::read(r.cwd.join(name)).unwrap(), b"mine\n");
+}
+
+#[test]
+fn tree_1_an_argument_that_is_not_utf8_is_a_usage_error_and_not_a_panic() {
+    use std::os::unix::ffi::OsStrExt;
+    let arg = std::ffi::OsStr::from_bytes(b"a\xff.txt");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_sim")).arg(arg).output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("not valid UTF-8") && !err.contains("panicked"), "{err}");
+    assert_eq!(out.status.code(), Some(2), "a usage error, as for any argument sim cannot use");
+}
+
 /// A name of 60 chars, to build paths that are longer than the screen.
 fn long(n: char) -> String {
     format!("{}{n}", "d".repeat(59))
