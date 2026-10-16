@@ -106,6 +106,79 @@ fn vis_9_status_line_golden() {
     golden("vis_9_status_line", &out);
 }
 
+/// The status line the Decided rule of VIS-9 gives: `path` shortened from the left to `…/` and its
+/// last components, as many as keep the whole line within `w` columns (at least the file name);
+/// the line is cut at the width when even that does not fit.
+fn shortened(path: &str, tail: &str, w: usize) -> String {
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    let line = |p: &str| format!("{p}{tail}");
+    let fits = |s: &String| s.width() <= w;
+    let mut ks =
+        (1..parts.len()).rev().map(|k| line(&format!("…/{}", parts[parts.len() - k..].join("/"))));
+    let all = Some(line(path)).filter(fits).or_else(|| ks.clone().find(fits));
+    let mut out = all.unwrap_or_else(|| ks.next_back().unwrap_or(line(path)));
+    while out.width() > w {
+        out.pop();
+    }
+    out
+}
+
+#[test]
+fn vis_9_a_long_path_is_shortened_from_the_left_before_the_state_is_cut() {
+    let long =
+        "/home/u/ghq/github.com/org/a-deep-repository/.git/worktrees/feature-x/COMMIT_EDITMSG";
+    assert!(long.len() > 80, "longer than the screen");
+    for w in [80, 92, 60, 40] {
+        let mut a = app_with(Some(long), b"one\ntwo\n", (w, 6));
+        let s = status(&screen(&mut a)).to_string();
+        assert_eq!(s, shortened(long, "  1:1  NORMAL", w as usize), "width {w}");
+        assert!(s.starts_with('…') && s.ends_with("COMMIT_EDITMSG  1:1  NORMAL"), "{s}");
+        feed(&mut a, "x");
+        let s = status(&screen(&mut a)).to_string();
+        assert_eq!(s, shortened(long, "  1:1  NORMAL  modified", w as usize), "width {w}");
+        assert!(
+            s.ends_with("NORMAL  modified"),
+            "the notes are not cut while the path can give: {s}"
+        );
+    }
+    // A path that fits is shown whole, and so is a short one at a narrow width as before.
+    let f = show(Some("/tmp/a.txt"), "x", (80, 6));
+    assert_eq!(status(&f), "/tmp/a.txt  1:1  NORMAL");
+}
+
+#[test]
+fn vis_9_the_path_is_measured_in_columns() {
+    // Wide directory names: the characters are few and the columns many.
+    let dir = "/home/u/日本語のディレクトリ/さらに深い場所/もっと深い場所/とても深い場所/";
+    let path = format!("{dir}メモ.md");
+    for w in [80, 50, 30] {
+        let mut a = app_with(Some(&path), b"x\n", (w, 6));
+        feed(&mut a, "x");
+        let s = status(&screen(&mut a)).to_string();
+        assert_eq!(s, shortened(&path, "  1:1  NORMAL  modified", w as usize), "width {w}");
+        assert!(s.width() <= w as usize, "{s} is {} columns", s.width());
+    }
+}
+
+#[test]
+fn vis_9_a_file_name_alone_is_cut_at_the_width_as_before() {
+    let name = "x".repeat(100);
+    let f = show(Some(&name), "x", (80, 6));
+    assert_eq!(status(&f), &name[..80]);
+    // One component, and a path whose file name leaves no room: the path gives up its directories,
+    // and the rest is cut at the width.
+    let long = format!("/a/b/c/{}", "y".repeat(78));
+    let s = status(&show(Some(&long), "x", (80, 6))).to_string();
+    assert_eq!(
+        s,
+        format!("…/{}", "y".repeat(78))
+            .chars()
+            .chain("  1:1  NORMAL".chars())
+            .take(80)
+            .collect::<String>()
+    );
+}
+
 #[test]
 fn vis_9_column_counts_characters_from_one() {
     let mut a = app_with(Some("f"), "日本語\nabc".as_bytes(), (40, 4));

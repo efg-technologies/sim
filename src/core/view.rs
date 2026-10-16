@@ -123,7 +123,24 @@ fn fit(s: &str, max: usize) -> String {
 /// What the status line says in REVIEW after its path, position and `REVIEW i/n` (PROP-8).
 const REVIEW_KEYS: &str = "y accept · n reject · Y all · N none · Esc back";
 
-fn status(a: &App) -> String {
+/// The columns `s` takes once painted.
+fn cols(s: &str) -> usize {
+    let cs: Vec<char> = s.chars().collect();
+    paint(&cs, 0..cs.len(), usize::MAX).1
+}
+
+/// `path` for a status line of `w` columns whose other words are `tail` (VIS-9): the whole path if
+/// the line fits, else `…/` and as many of its last components as fit, the file name at least.
+fn shorten(path: &str, tail: &str, w: usize) -> String {
+    let parts: Vec<_> = path.split('/').filter(|p| !p.is_empty()).collect();
+    let last = |k: usize| format!("…/{}", parts[parts.len() - k..].join("/"));
+    let fits = |p: &str| cols(p) + cols(tail) <= w;
+    let short = (1..parts.len()).rev().map(last).find(|p| fits(p));
+    let name = (parts.len() > 1).then(|| last(1));
+    Some(path.into()).filter(|p: &String| fits(p)).or(short).or(name).unwrap_or(path.into())
+}
+
+fn status(a: &App, w: usize) -> String {
     let b = &a.buf;
     #[rustfmt::skip]
     let mode = match a.vi.mode {
@@ -153,8 +170,8 @@ fn status(a: &App) -> String {
     } else {
         format!("  {}", notes.join(" · "))
     };
-    let name = a.path.as_deref().unwrap_or("[no name]");
-    format!("{name}  {}:{}  {mode}{notes}", b.line_of(b.cursor) + 1, b.col() + 1)
+    let tail = format!("  {}:{}  {mode}{notes}", b.line_of(b.cursor) + 1, b.col() + 1);
+    shorten(a.path.as_deref().unwrap_or("[no name]"), &tail, w) + &tail
 }
 
 /// A line as it is drawn before wrapping: its chars with a style each, the gutter symbol, and the
@@ -402,7 +419,7 @@ pub fn render(a: &mut App) -> Frame {
         a.vi.off = a.vi.off.max(off).min(pos.saturating_sub(1)); // the char before it stays too
         (paint(&cs, a.vi.off..cs.len(), w).0, paint(&cs, a.vi.off..pos, usize::MAX).1)
     } else {
-        (fit(&a.msg.clone().unwrap_or_else(|| status(a)), w), cur.0)
+        (fit(&a.msg.clone().unwrap_or_else(|| status(a, w)), w), cur.0)
     };
     out.push(Row { text, ..Row::default() });
     if peek.is_none() {

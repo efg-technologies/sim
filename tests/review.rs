@@ -186,6 +186,20 @@ fn prop_8_review_shows_its_keys_on_the_status_line_cut_to_the_width() {
 }
 
 #[test]
+fn prop_8_a_long_path_gives_way_to_the_review_counter() {
+    let long =
+        "/home/u/ghq/github.com/org/a-deep-repository/.git/worktrees/feature-x/COMMIT_EDITMSG";
+    let mut a = app_with(Some(long), b"a1\nb\na2\nc\na3\n", (80, 14));
+    feed(&mut a, "rAjjrAjjrA");
+    disk(&mut a, "X1\nb\nX2\nc\nX3\n");
+    feed(&mut a, "gg]c");
+    let s = st(&mut a);
+    // The path goes to `…/` and its last components; the keys are cut, the position and counter stay.
+    assert_eq!(s.chars().count(), 80);
+    assert!(s.starts_with("…/") && s.contains("COMMIT_EDITMSG  1:1  REVIEW 1/3  y accept"), "{s}");
+}
+
+#[test]
 fn vis_10_review_has_a_steady_underline_cursor() {
     let mut a = three();
     assert_eq!(screen(&mut a).shape, Shape::Block);

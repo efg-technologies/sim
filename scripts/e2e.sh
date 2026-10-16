@@ -765,6 +765,16 @@ cursor_char() {
 }
 
 # One line of 1,700 chars wraps into more rows than the screen has: the cursor is still on its char.
+vis_9_a_long_path_keeps_the_mode_and_the_position() {
+  d=$CASE_DIR/a-rather-long-directory-name/another-quite-long-directory-name/and-a-third-one-too
+  mkdir -p "$d"
+  printf 'one\n' > "$d/COMMIT_EDITMSG"
+  start "$d/COMMIT_EDITMSG"
+  wait_for "…/and-a-third-one-too/COMMIT_EDITMSG  1:1  NORMAL"
+  typed x
+  wait_for "COMMIT_EDITMSG  1:1  NORMAL  modified"
+}
+
 vis_12_the_cursor_is_visible_in_a_line_taller_than_the_screen() {
   i=0
   while [ "$i" -lt 600 ]; do printf 'word '; i=$((i + 1)); done > "$CASE_DIR/a.md"
