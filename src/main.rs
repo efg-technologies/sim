@@ -123,7 +123,12 @@ fn e2e_panic() {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
+    // `env::args` panics on a name that is not text, and paths here are text.
+    let Ok(args) = env::args_os().skip(1).map(|a| a.into_string()).collect::<Result<Vec<_>, _>>()
+    else {
+        eprintln!("si: an argument is not valid UTF-8");
+        return ExitCode::from(2);
+    };
     let Some(cli) = parse(&args, |f| Path::new(f).exists()) else {
         eprintln!("{USAGE}");
         return ExitCode::from(2);

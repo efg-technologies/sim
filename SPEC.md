@@ -12,6 +12,7 @@ They bind the implementation the same way as the line above them.
 
 - **CLI-1** [P5][M1] `si [+cmd] [file]`. `+N` goes to line N, `+/re` searches, and any other `+cmd` runs as an ex command. It runs after the first render — I
   - **Decided** (P5): `--` ends the options, so a file named `+x` can be opened. Any other argument that starts with `-`, or a second file, prints usage and exits with 2. Without a file, si opens an unnamed buffer, and `:w {file}` gives it that name.
+  - **Decided** (P1): an argument that is not valid UTF-8 (a file name from an old archive, in Latin-1 or Shift-JIS) prints `si: an argument is not valid UTF-8` and exits with 2, like any argument si cannot use. Paths are text throughout si, and a lossy name would open another file; `std::env::args` would have panicked.
 - **CLI-2** [P3][M1] `file:line[:col]` is accepted. But if a file whose name is exactly that string exists, that file is opened — U
 - **CLI-3** [P5][M2] The exit code is 0 for `:q` `:wq` `:x`, and 1 for `:cq` (used to abort git commit) — I
   - **Decided** (P5): `:q!`, `ZZ`, `ZQ` and `q` exit with 0 as well, so `:cq` is the only way to fail on purpose. `git commit` with `GIT_EDITOR=si` is checked end to end: `ZZ` commits and `:cq` aborts.

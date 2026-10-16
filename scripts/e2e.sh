@@ -294,6 +294,21 @@ EOF
   if git -C "$repo" diff --cached --quiet; then fail "nothing is staged: the commit was made"; fi
 }
 
+cli_1_a_file_name_that_is_not_utf8_is_refused_not_a_panic() {
+  # Latin-1 bytes, as a name from an old archive has them. si keeps paths as text, so it cannot open
+  # this one; it says so and exits with 2, as for any argument it cannot use.
+  rc=0
+  out=$("$SI_BIN" "$(printf 'caf\351.txt')" 2>&1) || rc=$?
+  [ "$rc" -eq 2 ]
+  case $out in
+    *"not valid UTF-8"*) ;;
+    *) fail "no reason given: $out" ;;
+  esac
+  case $out in
+    *panicked*) fail "it panicked: $out" ;;
+  esac
+}
+
 cli_4_quit_restores_terminal() {
   wrap
   start f
