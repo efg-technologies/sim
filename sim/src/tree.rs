@@ -74,6 +74,12 @@ fn natural(mut a: &str, mut b: &str) -> Ordering {
     }
 }
 
+/// TREE-3: puts a listing in the order of the tree. The thread that reads a directory does it,
+/// so that the main thread finds the listing in order and its own sort only has to see that.
+pub fn sort(entries: &mut [Entry]) {
+    entries.sort_by(|a, b| order((&a.name, a.is_dir), (&b.name, b.is_dir)));
+}
+
 /// TREE-3: directories first, then the natural order of the names, then the bytes (so that
 /// `a01` and `a1`, or `A` and `a`, still have one fixed order).
 fn order((a, a_dir): (&str, bool), (b, b_dir): (&str, bool)) -> Ordering {
@@ -135,7 +141,7 @@ impl Tree {
     pub fn insert_listing(&mut self, dir: &Path, mut entries: Vec<Entry>) -> bool {
         let Some(d) = self.find(dir).filter(|&d| self.nodes[d].is_dir) else { return false };
         entries.retain(|e| e.name != ".git");
-        entries.sort_by(|a, b| order((&a.name, a.is_dir), (&b.name, b.is_dir)));
+        sort(&mut entries);
         let mut old: HashMap<String, usize> =
             self.kids(d).iter().map(|&k| (self.nodes[k].name.clone(), k)).collect();
         let mut kids = Vec::with_capacity(entries.len());

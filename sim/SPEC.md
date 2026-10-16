@@ -28,6 +28,7 @@ Everything in si's SPEC holds for every file open in sim (P1). This file only ad
 - **TREE-5** [P4][S1] Directories are read in the background; entries appear when they arrive, without moving anything above them — I
   - **Decided** (P4): `insert_listing(dir, entries)` stores a listing whenever it arrives, whether or not `dir` is still expanded, and says false for a directory the tree does not know. A second listing for the same directory refreshes it: entries that stay keep their expansion and their own listing, a name that changes kind is a new entry. Reading a directory is `io::read_dir`: a symlink to a directory counts as a directory unless it leads to the directory itself or one above it (a loop); a link that cannot be followed is a file. Loops through two siblings are not detected: they cost one expansion each, never a walk. The background thread comes with the event loop.
   - **Decided** (P2): the cursor and the first row stay on their entries (found by path) whatever a listing puts above them. A directory that cannot be read stays open and empty, and the status line says why.
+  - **Decided** (P4): `io::read_dir` puts the listing in the order of the tree (`tree::sort`) in the thread that reads, and `insert_listing` sorts again, which costs one pass over what is already in order: sorting a directory of 100,000 entries on the main thread took 0.8 s (500,000: 4.3 s), measured on a release build, a key that waits for that; with the sort in the thread, the main thread's part is 46 ms (235 ms), once for each listing.
 
 ## Several files
 
