@@ -58,3 +58,4 @@ sim/
 - **S2**: finding, marks for changed and likely files, focus
 - **S3**: typographic syntax highlighting
 - **S4**: the mouse (PTR-1, PTR-2), the benches again, polish; on si's M5 (numbered reads, the terminal's colors by si's palette)
+- **S5**: the looks: calm, flat and depth (LOOK-1 to LOOK-9)
