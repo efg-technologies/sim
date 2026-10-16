@@ -687,7 +687,11 @@ impl W {
                 self.chan.push_back(SimEvent::Term(Event::Paste(t)));
             }
             Op::Nav(k) => self.push_keys(NAV[usize::from(*k)]),
-            Op::Open(k) => self.push_keys(&format!("<Esc><Esc>:e {}\n", OPEN[usize::from(*k)])),
+            Op::Open(k) => {
+                // (si takes a range before `:e` and ignores it: it must not replace the buffer)
+                let range = ["", "%", "1", ".,$"][usize::from(*k) % 4];
+                self.push_keys(&format!("<Esc><Esc>:{range}e {}\n", OPEN[usize::from(*k)]))
+            }
             Op::Cmd(k) => {
                 // `:w!` keeps mine over whatever the disk holds by then. Which file it is typed in
                 // is known only when the keys are delivered, so no outside word is checked after one.
