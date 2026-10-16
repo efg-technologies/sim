@@ -4,7 +4,7 @@
 use crate::rank::History;
 use crate::sim::{Found, Hl, Id, Opened, Req, SimEvent};
 use crate::syn::{Spans, Syn};
-use crate::tree::Entry;
+use crate::tree::{self, Entry};
 use ropey::Rope;
 use si::core::app::{Effect, Event};
 use si::io::file::{self, Saved, why};
@@ -164,10 +164,12 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
         Ok(t) => t.is_dir(),
         Err(_) => false,
     };
-    Ok(list
+    let entries = list
         .filter_map(Result::ok)
-        .map(|e| Entry { name: e.file_name().to_string_lossy().into_owned(), is_dir: is_dir(&e) })
-        .collect())
+        .map(|e| Entry { name: e.file_name().to_string_lossy().into_owned(), is_dir: is_dir(&e) });
+    let mut entries: Vec<Entry> = entries.collect();
+    tree::sort(&mut entries);
+    Ok(entries)
 }
 
 /// MARK-1: what is said (once) when git is not run because the repository's config could make it
