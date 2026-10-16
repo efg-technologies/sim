@@ -89,6 +89,95 @@ fn tree_1_names_that_would_do_harm_in_a_terminal_are_never_sent_raw() {
     assert!(r.panel().contains(&"  日本語.md".to_string()));
 }
 
+/// What is not sim's own in the bytes a Painter wrote: a control char other than the ESC that
+/// starts one of its CSI sequences (`ESC [ params final`), a C1 control, a bidirectional control.
+fn foreign(bytes: &[u8]) -> Vec<String> {
+    let (mut bad, mut i) = (vec![], 0);
+    let text = String::from_utf8_lossy(bytes);
+    bad.extend(
+        text.chars()
+            .filter(|c| "\u{202a}\u{202e}\u{2066}\u{2069}\u{200b}\u{feff}".contains(*c))
+            .map(|c| format!("{c:?}")),
+    );
+    while i < bytes.len() {
+        match bytes[i] {
+            0x1b if bytes.get(i + 1) == Some(&b'[') => {
+                let end = bytes[i + 2..].iter().position(|b| (0x40..=0x7e).contains(b));
+                let end = i + 2 + end.unwrap_or(bytes.len());
+                let params = &bytes[i + 2..end.min(bytes.len())];
+                let sgr = bytes.get(end).is_some_and(|f| b"mHKJhlq".contains(f));
+                if !sgr || !params.iter().all(|b| b"0123456789;? ".contains(b)) {
+                    bad.push(format!(
+                        "{:?}",
+                        String::from_utf8_lossy(&bytes[i..=end.min(bytes.len() - 1)])
+                    ));
+                }
+                i = end + 1;
+            }
+            b @ (0..=0x1f | 0x7f) => {
+                bad.push(format!("control {b:#x}"));
+                i += 1;
+            }
+            0xc2 if bytes.get(i + 1).is_some_and(|b| (0x80..=0x9f).contains(b)) => {
+                bad.push("C1 control".into());
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+    bad
+}
+
+#[test]
+fn tree_1_whatever_a_name_holds_the_bytes_written_to_the_terminal_are_sims_own() {
+    // Names with an escape sequence (clear the screen, set the title, a CSI), a line break, a C1
+    // control, the bidirectional controls: through the panel, the search, the status line, a
+    // file opened by name, an error that names a directory, and the narrowed tree.
+    let names = [
+        "esc\x1b[2Jx",
+        "nl\nx",
+        "osc\x1b]0;pwned\x07x",
+        "c1\u{9b}31mx",
+        "rlo\u{202e}txt",
+        "del\x7fx",
+        "zw\u{200b}x",
+        "bom\u{feff}x",
+        "csi\x1b[31m",
+        "日本語\x1b",
+        "cr\r\ny",
+        "tab\tx",
+        "dir\x1b[2J/f",
+    ];
+    let files: Vec<String> = names.iter().map(|n| format!("{n}.txt")).collect();
+    let mut r =
+        rig_sized("t1-bytes", &files.iter().map(String::as_str).collect::<Vec<_>>(), &[], (60, 12));
+    let mut painter = sim::paint::Painter::new(Vec::<u8>::new());
+    let mut check = |r: &Rig, what: &str| {
+        painter.draw(r.shot.clone()).unwrap();
+        let bytes = std::mem::take(&mut painter.out);
+        assert_eq!(foreign(&bytes), Vec::<String>::new(), "after {what}");
+    };
+    check(&r, "the start");
+    for step in [
+        "j", "j", "j", "l", "jjjjj", "<CR>", "<C-n>", "/esc", "<CR>", "<C-p>nl", "<Down>", ":w\n",
+        ":e esc\n", "<Esc>", "<C-n>.", "-", "<Esc>gg", "<Tab>",
+    ] {
+        r.keys(step);
+        check(&r, step);
+    }
+    // A directory that cannot be read is named in the status line.
+    r.keys("<C-n>");
+    std::fs::remove_dir_all(r.cwd.join("dir\x1b[2J")).unwrap();
+    r.keys("<C-n><C-n>");
+    r.keys("kkkkkkkkkkkkkkkk<CR>");
+    check(&r, "an error that names a directory");
+    // The checker itself sees what it is for.
+    assert!(
+        !foreign(b"\x1b[2Jtext\x1b]0;x\x07").is_empty()
+            && foreign(b"\x1b[2;3Hok\x1b[0m").is_empty()
+    );
+}
+
 #[test]
 fn tree_1_the_panel_is_as_wide_as_its_columns_even_with_wide_characters() {
     let r = rig_sized("t1-wide", &["日本語のとても長いファイル名.md", "x.rs"], &[], (60, 8));
