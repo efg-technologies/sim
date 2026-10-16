@@ -5,7 +5,7 @@
 mod common;
 use common::*;
 use proptest::prelude::*;
-use si::io::file::{foreign_link, symlinks};
+use si::io::file::{foreign_link, resolve, symlinks};
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fs;
@@ -149,9 +149,11 @@ proptest! {
                         prop_assert_eq!(g.1, w.1);
                         prop_assert_eq!(&g.0, &w.0, "{:?} in {:?}", p, plan);
                     }
-                    // The kernel agrees with the reference about where the path ends.
+                    // The kernel agrees with the reference about where the path ends, and `resolve`
+                    // (what the save writes to) with the kernel.
                     if let Ok(c) = fs::canonicalize(&p) {
-                        prop_assert_eq!(c, end, "{:?} in {:?}", p, plan);
+                        prop_assert_eq!(&c, &end, "{:?} in {:?}", p, plan);
+                        prop_assert_eq!(resolve(p.to_str().unwrap()), c, "resolve of {:?} in {:?}", p, plan);
                     }
                     // Every link is mine here, so nobody else's is found; with a pretend user, the first is.
                     prop_assert_eq!(foreign_link(p.to_str().unwrap(), me), None);
