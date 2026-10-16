@@ -236,6 +236,11 @@ pub fn start(
     })
 }
 
+/// The history's key for a path: the same file under `./a` and `a` is one key.
+fn key_of(path: &Path) -> String {
+    path.components().collect::<PathBuf>().to_string_lossy().into_owned()
+}
+
 /// Line `l` of the buffer without its line break; none past the end.
 fn text_of(buf: &Buffer, l: usize) -> Option<String> {
     (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
@@ -314,6 +319,9 @@ impl Sim {
             SimEvent::Opened(o) => self.opened(o, &mut out),
             SimEvent::Dir(id, path) => {
                 out.push(SimEffect::Close(id)); // no file is open: its watcher is not needed
+                // `open` noted it before it was known to be a directory: it is no file that was opened (MARK-2).
+                self.history.forget(&key_of(&self.cwd.join(&path)));
+                out.push(SimEffect::History(self.history.clone()));
                 self.reveal_dir(&path, &mut out)
             }
             SimEvent::Files(files) => {
@@ -397,7 +405,7 @@ impl Sim {
 
     /// MARK-2: notes that the user opened a file, and has the history saved.
     fn note(&mut self, path: &Path, out: &mut Vec<SimEffect>) {
-        self.history.record(&path.to_string_lossy(), self.now);
+        self.history.record(&key_of(path), self.now);
         out.push(SimEffect::History(self.history.clone()));
     }
 

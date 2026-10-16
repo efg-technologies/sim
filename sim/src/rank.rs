@@ -36,6 +36,11 @@ impl History {
         self.trim(now);
     }
 
+    /// Forgets a path: one that was noted before it was known not to be a file.
+    pub fn forget(&mut self, path: &str) {
+        self.0.remove(path);
+    }
+
     pub fn likelihood(&self, path: &str, now: u64) -> f64 {
         self.0.get(path).map_or(0.0, |opens| weight(opens, now))
     }
