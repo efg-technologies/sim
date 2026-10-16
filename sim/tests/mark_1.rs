@@ -160,7 +160,7 @@ fn mark_1_a_bare_repository_and_a_git_directory_have_no_work_tree_and_so_no_mark
 // texts that git and a parser of sim's own could read differently.
 
 /// Configs that define a command git would run, or could bring one in.
-const RUNS: [&str; 37] = [
+const RUNS: [&str; 35] = [
     "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n",
     "[FILTER \"x\"]\n\tSmudge = cat\n",
     "[filter.x]\n\tprocess = cat\n",
@@ -177,8 +177,6 @@ const RUNS: [&str; 37] = [
     "[core]\n\tfsmonitor = \"true\" ; [user]\n",
     "[core]\n\tx = 1 \\\n[user]\n\tfsmonitor = true\n", // the header is the end of a continued value
     "[user]\n\tname = \"a\\\n[core]\"\n[core]\n\tfsmonitor = true\n",
-    "[core]\n\thooksPath = /tmp/hooks\n",
-    "[Core]\n\thookspath\n", // no value: git cannot read it at all
     "[remote \"origin\"]\n\tpromisor = true\n\tuploadpack = /tmp/up\n", // run for a fetch from a path
     "[remote \"origin\"]\n\treceivepack = /tmp/rp\n",
     "[remote \"o\"]\n\tVCS = x\n",            // runs `git-remote-x`
@@ -201,7 +199,7 @@ const RUNS: [&str; 37] = [
 ];
 
 /// Configs that cannot run anything in `status` or `ls-files`.
-const SAFE: [&str; 8] = [
+const SAFE: [&str; 10] = [
     "",
     "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n\
      [remote \"origin\"]\n\turl = https://example.com/filter.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n\
@@ -216,6 +214,8 @@ const SAFE: [&str; 8] = [
     "[filter \"x\"]\n[include]\n[core]\n", // sections with nothing in them define nothing
     "[remote \"filter\"]\n\turl = x\n[branch \"include\"]\n\tremote = origin\n[remote \"o r\\\"i\\\\g;#\"]\n\turl = y\n",
     "[alias]\n\tx = y \\\n[filter]\n[core]\n\tautocrlf = true\n", // a header in a continued value
+    "[core]\n\thooksPath = /tmp/hooks\n", // hooks run in commands that write (see below)
+    "[Core]\n\tHooksPath = .husky/_\n",
 ];
 
 fn skipped(dir: &Path) {
@@ -334,7 +334,7 @@ fn mark_1_the_user_s_own_config_is_trusted_and_the_repository_s_is_not() {
     assert!(io::runs_commands(&mixed));
     // The same by hand, for the scopes a test cannot make: system, and what does not parse.
     assert!(!io::runs_commands(b"system\0core.fsmonitor\ntrue\0global\0include.path\nx\0"));
-    assert!(io::runs_commands(b"worktree\0core.hookspath\0"));
+    assert!(io::runs_commands(b"worktree\0core.fsmonitor\0"));
     assert!(
         io::runs_commands(b"submodule\0filter.x.clean\ncat\0"),
         "an unknown scope is not the user's"
@@ -366,7 +366,6 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
         "editor",
         "pager",
         "gitproxy",
-        "hookspath",
         "fsmonitor",
         "sshcommand",
         "hook",
@@ -396,7 +395,6 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
         "includeif.gitdir:/a.b/.path",
         "includeif.hasconfig:remote.*.url:*.example/**.path",
         "core.fsmonitor",
-        "core.hookspath",
     ] {
         assert!(io::runs_commands(&listing("local", &[key])), "{key}");
     }
@@ -410,6 +408,7 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
         "core.autocrlf",
         "core.symlinks",
         "core.worktree",
+        "core.hookspath", // hooks run in commands that write, and sim runs none
         "core.fsmonitor.x",
         "remote.origin.url",
         "remote.origin.fetch",
@@ -447,6 +446,99 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
     assert!(!io::runs_commands(&listing("local", &ordinary)));
     let mixed = [&ordinary[..], &["x.y.smudge"]].concat();
     assert!(io::runs_commands(&listing("local", &mixed)), "one is enough, wherever it is");
+}
+
+/// Every hook git has (githooks(5)).
+const HOOKS: [&str; 28] = [
+    "applypatch-msg",
+    "pre-applypatch",
+    "post-applypatch",
+    "pre-commit",
+    "pre-merge-commit",
+    "prepare-commit-msg",
+    "commit-msg",
+    "post-commit",
+    "pre-rebase",
+    "post-checkout",
+    "post-merge",
+    "pre-push",
+    "pre-receive",
+    "update",
+    "proc-receive",
+    "post-receive",
+    "post-update",
+    "reference-transaction",
+    "push-to-checkout",
+    "pre-auto-gc",
+    "post-rewrite",
+    "sendemail-validate",
+    "fsmonitor-watchman",
+    "p4-changelist",
+    "p4-prepare-changelist",
+    "p4-post-changelist",
+    "p4-pre-submit",
+    "post-index-change",
+];
+
+/// The witnesses written so far: the names of the hooks that ran.
+fn ran(witness: &Path) -> Vec<String> {
+    let names = std::fs::read_dir(witness).unwrap().map(|e| e.unwrap().file_name());
+    let mut names: Vec<String> = names.map(|n| n.to_string_lossy().into_owned()).collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn mark_1_core_hookspath_does_not_stop_git_and_no_hook_runs() {
+    use std::os::unix::fs::PermissionsExt;
+    // Once with the hooks outside the repository, once inside it and relative to it (husky).
+    for relative in [false, true] {
+        let d = temp_dir(&format!("mark1-hooks-{relative}"));
+        let (work, witness) = (d.0.join("work"), d.0.join("witness"));
+        for dir in [&work, &witness] {
+            std::fs::create_dir(dir).unwrap();
+        }
+        let hooks = if relative { work.join(".husky/_") } else { d.0.join("hooks") };
+        std::fs::create_dir_all(&hooks).unwrap();
+        for name in HOOKS {
+            let script = format!("#!/bin/sh\ntouch '{}/{name}'\n", witness.display());
+            std::fs::write(hooks.join(name), script).unwrap();
+            std::fs::set_permissions(hooks.join(name), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        std::fs::write(hooks.join(".gitignore"), "*\n").unwrap(); // (as husky leaves it)
+        repo(&work, &["a.txt=aaaa\n", "sub/b.rs", "c.rs"]);
+        let path = if relative { ".husky/_" } else { hooks.to_str().unwrap() };
+        git(&work, &["config", "core.hooksPath", path]);
+        // `a.txt` is a file that git must read again (the same size, an mtime that moved): a
+        // plain `git status` then writes the index, and that runs `post-index-change`.
+        std::fs::write(work.join("a.txt"), "bbbb\n").unwrap();
+        let file = std::fs::File::options().write(true).open(work.join("a.txt")).unwrap();
+        file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
+            .unwrap();
+        make(&work, &["sub/new.rs"]);
+        // sim's own calls: they give the marks, and no hook ran.
+        let (status, prefix) = (io::git_status(&work).unwrap(), io::git_prefix(&work).unwrap());
+        let m = Marks::new(&status, &prefix, &none());
+        assert!(m.changed(Path::new("a.txt")) && m.changed(Path::new("sub/new.rs")), "{status:?}");
+        assert!(m.changed_below(Path::new("sub")) && !m.changed(Path::new("c.rs")));
+        let sub = work.join("sub");
+        let (status, prefix) = (io::git_status(&sub).unwrap(), io::git_prefix(&sub).unwrap());
+        assert!(Marks::new(&status, &prefix, &none()).changed(Path::new("new.rs")));
+        let listed = String::from_utf8(io::git_files(&work).unwrap()).unwrap();
+        assert!(listed.contains("c.rs\0") && listed.contains("sub/new.rs\0"), "{listed:?}");
+        assert!(io::files(&work).contains(&"c.rs".to_string()));
+        assert_eq!(ran(&witness), Vec::<String>::new(), "relative {relative}: a hook ran");
+        // The control: the user's git does run a hook for the same status, so this test can tell.
+        git(&work, &["status", "--porcelain"]);
+        assert_eq!(ran(&witness), ["post-index-change"], "relative {relative}: the control");
+    }
+    // A hooks path with no value is no skip: git stops by itself and says so.
+    let d = temp_dir("mark1-hooks-no-value");
+    repo(&d.0, &["a.rs"]);
+    append(&d.0.join(".git/config"), "[Core]\n\thookspath\n");
+    let err = io::git_status(&d.0).unwrap_err();
+    assert!(err.contains("missing value for 'core.hookspath'"), "{err}");
 }
 
 /// A repository with `.gitattributes` that sends every file through the filter `canary`, a

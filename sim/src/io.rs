@@ -197,12 +197,14 @@ pub const GIT_SKIPPED: &str = "git skipped: this repository's config could run c
 /// the names below, or ends with `command` (`sshcommand`, `alternaterefscommand`), `cmd`,
 /// `program` or `hook`. `core.fsmonitor` is one by its variable. It is a class, not a list of
 /// what git runs today, so that a setting git adds later is in it too; `status`, `ls-files` and
-/// `rev-parse` use few of them. A key that has no section is not one git writes.
+/// `rev-parse` use few of them. `core.hooksPath` is not one: hooks run in commands that write,
+/// and with `--no-optional-locks` none of sim's four writes the index. A key that has no section
+/// is not one git writes.
 fn holds_command(key: &[u8]) -> bool {
     let (section, var) = (key.split(|&b| b == b'.').next(), key.rsplit(|&b| b == b'.').next());
     let (section, var) = (section.unwrap_or_default(), var.unwrap_or_default());
     let names = b"driver textconv helper process clean smudge askpass editor pager gitproxy \
-                  hookspath fsmonitor uploadpack receivepack vcs";
+                  fsmonitor uploadpack receivepack vcs";
     section.len() == key.len()
         || matches!(section, b"filter" | b"include" | b"includeif" | b"protocol")
         || names.split(|&b| b == b' ').any(|name| name == var)
