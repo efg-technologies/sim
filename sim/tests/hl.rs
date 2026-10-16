@@ -95,13 +95,12 @@ fn syn_3_a_line_of_many_spans_is_laid_out_in_the_time_of_a_key() {
     let frame =
         Frame { width: 80, height: 24, rows, cursor: (5, 0), shape: Shape::Block, pal: None };
     let (t, line) = (std::time::Instant::now(), text.clone());
-    let (looks, win) =
-        sim::layout::colors(&frame, digits, &|l| (l == 0).then(|| line.clone()), &|l| {
-            (l == 0).then_some(&spans)
-        });
+    let colored = sim::layout::colors(&frame, digits, &|l| (l == 0).then(|| line.clone()), &|l| {
+        (l == 0).then_some(&spans)
+    });
     let took = t.elapsed();
-    assert_eq!(win, Some((0, 0)));
-    assert_eq!(looks[0].len(), 38, "every other char of the first row is a number");
+    assert_eq!(colored.win, Some((0, 0)));
+    assert_eq!(colored.looks[0].len(), 38, "every other char of the first row is a number");
     assert!(took < std::time::Duration::from_millis(150), "{took:?}");
 }
 
@@ -590,7 +589,10 @@ fn syn_1_the_change_background_wins_over_every_syntax_color_under_si_s_palette()
         colors,
         "and no other background: {on_change:?}"
     );
-    assert!(on_change.contains(";1m") && on_change.contains(";3m"), "bold and italic remain");
+    let has = |p: &str| {
+        on_change.split("\x1b[").any(|s| s.split('m').next().unwrap().split(';').any(|x| x == p))
+    };
+    assert!(has("1") && has("3"), "bold and italic remain: {on_change:?}");
     let plain = draw(Style::Primary);
     assert!(plain.contains("48;2;") && plain.contains("38;2;"), "colors elsewhere: {plain:?}");
 }

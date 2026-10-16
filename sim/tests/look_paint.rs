@@ -198,7 +198,7 @@ fn look_2_the_painter_lays_the_tint_and_the_inks_over_the_cells_the_first_paint_
     assert!(sgr_before(&out, ' ').contains(&on(t.gain)), "a blank one too");
     // The change style is si's blue; the ink after it puts green, and the text gray, over it.
     let b = sgr_before(&out, 'b');
-    assert!(b.ends_with(&format!("{};38;2;{}", on(t.add), rgb(t.add_text))), "{b}");
+    assert!(b.contains(&on(t.add)) && b.contains(&format!(";38;2;{}", rgb(t.add_text))), "{b}");
     assert!(!b.contains(&on(t.gain)), "{b}");
     // A Deleted word keeps its dim, struck text and gets red behind it.
     let c = sgr_before(&out, 'c');

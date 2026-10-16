@@ -1461,4 +1461,46 @@ look_6_the_text_fades_with_its_distance_from_the_cursor() {
   [ "$(color_of 'line 2$')" = "$(color_of 'line 20$')" ]
 }
 
+ui_8_markdown_is_colored_and_every_char_of_the_file_is_on_the_screen() {
+  printf '# Title\n\nSome `code` and **bold** here.\n\n> quoted\n\n```bash\nls -l\n```\n' > "$W/a.md"
+  look flat
+  CT=truecolor
+  start a.md
+  wait_for "a.md"
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_esc '1m.*38;2;[0-9;]*m Title' # a heading: bold, in the color of its level
+  # Nothing is hidden: the markers and the url are drawn, only dimmer.
+  screen | grep -F -q '# Title'
+  screen | grep -F -q 'Some `code` and **bold** here.'
+  screen | grep -F -q '▌ quoted' # the quote's bar, in the cell of its `>`
+  ! screen | grep -F -q '> quoted'
+  screen | grep -F -q '```bash'
+  screen | grep -F 'bash' | grep -q 'bash  *bash' # the language again, at the right
+  wait_esc '48;2;[0-9;]*m`' # inline code is on a surface, its backtick too
+  # Calm draws no surface and no bar: the file's own chars, colored like syntax.
+  typed zl
+  wait_for "look: depth"
+  typed zl
+  wait_for "look: calm"
+  screen | grep -F -q '> quoted'
+  ! screen_esc | grep -q '48;2;'
+  wait_esc '1m.*38;2;[0-9;]*m Title'
+}
+
+ui_8_the_colors_of_a_fenced_block_far_from_the_cursor_reach_the_screen_through_tmux() {
+  # tmux 3.7c drops an SGR sequence of more than 20 parameters: depth's fog, the band and the
+  # language's color on one cell must fit in fewer, or the code of the block is drawn plain.
+  { i=1; while [ "$i" -le 12 ]; do echo "line $i"; i=$((i + 1)); done; printf '```bash\nparu -S chezmoi\n```\n'; } > "$W/a.md"
+  look depth
+  CT=truecolor
+  start a.md
+  wait_for "a.md"
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  reply '4;6;rgb:7f7f/bfbf/b4b4'
+  wait_for "paru -S chezmoi"
+  # The cell of `paru` has a color of its own and the band's background, which are two separate
+  # sequences in what tmux reports (a foreground, then a background, then the text).
+  wait_esc '38;2;[0-9;]*m.\[48;2;[0-9;]*mparu'
+}
+
 main "$@"

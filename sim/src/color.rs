@@ -1,4 +1,4 @@
-//! SYN-1, SYN-5, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-9
+//! SYN-1, SYN-5, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-9, UI-1, UI-12
 //! The syntax colors (pure): the terminal's own ANSI colors (OSC 4), moved in OKLCH lightness until
 //! they read against the background that si's palette is made from (`Event::Bg`, VIS-4), the
 //! selection's gray, and what puts the terminal's replies together out of the key stream. APCA,
@@ -124,9 +124,31 @@ fn text_on(primary: Rgb, c: Rgb) -> Rgb {
     contrast(primary, c, 75.5)
 }
 
-/// LOOK-2 to LOOK-6: the colors the looks add to si's palette. Green (OKLCH hue 150) is what comes
-/// and red (hue 25) what goes, each with its own text gray; the tints, the card and the shadow are
-/// mixed in OKLab from the page's background.
+/// UI-1: the accents of the interface, in the order of `Tones::fg`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Accent {
+    Red,
+    Green,
+    Amber,
+    Blue,
+    Purple,
+    Teal,
+}
+
+impl Accent {
+    pub const ALL: [Accent; 6] =
+        [Accent::Red, Accent::Green, Accent::Amber, Accent::Blue, Accent::Purple, Accent::Teal];
+
+    /// The ANSI color the terminal is asked for, and the OKLCH hue that stands in for it.
+    fn class(self) -> (usize, f64) {
+        [(1, 25.0), (2, 145.0), (3, 85.0), (4, 250.0), (5, 320.0), (6, 195.0)][self as usize]
+    }
+}
+
+/// LOOK-2 to LOOK-6, UI-1: the colors the looks add to si's palette. Green (OKLCH hue 150) is what
+/// comes and red (hue 25) what goes, each with its own text gray; the tints, the card and the
+/// shadow are mixed in OKLab from the page's background. The interface has six accents (text
+/// that reads on every neutral surface), a block of each with its text, and neutral surfaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tones {
     pub add: Rgb,
@@ -148,12 +170,35 @@ pub struct Tones {
     /// The title of a box without the focus.
     pub dim: Rgb,
     pub primary: Rgb,
+    /// UI-1: the surfaces of the interface, 6, 9, 10 and 14% of the way from the page toward
+    /// secondary (the cursor's line, a fenced block, the bars, inline code).
+    pub cursor: Rgb,
+    pub band: Rgb,
+    pub bar: Rgb,
+    pub code: Rgb,
+    fg: [Rgb; 6],
+    block: [Rgb; 6],
+    on: [Rgb; 6],
 }
 
 impl Tones {
+    /// The tones for a palette, the accents derived from their hues (no reply of the terminal).
     pub fn new(p: &Palette) -> Tones {
+        Tones::with(p, &Syntax::default())
+    }
+
+    /// The tones for a palette and the colors the terminal told (`Syntax`).
+    pub fn with(p: &Palette, syn: &Syntax) -> Tones {
         let (add, del) = (hued(p.bg, 150.0), hued(p.bg, 25.0));
         let by = |c, t| mix(p.bg, c, t);
+        let card = by(p.secondary, 0.18);
+        let fg = Accent::ALL.map(|a| contrast(syn.raw(a), card, 75.5));
+        // A block has the hue of its accent as the terminal has it (the stand-in's when it is gray).
+        let hue = |a: Accent| {
+            let [_, chroma, h] = to_lch(syn.raw(a));
+            if chroma < 0.02 { a.class().1 } else { h }
+        };
+        let block = Accent::ALL.map(|a| hued(p.bg, hue(a)));
         Tones {
             add,
             add_text: text_on(p.primary, add),
@@ -162,13 +207,34 @@ impl Tones {
             gain: by(add, 0.30),
             loss: by(del, 0.30),
             hunk: by(p.secondary, 0.12),
-            card: by(p.secondary, 0.18),
+            card,
             shadow: by((0, 0, 0), 0.55),
             line: by(p.secondary, 0.45),
             focus: p.secondary,
             dim: mix(p.secondary, p.bg, 0.35),
             primary: p.primary,
+            cursor: by(p.secondary, 0.06),
+            band: by(p.secondary, 0.09),
+            bar: by(p.secondary, 0.10),
+            code: by(p.secondary, 0.14),
+            fg,
+            block,
+            on: block.map(|b| text_on(p.primary, b)),
         }
+    }
+
+    /// The text color of an accent: |Lc| >= 75.5 against the card, so against every neutral surface.
+    pub fn fg(&self, a: Accent) -> Rgb {
+        self.fg[a as usize]
+    }
+
+    /// The accent as a background (the nearest to the page at |Lc| 15.5), and the text on it.
+    pub fn block(&self, a: Accent) -> Rgb {
+        self.block[a as usize]
+    }
+
+    pub fn on(&self, a: Accent) -> Rgb {
+        self.on[a as usize]
     }
 }
 
@@ -245,6 +311,13 @@ impl Syntax {
     /// Whether replies are still to come (the quit then waits for the terminal to finish, VIS-4).
     pub fn pending(&self) -> bool {
         self.truecolor && [1, 2, 3, 5, 6].iter().any(|&i| self.ansi[i].is_none())
+    }
+
+    /// UI-1: an accent as the terminal has it (the reply of OSC 4 when it came, else the color of
+    /// the OKLCH hue of its class), before it is moved to read against anything.
+    pub fn raw(&self, a: Accent) -> Rgb {
+        let (i, hue) = a.class();
+        self.ansi[i].unwrap_or_else(|| from_lch([0.5, 0.12, hue]))
     }
 
     /// The text color of a syntax look, or none (then the terminal's own SGR 31-36 is used).

@@ -1,4 +1,4 @@
-//! SYN-1, SYN-3, SYN-4
+//! SYN-1, SYN-3, SYN-4, UI-8
 //! syntect scopes to looks per line (keyword, string, number, type, function, comment), with the
 //! parse state cached every [`EVERY`] lines so that an edit re-parses from the nearest state
 //! above it (pure, apart from loading the syntax set once).
@@ -36,8 +36,9 @@ pub fn syntaxes() -> &'static SyntaxSet {
 
 /// What each scope looks like; the longest scope that is a prefix wins, so a more specific
 /// one can take it back (`None`: plain). Operators, names and punctuation are plain. Markup is
-/// typography already: headings and strong are bold. Blue is never used (SYN-1).
-const RULES: [(&str, Option<Look>); 25] = [
+/// typography (UI-8): headings by level, emphasis, strong, links, bullets and quotes, and a dim
+/// for the markers that make them, none of which is hidden. Blue is never used (SYN-1).
+const RULES: &[(&str, Option<Look>)] = &[
     ("comment", Some(Look::Com)),
     ("string", Some(Look::Str)),
     ("string.unquoted", None), // a bare word, YAML's plain value, bash's `$(...)`: not a literal
@@ -61,9 +62,49 @@ const RULES: [(&str, Option<Look>); 25] = [
     ("support.function", Some(Look::Fun)),
     ("support.macro", Some(Look::Fun)),
     ("variable.function", Some(Look::Fun)),
-    ("markup.heading", Some(Look::Bold)),
+    ("markup.heading.1", Some(Look::H1)),
+    ("markup.heading.2", Some(Look::H2)),
+    ("markup.heading.3", Some(Look::H3)),
+    ("markup.heading.4", Some(Look::H4)),
+    ("markup.heading.5", Some(Look::H5)),
+    ("markup.heading.6", Some(Look::H6)),
+    ("markup.heading", Some(Look::H3)), // levels 3 to 6 have no number in bat's syntax: see `Syn::line`
+    ("punctuation.definition.heading", Some(Look::Mark)),
     ("markup.bold", Some(Look::Bold)),
+    ("markup.italic", Some(Look::Em)),
+    ("punctuation.definition.bold", Some(Look::Mark)),
+    ("punctuation.definition.italic", Some(Look::Mark)),
+    ("markup.raw.inline", Some(Look::Code)),
+    ("punctuation.definition.raw", Some(Look::Tick)),
+    ("punctuation.definition.raw.code-fence", Some(Look::Mark)),
+    ("meta.code-fence.definition", Some(Look::Mark)),
+    ("constant.other.language-name", Some(Look::Lang)),
+    ("meta.link.inline.description", Some(Look::Link)),
+    ("meta.link.reference.description", Some(Look::Link)),
+    ("meta.image.inline.description", Some(Look::Link)),
+    ("markup.underline.link", Some(Look::Url)),
+    ("punctuation.definition.image", Some(Look::Mark)),
+    ("punctuation.definition.constant", Some(Look::Mark)),
+    ("punctuation.definition.link", Some(Look::Mark)),
+    ("punctuation.definition.metadata", Some(Look::Mark)),
+    ("markup.list.unnumbered.bullet", Some(Look::Bullet)),
+    ("markup.list.numbered.bullet", Some(Look::Bullet)),
+    ("punctuation.definition.blockquote", Some(Look::Quote)),
+    ("punctuation.separator.table-cell", Some(Look::Mark)),
+    ("punctuation.section.table-header", Some(Look::Mark)),
 ];
+
+/// UI-8: whether a scope is a line of a fenced block (its fences and what is between them).
+fn fenced(scope: Scope) -> bool {
+    static SCOPES: OnceLock<Vec<Scope>> = OnceLock::new();
+    let all = SCOPES.get_or_init(|| {
+        ["markup.raw.code-fence", "meta.code-fence"]
+            .iter()
+            .filter_map(|s| Scope::new(s).ok())
+            .collect()
+    });
+    all.iter().any(|s| s.is_prefix_of(scope))
+}
 
 fn attr_of(scope: Scope) -> Option<Look> {
     static RULES_SCOPES: OnceLock<Vec<(Scope, Option<Look>)>> = OnceLock::new();
@@ -148,8 +189,9 @@ impl Syn {
         let text = format!("{line}\n");
         let Ok(ops) = parse.parse_line(&text, syntaxes()) else { return vec![] };
         let (mut spans, mut at, mut col, mut attr) = (Spans::new(), 0, 0, look(stack));
-        let width = line.chars().count();
+        let (width, mut band) = (line.chars().count(), false);
         for (off, op) in ops.into_iter().chain([(text.len(), ScopeStackOp::Noop)]) {
+            band |= off > at && stack.as_slice().iter().any(|&s| fenced(s));
             let end = (col + text[at..off].chars().count()).min(width);
             match (attr, spans.last_mut()) {
                 (Some(a), Some((r, b))) if a == *b && r.end == col => r.end = end,
@@ -160,6 +202,16 @@ impl Syn {
             let _ = stack.apply(&op);
             attr = look(stack);
         }
+        // A line of a fenced block starts with a span of no width, for the surface across it: a
+        // blank line in the block has no char to carry one (UI-8).
+        if band {
+            spans.insert(0, (0..0, Look::Band));
+        }
+        // bat's syntax numbers headings 1 and 2 only: the others are `H3` here, and the count of
+        // their `#`s says the level.
+        let level = [Look::H3, Look::H4, Look::H5, Look::H6]
+            [line.chars().take_while(|&c| c == '#').count().clamp(3, 6) - 3];
+        spans.iter_mut().filter(|s| s.1 == Look::H3).for_each(|s| s.1 = level);
         spans
     }
 }

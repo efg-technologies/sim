@@ -15,6 +15,30 @@ fn spans(syn: &mut Syn, text: &[String], from: usize, n: usize) -> Vec<Spans> {
     syn.spans(&|i| text.get(i).cloned(), from, n)
 }
 
+/// UI-8: the symbol of a look of markdown in the dumps: `1`-`6` headings, `m` a marker, `k` the
+/// backticks of inline code, `C` its text, `e` emphasis, `L` a link's text, `U` its URL, `b` a
+/// bullet, `q` a quote's bar, `l` the language of a fence, `~` the zero-width band.
+fn md_symbol(l: Look) -> char {
+    match l {
+        Look::H1 => '1',
+        Look::H2 => '2',
+        Look::H3 => '3',
+        Look::H4 => '4',
+        Look::H5 => '5',
+        Look::H6 => '6',
+        Look::Mark => 'm',
+        Look::Tick => 'k',
+        Look::Code => 'C',
+        Look::Em => 'e',
+        Look::Link => 'L',
+        Look::Url => 'U',
+        Look::Bullet => 'b',
+        Look::Quote => 'q',
+        Look::Lang => 'l',
+        _ => '~',
+    }
+}
+
 /// Each line, and under it one symbol per char: `.` plain, `K` keyword, `S` string, `N` number or
 /// constant, `T` type, `F` function, `c` comment, `B` bold.
 fn dump(name: &str, first_line: &str, text: &str) -> String {
@@ -35,6 +59,7 @@ fn dump(name: &str, first_line: &str, text: &str) -> String {
                     Look::Fun => 'F',
                     Look::Bold => 'B',
                     Look::Sel => 'g',
+                    l => md_symbol(*l),
                 };
             }
         }

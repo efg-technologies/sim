@@ -525,6 +525,22 @@ fn dump_rows(f: &Frame, looks: &[Looks], paints: &[Paints], t: Option<&Tones>) -
                 Some(Look::Com) => 'c',
                 Some(Look::Bold) => 'B',
                 Some(Look::Sel) => 'g',
+                Some(Look::H1) => '1',
+                Some(Look::H2) => '2',
+                Some(Look::H3) => '3',
+                Some(Look::H4) => '4',
+                Some(Look::H5) => '5',
+                Some(Look::H6) => '6',
+                Some(Look::Mark) => 'm',
+                Some(Look::Tick) => 'k',
+                Some(Look::Code) => 'C',
+                Some(Look::Em) => 'e',
+                Some(Look::Link) => 'L',
+                Some(Look::Url) => 'U',
+                Some(Look::Bullet) => 'b',
+                Some(Look::Quote) => 'q',
+                Some(Look::Lang) => 'l',
+                Some(Look::Band) => '~',
             };
             let line: String = (0..f.width).map(sym).collect();
             out += &format!("|{line}|\n");

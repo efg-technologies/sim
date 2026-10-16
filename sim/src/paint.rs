@@ -1,4 +1,4 @@
-//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7
+//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8
 //! What sim draws beyond si's four styles: the looks a char can have, the Screen that carries
 //! them with si's Frame, and the Painter that writes a Screen to the terminal, row by row. The
 //! four styles are si's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
@@ -24,7 +24,12 @@ pub fn leave(out: &mut impl Write) {
 
 /// What a char looks like on top of its style. The order is the precedence where the scopes of
 /// a char disagree (the first wins), so a keyword inside a comment or a string stays a comment
-/// or a string. `Bold` is a search match in the panel, `Sel` the Visual selection (SYN-5).
+/// or a string, and a marker of markdown stays dim inside a heading. `Bold` is a search match in
+/// the panel or markdown's strong text, `Sel` the Visual selection (SYN-5). From `Tick` to `Band`
+/// are the looks of markdown (UI-8): the backticks of inline code, the language of a fence, a
+/// marker (`#`, `**`, a fence, a bracket), a URL, a link's text, inline code, the six levels of
+/// heading, a bullet, a quote's `>`, emphasis, and (zero-width, at the start of a line) a line of
+/// a fenced block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Look {
     Com,
@@ -33,8 +38,49 @@ pub enum Look {
     Num,
     Ty,
     Fun,
+    Tick,
+    Lang,
+    Mark,
+    Url,
+    Link,
+    Code,
+    H1,
+    H2,
+    H3,
+    H4,
+    H5,
+    H6,
+    Bullet,
+    Quote,
+    Em,
+    Band,
     Bold,
     Sel,
+}
+
+/// How a look is drawn (before a paint's colors): its SGR attributes, the syntax look whose color
+/// it takes (SGR 31-36 stands for it without a palette), and whether it is the secondary gray.
+/// The six headings are red, yellow, green, cyan, magenta and cyan again; blue is not a syntax
+/// color (SYN-1), and flat and depth paint level 5 and links blue over it (UI-8).
+fn made_of(look: Look, pal: bool) -> (&'static str, Option<Look>, bool) {
+    use Look::*;
+    match look {
+        Kw => (";1", Some(Kw), false),
+        Str | Ty | Num | Fun => ("", Some(look), false),
+        H1 => (";1", Some(Kw), false),
+        H2 => (";1", Some(Ty), false),
+        Bullet => ("", Some(Ty), false),
+        H3 => (";1", Some(Str), false),
+        H4 | H5 => (";1", Some(Fun), false),
+        H6 => (";1", Some(Num), false),
+        Quote | Lang => ("", Some(Fun), false),
+        Link => (";4", Some(Fun), false),
+        Com => (if pal { ";3" } else { ";2;3" }, None, true),
+        Mark | Tick | Url => (if pal { "" } else { ";2" }, None, true),
+        Em => (";3", None, false),
+        Bold => (";1", None, false),
+        Code | Band | Sel => ("", None, false),
+    }
 }
 
 /// Column ranges of a row, in the columns of the Frame.
@@ -68,6 +114,11 @@ pub struct Screen {
 /// it a look can only be bold or italic, never a color (P3: the change is the only chromatic
 /// background, and reverse video would turn a text color into a background). Comments are the
 /// secondary gray and italic, or faint and italic where there is no palette.
+///
+/// Each color is written once, the last that was meant (the style's, then the look's, then the
+/// paint's): tmux drops a whole SGR sequence of more than 20 parameters (3.7c, measured), and one
+/// that repeated a color in turn (`38;2;..;38;2;..;48;2;..;38;2;..`) lost the colors of a fenced
+/// block's code in the owner's tmux.
 fn sgr(
     style: Style,
     underline: bool,
@@ -77,75 +128,137 @@ fn sgr(
     syn: &Syntax,
 ) -> String {
     let change = style == Style::Change;
-    let fg = |(r, g, b): (u8, u8, u8)| format!(";38;2;{r};{g};{b}");
-    let mut s = format!("\x1b[0{}{}", base(style, pal), ["", ";4"][usize::from(underline)]);
-    let (attr, hue) = match look {
-        Some(Look::Kw) => (";1", Some(1)),
-        Some(Look::Str) => ("", Some(2)),
-        Some(Look::Ty) => ("", Some(3)),
-        Some(Look::Num) => ("", Some(5)),
-        Some(Look::Fun) => ("", Some(6)),
-        Some(Look::Com) => (if pal.is_some() { ";3" } else { ";2;3" }, None),
-        Some(Look::Bold) => (";1", None),
-        _ => ("", None),
-    };
-    s += attr;
-    if let (Some(Look::Com), Some(p), false) = (look, pal, change) {
-        s += &fg(p.secondary);
+    let rgb = |k: u8, (r, g, b): (u8, u8, u8)| format!(";{k}8;2;{r};{g};{b}");
+    // What the style gives: attributes, and with a palette the colors (si's `term::sgr`, VIS-4).
+    let (mut attrs, mut fg, mut bg) = (String::new(), None, None);
+    match (pal, style) {
+        (None, _) => attrs += &base(style, None),
+        (Some(p), Style::Primary) => fg = Some(p.primary),
+        (Some(p), Style::Secondary) => fg = Some(p.secondary),
+        (Some(p), Style::Change) => (bg, fg) = (Some(p.change), Some(p.change_text)),
+        (Some(p), Style::Deleted) => (fg, attrs) = (Some(p.secondary), ";9".into()),
     }
-    if let (Some(i), Some(l), false) = (hue, look, change) {
-        s += &syn.hue(l).map_or(format!(";3{i}"), fg);
+    attrs += [";4", ""][usize::from(!underline)];
+    let (attr, kin, dim) = look.map_or(("", None, false), |l| made_of(l, pal.is_some()));
+    attrs += attr;
+    attrs += [";1", ""][usize::from(!paint.bold)];
+    // The look's color: the secondary gray, or the syntax hue (SGR 31-36 where there is none).
+    let mut ansi = None;
+    if let (false, Some(p)) = (change, pal) {
+        if dim {
+            fg = Some(p.secondary);
+        } else if let Some(k) = kin {
+            let i = match k {
+                Look::Kw => 1,
+                Look::Str => 2,
+                Look::Ty => 3,
+                Look::Num => 5,
+                _ => 6,
+            };
+            (fg, ansi) = (syn.hue(k), syn.hue(k).map_or(Some(i), |_| None));
+        }
+    } else if let (false, None, Some(k)) = (change, pal, kin) {
+        ansi = Some(match k {
+            Look::Kw => 1,
+            Look::Str => 2,
+            Look::Ty => 3,
+            Look::Num => 5,
+            _ => 6,
+        });
     }
     // LOOK-2 to LOOK-7: a background of its own (the tint, green or red, over the change style's
     // blue too: layout only puts one where it means it), a color of its own, and the fade of the
     // color the cell has by now (the change style never fades).
-    let shown = match look {
-        _ if change => None,
-        Some(Look::Com) => pal.map(|p| p.secondary),
-        Some(l @ (Look::Kw | Look::Str | Look::Ty | Look::Num | Look::Fun)) => syn.hue(l),
-        _ => pal.and_then(|p| match style {
-            Style::Primary => Some(p.primary),
-            Style::Secondary | Style::Deleted => Some(p.secondary),
-            Style::Change => None,
-        }),
-    };
-    s += ["", ";1"][usize::from(paint.bold)];
-    if let Some((r, g, b)) = paint.bg {
-        s += &format!(";48;2;{r};{g};{b}");
+    bg = paint.bg.or(bg);
+    if let Some(c) = paint.fg {
+        (fg, ansi) = (Some(c), None);
     }
-    if let (Some(c), Some(p), true) = (shown, pal, paint.fade > 0) {
-        s += &fg(fade(c, p.bg, f64::from(paint.fade) / 100.0));
+    if let (Some(c), Some(p), true, false) = (fg, pal, paint.fade > 0, change) {
+        fg = Some(fade(c, p.bg, f64::from(paint.fade) / 100.0));
     }
-    s += &paint.fg.map_or(String::new(), fg);
-    if let (Some(Look::Sel), false, Some((bg, t))) = (look, change, syn.sel()) {
-        s += &format!(";48;2;{};{};{}{}", bg.0, bg.1, bg.2, fg(t));
+    let mut out = format!("\x1b[0{attrs}");
+    if let (Some(Look::Sel), false, Some((sbg, text))) = (look, change, syn.sel()) {
+        (bg, fg, ansi) = (Some(sbg), Some(text), None);
     }
-    s + "m"
+    if let Some(i) = ansi {
+        out += &format!(";3{i}");
+    } else if let Some(c) = fg {
+        out += &rgb(3, c);
+    }
+    if let Some(c) = bg {
+        out += &rgb(4, c);
+    }
+    out + "m"
 }
 
-/// The text of a row with an SGR sequence wherever style, underline or look changes.
-fn paint(b: &mut Vec<u8>, s: &Screen, i: usize, memo: &mut Memo) {
-    let (row, looks, pal, syn) = (&s.frame.rows[i], &s.looks[i], s.frame.pal, &s.syn);
+/// What one column of a row is: the first range of each list that holds it decides (the paints
+/// are merged field by field: the first one that has a color gives it).
+#[derive(Clone, Copy, Default)]
+struct Cell {
+    style: Option<Style>,
+    underline: bool,
+    look: Option<Look>,
+    paint: Paint,
+}
+
+/// The cells of a row, one per column, made of its lists of ranges: the work is what the ranges
+/// cover, not what each char would have to look for in them.
+fn cells(cells: &mut Vec<Cell>, s: &Screen, i: usize, cols: usize) {
+    let (row, looks) = (&s.frame.rows[i], &s.looks[i]);
     let paints = s.paints.get(i).map_or(&[][..], Vec::as_slice);
-    let (mut now, mut col) = (None, 0u16);
-    let cs: Vec<char> = row.text.chars().collect();
+    cells.clear();
+    cells.resize(cols, Cell::default());
+    let span = |r: &Range<u16>| usize::from(r.start).min(cols)..usize::from(r.end).min(cols);
+    for (r, st) in row.spans.iter().rev() {
+        cells[span(r)].iter_mut().for_each(|c| c.style = Some(*st));
+    }
+    for r in &row.underline {
+        cells[span(r)].iter_mut().for_each(|c| c.underline = true);
+    }
+    for (r, l) in looks.iter().rev() {
+        cells[span(r)].iter_mut().for_each(|c| c.look = Some(*l));
+    }
+    for (r, p) in paints.iter().rev() {
+        let on = |c: &mut Cell| {
+            let q = c.paint;
+            let fade = if p.fade > 0 { p.fade } else { q.fade };
+            c.paint = Paint { fg: p.fg.or(q.fg), bg: p.bg.or(q.bg), fade, bold: p.bold || q.bold };
+        };
+        cells[span(r)].iter_mut().for_each(on);
+    }
+}
+
+/// The text of a row with an SGR sequence wherever style, underline, look or paint changes.
+fn paint(b: &mut Vec<u8>, s: &Screen, i: usize, memo: &mut Memo, scratch: &mut Vec<Cell>) {
+    let (pal, syn) = (s.frame.pal, &s.syn);
+    let cs: Vec<char> = s.frame.rows[i].text.chars().collect();
+    // si's own rule for the columns of a char, as in its `Term` (VIS-7)
+    let at: Vec<usize> = cs
+        .iter()
+        .enumerate()
+        .scan(0, |col, (k, _)| {
+            let at = *col;
+            *col += width(&cs, k, at);
+            Some(at)
+        })
+        .collect();
+    cells(scratch, s, i, at.last().map_or(0, |&c| c + width(&cs, cs.len() - 1, c)));
+    let (mut now, none) = (None, Cell::default());
     for (k, &c) in cs.iter().enumerate() {
-        let style =
-            row.spans.iter().find(|(r, _)| r.contains(&col)).map_or(Style::Primary, |s| s.1);
-        let underline = row.underline.iter().any(|r| r.contains(&col));
-        let look = looks.iter().find(|(r, _)| r.contains(&col)).map(|l| l.1);
-        let by = paints.iter().find(|(r, _)| r.contains(&col)).map(|p| p.1).unwrap_or_default();
-        if now != Some((style, underline, look, by)) {
-            let key = (style as u8, underline, look.map(|l| l as u8), by);
+        let cell = scratch.get(at[k]).unwrap_or(&none);
+        let key = (cell.style, cell.underline, cell.look, cell.paint);
+        if now != Some(key) {
+            let (style, underline, look, by) =
+                (cell.style.unwrap_or(Style::Primary), key.1, key.2, key.3);
+            let id = (style as u8, underline, look.map(|l| l as u8), by);
             b.extend(
-                memo.entry(key)
+                memo.entry(id)
                     .or_insert_with(|| sgr(style, underline, look, by, pal, syn))
                     .as_bytes(),
             );
-            now = Some((style, underline, look, by));
+            now = Some(key);
         }
         b.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
-        col += width(&cs, k, usize::from(col)) as u16; // si's own rule, as in its `Term` (VIS-7)
     }
 }
 
@@ -160,11 +273,12 @@ pub struct Painter<W: Write> {
     prev: Option<Screen>,
     shape: Option<Shape>,
     memo: Memo,
+    scratch: Vec<Cell>,
 }
 
 impl<W: Write> Painter<W> {
     pub fn new(out: W) -> Painter<W> {
-        Painter { out, prev: None, shape: None, memo: Memo::new() }
+        Painter { out, prev: None, shape: None, memo: Memo::new(), scratch: vec![] }
     }
 
     /// Writes bytes of the terminal's own (the clipboard, the color query) between two frames.
@@ -197,7 +311,7 @@ impl<W: Write> Painter<W> {
                 continue;
             }
             write!(b, "\x1b[{};1H", i + 1)?;
-            paint(&mut b, &s, i, &mut self.memo);
+            paint(&mut b, &s, i, &mut self.memo, &mut self.scratch);
             b.extend(b"\x1b[0m\x1b[K");
         }
         write!(b, "\x1b[{};{}H", f.cursor.1 + 1, f.cursor.0 + 1)?;

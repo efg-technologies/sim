@@ -348,7 +348,7 @@ impl Sim {
             let looks = layout::colors(&frame, digits, &|l| text_of(buf, l), &|l| {
                 (l == line).then_some(&bold)
             })
-            .0;
+            .looks;
             p.shown = Some((key, frame, looks));
         }
         p.shown.as_ref().map(|(_, f, l)| (f.clone(), l.clone()))

@@ -10,7 +10,7 @@ mod ptr;
 use crate::color::{Syntax, Tones};
 use crate::grep;
 use crate::io::GIT_SKIPPED;
-use crate::layout::{self, Deck, Ed, Fade, Geo, Kind, Mark, Skin};
+use crate::layout::{self, Colored, Deck, Ed, Fade, Geo, Kind, Mark, Md, Skin};
 use crate::marks::Marks;
 use crate::paint::{Looks, Screen};
 use crate::rank::History;
@@ -37,9 +37,6 @@ use unicode_width::UnicodeWidthStr;
 
 /// A file open in sim. Ids are never reused, so a late answer for a closed file is dropped.
 pub type Id = usize;
-
-/// The first and the last line of the file that a frame shows.
-type Win = (usize, usize);
 
 /// SYN-3: files over this many bytes are not highlighted.
 pub const MAX_HL: usize = 10_000_000;
@@ -419,7 +416,10 @@ impl Sim {
                 }
                 Err(e) => self.msg = Some(e),
             },
-            SimEvent::Osc(s) => self.syn.reply(&s),
+            SimEvent::Osc(s) => {
+                self.syn.reply(&s);
+                self.retone();
+            }
             SimEvent::Spans(h) => {
                 if let Some(b) = self.bufs.iter_mut().find(|b| b.id == h.id) {
                     b.hl = Some(h);
@@ -437,9 +437,14 @@ impl Sim {
     /// is told (as si's loop tells its one), and the syntax colors follow it (SYN-1).
     fn background(&mut self, rgb: (u8, u8, u8), out: &mut Vec<SimEffect>) {
         (self.pal, _) = (Some(palette(rgb)), self.syn.bg(rgb));
-        self.tones = self.pal.filter(|_| self.syn.truecolor).map(|p| Tones::new(&p));
+        self.retone();
         let ids: Vec<Id> = self.bufs.iter().map(|b| b.id).collect();
         ids.into_iter().for_each(|id| self.to(id, Event::Bg(rgb), out));
+    }
+
+    /// UI-1: the tones of the looks, made of the palette and of the colors the terminal has told.
+    fn retone(&mut self) {
+        self.tones = self.pal.filter(|_| self.syn.truecolor).map(|p| Tones::with(&p, &self.syn));
     }
 
     /// Whether the terminal may still be answering what was asked of it (VIS-4): the quit then
@@ -712,10 +717,12 @@ impl Sim {
     /// thread: the last ones are used until new ones come (an edit leaves the colors of the other
     /// lines as they were for the moment), and when they do not cover what is on screen they are
     /// asked for again, a screenful above and below.
-    fn colors(&self, b: &Buf, f: &Frame, ch: &[Kind]) -> (Vec<Looks>, Option<Req>, Option<Win>) {
+    fn colors(&self, b: &Buf, f: &Frame, ch: &[Kind]) -> (Colored, Option<Req>) {
         let review = b.app.vi.mode == Mode::Review;
         if review && !self.deep() {
-            return (vec![Looks::new(); f.rows.len()], None, None); // its rows weave mine and theirs
+            // its rows weave mine and theirs
+            let (looks, md) = (vec![Looks::new(); f.rows.len()], vec![Md::default(); f.rows.len()]);
+            return (Colored { looks, win: None, md }, None);
         }
         let buf = &b.app.buf;
         let text = |l: usize| text_of(buf, l);
@@ -731,21 +738,26 @@ impl Sim {
             };
             h.spans.get(old.checked_sub(h.from)?)
         };
-        let (mut looks, win) = layout::colors(f, digits(buf), &text, &spans);
+        let mut colored = layout::colors(f, digits(buf), &text, &spans);
         // LOOK-6: in REVIEW a row that has a change weaves mine and theirs and has no colors; the others do.
         if review {
-            looks.iter_mut().zip(ch).filter(|x| *x.1 != Kind::Plain).for_each(|x| x.0.clear());
+            let rows = colored.looks.iter_mut().zip(&mut colored.md).zip(ch);
+            for ((looks, md), _) in rows.filter(|x| *x.1 != Kind::Plain) {
+                looks.clear();
+                *md = Md::default();
+            }
         }
+        let win = colored.win;
         let (ver, h) = (buf.version(), usize::from(self.size.1));
         let (Some((a, z)), Some(name)) = (win, b.app.path.clone()) else {
-            return (looks, None, win);
+            return (colored, None);
         };
         let z = z.max(a); // a screen too narrow for its gutter shows cut numbers: no window that ends before it starts
         let covered = |h: &Hl| h.ver == ver && h.from <= a && z < h.from + h.spans.len();
         let (from, on) = (a.saturating_sub(h), !self.hl_off && buf.text.len_bytes() <= MAX_HL);
         let n = z + h - from + 1;
         let ask = on && !b.hl.as_ref().is_some_and(covered) && b.asked != Some((ver, from, n));
-        (looks, ask.then(|| Req { id: b.id, name, ver, text: buf.text.clone(), from, n }), win)
+        (colored, ask.then(|| Req { id: b.id, name, ver, text: buf.text.clone(), from, n }))
     }
 
     /// Whether depth draws its card, fog and boxes in colors: depth on a screen big enough for its
@@ -881,7 +893,8 @@ impl Sim {
         let ch = self.changes();
         let looked =
             self.bufs.get(self.cur).and_then(|b| Some(self.colors(b, b.frame.as_ref()?, &ch)));
-        let (elooks, ask, win) = looked.unwrap_or_default();
+        let (colored, ask) = looked.unwrap_or_default();
+        let win = colored.win;
         if let (Some(req), Some(b)) = (ask, self.bufs.get_mut(self.cur)) {
             b.asked = Some((req.ver, req.from, req.n));
             out.push(SimEffect::Highlight(req));
@@ -918,7 +931,8 @@ impl Sim {
                 ch,
                 card,
                 crow: b.crow,
-                ..Ed::new(f, &elooks)
+                md: &colored.md,
+                ..Ed::new(f, &colored.looks)
             }),
             _ => None,
         };

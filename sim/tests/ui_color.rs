@@ -1,0 +1,140 @@
+//! UI-1, UI-12: the accents, the blocks and the neutral surfaces of the interface (pure).
+#![allow(clippy::unwrap_used)] // the tests themselves may unwrap
+use si::core::color::{Rgb, apca, palette};
+use sim::color::{self, Accent, Syntax, Tones, to_lch};
+
+/// VIS-4's backgrounds.
+const BGS: [Rgb; 8] = [
+    (0x00, 0x00, 0x00),
+    (0x1e, 0x1e, 0x1e),
+    (0x28, 0x2c, 0x34),
+    (0x00, 0x2b, 0x36),
+    (0xff, 0xff, 0xff),
+    (0xfa, 0xfa, 0xfa),
+    (0xfd, 0xf6, 0xe3),
+    (0xef, 0xf1, 0xf5),
+];
+
+fn hex((r, g, b): Rgb) -> String {
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+fn gap(a: f64, b: f64) -> f64 {
+    let d = (a - b).abs();
+    d.min(360.0 - d)
+}
+
+const ACCENTS: [(Accent, &str, f64); 6] = [
+    (Accent::Red, "red", 25.0),
+    (Accent::Green, "green", 145.0),
+    (Accent::Amber, "amber", 85.0),
+    (Accent::Blue, "blue", 250.0),
+    (Accent::Purple, "purple", 320.0),
+    (Accent::Teal, "teal", 195.0),
+];
+
+#[test]
+fn ui_12_text_keeps_75_on_every_surface_and_on_its_block_on_every_background() {
+    let (mut worst_primary, mut worst_accent, mut worst_block) =
+        (f64::INFINITY, f64::INFINITY, f64::INFINITY);
+    for bg in BGS {
+        let (p, t) = (palette(bg), Tones::new(&palette(bg)));
+        let surfaces = [
+            ("page", bg),
+            ("cursor", t.cursor),
+            ("band", t.band),
+            ("bar", t.bar),
+            ("code", t.code),
+            ("card", t.card),
+        ];
+        for (name, s) in surfaces {
+            let lc = apca(p.primary, s).abs();
+            assert!(lc >= 75.0, "{}: primary on the {name} surface |Lc| {lc:.1}", hex(bg));
+            worst_primary = worst_primary.min(lc);
+            for (a, an, _) in ACCENTS {
+                let lc = apca(t.fg(a), s).abs();
+                assert!(
+                    lc >= 75.0,
+                    "{}: {an} {} on the {name} surface |Lc| {lc:.1}",
+                    hex(bg),
+                    hex(t.fg(a))
+                );
+                worst_accent = worst_accent.min(lc);
+            }
+        }
+        for (a, an, _) in ACCENTS {
+            let lc = apca(t.on(a), t.block(a)).abs();
+            assert!(
+                lc >= 75.0,
+                "{}: text {} on the {an} block {} |Lc| {lc:.1}",
+                hex(bg),
+                hex(t.on(a)),
+                hex(t.block(a))
+            );
+            worst_block = worst_block.min(lc);
+        }
+    }
+    eprintln!(
+        "UI-12 lowest |Lc|: primary on a surface {worst_primary:.1}, an accent on a surface {worst_accent:.1}, text on a block {worst_block:.1}"
+    );
+}
+
+#[test]
+fn ui_1_every_accent_keeps_the_hue_of_its_class_and_its_block_has_it_too() {
+    for bg in BGS {
+        let t = Tones::new(&palette(bg));
+        for (a, name, hue) in ACCENTS {
+            let [_, chroma, h] = to_lch(t.fg(a));
+            assert!(gap(h, hue) < 14.0, "{} {name}: hue {h:.0} of {}", hex(bg), hex(t.fg(a)));
+            assert!(chroma > 0.02, "{} {name}: chroma {chroma:.3}", hex(bg));
+            let [_, chroma, h] = to_lch(t.block(a));
+            assert!(
+                gap(h, hue) < 14.0,
+                "{} {name} block: hue {h:.0} of {}",
+                hex(bg),
+                hex(t.block(a))
+            );
+            assert!(chroma > 0.02, "{} {name} block: chroma {chroma:.3}", hex(bg));
+            let lc = apca(t.block(a), bg).abs();
+            assert!(lc >= 15.0, "{} {name} block: |Lc| {lc:.1} against the page", hex(bg));
+        }
+    }
+}
+
+#[test]
+fn ui_1_the_reply_of_the_terminal_moves_an_accent_and_blue_is_never_asked_for() {
+    let bg = (0x1e, 0x1e, 0x1e);
+    let before = Tones::new(&palette(bg));
+    let mut syn = Syntax::new(true);
+    syn.bg(bg);
+    syn.reply("4;3;rgb:e0/a0/20"); // the terminal's own yellow
+    syn.reply("4;4;rgb:20/60/e0"); // and a blue, if it volunteers one
+    let after = Tones::with(&palette(bg), &syn);
+    assert_ne!(after.fg(Accent::Amber), before.fg(Accent::Amber), "amber follows the reply");
+    assert!(gap(to_lch(after.fg(Accent::Amber))[2], to_lch((0xe0, 0xa0, 0x20))[2]) < 6.0);
+    assert!(gap(to_lch(after.fg(Accent::Blue))[2], to_lch((0x20, 0x60, 0xe0))[2]) < 6.0);
+    assert!(
+        !color::QUERY.contains("4;4;"),
+        "blue is derived, not asked for: a quit waits for no more replies"
+    );
+}
+
+#[test]
+fn ui_1_the_surfaces_are_steps_from_the_page_toward_secondary_and_none_is_above_the_card() {
+    for bg in BGS {
+        let (p, t) = (palette(bg), Tones::new(&palette(bg)));
+        // (APCA reads two near-blacks as the same: the steps are measured in OKLab lightness)
+        let dist = |c: Rgb| (to_lch(c)[0] - to_lch(bg)[0]).abs();
+        let steps = [t.cursor, t.band, t.bar, t.code, t.card].map(dist);
+        assert!(steps.windows(2).all(|w| w[0] <= w[1]), "{}: {steps:?} are in order", hex(bg));
+        assert!(steps[4] > steps[0], "{}: the card is above the cursor's line", hex(bg));
+        // (on a pure black page 6% of the way is under one level of eight bits: it is the page)
+        assert!(
+            steps[0] > 0.005 || bg == (0, 0, 0),
+            "{}: the cursor's line is a surface: {steps:?}",
+            hex(bg)
+        );
+        assert!(dist(t.card) < dist(p.secondary), "{}: the card is below secondary", hex(bg));
+        assert_eq!(t.card, Tones::new(&p).card, "the card is LOOK-5's");
+    }
+}

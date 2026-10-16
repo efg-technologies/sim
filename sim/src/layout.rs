@@ -1,8 +1,8 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
-use crate::color::Tones;
+use crate::color::{Accent, Tones};
 use crate::grep::PRow;
 use crate::paint::{Look, Looks, Paint, Paints};
 use crate::syn::Spans;
@@ -321,6 +321,7 @@ fn join(text: &str, words: &mut Paints, from: u16) {
 pub struct Ed<'a> {
     pub frame: &'a Frame,
     pub looks: &'a [Looks],
+    pub md: &'a [Md],
     pub digits: usize,
     pub ch: Vec<Kind>,
     pub card: Option<Range<usize>>,
@@ -330,7 +331,15 @@ pub struct Ed<'a> {
 impl<'a> Ed<'a> {
     /// A frame with no changes and no card, the cursor where the frame has it (a preview).
     pub fn new(frame: &'a Frame, looks: &'a [Looks]) -> Ed<'a> {
-        Ed { frame, looks, digits: 3, ch: vec![], card: None, crow: usize::from(frame.cursor.1) }
+        Ed {
+            frame,
+            looks,
+            md: &[],
+            digits: 3,
+            ch: vec![],
+            card: None,
+            crow: usize::from(frame.cursor.1),
+        }
     }
 }
 
@@ -403,6 +412,39 @@ fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
         _ => 0,
     };
     Paint { bg: m.change.then_some(t.gain), fade, ..Paint::default() }
+}
+
+/// UI-8: the markdown of a row of the editor, in flat and depth: the surfaces (a fenced block
+/// across the row, inline code), blue for a link and a level-5 heading, a quote's `>` drawn as a
+/// bar in its own cell, and the language a fence names, dim, at the right of its row.
+fn md_row(line: &mut Line, m: &Md, t: &Tones, gutter: u16, ew: u16) {
+    let on = |bg| Paint { bg: Some(bg), ..Paint::default() };
+    let blue = Paint { fg: Some(t.fg(Accent::Blue)), ..Paint::default() };
+    let mut paints: Paints = line
+        .looks
+        .iter()
+        .filter_map(|(r, l)| match l {
+            Look::Code | Look::Tick => Some((r.clone(), on(t.code))),
+            Look::Link | Look::H5 => Some((r.clone(), blue)),
+            _ => None,
+        })
+        .collect();
+    if !m.glyph.is_empty() {
+        let mut cs: Vec<char> = line.row.text.chars().collect();
+        m.glyph.iter().for_each(|&(k, c)| cs.get_mut(k).iter_mut().for_each(|x| **x = c));
+        line.row.text = cs.into_iter().collect();
+    }
+    let lang = m.lang.as_ref().map(|l| fit(l, usize::from(ew)));
+    if let Some((lang, w)) = lang.filter(|(_, w)| line.cols + 2 + *w as u16 <= ew) {
+        line.pad(ew - w as u16 - 1);
+        line.looks.push((line.cols..line.cols + w as u16, Look::Lang));
+        line.put(&lang, Paint::default());
+    }
+    if m.band {
+        line.pad(ew);
+        paints.push((gutter..ew, on(t.band)));
+    }
+    line.paints.extend(paints);
 }
 
 /// The rows of the editor, `ew` columns each where something is drawn behind the blanks and as
@@ -483,6 +525,9 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             if fade > 0 {
                 line.paints.push((0..ew, Paint { fade, ..Paint::default() }));
             }
+        }
+        if let (Some(t), Some(m)) = (t, ed.md.get(i)) {
+            md_row(&mut line, m, t, gutter, ew);
         }
         line.pad(to);
         if ed.card.as_ref().is_some_and(|c| c.start == i) {
@@ -680,29 +725,59 @@ fn shown(cs: &[char], i: usize, col: usize) -> (usize, usize) {
     )
 }
 
+/// UI-8: what a row of an editor frame has of markdown besides the looks of its chars: a line of
+/// a fenced block (a surface across the row), the chars of the row that are drawn as another (a
+/// quote's `>` as `▌`: the index in the row's text, and the char), and the language a fence names,
+/// for the right of its row.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Md {
+    pub band: bool,
+    pub glyph: Vec<(usize, char)>,
+    pub lang: Option<String>,
+}
+
+/// SYN-1: what `colors` finds in an editor frame: the looks of its rows, the first and the last
+/// line on screen, and the markdown of each row.
+#[derive(Debug, Default)]
+pub struct Colored {
+    pub looks: Vec<Looks>,
+    pub win: Option<(usize, usize)>,
+    pub md: Vec<Md>,
+}
+
 /// SYN-1: the looks of the rows of an editor frame. `digits` is the width of its line numbers,
 /// `text(l)` the buffer's line `l` and `spans(l)` the syntax spans of it, if they are known.
 /// The line of a row is read from its gutter, and a wrapped line goes on in the rows below it.
-/// Also the first and the last line on screen.
+/// Also the first and the last line on screen, and the markdown of each row (UI-8).
 pub fn colors<'a>(
     f: &Frame,
     digits: usize,
     text: &dyn Fn(usize) -> Option<String>,
     spans: &dyn Fn(usize) -> Option<&'a Spans>,
-) -> (Vec<Looks>, Option<(usize, usize)>) {
-    let (gutter, mut out, mut win) = (digits + 2, vec![Looks::new(); f.rows.len()], None);
-    let (mut cs, mut sp, mut ci) = (Vec::<char>::new(), None, 0);
+) -> Colored {
+    let (gutter, mut win) = (digits + 2, None);
+    let (mut out, mut md) = (vec![Looks::new(); f.rows.len()], vec![Md::default(); f.rows.len()]);
+    let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, false);
     for (i, row) in f.rows.iter().enumerate() {
-        if let Some(l) = number(row, digits).and_then(|n| n.checked_sub(1)) {
+        let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
+        let starts = number(row, digits).and_then(|n| n.checked_sub(1));
+        if let Some(l) = starts {
             (cs, sp, ci) = (text(l).unwrap_or_default().chars().collect(), spans(l), 0);
             win = Some((win.map_or(l, |w: (usize, usize)| w.0), l));
+            band = sp.is_some_and(|s| s.first().is_some_and(|s| s.1 == Look::Band));
+            let lang = sp.and_then(|s| s.iter().find(|s| s.1 == Look::Lang));
+            md[i].lang = lang.map(|s| cs[s.0.clone()].iter().collect());
         }
-        let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
+        // (a row with no text and no number is past the end of the file, not the rest of a line)
+        md[i].band = band && (starts.is_some() || len > 0);
         while used < len && ci < cs.len() {
             let (n, w) = shown(&cs, ci, col);
             let look = sp.and_then(|s| s.get(s.partition_point(|s| s.0.end <= ci)));
             let look = look.filter(|s| s.0.contains(&ci) && w > 0).map(|s| s.1);
             let cols = (gutter + col) as u16..(gutter + col + w) as u16;
+            if look == Some(Look::Quote) && n == 1 {
+                md[i].glyph.push((gutter + used, '▌'));
+            }
             match (look, out[i].last_mut()) {
                 (Some(k), Some((p, pk))) if *pk == k && p.end == cols.start => p.end = cols.end,
                 (Some(k), _) => out[i].push((cols, k)),
@@ -711,7 +786,7 @@ pub fn colors<'a>(
             (used, col, ci) = (used + n, col + w, ci + 1);
         }
     }
-    (out, win)
+    Colored { looks: out, win, md }
 }
 
 /// PTR-1: the char under the point `(x, row)` of an editor frame, as (line, index in the line), by
