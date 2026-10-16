@@ -4,7 +4,6 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 use proptest::prelude::*;
 use sim::find::Query;
-use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 fn paths(list: &[&str]) -> Vec<String> {
@@ -17,7 +16,9 @@ fn ranked_by<'a>(query: &str, list: &'a [String], lik: impl Fn(&str) -> f64) -> 
     let (mut rest, mut out) = (list.to_vec(), vec![]);
     loop {
         let found = q.search(&rest);
-        let Some(best) = found.best(&rest, &lik) else { return out };
+        let liked: Vec<(usize, f64)> = rest.iter().enumerate().map(|(i, p)| (i, lik(p))).collect();
+        let liked: Vec<_> = liked.into_iter().filter(|l| l.1 > 0.0).collect();
+        let Some(best) = found.best(&rest, &liked) else { return out };
         let path = rest.remove(best.index);
         out.push(list.iter().find(|p| **p == path).unwrap().as_str());
     }
@@ -41,9 +42,15 @@ fn matched(query: &str, path: &str) -> Option<String> {
 fn find_1_the_chars_of_the_query_must_occur_in_order() {
     let list =
         paths(&["src/main.rs", "src/core/app.rs", "README.md", "Cargo.toml", "tests/map.rs"]);
-    assert_eq!(ranked("mrs", &list), ["src/main.rs", "tests/map.rs"]);
+    // (which of two matches comes first is FIND-2's: `map.rs` has the smaller gap for `mrs`)
+    let sorted = |query: &str| {
+        let mut found = ranked(query, &list);
+        found.sort_unstable();
+        found
+    };
+    assert_eq!(sorted("mrs"), ["src/main.rs", "tests/map.rs"]);
     assert_eq!(ranked("mp", &list), ["tests/map.rs"]);
-    assert_eq!(ranked("sma", &list), ["src/main.rs", "tests/map.rs"]);
+    assert_eq!(sorted("sma"), ["src/main.rs", "tests/map.rs"]);
     assert!(ranked("zz", &list).is_empty());
     assert!(ranked("xs.m", &list).is_empty(), "order matters");
     assert_eq!(ranked("src/c", &list), ["src/core/app.rs"], "the query may contain the separator");
@@ -146,6 +153,16 @@ fn find_2_a_shorter_path_wins_when_the_match_is_the_same() {
 }
 
 #[test]
+fn find_2_the_length_of_a_path_decides_only_after_the_likelihood() {
+    // `tests/review.rs` is three chars shorter than `src/core/review.rs`. As a part of the score
+    // that was a point, the scores never tied, and the likelihood was never asked.
+    let list = paths(&["tests/review.rs", "src/core/review.rs"]);
+    let opened = |p: &str| if p == "src/core/review.rs" { 1.0 } else { 0.0 };
+    assert_eq!(ranked_by("review", &list, opened), ["src/core/review.rs", "tests/review.rs"]);
+    assert_eq!(ranked("review", &list), ["tests/review.rs", "src/core/review.rs"], "no history");
+}
+
+#[test]
 fn find_2_likelihood_breaks_ties_and_nothing_else() {
     let list = paths(&["b/x.rs", "a/x.rs", "c/x.rs"]);
     let lik = |p: &str| {
@@ -160,17 +177,12 @@ fn find_2_likelihood_breaks_ties_and_nothing_else() {
     assert_eq!(ranked_by("x.rs", &list, lik), ["c/x.rs", "b/x.rs", "a/x.rs"]);
     // With no history the path decides, so the order never depends on the list's.
     assert_eq!(ranked("x.rs", &list), ["a/x.rs", "b/x.rs", "c/x.rs"]);
-    // A better match is not overtaken by a likelier file, and the likelihood is not even asked for.
+    // A better match is not overtaken by a likelier file.
     let list = paths(&["z/q/xx.rs", "x.rs"]);
-    let asked = Cell::new(0);
     let found = Query::new("x.rs").search(&list);
-    let best = found.best(&list, |_| {
-        asked.set(asked.get() + 1);
-        9.0
-    });
+    let best = found.best(&list, &[(0, 9.0)]);
     assert_eq!(best.map(|h| list[h.index].as_str()), Some("x.rs"));
-    assert_eq!(asked.get(), 0);
-    assert!(Query::new("x.rs").search(&paths(&["nope"])).best(&list, |_| 0.0).is_none());
+    assert!(Query::new("x.rs").search(&paths(&["nope"])).best(&list, &[]).is_none());
 }
 
 proptest! {
@@ -271,7 +283,7 @@ fn find_3_a_key_on_the_synthetic_list_finds_what_it_should() {
     let list = synthetic(2000, 10);
     let found = Query::new("clientrs").search(&list);
     assert!(!found.hits.is_empty() && found.hits.len() < list.len());
-    let best = found.best(&list, |_| 0.0).unwrap();
+    let best = found.best(&list, &[]).unwrap();
     assert!(list[best.index].contains("client"));
 }
 
@@ -286,8 +298,8 @@ fn find_3_bench_one_key_over_100000_paths() {
     for per_dir in [10, 1] {
         let list = synthetic(100_000, per_dir);
         let total: usize = list.iter().map(String::len).sum();
-        let history: std::collections::HashMap<&str, f64> =
-            list.iter().step_by(500).map(|p| (p.as_str(), 1.0)).collect();
+        // (the sorted list, as FIND-3 gives it: a history is found in it by its place)
+        let liked: Vec<(usize, f64)> = (0..list.len()).step_by(500).map(|i| (i, 1.0)).collect();
         println!(
             "{} paths, {per_dir} to a directory, {} chars on average",
             list.len(),
@@ -301,7 +313,7 @@ fn find_3_bench_one_key_over_100000_paths() {
             for _ in 0..5 {
                 let t = Instant::now();
                 let found = q.search(&list);
-                let top = found.best(&list, |p| history.get(p).copied().unwrap_or(0.0));
+                let top = found.best(&list, &liked);
                 best = best.min(t.elapsed());
                 hits = found.hits.len();
                 assert_eq!(top.is_some(), hits > 0);

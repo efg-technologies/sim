@@ -9,9 +9,9 @@
 //! which costs a table a path, too slow for 100,000 paths a key. Its score follows fzf's scale
 //! (16 a char, -3 to start a gap and -1 more a char in it, 4 for chars that follow each other,
 //! 8 for a char after a word edge, 9 after `/`, 7 for a camelCase hump; a run keeps the bonus
-//! of its first char), plus 12 when the match lies in the file name, minus a quarter of the
-//! path's length, so that shorter paths win a tie. These weights are fzf's, not tuned here.
-use std::cmp::Ordering;
+//! of its first char), plus 12 when the match lies in the file name. The length of the path is
+//! no part of the score: it decides after the likelihood, as fzf's `--tiebreak=length` does.
+//! These weights are fzf's, not tuned here.
 use std::collections::HashSet;
 
 pub struct Query {
@@ -63,7 +63,7 @@ fn score<C: Ch>(cs: &[C], pos: &[usize], name: usize) -> i32 {
             run = b;
         }
     }
-    s + if pos[0] >= name { 12 } else { 0 } - cs.len() as i32 / 4
+    s + if pos[0] >= name { 12 } else { 0 }
 }
 
 impl Query {
@@ -140,16 +140,26 @@ impl Found {
         &self.pos[hit.at..hit.at + self.pos.len() / self.hits.len().max(1)]
     }
 
-    /// FIND-2: the better hit comes first: by score, then by `lik`, the likelihood of the path
-    /// (MARK-2; asked only when the scores tie), then by path, so that the order never depends
-    /// on the order of the list.
-    fn rank_cmp(paths: &[String], lik: &impl Fn(&str) -> f64, a: &Hit, b: &Hit) -> Ordering {
-        let (pa, pb) = (&paths[a.index], &paths[b.index]);
-        b.score.cmp(&a.score).then_with(|| lik(pb).total_cmp(&lik(pa))).then_with(|| pa.cmp(pb))
-    }
-
-    /// The best hit (the cursor goes there); none if nothing matched.
-    pub fn best(&self, paths: &[String], lik: impl Fn(&str) -> f64) -> Option<&Hit> {
-        self.hits.iter().min_by(|a, b| Self::rank_cmp(paths, &lik, a, b))
+    /// FIND-2: the best hit (the cursor goes there); none if nothing matched. The better hit has
+    /// the higher score, then the higher likelihood (MARK-2), then the shorter path, then the
+    /// smaller, so that the order never depends on the order of the list. `liked` are the paths
+    /// that have a likelihood, as (index in `paths`, likelihood > 0): a history is short, so the
+    /// work is theirs, never one per hit of the top score (they can be most of 100,000 paths).
+    pub fn best(&self, paths: &[String], liked: &[(usize, f64)]) -> Option<&Hit> {
+        let top = self.hits.iter().map(|h| h.score).max()?;
+        let hit = |&(i, l): &(usize, f64)| {
+            let at = self.hits.binary_search_by_key(&i, |h| h.index).ok()?;
+            Some((l, &self.hits[at])).filter(|(_, h)| h.score == top)
+        };
+        let shorter = |a: &Hit, b: &Hit| {
+            let (pa, pb) = (&paths[a.index], &paths[b.index]);
+            pa.len().cmp(&pb.len()).then_with(|| pa.cmp(pb))
+        };
+        let likeliest = liked.iter().filter_map(hit);
+        let by = |(la, a): &(f64, &Hit), (lb, b): &(f64, &Hit)| {
+            la.total_cmp(lb).then_with(|| shorter(b, a))
+        };
+        let tied = || self.hits.iter().filter(|h| h.score == top);
+        likeliest.max_by(by).map(|(_, h)| h).or_else(|| tied().min_by(|a, b| shorter(a, b)))
     }
 }
