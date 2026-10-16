@@ -2,6 +2,7 @@
 //! syntect scopes to looks per line (keyword, string, number, type, function, comment), with the
 //! parse state cached every [`EVERY`] lines so that an edit re-parses from the nearest state
 //! above it (pure, apart from loading the syntax set once).
+use crate::icons;
 use crate::paint::Look;
 use std::ops::Range;
 use std::path::Path;
@@ -141,12 +142,19 @@ impl Syn {
     /// `.jsx`; TypeScript's syntax reads JavaScript, so that is what these files get.
     pub fn new(name: &str, first_line: &str) -> Option<Syn> {
         let set = syntaxes();
-        let path = Path::new(name);
-        let by_name = path.file_name().and_then(|f| set.find_syntax_by_extension(f.to_str()?));
-        let by_ext =
-            || path.extension().and_then(|e| set.find_syntax_by_extension(&alias(e.to_str()?)));
-        let found =
-            by_name.or_else(by_ext).or_else(|| set.find_syntax_by_first_line(first_line))?;
+        // By the whole file name, then the extension; and, for a name of chezmoi's (`dot_zshrc`,
+        // `dot_gitconfig.tmpl`), by what it stands for, which is what the file is on the machine.
+        let by = |path: &Path| {
+            let by_name = path.file_name().and_then(|f| set.find_syntax_by_extension(f.to_str()?));
+            by_name.or_else(|| {
+                path.extension().and_then(|e| set.find_syntax_by_extension(&alias(e.to_str()?)))
+            })
+        };
+        let file = Path::new(name).file_name().and_then(|f| f.to_str()).unwrap_or(name);
+        let stands = icons::target(file);
+        let (own, chezmoi) = (by(Path::new(name)), by(Path::new(&stands)));
+        let named = if stands == file.to_ascii_lowercase() { own } else { chezmoi.or(own) };
+        let found = named.or_else(|| set.find_syntax_by_first_line(first_line))?;
         let ts = set.find_syntax_by_extension("ts");
         let syntax = if found.name == "JavaScript" { ts.unwrap_or(found) } else { found };
         let start = (ParseState::new(syntax), ScopeStack::new());

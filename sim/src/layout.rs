@@ -1,9 +1,11 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
 use crate::color::{Accent, Tones};
 use crate::grep::PRow;
+use crate::icons;
+use crate::marks::Git;
 use crate::paint::{Look, Looks, Paint, Paints};
 use crate::syn::Spans;
 use crate::tree;
@@ -72,12 +74,18 @@ pub fn stated(path: &str, state: &str, max: usize) -> String {
 /// What the panel shows about a row besides its name: MARK-1 (`change` the change color on the
 /// name of a file, `below` the `~` of a directory), MARK-2 (`likely`, the `•`), and FIND-1
 /// (`hit`: none when no search runs; bold for a match or a directory leading to one, dimmed else).
+/// For the interface (UI-3): the file's git status, the strongest one below a directory (`dot`),
+/// whether git ignores it, and whether it is the open file's row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Mark {
     pub change: bool,
     pub below: bool,
     pub likely: bool,
     pub hit: Option<bool>,
+    pub git: Option<Git>,
+    pub dot: Option<Git>,
+    pub ignored: bool,
+    pub open: bool,
 }
 
 /// How a row of the tree is written: indent 2 per depth, `▸ name/` or `▾ name/` (then ` ~` if
@@ -123,10 +131,13 @@ impl Skin {
 /// LOOK-3: where the parts of a screen are, for its size, its look and a panel that is open or not:
 /// the columns of the panel (`pw`, none when it is closed or too narrow) and of the editor (`ew`),
 /// the column each starts at (after the left border of its box in depth), the first body row and
-/// how many there are. Depth needs 40 columns and 10 rows for its boxes.
+/// how many there are. Depth needs 40 columns and 10 rows for its boxes. With the interface
+/// (UI-2, UI-4) the first row inside the boxes is a header, the panel's root and the editor's tabs
+/// (`head`, 0 or 1): the body starts under it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Geo {
     pub boxed: bool,
+    pub head: u16,
     pub pw: u16,
     pub ew: u16,
     pub px: u16,
@@ -136,13 +147,19 @@ pub struct Geo {
 }
 
 impl Geo {
-    pub fn new((w, h): (u16, u16), skin: Skin, panel: bool) -> Geo {
+    pub fn new(size: (u16, u16), skin: Skin, panel: bool) -> Geo {
+        Geo::with_head(size, skin, panel, false)
+    }
+
+    /// `head`: the interface is drawn (a screen under 10 rows has no room for the header).
+    pub fn with_head((w, h): (u16, u16), skin: Skin, panel: bool, head: bool) -> Geo {
         let boxed = skin == Skin::Depth && w >= 40 && h >= 10;
         let (b, pw) = (u16::from(boxed), if panel { (w / 3).min(32) } else { 0 });
-        let pw = if pw < 4 { 0 } else { pw };
+        let (pw, head) = (if pw < 4 { 0 } else { pw }, u16::from(head && h >= 10));
         let ex = if pw > 0 { pw + 1 + 2 * b } else { b };
         let ew = w.saturating_sub(ex + b);
-        Geo { boxed, pw, ew, px: b, ex, y0: b, rows: h.saturating_sub(1 + 2 * b) }
+        let y0 = b + head;
+        Geo { boxed, head, pw, ew, px: b, ex, y0, rows: h.saturating_sub(1 + 2 * b + head) }
     }
 }
 
@@ -357,11 +374,38 @@ pub struct Deck<'a> {
     pub app: Option<&'a App>,
     pub win: Option<(usize, usize)>,
     pub focus: bool,
+    pub chrome: Option<Chrome<'a>>,
+}
+
+/// UI-2, UI-4: what the interface adds to a screen: whether the icons are drawn, the root as the
+/// header shows it, and the tabs (the name of each open file, whether it is modified, and which
+/// is shown).
+pub struct Chrome<'a> {
+    pub icons: bool,
+    pub root: &'a str,
+    pub tabs: Vec<(&'a str, bool)>,
+    pub cur: usize,
+}
+
+/// The column the name of a row of the panel starts at, relative to the panel's: the margin and
+/// the guides of the interface (UI-3), or calm's indent.
+pub fn name_col(depth: usize, chrome: bool) -> u16 {
+    (2 * depth + if chrome { 3 } else { 2 }) as u16
+}
+
+/// UI-3: the accent a git status is drawn in.
+fn git_accent(g: Git) -> Accent {
+    match g {
+        Git::Modified => Accent::Amber,
+        Git::Added | Git::Untracked => Accent::Green,
+        Git::Deleted | Git::Conflict => Accent::Red,
+        Git::Renamed => Accent::Blue,
+    }
 }
 
 /// What comes (the change style: text from disk, a proposal's words) is on green, what goes on red:
 /// the paints of the two, with their text grays.
-fn ink(t: &Tones, red: bool) -> Paint {
+fn ink_of(t: &Tones, red: bool) -> Paint {
     let (bg, fg) = if red { (t.del, t.del_text) } else { (t.add, t.add_text) };
     Paint { bg: Some(bg), fg: Some(fg), ..Paint::default() }
 }
@@ -377,7 +421,7 @@ fn panel_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: Option<&Ton
         let end = (start + fit(&r.name, usize::MAX).1 + usize::from(r.is_dir)).min(used);
         if m.change {
             line.row.spans.push((start as u16..end as u16, Style::Change));
-            line.paints.extend(t.map(|t| (start as u16..end as u16, ink(t, false))));
+            line.paints.extend(t.map(|t| (start as u16..end as u16, ink_of(t, false))));
         }
         match m.hit {
             Some(false) => line.row.spans.push((0..used as u16, Style::Secondary)),
@@ -387,6 +431,120 @@ fn panel_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: Option<&Ton
         line.row.underline.extend(sel.then_some(0..used as u16));
     }
     line.pad(pw);
+    line
+}
+
+/// UI-2, UI-3: a row of the panel in flat and depth: a margin (`•` for a likely file, MARK-2), the
+/// guides of the levels above, the icon (or calm's `▸ `), the name in the color of its git status
+/// (italic when untracked, bold when in conflict, the secondary gray for a dotfile or an ignored
+/// entry), and at the edge the git letter, or a dot for a directory with something below it.
+fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, icons: bool) -> Line {
+    let mut line = Line::default();
+    let Some((r, m)) = at else {
+        line.pad(pw);
+        return line;
+    };
+    let ink = |c: Rgb| Paint { fg: Some(c), ..Paint::default() };
+    let room = usize::from(pw.saturating_sub(2)); // a blank and the letter are the edge's
+    let put = |line: &mut Line, s: &str, p: Paint| {
+        let (s, _) = fit(s, room.saturating_sub(usize::from(line.cols)));
+        line.put(&s, p);
+    };
+    let dim = (r.name.starts_with('.') || m.ignored) && m.git.is_none() && !m.change;
+    put(&mut line, if m.likely { "•" } else { " " }, ink(t.fg(Accent::Blue)));
+    for _ in 0..r.depth {
+        put(&mut line, "│ ", ink(t.line));
+    }
+    if icons {
+        let (glyph, accent) = icons::of(&r.name, r.is_dir, r.open);
+        let c = accent.filter(|_| !dim).map_or(t.focus, |a| t.fg(a));
+        put(&mut line, &format!("{glyph} "), ink(c));
+    } else {
+        put(
+            &mut line,
+            if !r.is_dir {
+                "  "
+            } else if r.open {
+                "▾ "
+            } else {
+                "▸ "
+            },
+            Paint::default(),
+        );
+    }
+    let start = line.cols;
+    let text = if r.is_dir && !icons { format!("{}/", r.name) } else { r.name.clone() };
+    put(&mut line, &text, Paint::default());
+    let (name, used) = (start..line.cols, line.cols);
+    if m.change {
+        line.row.spans.push((name.clone(), Style::Change));
+        line.paints.push((name.clone(), ink_of(t, false)));
+    } else if let Some(g) = m.git {
+        let bold = g == Git::Conflict;
+        line.paints.push((name.clone(), Paint { bold, ..ink(t.fg(git_accent(g))) }));
+        line.looks.extend((g == Git::Untracked).then_some((name.clone(), Look::Em)));
+    } else if dim {
+        line.row.spans.push((name.clone(), Style::Secondary));
+    }
+    match m.hit {
+        Some(false) => line.row.spans.push((0..used, Style::Secondary)),
+        Some(true) => line.looks.push((0..used, Look::Bold)),
+        None => {}
+    }
+    line.row.underline.extend(sel.then_some(0..used));
+    line.pad(pw.saturating_sub(2));
+    line.put(" ", Paint::default());
+    match (m.git, m.dot) {
+        (Some(g), _) => {
+            let (c, bold) = (t.fg(git_accent(g)), g == Git::Conflict);
+            line.put(&g.letter().to_string(), Paint { bold, ..ink(c) });
+        }
+        (_, Some(g)) => line.put("●", ink(t.fg(git_accent(g)))),
+        _ => {}
+    }
+    line.pad(pw);
+    line
+}
+
+/// UI-2: the first row of the panel: the root, home-relative, in bold, with the open folder.
+fn header_line(pw: u16, root: &str, icons: bool, t: &Tones) -> Line {
+    let mut line = Line::default();
+    let bar = Paint { bg: Some(t.bar), ..Paint::default() };
+    line.put(" ", bar);
+    if icons {
+        line.put(&format!("{} ", icons::OPEN), Paint { fg: Some(t.fg(Accent::Blue)), ..bar });
+    }
+    let room = usize::from(pw).saturating_sub(usize::from(line.cols) + 1);
+    line.put(&tail(root, room), Paint { bold: true, ..bar });
+    line.pad(pw);
+    line.paints.push((0..pw, bar));
+    line
+}
+
+/// UI-4: the first row of the editor: a tab for each open file, the one that is shown raised.
+fn tabs_line(ew: u16, c: &Chrome, t: &Tones) -> Line {
+    let mut line = Line::default();
+    let bar = Paint { bg: Some(t.bar), ..Paint::default() };
+    for (i, (name, modified)) in c.tabs.iter().enumerate() {
+        let raised = Paint {
+            bg: Some(if i == c.cur { t.card } else { t.bar }),
+            bold: i == c.cur,
+            ..Paint::default()
+        };
+        let (glyph, accent) = icons::of(name, false, false);
+        line.put(" ", raised);
+        if c.icons {
+            let ink = accent.map_or(t.focus, |a| t.fg(a));
+            line.put(&format!("{glyph} "), Paint { fg: Some(ink), ..raised });
+        }
+        line.put(&fit(name, usize::from(ew).saturating_sub(6)).0, raised);
+        if *modified {
+            line.put(" ●", Paint { fg: Some(t.fg(Accent::Amber)), ..raised });
+        }
+        line.put(" ", raised);
+    }
+    line.pad(ew);
+    line.paints.push((0..ew, bar));
     line
 }
 
@@ -406,12 +564,15 @@ fn live_line(pw: u16, p: Option<&PRow>) -> Line {
 /// across; the others fade by the distance from the open file's row (or the cursor), or from the
 /// cursor row while a search has the focus (but not its bold rows).
 fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
+    // A row with a git status never fades: it is news (UI-3).
+    let status = m.git.is_some() || m.dot.is_some();
     let fade = match fade {
-        Fade::Near(a, top) if !m.change => ramp((top + i).abs_diff(a), 1.0, 14.0, 0.6),
+        Fade::Near(a, top) if !m.change && !status => ramp((top + i).abs_diff(a), 1.0, 14.0, 0.6),
         Fade::Find(c) if m.hit == Some(false) => find_fog(i.abs_diff(c)),
         _ => 0,
     };
-    Paint { bg: m.change.then_some(t.gain), fade, ..Paint::default() }
+    let bg = if m.change { Some(t.gain) } else { m.open.then_some(t.card) };
+    Paint { bg, fade, ..Paint::default() }
 }
 
 /// UI-8: the markdown of a row of the editor, in flat and depth: the surfaces (a fenced block
@@ -497,7 +658,7 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
                     Style::Change => (r.start == 0 && sym == Some('-'), true),
                     _ => continue,
                 };
-                let p = ink(t, red);
+                let p = ink_of(t, red);
                 words.push((r.clone(), Paint { fg: p.fg.filter(|_| text), ..p }));
             }
             join(&e.text, &mut words, gutter);
@@ -594,7 +755,7 @@ fn borders(d: &Deck) -> [Line; 2] {
         let surface =
             t.map(|t| Paint { bg: Some(t.card), fg: Some(t.primary), ..Paint::default() });
         let notes = [
-            (runs.count(), ["change on disk", "changes on disk"], t.map(|t| ink(t, false))),
+            (runs.count(), ["change on disk", "changes on disk"], t.map(|t| ink_of(t, false))),
             (b.hunks.len(), ["proposal", "proposals"], surface),
         ];
         let notes: Vec<(String, Paint)> = notes
@@ -659,13 +820,38 @@ pub fn body(
     let (mut lines, ticks) = (vec![], if g.boxed { ticks(d) } else { vec![] });
     let [top, bottom] = if g.boxed { borders(d).map(Some) } else { [None, None] };
     lines.extend(top);
-    for (i, e) in editor(g, ed, d.gray, t).into_iter().enumerate() {
+    // A row of the screen: the panel's part, the editor's, and what ends it (the ruler's cell).
+    let compose = |p: Option<Line>, e: Line, end: Line| {
         let mut line = Line::default();
         if g.pw > 0 {
+            if g.boxed {
+                line.add(edge(true));
+            }
+            line.add(p.unwrap_or_default());
+            line.add(if g.boxed { edge(true) } else { cell(" ", None) });
+        }
+        if g.boxed {
+            line.add(edge(false));
+        }
+        line.add(e);
+        if g.boxed {
+            line.add(end);
+        }
+        line
+    };
+    if let (Some(c), Some(t), true) = (&d.chrome, t, g.head > 0) {
+        let p = (g.pw > 0).then(|| header_line(g.pw, c.root, c.icons, t));
+        lines.push(compose(p, tabs_line(g.ew, c, t), edge(false)));
+    }
+    for (i, e) in editor(g, ed, d.gray, t).into_iter().enumerate() {
+        let p = (g.pw > 0).then(|| {
             let found = d.live.as_ref().map(|rows| rows.get(i));
-            let mut p = match found {
-                Some(row) => live_line(g.pw, row),
-                None => panel_line(g.pw, panel.get(i), sel == Some(i), t),
+            let mut p = match (found, &d.chrome, t) {
+                (Some(row), ..) => live_line(g.pw, row),
+                (_, Some(c), Some(t)) => {
+                    chrome_line(g.pw, panel.get(i), sel == Some(i), t, c.icons)
+                }
+                _ => panel_line(g.pw, panel.get(i), sel == Some(i), t),
             };
             // (the rows of a search fade by their distance from the cursor, but the ones with a match)
             let paint = match (found, d.fade, t) {
@@ -676,25 +862,19 @@ pub fn body(
                 _ => t.zip(panel.get(i)).map(|(t, (_, m))| panel_paint(i, m, d.fade, t)),
             };
             p.paints.extend(paint.filter(|p| *p != Paint::default()).map(|p| (0..g.pw, p)));
-            if g.boxed {
-                line.add(edge(true));
-            }
-            line.add(p);
-            line.add(if g.boxed { edge(true) } else { cell(" ", None) });
-        }
-        if g.boxed {
-            line.add(edge(false));
-        }
-        line.add(e);
-        if g.boxed {
-            line.add(match ticks[i] {
+            p
+        });
+        let end = if g.boxed {
+            match ticks[i] {
                 Tick::Gain => cell("┃", t.map(|t| t.add)),
                 Tick::Loss => cell("┃", t.map(|t| t.del)),
                 Tick::Shown if t.is_some() => cell("┃", t.map(|t| t.line)),
                 _ => edge(false),
-            });
-        }
-        lines.push(line);
+            }
+        } else {
+            Line::default()
+        };
+        lines.push(compose(p, e, end));
     }
     lines.extend(bottom);
     let mut out: (Vec<Row>, Vec<Looks>, Vec<Paints>) = Default::default();

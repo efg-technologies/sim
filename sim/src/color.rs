@@ -294,7 +294,7 @@ impl Syntax {
 
     fn derive(&mut self) {
         let bg = self.bg.filter(|_| self.truecolor);
-        // A color the terminal has not told (OSC 4 is often not answered, as inside tmux) is made of
+        // A color the terminal has not told (not every terminal answers OSC 4; tmux relays the reply, SYN-1) is made of
         // the OKLCH hue of its class, red, green, yellow, magenta and cyan, and a moderate chroma.
         let class = [(1, 25.0), (2, 145.0), (3, 85.0), (5, 320.0), (6, 195.0)];
         self.hues = class.map(|(i, hue)| {

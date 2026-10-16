@@ -428,3 +428,20 @@ const TOML: &str =
 const TYPESCRIPT: &str = "import { a } from \"x\";\ninterface Foo<T> { a: string }\nexport class Bar extends Baz {\n  private x: number = 3;\n  async run(): Promise<void> { if (this.x) { return; } } // c\n}\nconst r = `t${1}`;\n";
 
 const DOCKERFILE: &str = "FROM rust:1.98 AS build\nARG X=1\nRUN cargo build --release && echo \"done\"\nCMD [\"sim\"]\n# comment\n";
+
+#[test]
+fn syn_4_a_name_of_chezmoi_s_is_read_as_what_it_stands_for() {
+    let lang = |name: &str| Syn::new(name, "").map(|s| s.name);
+    // What the file is on the machine: `dot_` is a dot, the attributes and `.tmpl` are taken off.
+    assert_eq!(lang("dot_zshrc"), lang(".zshrc"));
+    assert!(lang("dot_zshrc").is_some(), "a shell");
+    assert_eq!(lang("dot_gitconfig.tmpl"), lang(".gitconfig"));
+    assert_eq!(lang("private_dot_config/nvim/init.lua.tmpl"), lang("init.lua"));
+    assert_eq!(lang("run_onchange_setup.sh.tmpl"), lang("setup.sh"));
+    assert_eq!(lang("executable_dot_tmux.conf.tmpl"), lang(".tmux.conf"));
+    assert_eq!(lang("dot_config/starship.toml.tmpl"), lang("starship.toml"));
+    // A name that has no attribute is read as it always was.
+    assert_eq!(lang("Makefile"), Some("Makefile"));
+    assert_eq!(lang("a.rs"), Some("Rust"));
+    assert_eq!(lang("notes.txt"), None);
+}

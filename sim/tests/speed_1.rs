@@ -38,7 +38,7 @@ impl Bench {
         // A history as full as it gets (MARK-2: 1,000 files), for the marks of the panel.
         let mut r = rig_env("speed-1", &names, &["big.rs"], size, |e| {
             // The look, with a palette and truecolor, so that the tints, the fog and the card are drawn too (LOOK-3 to LOOK-7).
-            (e.skin, e.syn) = (skin, Syntax::new(true));
+            (e.skin, e.syn, e.chrome, e.icons) = (skin, Syntax::new(true), true, true);
             for i in 0..1000 {
                 e.history.record(
                     &e.cwd.join(format!("dir{}/file{i}.rs", i % 12)).to_string_lossy(),

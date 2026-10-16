@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -10,7 +10,7 @@ mod ptr;
 use crate::color::{Syntax, Tones};
 use crate::grep;
 use crate::io::GIT_SKIPPED;
-use crate::layout::{self, Colored, Deck, Ed, Fade, Geo, Kind, Mark, Md, Skin};
+use crate::layout::{self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Mark, Md, Skin};
 use crate::marks::Marks;
 use crate::paint::{Looks, Screen};
 use crate::rank::History;
@@ -115,6 +115,8 @@ pub enum SimEffect {
     Preview(String),
     /// LOOK-1: the look that was chosen, to remember.
     Look(Skin),
+    /// UI-2: whether the icons are on, to remember.
+    Icons(bool),
     Quit(i32),
 }
 
@@ -229,6 +231,10 @@ pub struct Sim {
     /// LOOK-1: the look, and the colors it adds to the palette (none without a palette or truecolor, LOOK-8).
     pub skin: Skin,
     tones: Option<Tones>,
+    /// UI-1, UI-2: whether the interface is drawn in flat and depth, `$HOME`, and the icons.
+    chrome: bool,
+    home: Option<PathBuf>,
+    pub icons: bool,
     /// `SI_ON_NORMAL` (VI-11), which every file's App runs.
     hook: Option<String>,
     /// PTR-1: the press in the text that a drag goes on from: the file, and whether it has begun.
@@ -247,6 +253,13 @@ pub struct Env {
     pub hook: Option<String>,
     /// LOOK-1: the look to start with (calm if none is given).
     pub skin: Skin,
+    /// UI-2: `$HOME`, for the root the header shows as `~/...`.
+    pub home: Option<PathBuf>,
+    /// UI-2: whether the tree has icons (the saved choice; the tests start without).
+    pub icons: bool,
+    /// UI-1: whether flat and depth draw the interface (the binary does; the tests of the looks
+    /// before it start without, and say so when they test it).
+    pub chrome: bool,
 }
 
 /// What `sim` was asked to open (TREE-1).
@@ -329,6 +342,7 @@ impl Sim {
         let (history, syn, cwd) = (env.history, env.syn, env.cwd);
         let mut sim = Sim { panel, cwd, size, keys, root, history, syn, ..Sim::default() };
         (sim.skin, sim.hook) = (env.skin, env.hook);
+        (sim.chrome, sim.home, sim.icons) = (env.chrome, env.home, env.icons);
         (sim.now, sim.t0) = (env.now, env.now);
         let mut out = vec![SimEffect::Read(sim.root.clone())];
         out.push(SimEffect::Files);
@@ -346,7 +360,12 @@ impl Sim {
     /// columns (0 when it is closed or the screen is too narrow for it), and a column of space
     /// follows; in depth the borders of the boxes are around it and the editor.
     pub fn geo(&self) -> Geo {
-        Geo::new(self.size, self.skin, self.panel.open)
+        Geo::with_head(self.size, self.skin, self.panel.open, self.ui())
+    }
+
+    /// UI-1: whether the interface is drawn: flat or depth with tones (a palette and truecolor).
+    pub fn ui(&self) -> bool {
+        self.chrome && self.skin != Skin::Calm && self.tones.is_some()
     }
 
     /// The columns of the panel and of the editor.
@@ -593,11 +612,18 @@ impl Sim {
         // SYN-2: `zh` turns the colors off and on. si's parser takes the `h` after a `z` and
         // does nothing, so the App still gets the key.
         let (zh, zl) = (self.z && k == Key::Char('h'), self.z && k == Key::Char('l'));
+        let zi = self.z && k == Key::Char('i');
         self.z = self.idle() && k == Key::Char('z');
         self.to(id, Event::Key(k), out);
         if zh {
             self.hl_off = !self.hl_off;
             self.msg = Some(format!("syntax colors {}", if self.hl_off { "off" } else { "on" }));
+        }
+        // UI-2: `zi` turns the icons of the tree off and on, and the choice is remembered.
+        if zi {
+            self.icons = !self.icons;
+            self.msg = Some(format!("icons {}", if self.icons { "on" } else { "off" }));
+            out.push(SimEffect::Icons(self.icons));
         }
         // LOOK-1: `zl` goes on to the next look, and the choice is remembered.
         if zl {
@@ -776,6 +802,12 @@ impl Sim {
         .unwrap_or_default()
     }
 
+    /// UI-3: the open file's path below the root, if it is below it.
+    fn open_path(&self) -> Option<PathBuf> {
+        let path = self.cwd.join(self.bufs.get(self.cur)?.app.path.as_ref()?);
+        path.strip_prefix(&self.root).ok().map(Path::to_path_buf)
+    }
+
     /// LOOK-7: the row the open file is shown on in the tree: its own, or its nearest directory's.
     fn open_row(&self) -> Option<usize> {
         let path = self.cwd.join(self.bufs.get(self.cur)?.app.path.as_ref()?);
@@ -808,8 +840,9 @@ impl Sim {
         };
         let root_str = self.root.to_string_lossy();
         let likely = if g.pw > 0 { self.history.top(&root_str, 5, self.now) } else { vec![] };
+        let (ui, open) = (self.ui(), self.open_path());
         let marked: Vec<(TreeRow, Mark)> =
-            rows.into_iter().map(|r| self.mark(r, &likely)).collect();
+            rows.into_iter().map(|r| self.mark(r, &likely, open.as_deref(), ui)).collect();
         let at = self.row(self.panel.cur);
         let root = self.root.display().to_string();
         // (a directory's name ends with `/`, which is part of the state words: a path is cut as a list of components)
@@ -886,7 +919,7 @@ impl Sim {
         let sel = focus.then(|| self.panel.cur - self.panel.top).filter(|_| !live);
         let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
         if let (Some(i), false) = (sel, typing) {
-            let col = at.map_or(0, |r| (2 * r.depth + 2) as u16);
+            let col = at.map_or(0, |r| layout::name_col(r.depth, ui));
             let x = g.px + col.min(g.pw.saturating_sub(1));
             (cursor, shape) = ((x, g.y0 + i as u16), Shape::Block);
         }
@@ -913,6 +946,10 @@ impl Sim {
             _ => Fade::Near(anchor, self.panel.top),
         };
         let pane = self.live_pane();
+        let home_root = tilde(&self.root, self.home.as_deref());
+        // (the open file's tab alone for now: the bar of every file's tab is UI-4's)
+        let tabs: Vec<(String, bool)> =
+            self.bufs.get(self.cur).map(|b| (tab_name(b), b.app.buf.dirty())).into_iter().collect();
         let deck = Deck {
             geo: g,
             tones: tones.as_ref(),
@@ -922,6 +959,12 @@ impl Sim {
             app: self.bufs.get(self.cur).map(|b| &b.app),
             win,
             focus,
+            chrome: ui.then(|| Chrome {
+                icons: self.icons,
+                root: &home_root,
+                tabs: tabs.iter().map(|(n, m)| (n.as_str(), *m)).collect(),
+                cur: 0,
+            }),
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
         let editor = match (&pane, cur) {
@@ -944,8 +987,16 @@ impl Sim {
         Screen { frame, looks, paints, syn: self.syn }
     }
 
-    /// A row of the panel with what it shows besides its name (see `layout::Mark`).
-    fn mark(&self, r: TreeRow, likely: &[(String, f64)]) -> (TreeRow, Mark) {
+    /// A row of the panel with what it shows besides its name (see `layout::Mark`). In the
+    /// interface (`ui`) the change color is for the files that changed on disk while sim ran, git's
+    /// own changes show by their letter (UI-3), and there is no `~`.
+    fn mark(
+        &self,
+        r: TreeRow,
+        likely: &[(String, f64)],
+        open: Option<&Path>,
+        ui: bool,
+    ) -> (TreeRow, Mark) {
         let (p, name) = (r.path.as_path(), r.path.to_string_lossy());
         let hit = self.panel.search.as_ref().filter(|s| !s.query.is_empty()).map(|s| {
             r.is_dir && s.found.dirs.contains(name.as_ref())
@@ -953,12 +1004,33 @@ impl Sim {
                     && (self.files.binary_search_by(|f| f.as_str().cmp(&name)).ok())
                         .is_some_and(|i| s.found.hits.binary_search_by_key(&i, |h| h.index).is_ok())
         });
+        let file = !r.is_dir;
+        let m = &self.marks;
         let mark = Mark {
-            change: !r.is_dir && self.marks.changed(p),
-            below: r.is_dir && self.marks.changed_below(p),
-            likely: !r.is_dir && likely.iter().any(|l| Path::new(&l.0) == p),
+            change: file && if ui { m.on_disk(p) } else { m.changed(p) },
+            below: r.is_dir && !ui && m.changed_below(p),
+            likely: file && likely.iter().any(|l| Path::new(&l.0) == p),
             hit,
+            git: m.git(p).filter(|_| ui && file),
+            dot: m.below(p).filter(|_| ui && r.is_dir),
+            ignored: ui && m.ignored(p),
+            open: ui && file && open == Some(p),
         };
         (r, mark)
     }
+}
+
+/// UI-2: `path` as the header shows it: `~/...` below `$HOME`, `~` for `$HOME`, else as it is.
+pub fn tilde(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|h| path.strip_prefix(h).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
+    }
+}
+
+/// UI-4: what a tab calls a file: its name.
+fn tab_name(b: &Buf) -> String {
+    let path = b.app.path.as_deref().unwrap_or("[no name]");
+    Path::new(path).file_name().map_or(path.into(), |n| n.to_string_lossy().into_owned())
 }

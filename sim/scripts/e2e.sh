@@ -1503,4 +1503,39 @@ ui_8_the_colors_of_a_fenced_block_far_from_the_cursor_reach_the_screen_through_t
   wait_esc '38;2;[0-9;]*m.\[48;2;[0-9;]*mparu'
 }
 
+ui_3_the_tree_shows_the_home_relative_root_icons_git_letters_and_zi_turns_icons_off() {
+  W=$HOME/work # the project is below the case's $HOME
+  mkdir -p "$W"
+  gitproject
+  printf 'more\n' >> "$W/src/lib.rs"
+  printf 'new\n' > "$W/docs/new.md"
+  look depth
+  CT=truecolor
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e' # the palette makes the interface
+  wait_for "~/work" # the root, below $HOME (the case's)
+  closed=$(printf '\357\201\273') # U+F07B, the closed folder of Nerd Fonts
+  screen | grep -F 'docs' | grep -q "$closed"
+  screen | grep -F 'docs' | grep -q '● *│' # something below it is new
+  screen | grep -F 'src' | grep -q '● *│'
+  typed l # docs/ opens
+  wait_for "new.md"
+  screen | grep -F 'new.md' | grep -q 'U *│' # the letter of git at the right edge of the panel
+  typed jjjl # src/
+  wait_for "lib.rs"
+  screen | grep -F 'lib.rs' | grep -q 'M *│'
+  # The text has the focus once a file is open: `zi` turns the icons off and on.
+  typed jl
+  wait_for "NORMAL"
+  typed zi
+  wait_for "icons off"
+  ! screen | grep -q "$closed"
+  screen | grep -F -q "▸ target/"
+  [ "$(cat "$XDG_STATE_HOME/sim/icons")" = off ]
+  typed zi
+  wait_for "icons on"
+  screen | grep -q "$closed"
+  [ "$(cat "$XDG_STATE_HOME/sim/icons")" = on ]
+}
+
 main "$@"

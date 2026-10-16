@@ -103,6 +103,9 @@ fn main() -> ExitCode {
         syn: Syntax::new(truecolor),
         hook: env::var("SI_ON_NORMAL").ok().filter(|h| !h.is_empty()),
         skin: history.as_deref().map_or(Skin::Depth, sio::load_look),
+        home: env::var_os("HOME").map(std::path::PathBuf::from),
+        icons: history.as_deref().is_none_or(sio::load_icons),
+        chrome: true,
     };
     let (mut sim, mut fx) = Sim::new(s, env);
 
@@ -178,6 +181,7 @@ fn main() -> ExitCode {
                     SimEffect::Status => drop(git.send(())),
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
                     SimEffect::Look(k) => drop(jobs.send(Job::Look(k))),
+                    SimEffect::Icons(on) => drop(jobs.send(Job::Icons(on))),
                     SimEffect::Highlight(req) => drop(highlights.send(HlJob::Run(req))),
                     SimEffect::Grep(req) => greps.ask(req),
                     SimEffect::Preview(path) => {

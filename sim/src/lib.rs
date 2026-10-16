@@ -4,6 +4,7 @@
 pub mod color;
 pub mod find;
 pub mod grep;
+pub mod icons;
 pub mod io;
 pub mod layout;
 pub mod marks;

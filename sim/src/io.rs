@@ -1,4 +1,4 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the history file in sim's state directory, and the
 //! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
@@ -68,6 +68,8 @@ pub enum Job {
     History(History),
     /// The look that was chosen, to save (LOOK-1).
     Look(Skin),
+    /// Whether the icons are on, to save (UI-2).
+    Icons(bool),
     /// A snapshot that a dead session left for this file, to delete when ours replaces it.
     Hold(Id, String, u32),
     /// What this file's App asked of the journal: a `Snapshot`, an `Unsnapshot` (SAFE-6), a
@@ -104,6 +106,9 @@ pub fn journal_thread(
                 }
                 Job::Look(k) => {
                     hist.iter().filter_map(|d| save_look(d, k).err()).for_each(|e| say(1, e))
+                }
+                Job::Icons(on) => {
+                    hist.iter().filter_map(|d| save_icons(d, on).err()).for_each(|e| say(1, e))
                 }
                 Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
                 Job::App(_, Effect::Remember { path, line, col }) => {
@@ -381,9 +386,36 @@ pub fn worker(tx: Sender<SimEvent>, job: impl Fn() -> SimEvent + Send + 'static)
     ask
 }
 
-/// MARK-1: git's status and where `root` lies below the top of the repository.
+/// UI-3: the entries git ignores, as `!! path` lines of `git status --porcelain=v1 -z`: with
+/// `--untracked-files=normal`, so that an ignored directory is one entry and its files are not
+/// listed (with `-uall` git lists them all). Only those lines are kept.
+pub fn git_ignored(dir: &Path) -> Result<Vec<u8>, String> {
+    let args = [
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--ignored=traditional",
+        "--untracked-files=normal",
+        "--ignore-submodules=all",
+    ];
+    let out = git(dir, &args)?;
+    let mut kept = vec![];
+    for field in out.split(|&b| b == 0).filter(|f| f.starts_with(b"!! ")) {
+        kept.extend_from_slice(field);
+        kept.push(0);
+    }
+    Ok(kept)
+}
+
+/// MARK-1: git's status and where `root` lies below the top of the repository, and (UI-3) what it
+/// ignores, appended as `!! path` entries (a failure of that alone leaves the status as it is).
 pub fn status(root: &Path) -> Result<(Vec<u8>, String), String> {
-    Ok((git_status(root)?, git_prefix(root)?))
+    let mut status = git_status(root)?;
+    if !status.is_empty() && !status.ends_with(&[0]) {
+        status.push(0);
+    }
+    status.extend(git_ignored(root).unwrap_or_default());
+    Ok((status, git_prefix(root)?))
 }
 
 /// MARK-2: `$XDG_STATE_HOME/sim`, else `$HOME/.local/state/sim`: next to si's directory, by si's
@@ -406,6 +438,16 @@ pub fn load_look(dir: &Path) -> Skin {
 
 pub fn save_look(dir: &Path, skin: Skin) -> Result<(), String> {
     save_state(dir, "look", &format!("{}\n", skin.name()))
+}
+
+/// UI-2: whether the icons are on, as saved in `dir` (`save_icons`): on when there is no file, or it
+/// says anything but `off`.
+pub fn load_icons(dir: &Path) -> bool {
+    fs::read_to_string(dir.join("icons")).map_or(true, |t| t.trim_end_matches('\n') != "off")
+}
+
+pub fn save_icons(dir: &Path, on: bool) -> Result<(), String> {
+    save_state(dir, "icons", if on { "on\n" } else { "off\n" })
 }
 
 pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {
