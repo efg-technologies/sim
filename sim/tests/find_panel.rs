@@ -152,6 +152,53 @@ fn find_1_enter_opens_the_best_match_at_once_and_the_tree_shows_where_it_is() {
     assert_eq!(r.status(), "/");
 }
 
+/// The directories that are open, as sorted names.
+fn open_dirs(r: &Rig) -> Vec<String> {
+    let mut dirs: Vec<String> =
+        r.sim.tree.open_dirs().iter().map(|d| d.to_string_lossy().into_owned()).collect();
+    dirs.sort();
+    dirs
+}
+
+#[test]
+fn find_1_enter_puts_the_expansion_back_and_opens_only_the_directories_of_the_file() {
+    // The cursor follows the best match of every key: `m`, `ma`, ... lead to src/main.rs, and
+    // only `mainm` leads on to docs/notes/main.md. Those were never chosen: `src/` closes again.
+    let mut r = rig("f1-enter-debris", &FILES, &[]);
+    r.keys("/mainm");
+    assert!(open_dirs(&r).contains(&"src".to_string()), "the cursor went through src/");
+    r.keys("<CR>");
+    assert_eq!(r.open_files(), ["docs/notes/main.md"]);
+    assert_eq!(
+        open_dirs(&r),
+        ["docs", "docs/notes"],
+        "what was open before the search, and the way"
+    );
+    // What the user had opened before the search stays open.
+    let mut r = rig("f1-enter-kept", &FILES, &[]);
+    r.keys("jl"); // src/ opened by hand
+    r.keys("/mainm<CR>");
+    assert_eq!(open_dirs(&r), ["docs", "docs/notes", "src"]);
+    assert_eq!(r.selected(), None, "the focus is in the text");
+    assert!(r.panel().contains(&"    • main.md".to_string()), "{:?}", r.panel());
+}
+
+#[test]
+fn find_1_enter_on_a_file_after_stepping_through_the_matches_does_the_same() {
+    let mut r = rig("f1-enter-step", &FILES, &[]);
+    r.keys("/main<Down>"); // the matches stay lit; the cursor is on the next one
+    r.keys("<CR>");
+    let opened = r.open_files()[0].clone();
+    let mut want: Vec<String> = std::path::Path::new(&opened)
+        .ancestors()
+        .skip(1)
+        .filter(|a| !a.as_os_str().is_empty())
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    want.sort();
+    assert_eq!(open_dirs(&r), want, "only the directories of {opened}");
+}
+
 #[test]
 fn find_1_enter_opens_the_best_match_even_before_its_directory_has_been_read() {
     let mut r = rig("f1-late", &FILES, &[]);
