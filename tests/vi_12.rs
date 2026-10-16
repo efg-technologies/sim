@@ -33,6 +33,22 @@ fn vi_12_the_keys_reach_the_app_from_the_terminal() {
     assert!(matches!(ev, Some(Event::Key(Key::Ctrl('s')))));
 }
 
+/// A terminal set to send ^H (byte 8) for its Backspace key (PuTTY's option, an ssh client, `stty
+/// erase ^H`) would otherwise have no Backspace: crossterm reads that byte as Ctrl-h.
+#[test]
+fn vi_12_ctrl_h_is_backspace_as_in_vi() {
+    let ev = term::convert(Ev::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL)));
+    assert!(matches!(ev, Some(Event::Key(Key::Backspace))), "{ev:?}");
+    let mut a = app("abc");
+    feed(&mut a, "A");
+    a.update(ev.unwrap());
+    assert_eq!(text(&a), "ab");
+    let mut a = app("abc");
+    feed(&mut a, ":xy");
+    a.update(Event::Key(Key::Backspace));
+    assert_eq!(a.vi.line, ":x");
+}
+
 #[test]
 fn vi_12_visual_mode_moves_the_selection_with_the_keys() {
     table(&[
