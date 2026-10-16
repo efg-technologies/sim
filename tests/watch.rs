@@ -2,7 +2,7 @@
 // Helpers outside `#[test]` fns are not covered by clippy.toml, so allow it for the file.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use notify::RecommendedWatcher;
-use si::io::watch::watch;
+use si::io::watch::{watch, watch_polling};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -240,4 +240,27 @@ fn prop_1_every_read_is_numbered_as_it_starts_from_one_counter() {
     let (second, c) = rx.recv_timeout(PATIENCE).unwrap();
     assert_eq!(c.as_deref(), Some(&b"v1"[..]));
     assert!(between < second && second < si::io::file::seq(), "{first} {between} {second}");
+}
+
+#[test]
+fn prop_1_the_stamp_finds_a_change_the_system_did_not_report() {
+    // A write through a link in another directory is no event for the watched directory (inotify
+    // says nothing): only a look at the file's stamp finds it. Where the system does report it, the
+    // look is the faster of the two.
+    let dir = Tmp::with(&[("a.txt", "v0")]);
+    let other = Tmp::new();
+    fs::hard_link(dir.0.join("a.txt"), other.0.join("b.txt")).unwrap();
+    let (tx, rx) = mpsc::channel();
+    let poll = Some(Duration::from_millis(25));
+    let _w =
+        watch_polling(&dir.0.join("a.txt"), move |_, c| drop(tx.send(c)), false, poll).unwrap();
+    fs::write(other.0.join("b.txt"), "v1").unwrap();
+    loop {
+        let got = rx.recv_timeout(PATIENCE).expect("the change through the other link is found");
+        if got.as_deref() == Some(&b"v1"[..]) {
+            break;
+        }
+    }
+    // Nothing more comes while the file is as it is: a look that sees the same stamp reads nothing.
+    assert_eq!(rx.recv_timeout(Duration::from_millis(300)), Err(RecvTimeoutError::Timeout));
 }
