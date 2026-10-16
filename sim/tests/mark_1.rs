@@ -160,7 +160,7 @@ fn mark_1_a_bare_repository_and_a_git_directory_have_no_work_tree_and_so_no_mark
 // texts that git and a parser of sim's own could read differently.
 
 /// Configs that define a command git would run, or could bring one in.
-const RUNS: [&str; 32] = [
+const RUNS: [&str; 37] = [
     "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n",
     "[FILTER \"x\"]\n\tSmudge = cat\n",
     "[filter.x]\n\tprocess = cat\n",
@@ -179,6 +179,11 @@ const RUNS: [&str; 32] = [
     "[user]\n\tname = \"a\\\n[core]\"\n[core]\n\tfsmonitor = true\n",
     "[core]\n\thooksPath = /tmp/hooks\n",
     "[Core]\n\thookspath\n", // no value: git cannot read it at all
+    "[remote \"origin\"]\n\tpromisor = true\n\tuploadpack = /tmp/up\n", // run for a fetch from a path
+    "[remote \"origin\"]\n\treceivepack = /tmp/rp\n",
+    "[remote \"o\"]\n\tVCS = x\n",            // runs `git-remote-x`
+    "[protocol \"ext\"]\n\tallow = always\n", // lets a remote's url be a command (`ext::sh -c ...`)
+    "[Protocol]\n\tallow = always\n",
     "[core]\n\talternateRefsCommand = /tmp/refs\n",
     "[core]\n\tsshCommand = /tmp/ssh\n",
     "[core]\n\teditor = /tmp/ed\n\tpager = /tmp/pg\n",
@@ -462,6 +467,71 @@ fn canary_repo(dir: &Path) -> PathBuf {
     std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\necho\n", witness.display())).unwrap();
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     hook
+}
+
+/// A partial clone of a repository, the way a hostile `.git` can be made: the promisor remote is
+/// `origin`, whose url is the repository it came from, and the objects are missing, so that a
+/// `git status` fetches them. `extra` is more of the clone's config. Returns the clone.
+fn partial_clone(dir: &Path, extra: &[(&str, &str)]) -> PathBuf {
+    let (src, clone) = (dir.join("src"), dir.join("clone"));
+    std::fs::create_dir_all(&src).unwrap();
+    repo(&src, &["a.txt", "d/b.txt"]);
+    git(dir, &["clone", "-q", "--no-local", src.to_str().unwrap(), clone.to_str().unwrap()]);
+    for (k, v) in [("core.repositoryformatversion", "1"), ("extensions.partialClone", "origin")]
+        .into_iter()
+        .chain([("remote.origin.promisor", "true")])
+        .chain(extra.iter().copied())
+    {
+        git(&clone, &["config", k, v]);
+    }
+    // Take the objects away (all of them are in the pack the clone made).
+    for e in std::fs::read_dir(clone.join(".git/objects/pack")).unwrap() {
+        std::fs::remove_file(e.unwrap().path()).unwrap();
+    }
+    clone
+}
+
+fn objects(clone: &Path) -> usize {
+    std::fs::read_dir(clone.join(".git/objects/pack")).unwrap().count()
+}
+
+#[test]
+fn mark_1_git_never_fetches_from_the_promisor_remote_of_a_partial_clone() {
+    // `git status` in a clone with missing objects fetches them from its promisor remote: a
+    // network, a credential prompt on the terminal sim draws on, and the commands a remote runs.
+    let d = temp_dir("mark1-promisor");
+    let clone = partial_clone(&d.0, &[]);
+    assert_eq!(objects(&clone), 0);
+    let _ = io::git_status(&clone); // (it fails: the objects are not there, and are not fetched)
+    let _ = io::git_files(&clone);
+    let _ = io::git_prefix(&clone);
+    assert_eq!(objects(&clone), 0, "git fetched what was missing");
+}
+
+#[test]
+fn mark_1_a_remote_that_names_a_program_is_never_run_by_a_status() {
+    use std::os::unix::fs::PermissionsExt;
+    // The same clone, with the program a remote runs to serve a fetch (`uploadpack`) a script that
+    // leaves a witness, and with a url that is a command (`ext::`) that a repository's own config
+    // allows. Plain git runs them both for a `git status` (measured with git 2.56).
+    let d = temp_dir("mark1-remote-program");
+    let witness = d.0.join("witness");
+    let script = d.0.join("serve.sh");
+    std::fs::write(
+        &script,
+        format!("#!/bin/sh\ntouch '{}'\nexec git-upload-pack \"$@\"\n", witness.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let clone = partial_clone(&d.0, &[("remote.origin.uploadpack", script.to_str().unwrap())]);
+    assert_eq!(io::git_status(&clone), Err(io::GIT_SKIPPED.into()));
+    assert!(!witness.exists(), "the script of the remote ran");
+    let ext = format!("ext::sh -c touch% {}", witness.display()); // (`% ` is a space inside an argument)
+    let d2 = temp_dir("mark1-remote-ext");
+    let clone =
+        partial_clone(&d2.0, &[("protocol.ext.allow", "always"), ("remote.origin.url", &ext)]);
+    assert_eq!(io::git_status(&clone), Err(io::GIT_SKIPPED.into()));
+    assert!(!witness.exists(), "the url of the remote ran");
 }
 
 #[test]
