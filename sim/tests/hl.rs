@@ -385,6 +385,25 @@ fn syn_1_a_reply_to_osc_4_is_put_together_from_keys_and_the_one_to_osc_11_is_si_
 }
 
 #[test]
+fn syn_1_a_reply_that_comes_late_is_still_a_reply_and_is_never_typed_into_the_text() {
+    // Over a slow link the terminal's answer can take seconds. Parsed as keys it would be typed
+    // into the editor: `4;1;rgb:cc/00/00` is a count, `r` and `c` commands, and text.
+    let mut input = Input::new(true);
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    assert_eq!(heard(&mut input, osc("4;1;rgb:cc/00/00")), "osc:4;1;rgb:cc/00/00");
+    // Once the five colors that were asked for are in, an Alt+`]` is not held for a sixth.
+    for i in [2, 3, 5, 6] {
+        assert_eq!(
+            heard(&mut input, osc(&format!("4;{i};rgb:cc/00/00"))),
+            format!("osc:4;{i};rgb:cc/00/00")
+        );
+    }
+    let (alt, none) = (KeyModifiers::ALT, KeyModifiers::NONE);
+    let evs = vec![key(KeyCode::Char(']'), alt), key(KeyCode::Char('4'), none)];
+    assert_eq!(heard(&mut input, evs), "^]4");
+}
+
+#[test]
 fn syn_1_keys_that_are_not_a_reply_go_on_as_keys_in_order() {
     let (alt, none) = (KeyModifiers::ALT, KeyModifiers::NONE);
     let mut input = Input::new(true);
