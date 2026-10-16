@@ -128,6 +128,8 @@ pub struct App {
     /// A buffer of at least this many bytes is searched by several threads (PERF-4): `None` is
     /// `PAR_MIN`. Tests set it to search a small buffer in parallel, or a big one in one thread.
     pub par_min: Option<usize>,
+    /// A host that has the room (sim) wraps prose at the width of its pane and not at 72 columns (VIS-6).
+    pub wide: bool,
     pub(super) unit: Option<String>,
     /// The line whose indent autoindent made and nothing was typed after (VI-6).
     pub(super) ai: Option<usize>,

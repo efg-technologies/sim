@@ -304,12 +304,11 @@ fn weave(b: &Buffer, hunks: &[&Hunk], disp: &mut [Vec<Disp>], lo: usize, rows: u
 /// the length of the file.
 pub fn render(a: &mut App) -> Frame {
     let (w, h) = (usize::from(a.size.0), usize::from(a.size.1));
-    let rows = h - 1;
-    let b = &a.buf;
+    let (rows, b) = (h - 1, &a.buf);
     let digits = b.lines().to_string().len().max(3);
     let gutter = digits + 2;
     let ext = a.path.as_deref().and_then(|p| Path::new(p).extension());
-    let cap = if ext.is_none_or(|e| e == "md" || e == "txt") { 72 } else { usize::MAX };
+    let cap = if !a.wide && ext.is_none_or(|e| e == "md" || e == "txt") { 72 } else { usize::MAX };
     let max = cap.min(w.saturating_sub(gutter)).max(1);
     // While a search is typed the screen is drawn around its first match (VI-14).
     let peek = a.pv.filter(|_| a.vi.mode == Mode::Cmd).map(|p| p.min(b.text.len_chars()));

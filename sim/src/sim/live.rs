@@ -202,7 +202,8 @@ impl Sim {
         if l.pick().is_none_or(|(g, _)| g.path != pv.path) {
             return;
         }
-        let app = App::new(Some(pv.path.clone()), pv.file, (w, h));
+        let mut app = App::new(Some(pv.path.clone()), pv.file, (w, h));
+        app.wide = true; // (UI-9)
         l.preview = Some(Preview { path: pv.path, app, shown: None });
     }
 

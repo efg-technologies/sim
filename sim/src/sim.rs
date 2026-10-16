@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -707,6 +707,7 @@ impl Sim {
         }
         let g = self.geo();
         let mut app = App::new(Some(o.path.clone()), o.file, (g.ew, g.rows + 1));
+        app.wide = true; // prose wraps at the pane's width, not at 72 columns (UI-9)
         (app.hook, app.cwd) = (self.hook.clone(), Some(self.cwd.to_string_lossy().into_owned()));
         let mut fx = vec![];
         if let Some(Found(s, file, age, by)) = o.found {
