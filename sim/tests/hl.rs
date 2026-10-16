@@ -747,6 +747,50 @@ proptest! {
 }
 
 #[test]
+fn syn_3_a_parse_that_never_ends_is_given_up_and_the_other_files_are_still_highlighted() {
+    // syntect 5.3 with bat's JavaScript loops for ever on some text (a regex literal that starts a
+    // file or a statement, a line that ends it, and a `/*` after that): the one thread that
+    // highlights every file would be lost, and a core kept busy, for the rest of the session.
+    use std::time::Duration;
+    let looped = "/\n/\n /*\n";
+    let (tx, rx) = std::sync::mpsc::channel();
+    let jobs = sim::io::highlight_thread_within(tx, Duration::from_millis(300));
+    let next =
+        |what: &str| rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| panic!("{what}"));
+    jobs.send(HlJob::Run(req(1, "a.js", 1, looped, 0, 3))).unwrap();
+    let mut told = false;
+    let plain = loop {
+        match next("the parse that never ends was not given up") {
+            SimEvent::Notice(m) => told |= m.contains("a.js") && m.contains("colors"),
+            SimEvent::Spans(h) => break h,
+            e => panic!("{e:?}"),
+        }
+    };
+    assert_eq!((plain.id, plain.spans.len()), (1, 3));
+    assert!(plain.spans.iter().all(Vec::is_empty), "the lines are plain");
+    // Another file is highlighted afterwards.
+    jobs.send(HlJob::Run(req(2, "b.rs", 1, "fn f() {}\n", 0, 1))).unwrap();
+    let mut other = None;
+    while other.is_none() {
+        match next("the other file was not answered") {
+            SimEvent::Spans(h) if h.id == 2 => other = Some(h),
+            SimEvent::Notice(m) => told |= m.contains("a.js"),
+            e => panic!("{e:?}"),
+        }
+    }
+    assert_eq!(other.unwrap().spans[0], [(0..2, Look::Kw), (3..4, Look::Fun)]);
+    // The file that was given up is answered at once at its next edit, plain, and not parsed again.
+    let t = std::time::Instant::now();
+    jobs.send(HlJob::Run(req(1, "a.js", 2, "/\n/\n /*\nx\n", 0, 4))).unwrap();
+    match next("the file that was given up was parsed again") {
+        SimEvent::Spans(h) => assert!(h.id == 1 && h.ver == 2 && h.spans.iter().all(Vec::is_empty)),
+        e => panic!("{e:?}"),
+    }
+    assert!(t.elapsed() < Duration::from_millis(250), "{:?}", t.elapsed());
+    assert!(told, "the user is told that the colors of a.js stopped");
+}
+
+#[test]
 fn syn_3_the_highlighter_thread_answers_the_newest_request_of_each_file() {
     let (tx, rx) = std::sync::mpsc::channel();
     let jobs = sim::io::highlight_thread(tx);

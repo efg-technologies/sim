@@ -980,6 +980,22 @@ syn_2_zh_turns_the_colors_off_and_on() {
   wait_esc '31mfn'
 }
 
+syn_3_a_parse_that_never_ends_is_given_up_and_the_other_files_keep_their_colors() {
+  # syntect loops for ever on this text in JavaScript; sim stays at its keys, says so after the
+  # highlighter's 5 s, and highlights the next file
+  printf '/\n/\n /*\n' > "$W/loop.js"
+  printf 'fn main() { let s = "x"; }\n' > "$W/a.rs"
+  start loop.js
+  wait_for "loop.js  1:1  NORMAL"
+  typed jj
+  wait_for "loop.js  3:1  NORMAL" # the keys are answered while it loops
+  wait_for "syntax colors stopped for loop.js" 15
+  typed ":e a.rs"
+  keys Enter
+  wait_for "a.rs  1:1  NORMAL  2/2"
+  wait_esc '31mfn' # and a.rs has its colors
+}
+
 syn_3_a_file_over_10_mb_is_not_highlighted() {
   yes 'fn main() { let s = "x"; }' | head -c 11000000 > "$W/big.rs"
   printf 'fn main() { let s = "x"; }\n' > "$W/small.rs"
