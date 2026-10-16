@@ -417,9 +417,10 @@ fn vis_4_a_quit_before_the_color_came_leaves_nothing_for_the_shell() {
     let Some(m) = pty_bench(&["leak", si, file, "30"]) else { return };
     assert_eq!(m["leaked"], 0.0, "the shell would have typed the terminal's answer");
     assert!(
-        m["quit_ms"] >= 25.0,
-        "it quit in {:.1} ms, before the answer could be in",
-        m["quit_ms"]
+        m["quit_ms"] >= m["owed_ms"] - 5.0,
+        "it quit in {:.1} ms, before the answer ({:.1} ms from the `:q`) could be in",
+        m["quit_ms"],
+        m["owed_ms"]
     );
     for (kind, most) in [("answering", 80.0), ("no_osc", 80.0), ("silent", 400.0)] {
         let m = pty_bench(&["quit", si, file, kind]).unwrap();
