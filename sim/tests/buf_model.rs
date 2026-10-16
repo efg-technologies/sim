@@ -63,6 +63,10 @@ const OPEN: [&str; 12] = [
     "f0",
     "sub/f3",
 ];
+// (Every group of keys below that is meant for the text starts with two Escapes: the first ends a
+// search that is typed or lit, the second gives the focus back to the text, so that the letters
+// that follow are commands of the text and not, in part, the panel's: a `:wa` of which only the
+// `a` reached the text is the user's `a` and an Enter, which cut a typed word in two: not a loss.)
 /// Keys that move around and open things, but never delete or overwrite text.
 const NAV: [&str; 27] = [
     "<Tab>",
@@ -94,17 +98,18 @@ const NAV: [&str; 27] = [
     "/f2\n",
 ];
 const CMDS: [&str; 9] = [
-    "<Esc>:w\n",
-    "<Esc>:w!\n",
-    "<Esc>:wq\n",
-    "<Esc>:x\n",
-    "<Esc>ZZ",
-    "<Esc>:q\n",
-    "<Esc>:wa\n",
-    "<Esc>:qa\n",
-    "<Esc>:seen\n",
+    "<Esc><Esc>:w\n",
+    "<Esc><Esc>:w!\n",
+    "<Esc><Esc>:wq\n",
+    "<Esc><Esc>:x\n",
+    "<Esc><Esc>ZZ",
+    "<Esc><Esc>:q\n",
+    "<Esc><Esc>:wa\n",
+    "<Esc><Esc>:qa\n",
+    "<Esc><Esc>:seen\n",
 ];
-const DISCARD: [&str; 4] = ["<Esc>:q!\n", "<Esc>ZQ", "<Esc>:qa!\n", "<Esc>:cq\n"];
+const DISCARD: [&str; 4] =
+    ["<Esc><Esc>:q!\n", "<Esc><Esc>ZQ", "<Esc><Esc>:qa!\n", "<Esc><Esc>:cq\n"];
 
 static CASE: AtomicUsize = AtomicUsize::new(0);
 /// Coverage: cases, cases with two buffers at once, saves done, conflicts, closes, recovered words,
@@ -200,6 +205,7 @@ struct W {
     registered: HashSet<String>,
     discarded: HashSet<String>,
     forced: HashSet<usize>,
+    forced_any: bool,
     discard_ok: bool,
     prev: HashMap<usize, (usize, HashSet<String>)>,
     closed: HashSet<usize>,
@@ -344,6 +350,7 @@ impl W {
             registered: HashSet::new(),
             discarded: HashSet::new(),
             forced: HashSet::new(),
+            forced_any: false,
             discard_ok: false,
             prev: HashMap::new(),
             closed: HashSet::new(),
@@ -642,6 +649,16 @@ impl W {
             if self.quit.is_some() {
                 return;
             }
+            // A paste is meant for the empty line the keys before it made. When they went to the
+            // panel instead, it would land in a typed word and cut it in two: not a loss.
+            if matches!(ev, SimEvent::Term(Event::Paste(_))) {
+                let empty = |b: &sim::sim::Buf| {
+                    b.app.buf.line_len(b.app.buf.line_of(b.app.buf.cursor)) == 0
+                };
+                if !self.sim.bufs.get(self.sim.cur).is_none_or(empty) {
+                    continue;
+                }
+            }
             fx.extend(self.step(ev));
         }
         self.exec(fx);
@@ -662,22 +679,19 @@ impl W {
         match op {
             Op::Type => {
                 let t = self.tok("mt");
-                self.push_keys(&format!("<Esc>Go{t}<Esc>"));
+                self.push_keys(&format!("<Esc><Esc>Go{t}<Esc>"));
             }
             Op::Paste => {
                 let t = self.tok("mt");
-                self.push_keys("<Esc>Go<Esc>"); // an empty line of its own
+                self.push_keys("<Esc><Esc>Go<Esc>"); // an empty line of its own
                 self.chan.push_back(SimEvent::Term(Event::Paste(t)));
             }
             Op::Nav(k) => self.push_keys(NAV[usize::from(*k)]),
-            Op::Open(k) => self.push_keys(&format!("<Esc>:e {}\n", OPEN[usize::from(*k)])),
+            Op::Open(k) => self.push_keys(&format!("<Esc><Esc>:e {}\n", OPEN[usize::from(*k)])),
             Op::Cmd(k) => {
-                if usize::from(*k) == 1 {
-                    if let Some(b) = self.sim.bufs.get(self.sim.cur) {
-                        let fid = self.fid(&b.key);
-                        self.forced.insert(fid);
-                    }
-                }
+                // `:w!` keeps mine over whatever the disk holds by then. Which file it is typed in
+                // is known only when the keys are delivered, so no outside word is checked after one.
+                self.forced_any |= usize::from(*k) == 1;
                 self.push_keys(CMDS[usize::from(*k)])
             }
             Op::Discard(k) => {
@@ -687,7 +701,7 @@ impl W {
                 self.drain();
                 self.discard_ok = false;
             }
-            Op::Filter => self.push_keys("<Esc>:%!f\n"),
+            Op::Filter => self.push_keys("<Esc><Esc>:%!f\n"),
             Op::Ext(f, atomic) => self.ext(usize::from(*f), *atomic),
             Op::Rm(f, rename) => self.rm(usize::from(*f), *rename),
             Op::SaveExec => self.save_exec(),
@@ -964,7 +978,7 @@ impl W {
             }
         }
         for (fid, t) in &self.externals {
-            if self.forced.contains(fid) {
+            if self.forced_any || self.forced.contains(fid) {
                 continue;
             }
             let disk = self.disk(*fid);
@@ -1048,7 +1062,7 @@ proptest! {
     #[test]
     fn buf_1_model_no_word_is_lost_or_crosses_between_files(
         rec in 0u8..16,
-        size in (prop_oneof![Just(80u16), Just(40), Just(120)], prop_oneof![Just(24u16), Just(10)]),
+        size in (prop_oneof![Just(80u16), Just(40), Just(120), Just(9), Just(1)], prop_oneof![Just(24u16), Just(10), Just(3), Just(2)]),
         ops in prop::collection::vec(op(), 1..70),
     ) {
         run(rec, size, &ops).map_err(TestCaseError::fail)?;
