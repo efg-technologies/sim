@@ -10,7 +10,7 @@ use ropey::Rope;
 use si::core::app::{Effect, Event};
 use si::io::file::{self, Saved, why};
 use si::io::journal::{self, NO_STATE, Snapshot};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, Write};
@@ -466,12 +466,26 @@ pub enum HlJob {
     Forget(Id),
 }
 
-/// The thread of the highlighter. Of the requests waiting for it, only the newest for each file
-/// is answered: the others are about text that is gone.
+/// How long a request may take, besides 100 us for each line it parses from the top of what is
+/// cached: far longer than any parse (a first window 50,000 lines down takes 2.6 s), but not for
+/// ever, which syntect can take (see `highlight_thread_within`).
+pub const HL_BUDGET: Duration = Duration::from_secs(5);
+
 pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<HlJob> {
+    highlight_thread_within(tx, HL_BUDGET)
+}
+
+/// The thread of the highlighter. Of the requests waiting for it, only the newest for each file
+/// is answered: the others are about text that is gone. syntect can loop for ever on some text
+/// (5.3 with bat's JavaScript: a regex literal that starts a file or a statement and ends its
+/// line, then a `/*`), so every request runs in a thread of its own that the highlighter waits for
+/// `budget` (and 100 us a line); a request that does not finish is given up: the file is plain
+/// from then on, the user is told once, and the highlighter goes on with a new one for the other
+/// files. The thread that loops stays, busy, until sim ends: nothing in Rust stops a thread.
+pub fn highlight_thread_within(tx: Sender<SimEvent>, budget: Duration) -> Sender<HlJob> {
     let (jobs, rx) = mpsc::channel::<HlJob>();
     thread::spawn(move || {
-        let mut hl = Highlighter::default();
+        let (mut hl, mut given_up) = (Highlighter::default(), HashSet::<Id>::new());
         while let Ok(first) = rx.recv() {
             let (mut latest, mut closed) = (HashMap::new(), vec![]);
             for job in std::iter::once(first).chain(rx.try_iter()) {
@@ -482,7 +496,38 @@ pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<HlJob> {
             }
             closed.iter().for_each(|id| drop(latest.remove(id)));
             for (_, r) in latest {
-                if tx.send(hl.run(r)).is_err() {
+                let (id, ver, name, from, n) = (r.id, r.ver, r.name.clone(), r.from, r.n);
+                let lines = r.text.len_lines();
+                let wait = budget + Duration::from_micros(100) * (from + n).min(1 << 20) as u32;
+                let plain = |lines: usize| {
+                    let spans = vec![Spans::new(); n.min(lines.saturating_sub(from))];
+                    SimEvent::Spans(Hl { id, ver, lines, from, spans })
+                };
+                let answer = if given_up.contains(&id) {
+                    plain(lines)
+                } else {
+                    let (done, finished) = mpsc::channel();
+                    let mut worker = std::mem::take(&mut hl);
+                    thread::spawn(move || {
+                        let ev = worker.run(r);
+                        drop(done.send((worker, ev)));
+                    });
+                    match finished.recv_timeout(wait) {
+                        Ok((back, ev)) => {
+                            hl = back;
+                            ev
+                        }
+                        Err(_) => {
+                            given_up.insert(id);
+                            let why = format!(
+                                "syntax colors stopped for {name}: the highlighter did not finish"
+                            );
+                            drop(tx.send(SimEvent::Notice(why)));
+                            plain(lines)
+                        }
+                    }
+                };
+                if tx.send(answer).is_err() {
                     return;
                 }
             }
