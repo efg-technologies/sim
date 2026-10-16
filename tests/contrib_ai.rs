@@ -154,6 +154,26 @@ fn the_final_line_break_of_the_text_is_kept_whatever_claude_prints() {
 }
 
 #[test]
+fn the_blank_lines_ending_the_text_are_the_texts_not_claudes() {
+    let t = Tmp::new();
+    for (reply, input, want) in [
+        ("x\\n", "a\n\n\n", "x\n\n\n"), // the model dropped them: they are put back
+        ("x\\n\\n\\n\\n\\n", "a\n\n", "x\n\n"), // the model added some: they are cut
+        ("x", "a\n\n", "x\n\n"),
+        ("x\\n\\n", "a\nb", "x"), // none in the text, none out
+    ] {
+        t.stub(&format!("printf '{reply}'"));
+        let r = run(&t, &["go"], input.as_bytes(), &[]);
+        assert_eq!((r.code, r.out.as_str()), (0, want), "reply {reply:?} for {input:?}");
+    }
+    // Text of nothing but blanks has nothing to rewrite: it is not sent, and not an error.
+    t.stub("echo ran > \"$0.ran\"; printf 'x\\n'");
+    let r = run(&t, &["go"], b"\n\n", &[]);
+    assert_eq!((r.code, r.out.as_str()), (0, "\n\n"));
+    assert!(!t.0.join("bin").join("claude.ran").exists());
+}
+
+#[test]
 fn the_text_comes_back_byte_for_byte_when_claude_changes_nothing() {
     let t = Tmp::new();
     t.stub(ECHO);
@@ -165,6 +185,12 @@ fn the_text_comes_back_byte_for_byte_when_claude_changes_nothing() {
         "日本語のテキスト\n二行目\n",
         "dos\r\nline ends\r\n",
         "-----BEGIN TEXT-----\nlooks like a marker\n",
+        // a selection often ends with the blank line that separates paragraphs
+        "a paragraph\n\n",
+        "a paragraph\n\n\n\n",
+        "\n",
+        "\n\n",
+        "  \n\t\n",
     ] {
         let r = run(&t, &["go"], input.as_bytes(), &[]);
         assert_eq!((r.code, r.out.as_str()), (0, input), "{input:?}");
