@@ -598,6 +598,14 @@ safe_5_external_change_before_save_is_merged_not_overwritten() {
   # Nothing was overwritten: the other process's edit is there, and so is ours on screen.
   grep -q THREE "$CASE_DIR/f"
   screen | grep -F -q "  1 ONE"
+  # The watcher can show THREE while the first save is still on its way, and `:w` says "a save is
+  # already running" until it is answered (saved, or refused for the change on disk): wait for that.
+  tries=100
+  until screen | grep -F -q -e "saved f" -e "not saved: the file changed on disk"; do
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ] || { echo "the first :w was never answered" >&2; return 1; }
+    sleep 0.05
+  done
   typed ":w"
   keys Enter
   wait_for "saved f"
