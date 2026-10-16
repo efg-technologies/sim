@@ -202,6 +202,10 @@ pub fn save(path: &str, bytes: &[u8], expect: Option<u64>, state: Option<&Path>)
         }
     }
     let meta = opt(fs::metadata(&t)).map_err(fail)?;
+    // The compare reads the file: a FIFO would wait for a writer for ever, a device may never end.
+    if expect.is_some() && meta.as_ref().is_some_and(|m| !m.is_file()) {
+        return Err(format!("not saved: {path} is not a regular file"));
+    }
     if expect.is_some() && meta.as_ref().is_some_and(|m| m.permissions().readonly()) {
         return Err("read-only file (:w! to write anyway)".into());
     }

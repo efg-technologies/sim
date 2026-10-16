@@ -2,12 +2,13 @@
 //! any one of its steps fails is tested inside io/file.rs, where the fault hook exists: `cfg(test)`.)
 #![allow(clippy::unwrap_used, clippy::expect_used)] // helpers; the tests themselves may unwrap
 mod common;
-use common::{TempDir, temp_dir};
+use common::{TempDir, temp_dir, within};
 use si::core::buffer::{ABSENT, hash};
 use si::io::file::{Saved, foreign_link, open_same, read, save, symlinks};
 use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 const OLD: &[u8] = b"old\n";
 const NEW: &[u8] = b"new text\n";
@@ -254,6 +255,25 @@ fn safe_4_a_directory_says_so() {
             Some("cannot read: Permission denied")
         );
     }
+}
+
+/// SAFE-5: the compare reads the file, so a file that is not a regular one (a FIFO that took the
+/// place of the file waits for a writer for ever, a device may never end) is refused before it is
+/// read, and the save does not hang.
+#[test]
+fn safe_5_a_file_that_is_not_regular_is_refused_before_it_is_read() {
+    let (_d, f, state) = setup("fifo");
+    fs::remove_file(&f).unwrap();
+    assert!(Command::new("mkfifo").arg(&f).status().unwrap().success());
+    for expect in [Some(hash(OLD)), Some(ABSENT)] {
+        let (path, state) = (f.to_str().unwrap().to_string(), state.clone());
+        let r = within(10, move || save(&path, NEW, expect, Some(&state)).map(|_| ()));
+        let err = r.expect("the save hangs on a FIFO").unwrap_err();
+        assert!(err.contains("not a regular file"), "{err}");
+    }
+    // `:w!` compares nothing and replaces the name, as it does for any file.
+    assert!(save(f.to_str().unwrap(), NEW, None, Some(&state)).is_ok());
+    assert_eq!(fs::read(&f).unwrap(), NEW);
 }
 
 /// SAFE-5: another process replaces the file after the save has made its temporary file (a big
