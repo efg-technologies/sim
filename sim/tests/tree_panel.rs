@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
+use proptest::prelude::*;
 use sim::sim::start;
 use std::path::Path;
 
@@ -464,4 +465,27 @@ fn tree_2_a_notice_from_a_thread_is_told_on_the_status_line_until_the_next_key()
     assert_eq!(r.status(), "cannot write snapshots: disk full");
     r.keys("j");
     assert_eq!(r.status(), "f.txt  TREE");
+}
+
+proptest! {
+    #[test]
+    fn tree_1_a_cut_path_fits_and_is_the_end_of_the_path(
+        path in "[a-z/日本é\u{200d}\u{1f600}]{0,40}",
+        max in 0..45usize,
+    ) {
+        let (cut, whole) = (sim::layout::tail(&path, max), width(&path));
+        prop_assert!(width(&cut) <= max, "{cut:?} in {max}");
+        if whole <= max {
+            prop_assert_eq!(&cut, &path);
+        } else if max > 0 {
+            let rest = cut.strip_prefix('…').unwrap_or("");
+            prop_assert!(cut.starts_with('…') && path.ends_with(rest), "{cut:?} of {path:?}");
+        }
+        // The state words are never cut: `stated` keeps them whole while there is room for them.
+        let (line, head) = sim::layout::stated(&path, "  TREE", max);
+        prop_assert!(width(&line) <= max && head <= max);
+        if max >= 6 {
+            prop_assert!(line.ends_with("  TREE"), "{line:?} in {max}");
+        }
+    }
 }
