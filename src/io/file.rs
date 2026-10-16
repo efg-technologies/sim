@@ -250,7 +250,11 @@ fn atomic((t, bytes, expect): Job, meta: Option<&Metadata>) -> io::Result<Option
         if let Some(disk) = step(|| changed(t, expect))? {
             return Ok(Some(Saved::Conflict(disk)));
         }
-        step(|| fs::rename(&tmp, t))?;
+        match step(|| fs::rename(&tmp, t)) {
+            // A mount point (a bind-mounted file) cannot be replaced, only written to.
+            Err(e) if e.kind() == io::ErrorKind::ResourceBusy => return Ok(None),
+            r => r?,
+        }
         let sync = step(|| File::open(t.parent().unwrap_or(t))?.sync_all());
         let warn = sync.err().map(|e| format!("could not sync the directory: {}", why(&e)));
         Ok(Some(Saved::Done(hash(bytes), warn)))

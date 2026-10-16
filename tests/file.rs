@@ -8,7 +8,7 @@ use si::io::file::{Saved, foreign_link, open_same, read, save, symlinks};
 use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 const OLD: &[u8] = b"old\n";
 const NEW: &[u8] = b"new text\n";
@@ -255,6 +255,45 @@ fn safe_4_a_directory_says_so() {
             Some("cannot read: Permission denied")
         );
     }
+}
+
+/// SAFE-2: a file that is a mount point (a bind-mounted config in a container) cannot be replaced by
+/// a rename (EBUSY), so it is written in place. The test runs itself in a user and mount namespace,
+/// where `mount --bind` needs no privilege; where that is not allowed it has nothing to check.
+#[cfg(target_os = "linux")]
+#[test]
+fn safe_2_a_mount_point_is_written_in_place() {
+    if let Ok(dir) = std::env::var("SI_TEST_BIND") {
+        let (target, state) = (format!("{dir}/target"), Path::new(&dir).join("state"));
+        let r = save(&target, b"new\n", Some(hash(b"other\n")), Some(&state));
+        assert!(matches!(r, Ok(Saved::Done(..))), "{:?}", r.map(|_| ()));
+        assert_eq!(fs::read(&target).unwrap(), b"new\n");
+        assert_eq!(fs::read(format!("{dir}/src")).unwrap(), b"new\n", "what is mounted is written");
+        return;
+    }
+    let d = temp_dir("bind");
+    fs::write(d.0.join("src"), b"other\n").unwrap();
+    fs::write(d.0.join("target"), b"hello\n").unwrap();
+    DirBuilder::new().mode(0o700).create(d.0.join("state")).unwrap();
+    let ns = |script: &str| {
+        let mut c = Command::new("unshare");
+        c.args(["--user", "--map-root-user", "--mount", "sh", "-c", script]).current_dir(&d.0);
+        c.env("SI_TEST_BIND", &d.0).stdout(Stdio::null()).stderr(Stdio::null());
+        c.status().is_ok_and(|s| s.success())
+    };
+    if !ns("mount --bind src target") {
+        eprintln!("no user namespaces here: nothing to check");
+        return;
+    }
+    let me = std::env::current_exe().unwrap();
+    let run = format!(
+        "mount --bind src target && exec '{}' --exact safe_2_a_mount_point_is_written_in_place",
+        me.display()
+    );
+    assert!(
+        ns(&run),
+        "the save of a mount point failed (run it with --nocapture in the namespace)"
+    );
 }
 
 /// SAFE-5: the compare reads the file, so a file that is not a regular one (a FIFO that took the
