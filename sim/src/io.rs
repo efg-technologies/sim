@@ -194,9 +194,9 @@ fn holds_command(key: &[u8]) -> bool {
     let (section, var) = (key.split(|&b| b == b'.').next(), key.rsplit(|&b| b == b'.').next());
     let (section, var) = (section.unwrap_or_default(), var.unwrap_or_default());
     let names = b"driver textconv helper process clean smudge askpass editor pager gitproxy \
-                  hookspath fsmonitor";
+                  hookspath fsmonitor uploadpack receivepack vcs";
     section.len() == key.len()
-        || matches!(section, b"filter" | b"include" | b"includeif")
+        || matches!(section, b"filter" | b"include" | b"includeif" | b"protocol")
         || names.split(|&b| b == b' ').any(|name| name == var)
         || [&b"command"[..], b"cmd", b"program", b"hook"].iter().any(|end| var.ends_with(end))
 }
@@ -225,6 +225,12 @@ fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
         .args(args)
         .current_dir(dir)
         .env("LC_ALL", "C")
+        // Git never fetches for sim: in a partial clone with objects missing a `git status`
+        // would, from the promisor remote, and run what the repository says serves a fetch (its
+        // `uploadpack`, an `ext::` url) or ask for a password on the terminal sim draws on.
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_ALLOW_PROTOCOL", "sim-none")
+        .env("GIT_TERMINAL_PROMPT", "0")
         .output();
     let shown = layout::tail(&dir.to_string_lossy(), 30); // (the reason is what matters: it is last)
     let out = out.map_err(|e| format!("cannot run git in {shown}: {}", why(&e)))?;
