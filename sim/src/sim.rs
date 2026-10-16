@@ -246,17 +246,40 @@ fn text_of(buf: &Buffer, l: usize) -> Option<String> {
     (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
 }
 
+/// What follows the line address at the start of `s` (si's: `.` `$` `'<` `'>` or digits).
+fn after_address(s: &str) -> Option<&str> {
+    match s.chars().next()? {
+        '.' | '$' => Some(&s[1..]),
+        '\'' => s[1..].strip_prefix(['<', '>']),
+        '0'..='9' => Some(s.trim_start_matches(|c: char| c.is_ascii_digit())),
+        _ => None,
+    }
+}
+
+/// What follows the range at the start of `s`, as si reads one: `%`, or an address and perhaps a
+/// `,` and another.
+fn after_range(s: &str) -> &str {
+    let Some(rest) = s.strip_prefix('%').map_or_else(|| after_address(s), Some) else { return s };
+    rest.strip_prefix(',').and_then(after_address).unwrap_or(rest)
+}
+
 /// The commands for all the files at once, which si's App does not know (BUF-3), and `:e name`,
-/// which opens another file instead of replacing this one (BUF-1): name, `!`, argument.
+/// which opens another file instead of replacing this one (BUF-1): name, `!`, argument. si takes
+/// a range before `:e` and ignores it, and would replace this file by the other: `:%e name` is
+/// `:e name` here too.
 fn all(line: &str) -> Option<(&str, bool, &str)> {
+    fn parse(s: &str) -> Option<(&str, bool, &str)> {
+        let (name, rest) =
+            s.split_at(s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len()));
+        let (bang, arg) = rest.strip_prefix('!').map_or((false, rest), |a| (true, a));
+        let ok = matches!(
+            (name, arg.trim().is_empty()),
+            ("qa" | "qall" | "wa" | "wall", true) | ("e" | "edit", false)
+        );
+        ok.then_some((name, bang, arg.trim()))
+    }
     let s = line.strip_prefix(':')?.trim();
-    let (name, rest) = s.split_at(s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len()));
-    let (bang, arg) = rest.strip_prefix('!').map_or((false, rest), |a| (true, a));
-    let ok = matches!(
-        (name, arg.trim().is_empty()),
-        ("qa" | "qall" | "wa" | "wall", true) | ("e" | "edit", false)
-    );
-    ok.then_some((name, bang, arg.trim()))
+    parse(s).or_else(|| parse(after_range(s).trim_start()).filter(|c| c.0.starts_with('e')))
 }
 
 impl Sim {

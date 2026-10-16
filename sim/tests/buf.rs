@@ -9,6 +9,11 @@ use si::io::journal::{self, Snapshot};
 use sim::sim::{SimEffect, SimEvent};
 use std::fs;
 
+/// The journal key of a file: its canonical path.
+fn key_of(p: &std::path::Path) -> String {
+    si::io::file::resolve(&p.to_string_lossy()).to_string_lossy().into_owned()
+}
+
 /// Three small files. The panel is open and has the focus at the start, on `a.txt`.
 const FILES: [&str; 3] = ["a.txt=one\ntwo\n", "b.txt=B1\nB2\n", "c.txt=C1\n"];
 
@@ -98,6 +103,22 @@ fn buf_1_e_with_a_name_opens_another_file_even_when_this_one_is_modified() {
     r.keys(":e a.txt\n");
     assert_eq!((r.open_files().len(), r.sim.cur), (3, 0), "an open file is switched to");
     assert_eq!(r.text(), "ne\ntwo");
+}
+
+#[test]
+fn buf_1_e_with_a_range_still_opens_another_file_and_never_replaces_this_one() {
+    // si's `:e` takes a range and ignores it (`:%e b.txt` is `:e b.txt`), and would replace this
+    // buffer with b.txt: the buffer would keep a.txt's journal key and show b.txt, so that opening
+    // a.txt again would switch to a buffer that holds b.txt, and b.txt could be open twice.
+    for cmd in
+        [":%e b.txt", ":1e b.txt", ":.,$e! b.txt", ":'<,'>edit b.txt", ":2,3e b.txt", ":1 e b.txt"]
+    {
+        let mut r = rig("b1-range", &FILES, &["a.txt"]);
+        r.keys(&format!("{cmd}\n"));
+        assert_eq!(r.open_files(), ["a.txt", "b.txt"], "{cmd}");
+        assert_eq!(r.sim.bufs[0].key, key_of(&r.cwd.join("a.txt")), "{cmd}");
+        assert_eq!(r.text(), "B1\nB2", "{cmd}");
+    }
 }
 
 #[test]
