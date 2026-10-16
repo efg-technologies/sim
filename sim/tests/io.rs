@@ -128,6 +128,10 @@ fn find_3_not_a_repository_is_a_clear_error_and_so_is_a_missing_directory() {
     assert!(err.starts_with("not a git repository: ") && err.contains("io-notrepo"), "{err}");
     let err = io::git_files(&d.0.join("missing")).unwrap_err();
     assert!(err.starts_with("cannot run git in "), "{err}");
+    // A long path is cut from the left, so that the reason fits on the status line.
+    let err = io::git_files(&d.0.join("x".repeat(100))).unwrap_err();
+    assert!(err.starts_with("cannot run git in …"), "{err}");
+    assert!(err.ends_with(": No such file or directory") && err.chars().count() <= 78, "{err}");
 }
 
 // ---- BUF-1: the state directory is si's (SAFE-6) ----
