@@ -130,6 +130,17 @@ fn buf_1_e_with_a_directory_reveals_it_in_the_panel() {
 }
 
 #[test]
+fn buf_1_a_directory_named_by_e_gives_back_the_watcher_started_for_it() {
+    // The shell starts watching a name before it knows whether it is a file (so that no change
+    // slips in between): the answer for a directory must name the id, so that the watcher stops.
+    let mut r = rig("b1-dir-watch", &["a/b.txt", "f.txt=ff\n"], &["f.txt"]);
+    r.keys(":e a\n"); // ids count from 0: f.txt is 0, the directory is asked for as 1
+    assert_eq!(r.open_files(), ["f.txt"]);
+    let closed = r.log.iter().any(|e| matches!(e, SimEffect::Close(1)));
+    assert!(closed, "the watcher of the directory `a` (id 1) is never stopped: {:?}", r.log);
+}
+
+#[test]
 fn buf_1_two_names_for_one_file_are_one_buffer() {
     let mut r = rig("b1-link", &FILES, &[]);
     std::os::unix::fs::symlink("a.txt", r.cwd.join("link.txt")).unwrap();
