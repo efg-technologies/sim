@@ -34,8 +34,10 @@ pub fn tail(s: &str, max: usize) -> String {
     let all = fit(s, usize::MAX).0;
     let cs: Vec<char> = all.chars().collect();
     let cols = |from: usize| fit(&cs[from..].iter().collect::<String>(), usize::MAX).1;
-    if cols(0) <= max || max == 0 {
-        return if max == 0 { String::new() } else { all };
+    if cols(0) <= max {
+        return all;
+    } else if max == 0 {
+        return String::new();
     }
     // The first char kept is the smallest one whose tail fits next to the `…`.
     let (mut lo, mut hi) = (0, cs.len());
