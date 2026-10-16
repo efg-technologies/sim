@@ -162,7 +162,7 @@ pub fn private(dir: &Path) -> io::Result<u32> {
 type Stamp = (u64, u64, u64, i64, i64, i64, i64);
 
 /// The stamp of the file (`None`: there is none).
-fn stamp(t: &Path) -> io::Result<Option<Stamp>> {
+pub(super) fn stamp(t: &Path) -> io::Result<Option<Stamp>> {
     let of = |m: Metadata| {
         (m.dev(), m.ino(), m.size(), m.mtime(), m.mtime_nsec(), m.ctime(), m.ctime_nsec())
     };
