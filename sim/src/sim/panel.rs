@@ -126,13 +126,13 @@ impl Sim {
         self.panel.cur = to.min(last);
     }
 
-    /// `l`, Right and Enter: expand a directory, open a file (which ends a search, leaving the
-    /// tree as the search made it, so that the file is shown in its place).
+    /// `l`, Right and Enter: expand a directory, open a file (which ends a search, so that the
+    /// tree shows the file in its place and nothing else of the search).
     pub(super) fn enter(&mut self, out: Out) {
         let Some(r) = self.row(self.panel.cur) else { return };
         let abs = self.root.join(&r.path);
         if !r.is_dir {
-            self.panel.search = None;
+            self.end_search_at(r.path, out);
             self.open(abs, out);
         } else if !r.open && self.view_mut().expand(&r.path) {
             out.push(SimEffect::Read(abs));
@@ -234,6 +234,16 @@ impl Sim {
         self.place(&s.at);
     }
 
+    /// Enter ends the search on a file that is opened: the expansion is put back to what it was
+    /// before the search, then only the directories of that file are opened (as `:e` reveals
+    /// one), so the tree shows where the file is and nothing the cursor passed on its way.
+    fn end_search_at(&mut self, path: PathBuf, out: Out) {
+        let Some(s) = self.panel.search.take() else { return };
+        self.tree.restore(&s.open);
+        self.panel.reveal = Some(path);
+        self.reveal(out);
+    }
+
     /// FIND-1, FIND-2: finds the matches of the query among the files and takes the cursor to
     /// the best, expanding the directories on its way.
     pub(super) fn search_run(&mut self, out: Out) {
@@ -262,7 +272,7 @@ impl Sim {
             Key::Esc => return self.end_search(),
             Key::Enter => {
                 let Some(t) = s.target.clone() else { return };
-                self.panel.search = None;
+                self.end_search_at(PathBuf::from(&t), out);
                 return self.open(self.root.join(t), out);
             }
             Key::Down | Key::Up => {
