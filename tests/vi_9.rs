@@ -213,7 +213,11 @@ def drain(t):
 drain(0.5)
 os.write(fd, payload)
 drain(1.0)
-wpid, _ = os.waitpid(pid, os.WNOHANG)
+# The pty closes when si starts to exit, a moment before it can be reaped: ask for a few seconds.
+wpid, end = 0, time.time() + 3
+while wpid == 0 and time.time() < end:
+    wpid, _ = os.waitpid(pid, os.WNOHANG)
+    if wpid == 0: time.sleep(0.02)
 if wpid == 0:
     os.kill(pid, signal.SIGKILL); os.waitpid(pid, 0)
 print('alive' if wpid == 0 else 'exited')

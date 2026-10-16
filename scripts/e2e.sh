@@ -629,23 +629,28 @@ gone() { ! screen | grep -F -q -- "$1"; }
 vi_9_esc_is_immediate() {
   start f
   wait_for "f  1:1  NORMAL"
-  typed i
-  wait_for INSERT
-  keys Escape
-  t0=$(now_ms)
-  # No sleep: keep asking tmux for the screen until it says NORMAL.
-  tries=400
-  until screen | grep -F -q NORMAL; do
-    tries=$((tries - 1))
-    [ "$tries" -gt 0 ] || { echo "the status line never said NORMAL" >&2; return 1; }
+  # A parser that waited for more bytes after a lone Escape would add a timeout (100 ms or more) to
+  # every try; a busy machine stalls only some of them. So the best of five tries is what counts.
+  best=
+  for _ in 1 2 3 4 5; do
+    typed i
+    wait_for INSERT
+    keys Escape
+    t0=$(now_ms)
+    # No sleep: keep asking tmux for the screen until it says NORMAL.
+    tries=400
+    until screen | grep -F -q NORMAL; do
+      tries=$((tries - 1))
+      [ "$tries" -gt 0 ] || { echo "the status line never said NORMAL" >&2; return 1; }
+    done
+    t1=$(now_ms)
+    if [ -z "$best" ] || [ $((t1 - t0)) -lt "$best" ]; then best=$((t1 - t0)); fi
   done
-  t1=$(now_ms)
   # This is the time from sending Escape to seeing NORMAL, so it includes asking tmux for the
-  # screen (a process start and a round trip, a few ms) and one `date`. A parser that waited
-  # for more bytes after a lone Escape would need 100 ms or more (a timeout), so 50 ms is
-  # generous slack for tmux and still tells the two apart.
-  echo "Escape to NORMAL: $((t1 - t0)) ms"
-  [ $((t1 - t0)) -le 50 ]
+  # screen (a process start and a round trip, a few ms) and one `date`: 50 ms tells that from a
+  # timeout.
+  echo "Escape to NORMAL: $best ms (best of five)"
+  [ "$best" -le 50 ]
 }
 
 vi_9_bracketed_paste_is_one_undo() {
