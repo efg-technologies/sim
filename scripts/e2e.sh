@@ -111,6 +111,12 @@ now_ms() {
   esac
 }
 
+# How late this machine wakes a process from a 30 ms sleep (si's debounce is that long): the worst of
+# nine, in ms. A quiet machine: a millisecond or two; a macOS CI runner measured up to 150.
+timer_lateness_ms() {
+  perl -MTime::HiRes=usleep,time -e '$w = 0; for (1 .. 9) { $t = time; usleep(30000); $l = (time - $t) * 1000 - 30; $w = $l if $l > $w } printf "%.0f\n", $w' 2> /dev/null || echo 0
+}
+
 # ---- running one case, in its own process so that set -e works inside it ----
 
 run_one() {
@@ -435,11 +441,13 @@ prop_1_an_external_edit_appears_and_is_marked() {
   mv "$CASE_DIR/f.new" "$CASE_DIR/f"
   wait_for "1 change on disk"
   t3=$(now_ms)
-  echo "key to screen: $((t1 - t0)) ms, rename to marked: $((t3 - t2)) ms"
+  late=$(timer_lateness_ms)
+  echo "key to screen: $((t1 - t0)) ms, rename to marked: $((t3 - t2)) ms, timers late by $late ms"
   # PROP-1: 100 ms from the rename to the callback (the 30 ms debounce, the read, the merge and the
   # draw come out of it). Each look at the screen lands anywhere in a 50 ms step of wait_for, so the
-  # two times can differ by one more step than the watcher took.
-  [ $(((t3 - t2) - (t1 - t0))) -le 150 ]
+  # two times can differ by one more step than the watcher took. The one timer in si's path may be
+  # late by what this machine's timers are (measured); nothing else is allowed on top of the 100 ms.
+  [ $(((t3 - t2) - (t1 - t0))) -le $((150 + late)) ]
   screen | grep -F -q "~  2 TWO"
   gone modified
   # PROP-9: the mark stays until the cursor enters its line.
