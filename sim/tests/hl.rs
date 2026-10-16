@@ -77,6 +77,35 @@ fn syn_1_emoji_sequences_and_every_bidirectional_control_keep_the_colors_in_plac
 }
 
 #[test]
+fn syn_3_a_line_of_many_spans_is_laid_out_in_the_time_of_a_key() {
+    // 200,000 spans (every other char of a line of 400,000), 23 rows of 75 chars on the screen.
+    // Finding the span of a char by scanning the line's spans made every plain char cost all of
+    // them: 900 plain chars on screen times 200,000 spans, at every key.
+    let (n, digits) = (400_000, 3);
+    let text: String = "ab".repeat(n / 2);
+    let spans: sim::syn::Spans = (0..n / 2).map(|i| (2 * i..2 * i + 1, Look::Num)).collect();
+    let chars: Vec<char> = text.chars().collect();
+    let rows = (0..23)
+        .map(|i| {
+            let gutter = if i == 0 { "   1 " } else { "     " };
+            let body: String = chars[i * 75..(i + 1) * 75].iter().collect();
+            Row { text: format!("{gutter}{body}"), ..Row::default() }
+        })
+        .collect();
+    let frame =
+        Frame { width: 80, height: 24, rows, cursor: (5, 0), shape: Shape::Block, pal: None };
+    let (t, line) = (std::time::Instant::now(), text.clone());
+    let (looks, win) =
+        sim::layout::colors(&frame, digits, &|l| (l == 0).then(|| line.clone()), &|l| {
+            (l == 0).then_some(&spans)
+        });
+    let took = t.elapsed();
+    assert_eq!(win, Some((0, 0)));
+    assert_eq!(looks[0].len(), 38, "every other char of the first row is a number");
+    assert!(took < std::time::Duration::from_millis(150), "{took:?}");
+}
+
+#[test]
 fn syn_1_review_weaves_mine_and_theirs_into_its_rows_so_it_has_no_syntax_colors() {
     let mut r =
         rig_sized("hl-review", &["main.rs=let a = 1;\nfn main() {}\n"], &["main.rs"], (50, 8));
