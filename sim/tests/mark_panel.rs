@@ -73,9 +73,9 @@ fn mark_1_changed_and_untracked_files_get_the_change_color_and_their_directories
 
 #[test]
 fn mark_1_where_git_is_skipped_the_status_line_says_so_once_and_the_files_come_from_a_walk() {
-    let skip = sim::io::GIT_SKIPPED;
+    let skip = "git skipped: filter.x.clean in .git/config could run a command";
     let files = ["a.rs", "b.rs", ".gitignore=target/\n", "target/x.o"];
-    let mut r = rig_env("m1-skip", &files, &[], (60, 12), |e| {
+    let mut r = rig_env("m1-skip", &files, &[], (70, 12), |e| {
         init_git(&e.cwd);
         std::fs::write(e.cwd.join("a.rs"), "changed\n").unwrap();
         let config = std::fs::read_to_string(e.cwd.join(".git/config")).unwrap();
@@ -90,7 +90,11 @@ fn mark_1_where_git_is_skipped_the_status_line_says_so_once_and_the_files_come_f
     assert!(r.status().ends_with("1 match"), "{}", r.status());
     r.keys("<Esc><Esc>q<C-n>"); // the panel closes and opens again: git is asked again, and skipped
     assert!(r.panel().len() >= 4);
-    assert!(r.status().ends_with("  TREE") && !r.status().contains(skip), "{}", r.status());
+    assert!(
+        r.status().ends_with("  TREE") && !r.status().contains("git skipped"),
+        "{}",
+        r.status()
+    );
     assert_eq!(r.jobs.iter().filter(|j| **j == "status").count(), 2, "it was asked twice");
 }
 

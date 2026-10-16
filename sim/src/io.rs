@@ -188,9 +188,10 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
     Ok(entries)
 }
 
-/// MARK-1: what is said (once) when git is not run because the repository's config could make it
-/// run commands.
-pub const GIT_SKIPPED: &str = "git skipped: this repository's config could run commands";
+/// MARK-1: what is said (once) when git is not run, and then why: the key that could run a command
+/// (`runs_commands`), or that the config cannot be read.
+pub const GIT_SKIPPED: &str = "git skipped: ";
+const UNREADABLE: &str = "this repository's config cannot be read";
 
 /// MARK-1: whether a key (`section.[subsection.]variable`, section and variable in lower case) can
 /// hold a command: the section is `filter`, `include` or `includeif`, or the variable is one of
@@ -211,21 +212,27 @@ fn holds_command(key: &[u8]) -> bool {
         || [&b"command"[..], b"cmd", b"program", b"hook"].iter().any(|end| var.ends_with(end))
 }
 
-/// MARK-1: whether the config that git lists for a repository (`git config --list --show-scope
-/// -z`: `scope NUL key [NL value] NUL` for each entry) has an entry of the repository's own whose
-/// key can hold a command (`holds_command`). An included file has the scope of the file that
-/// includes it. The user's own scopes (system, global, the command line) are trusted; any other
-/// scope, and a listing that does not parse, counts as the repository's.
-pub fn runs_commands(listing: &[u8]) -> bool {
+/// MARK-1: why not to run git, if the config that git lists for a repository (`git config --list
+/// --show-scope --show-origin -z`: `scope NUL origin NUL key [NL value] NUL` for each entry) has
+/// an entry of the repository's own whose key can hold a command (`holds_command`): the first
+/// such key and its file, cut to 30 columns each (the end of a key is its variable, the end of a
+/// path its file). An included file has the scope of the file that includes it. The user's own
+/// scopes (system, global, the command line) are trusted; any other scope, and a listing that
+/// does not parse, counts as the repository's.
+pub fn runs_commands(listing: &[u8]) -> Option<String> {
     let mut fields = listing.split(|&b| b == 0);
     while let Some(scope) = fields.next() {
-        let Some(entry) = fields.next() else { return !scope.is_empty() };
+        let (Some(origin), Some(entry)) = (fields.next(), fields.next()) else {
+            return (!scope.is_empty()).then(|| UNREADABLE.into());
+        };
         let key = entry.split(|&b| b == b'\n').next().unwrap_or_default();
         if holds_command(key) && !matches!(scope, b"system" | b"global" | b"command") {
-            return true;
+            let (key, origin) = (String::from_utf8_lossy(key), String::from_utf8_lossy(origin));
+            let file = layout::short(origin.strip_prefix("file:").unwrap_or(&origin), 30);
+            return Some(format!("{} in {file} could run a command", layout::tail(&key, 30)));
         }
     }
-    false
+    None
 }
 
 /// Runs git in `dir`, in English so that "not a git repository" can be told from other failures.
@@ -264,13 +271,14 @@ fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
 /// or the work tree. In a directory that is no repository the list is the user's own and git then
 /// says so itself. An unreadable or invalid config makes `config` fail, which counts as unsafe.
 fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let list = run(dir, &["config", "--list", "--show-scope", "-z"]);
-    let list =
-        list.map_err(|e| if e.starts_with("git config:") { GIT_SKIPPED.into() } else { e })?;
-    if runs_commands(&list) {
-        return Err(GIT_SKIPPED.into());
+    let list = run(dir, &["config", "--list", "--show-scope", "--show-origin", "-z"]);
+    let list = list.map_err(|e| {
+        if e.starts_with("git config:") { format!("{GIT_SKIPPED}{UNREADABLE}") } else { e }
+    })?;
+    match runs_commands(&list) {
+        Some(why) => Err(format!("{GIT_SKIPPED}{why}")),
+        None => run(dir, args),
     }
-    run(dir, args)
 }
 
 /// FIND-3: the files of the repository, NUL-separated and relative to `dir`: tracked ones and

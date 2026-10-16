@@ -995,13 +995,28 @@ mark_1_git_is_skipped_where_the_repositorys_config_could_run_commands() {
   git -C "$W" config filter.canary.clean "touch $W/witness; cat"
   printf '* filter=canary\n' > "$W/.gitattributes"
   start
-  wait_for "git skipped: this repository's config could run commands"
+  wait_for "git skipped: filter.canary.clean in .git/config could run a command"
   keys C-n
   keys C-n
   wait_for "▸ src/"
   gone "~" # no marks
   gone "git skipped" # said once
   [ ! -e "$W/witness" ] # and nothing ran
+}
+
+mark_1_core_hookspath_does_not_stop_git_and_no_hook_runs() {
+  gitproject
+  mkdir -p "$W/.husky/_"
+  for hook in pre-commit post-index-change; do
+    printf '#!/bin/sh\ntouch "%s/witness-%s"\n' "$CASE_DIR" "$hook" > "$W/.husky/_/$hook"
+    chmod +x "$W/.husky/_/$hook"
+  done
+  git -C "$W" config core.hooksPath .husky/_ # as husky does
+  printf 'more\n' >> "$W/src/lib.rs"
+  start
+  wait_for "▸ src/ ~" # the marks are there: git ran
+  gone "git skipped"
+  [ ! -e "$CASE_DIR/witness-pre-commit" ] && [ ! -e "$CASE_DIR/witness-post-index-change" ]
 }
 
 mark_1_a_file_that_changes_on_disk_while_sim_runs_is_marked_without_git() {

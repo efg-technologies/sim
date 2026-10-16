@@ -410,7 +410,7 @@ impl Sim {
                     self.remark();
                 }
                 Err(e) if e.starts_with("not a git repository") => self.no_repo = true,
-                Err(e) if e == GIT_SKIPPED => {
+                Err(e) if e.starts_with(GIT_SKIPPED) => {
                     // Told once (MARK-1), not again at every opening of the panel.
                     self.no_repo = true;
                     if !replace(&mut self.skipped, true) {

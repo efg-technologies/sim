@@ -218,11 +218,19 @@ const SAFE: [&str; 10] = [
     "[Core]\n\tHooksPath = .husky/_\n",
 ];
 
-fn skipped(dir: &Path) {
-    let skip = || io::GIT_SKIPPED.to_string();
-    assert_eq!(io::git_status(dir), Err(skip()), "status");
-    assert_eq!(io::git_files(dir), Err(skip()), "ls-files");
-    assert_eq!(io::git_prefix(dir), Err(skip()), "rev-parse");
+/// Whether the listing has a key of the repository's own that can hold a command.
+fn runs(listing: &[u8]) -> bool {
+    io::runs_commands(listing).is_some()
+}
+
+/// Asserts that git is not run in `dir`, by any of the three calls, and returns the reason.
+fn skipped(dir: &Path) -> String {
+    let (status, files, prefix) = (io::git_status(dir), io::git_files(dir), io::git_prefix(dir));
+    let reason = status.unwrap_err();
+    assert!(reason.starts_with(io::GIT_SKIPPED), "{reason}");
+    assert_eq!(files.unwrap_err(), reason, "ls-files");
+    assert_eq!(prefix.unwrap_err(), reason, "rev-parse");
+    reason
 }
 
 /// A repository with `a.rs`, and `target/x.o` that is ignored.
@@ -313,7 +321,15 @@ fn mark_1_the_user_s_own_config_is_trusted_and_the_repository_s_is_not() {
     // What sim asks git, with a global config of its own.
     let list = |dir: &Path| {
         let out = Command::new("git")
-            .args(["-c", "core.fsmonitor=false", "config", "--list", "--show-scope", "-z"])
+            .args([
+                "-c",
+                "core.fsmonitor=false",
+                "config",
+                "--list",
+                "--show-scope",
+                "--show-origin",
+            ])
+            .arg("-z")
             .current_dir(dir)
             .env("GIT_CONFIG_GLOBAL", &global)
             .env("GIT_CONFIG_SYSTEM", "/dev/null")
@@ -324,28 +340,36 @@ fn mark_1_the_user_s_own_config_is_trusted_and_the_repository_s_is_not() {
     };
     let own = list(&d.0);
     let has = |l: &[u8], what: &[u8]| l.windows(what.len()).any(|w| w == what);
-    assert!(has(&own, b"global\0filter.lfs.clean\ngit-lfs"), "{own:?}");
-    assert!(has(&own, b"global\0filter.inc.smudge\ncat\0"), "an included file has its scope");
-    assert!(has(&own, b"command\0core.fsmonitor\nfalse\0"));
-    assert!(!io::runs_commands(&own));
+    let (g, more) = (global.display(), d.0.join("more").display().to_string());
+    assert!(
+        has(&own, format!("global\0file:{g}\0filter.lfs.clean\ngit-lfs").as_bytes()),
+        "{own:?}"
+    );
+    let inc = format!("global\0file:{more}\0filter.inc.smudge\ncat\0");
+    assert!(has(&own, inc.as_bytes()), "an included file has its includer's scope");
+    assert!(has(&own, b"command\0command line:\0core.fsmonitor\nfalse\0"));
+    assert!(!runs(&own));
     append(&d.0.join(".git/config"), "[filter \"mine\"]\n\tclean = cat\n");
     let mixed = list(&d.0);
-    assert!(has(&mixed, b"local\0filter.mine.clean\ncat\0"));
-    assert!(io::runs_commands(&mixed));
+    assert!(has(&mixed, b"local\0file:.git/config\0filter.mine.clean\ncat\0"));
+    assert!(runs(&mixed));
     // The same by hand, for the scopes a test cannot make: system, and what does not parse.
-    assert!(!io::runs_commands(b"system\0core.fsmonitor\ntrue\0global\0include.path\nx\0"));
-    assert!(io::runs_commands(b"worktree\0core.fsmonitor\0"));
+    assert!(!runs(
+        b"system\0file:/etc/gitconfig\0core.fsmonitor\ntrue\0global\0file:/g\0include.path\nx\0"
+    ));
+    assert!(runs(b"worktree\0file:.git/config.worktree\0core.fsmonitor\0"));
     assert!(
-        io::runs_commands(b"submodule\0filter.x.clean\ncat\0"),
+        runs(b"submodule\0file:.gitmodules\0filter.x.clean\ncat\0"),
         "an unknown scope is not the user's"
     );
-    assert!(!io::runs_commands(b"") && !io::runs_commands(b"local\0user.name\nx\0"));
-    assert!(io::runs_commands(b"local"), "a listing that stops in the middle of an entry");
+    assert!(!runs(b"") && !runs(b"local\0file:.git/config\0user.name\nx\0"));
+    assert!(runs(b"local"), "a listing that stops in the middle of an entry");
+    assert!(runs(b"local\0file:.git/config"), "... after its origin");
 }
 
-/// The listing git prints (`scope NUL key NL value NUL`) for entries of one scope.
+/// The listing git prints (`scope NUL origin NUL key NL value NUL`) for entries of one scope.
 fn listing(scope: &str, keys: &[&str]) -> Vec<u8> {
-    keys.iter().flat_map(|k| format!("{scope}\0{k}\nv\0").into_bytes()).collect()
+    keys.iter().flat_map(|k| format!("{scope}\0file:.git/config\0{k}\nv\0").into_bytes()).collect()
 }
 
 #[test]
@@ -377,12 +401,12 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
     ];
     for name in names {
         for key in [format!("core.{name}"), format!("x.sub.{name}"), format!("x.a.b.c.{name}")] {
-            assert!(io::runs_commands(&listing("local", &[&key])), "{key}");
-            assert!(io::runs_commands(&listing("worktree", &[&key])), "{key}");
-            let bare = format!("local\0{key}\0");
-            assert!(io::runs_commands(bare.as_bytes()), "{key}: without a value");
+            assert!(runs(&listing("local", &[&key])), "{key}");
+            assert!(runs(&listing("worktree", &[&key])), "{key}");
+            let bare = format!("local\0file:.git/config\0{key}\0");
+            assert!(runs(bare.as_bytes()), "{key}: without a value");
             for trusted in ["system", "global", "command"] {
-                assert!(!io::runs_commands(&listing(trusted, &[&key])), "{trusted} {key}");
+                assert!(!runs(&listing(trusted, &[&key])), "{trusted} {key}");
             }
         }
     }
@@ -396,7 +420,7 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
         "includeif.hasconfig:remote.*.url:*.example/**.path",
         "core.fsmonitor",
     ] {
-        assert!(io::runs_commands(&listing("local", &[key])), "{key}");
+        assert!(runs(&listing("local", &[key])), "{key}");
     }
     // What git writes and uses in every repository, and what tools keep there.
     let ordinary = [
@@ -440,12 +464,12 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
         "rerere.enabled",
     ];
     for key in ordinary {
-        assert!(!io::runs_commands(&listing("local", &[key])), "{key}");
-        assert!(!io::runs_commands(&listing("worktree", &[key])), "{key}");
+        assert!(!runs(&listing("local", &[key])), "{key}");
+        assert!(!runs(&listing("worktree", &[key])), "{key}");
     }
-    assert!(!io::runs_commands(&listing("local", &ordinary)));
+    assert!(!runs(&listing("local", &ordinary)));
     let mixed = [&ordinary[..], &["x.y.smudge"]].concat();
-    assert!(io::runs_commands(&listing("local", &mixed)), "one is enough, wherever it is");
+    assert!(runs(&listing("local", &mixed)), "one is enough, wherever it is");
 }
 
 /// Every hook git has (githooks(5)).
@@ -616,13 +640,15 @@ fn mark_1_a_remote_that_names_a_program_is_never_run_by_a_status() {
     .unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     let clone = partial_clone(&d.0, &[("remote.origin.uploadpack", script.to_str().unwrap())]);
-    assert_eq!(io::git_status(&clone), Err(io::GIT_SKIPPED.into()));
+    let why = "git skipped: remote.origin.uploadpack in .git/config could run a command";
+    assert_eq!(skipped(&clone), why);
     assert!(!witness.exists(), "the script of the remote ran");
     let ext = format!("ext::sh -c touch% {}", witness.display()); // (`% ` is a space inside an argument)
     let d2 = temp_dir("mark1-remote-ext");
     let clone =
         partial_clone(&d2.0, &[("protocol.ext.allow", "always"), ("remote.origin.url", &ext)]);
-    assert_eq!(io::git_status(&clone), Err(io::GIT_SKIPPED.into()));
+    let why = "git skipped: protocol.ext.allow in .git/config could run a command";
+    assert_eq!(skipped(&clone), why);
     assert!(!witness.exists(), "the url of the remote ran");
 }
 
@@ -764,6 +790,48 @@ fn mark_1_only_the_nearest_repository_counts() {
 }
 
 #[test]
+fn mark_1_the_refusal_names_the_key_and_the_file_it_is_in() {
+    let d = temp_dir("mark1-names");
+    ignoring_repo(&d.0);
+    let config = d.0.join(".git/config");
+    let safe = std::fs::read_to_string(&config).unwrap();
+    // The repository's config with `more` added to it; the reason git is skipped for `dir`.
+    let with = |more: &str, dir: &Path| {
+        std::fs::write(&config, format!("{safe}{more}")).unwrap();
+        skipped(dir)
+    };
+    let say = |key: &str, file: &str| format!("git skipped: {key} in {file} could run a command");
+    // From the top, and from a directory below it: the file is named from the top.
+    let monitor = "[core]\n\tfsmonitor = true\n";
+    assert_eq!(with(monitor, &d.0), say("core.fsmonitor", ".git/config"));
+    assert_eq!(with(monitor, &d.0.join("target")), say("core.fsmonitor", ".git/config"));
+    // The first of the repository's keys that can hold a command is the one named.
+    let both = "[filter \"canary\"]\n\tclean = cat\n[core]\n\tfsmonitor = true\n";
+    assert_eq!(with(both, &d.0), say("filter.canary.clean", ".git/config"));
+    // An include is named itself (it comes first), not what it brings in.
+    std::fs::write(d.0.join(".git/inc"), monitor).unwrap();
+    assert_eq!(with("[include]\n\tpath = inc\n", &d.0), say("include.path", ".git/config"));
+    let cond = "[includeIf \"gitdir:~/x/\"]\n\tpath = inc\n";
+    assert_eq!(with(cond, &d.0), say("includeif.gitdir:~/x/.path", ".git/config"));
+    // The worktree's own file.
+    std::fs::write(&config, format!("{safe}[extensions]\n\tworktreeConfig = true\n")).unwrap();
+    std::fs::write(d.0.join(".git/config.worktree"), monitor).unwrap();
+    assert_eq!(skipped(&d.0), say("core.fsmonitor", ".git/config.worktree"));
+    std::fs::remove_file(d.0.join(".git/config.worktree")).unwrap();
+    // In a linked worktree the file is an absolute path, cut the way si cuts a path.
+    git(&d.0, &["worktree", "add", "-q", &d.0.join("wt").display().to_string()]);
+    assert_eq!(with(monitor, &d.0.join("wt")), say("core.fsmonitor", "…/.git/config"));
+    // A key of a hundred chars is cut from the left, so that its end (the variable) and the file
+    // stay on the line, and a char that a terminal must not get is replaced.
+    let long = format!("[filter \"{}\u{1b}[31m\"]\n\tclean = cat\n", "x".repeat(100));
+    let reason = with(&long, &d.0);
+    assert!(reason.ends_with("\u{fffd}[31m.clean in .git/config could run a command"), "{reason}");
+    let key = reason.strip_prefix("git skipped: ").unwrap().split(" in ").next().unwrap();
+    assert!(key.starts_with("…xx") && key.chars().count() <= 30, "{key:?}");
+    assert!(!reason.chars().any(char::is_control), "{reason:?}");
+}
+
+#[test]
 fn mark_1_a_config_that_cannot_be_read_counts_as_one_that_could_run_commands() {
     use std::os::unix::fs::PermissionsExt;
     let d = temp_dir("mark1-unreadable");
@@ -779,7 +847,7 @@ fn mark_1_a_config_that_cannot_be_read_counts_as_one_that_could_run_commands() {
     assert!(io::git_status(&d.0).is_ok());
     let text = std::fs::read_to_string(&config).unwrap();
     std::fs::write(&config, "[core\n\tfsmonitor = true\n").unwrap(); // git cannot read it
-    skipped(&d.0);
+    assert_eq!(skipped(&d.0), "git skipped: this repository's config cannot be read");
     std::fs::write(&config, text).unwrap();
     std::fs::remove_file(&config).unwrap(); // no config at all: nothing to run
     assert!(io::git_status(&d.0).is_ok());
