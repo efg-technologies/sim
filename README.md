@@ -39,7 +39,7 @@ export EDITOR=si                     # Claude Code's Ctrl-g, crontab -e, …
 git config --global core.editor si   # git commit
 ```
 
-Needs Rust 1.85 or later. Runs on Linux and macOS, in any terminal; colors, the kitty keyboard protocol and OSC 52 are used when the terminal offers them (Ghostty, kitty, WezTerm, tmux).
+Needs Rust 1.88 or later (the code uses `let` chains). Runs on Linux and macOS, in any terminal; colors, the kitty keyboard protocol and OSC 52 are used when the terminal offers them (Ghostty, kitty, WezTerm, tmux).
 
 ## si in one screen
 

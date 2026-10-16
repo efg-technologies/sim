@@ -2,6 +2,7 @@
 name = "si"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88" # `let` chains
 publish = false
 description = "si (SIght): a vi for reading, where only the changes light up"
 license = "MIT OR Apache-2.0"

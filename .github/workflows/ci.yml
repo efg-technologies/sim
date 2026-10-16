@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Edition 2024 needs Rust 1.85 or newer; stable is far past that.
+      # The code uses `let` chains (Rust 1.88 or newer); stable is far past that.
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
