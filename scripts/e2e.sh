@@ -804,7 +804,6 @@ cursor_char() {
   screen | sed -n "$((y + 1))p" | cut -c"$((x + 1))"
 }
 
-# One line of 1,700 chars wraps into more rows than the screen has: the cursor is still on its char.
 vis_9_a_long_path_keeps_the_mode_and_the_position() {
   d=$CASE_DIR/a-rather-long-directory-name/another-quite-long-directory-name/and-a-third-one-too
   mkdir -p "$d"
@@ -815,6 +814,7 @@ vis_9_a_long_path_keeps_the_mode_and_the_position() {
   wait_for "COMMIT_EDITMSG  1:1  NORMAL  modified"
 }
 
+# One line of 1,700 chars wraps into more rows than the screen has: the cursor is still on its char.
 vis_12_the_cursor_is_visible_in_a_line_taller_than_the_screen() {
   i=0
   while [ "$i" -lt 600 ]; do printf 'word '; i=$((i + 1)); done > "$CASE_DIR/a.md"
