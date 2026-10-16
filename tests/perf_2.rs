@@ -275,3 +275,26 @@ fn perf_2_a_long_list_of_marks_is_kept_by_the_last_4_undo_steps_only() {
         assert_eq!(b.text.to_string(), text.trim_end());
     }
 }
+
+/// One command that edits every line, on a file whose every line is marked (an AI rewrote it): the
+/// marks are moved once per edit, so each edit must not copy the whole list (that is quadratic:
+/// 100,000 lines took 3.8 s, 30,000 took 0.35 s in a release build).
+#[test]
+fn perf_2_a_substitute_over_marked_lines_does_not_copy_the_marks_for_each_line() {
+    let n = 30_000;
+    let [old, new] =
+        ["alpha", "beta"].map(|w| (0..n).map(|i| format!("line {i} {w}\n")).collect::<String>());
+    let mut a = app_with(Some("f"), old.as_bytes(), (80, 24));
+    a.update(Event::Disk { bytes: Some(new.into_bytes()), hash: None, deadline: far(), seq: 5 });
+    assert_eq!(a.buf.marks.len(), n, "every line is marked");
+    let t = Instant::now();
+    feed(&mut a, ":%s/beta/gamma/\n");
+    let took = t.elapsed();
+    assert_eq!(a.msg.as_deref(), Some("30000 substitutions on 30000 lines"));
+    assert!(a.buf.marks.is_empty(), "the lines the command changed lost their marks");
+    assert!(took < Duration::from_secs(2), "{took:?} for {n} lines");
+    // Undo brings the marks back, but the one on the line the cursor goes to (PROP-9).
+    feed(&mut a, "u");
+    assert_eq!(a.buf.marks.len(), n - 1);
+    assert!(text(&a).starts_with("line 0 beta\n"));
+}

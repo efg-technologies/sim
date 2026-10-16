@@ -219,10 +219,11 @@ impl Buffer {
             self.marks.partition_point(|m| m.line < old.end),
         );
         if i < j || d != 0 {
-            // One pass into a new list: the old one belongs to the undo step that is being made.
-            let rest =
-                self.marks[j.max(i)..].iter().map(|m| Mark { line: go(m.line), ..m.clone() });
-            self.marks = self.marks[..i].iter().cloned().chain(rest).collect::<Vec<_>>().into();
+            // The list is copied only if an undo step holds it: a command of many edits (`:s`) then
+            // changes the one it made, and an edit near the end of it moves nothing (PERF-2).
+            let marks = Arc::make_mut(&mut self.marks);
+            marks.drain(i..j.max(i));
+            marks[i..].iter_mut().filter(|_| d != 0).for_each(|m| m.line = go(m.line));
         }
         let to = |h: &Hunk| {
             let a = if h.mine.start >= old.end {
