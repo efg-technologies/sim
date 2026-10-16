@@ -8,12 +8,14 @@ use crate::sim::SimEvent;
 use crossterm::event::{Event as Ev, KeyCode, KeyModifiers};
 use si::core::color::{Rgb, apca, oklch, parse_osc11};
 use si::io::term::Reply;
-use std::time::{Duration, Instant};
 
 /// What is asked of the terminal besides its background (which si's `term::enter` asks, VIS-4): the
 /// five ANSI colors that carry syntax (red, green, yellow, magenta, cyan), each ended with ST.
 pub const QUERY: &str =
     "\x1b]4;1;?\x1b\\\x1b]4;2;?\x1b\\\x1b]4;3;?\x1b\\\x1b]4;5;?\x1b\\\x1b]4;6;?\x1b\\";
+
+/// How many replies `QUERY` asks for.
+const REPLIES: usize = 5;
 
 /// sRGB to OKLCH (Ottosson): lightness, chroma, hue in degrees.
 pub fn to_lch((r, g, b): Rgb) -> [f64; 3] {
@@ -120,20 +122,27 @@ impl Syntax {
 /// What the terminal sends, as sim's events. si's `Reply` puts together the answer to the
 /// background query (OSC 11); the answers to OSC 4 are put together here, ahead of it: an Alt+`]`
 /// is held until the next key says which it is. crossterm reads `ESC ]` as Alt+`]`, the payload as
-/// plain keys, and `ESC \` or BEL as Alt+`\` or Ctrl-g. For two seconds after the start only (a
-/// typed Esc and `]` must not wait for ever); a key that does not belong to a reply goes on as a
-/// key, in order. Mouse events and Shift-Tab, which si has no key for, are sim's.
+/// plain keys, and `ESC \` or BEL as Alt+`\` or Ctrl-g. While replies are still to come (the
+/// five that `QUERY` asks for, however late: over a slow link they take seconds, and a reply that
+/// is not put together here is typed into the text); a key that does not belong to a reply goes on
+/// as a key, in order (si's `Reply` holds an Alt+`]` for the answer to OSC 11 just as long). Mouse
+/// events and Shift-Tab, which si has no key for, are sim's.
 pub struct Input {
     reply: Reply,
     held: Option<Ev>,
     osc: Option<String>,
-    until: Option<Instant>,
+    /// How many replies to OSC 4 are still to come.
+    due: usize,
 }
 
 impl Input {
     pub fn new(truecolor: bool) -> Input {
-        let until = truecolor.then(|| Instant::now() + Duration::from_secs(2));
-        Input { reply: Reply::default(), held: None, osc: None, until }
+        Input {
+            reply: Reply::default(),
+            held: None,
+            osc: None,
+            due: if truecolor { REPLIES } else { 0 },
+        }
     }
 
     /// Keys on to si's `Reply`, which turns them into keys and the answer to OSC 11.
@@ -151,11 +160,13 @@ impl Input {
         if code == KeyCode::BackTab {
             return vec![SimEvent::BackTab];
         }
-        let (plain, on) =
-            (!mods.intersects(alt | ctrl), self.until.is_some_and(|t| Instant::now() < t));
+        let (plain, on) = (!mods.intersects(alt | ctrl), self.due > 0);
         let end = matches!(code, KeyCode::Char('\\' | 'g')) && !plain;
         match (self.osc.take(), self.held.take(), code) {
-            (Some(s), ..) if end => vec![SimEvent::Osc(s)],
+            (Some(s), ..) if end => {
+                self.due = self.due.saturating_sub(1);
+                vec![SimEvent::Osc(s)]
+            }
             (Some(mut s), _, KeyCode::Char(c)) if plain && s.len() < 96 => {
                 s.push(c);
                 self.osc = Some(s);
