@@ -10,7 +10,7 @@ use si::core::app::{Event, Key};
 use si::core::color::{apca, palette as si_palette, parse_osc11};
 use si::core::view::{Frame, Row, Shape, Style};
 use sim::color::{self, Input, Syntax};
-use sim::io::Highlighter;
+use sim::io::{Highlighter, HlJob};
 use sim::paint::{Look, Painter, Screen};
 use sim::sim::{Env, Req, SimEvent};
 
@@ -680,6 +680,21 @@ fn req(id: usize, name: &str, ver: u64, text: &str, from: usize, n: usize) -> Re
     Req { id, name: name.into(), ver, text: ropey::Rope::from_str(text), from, n }
 }
 
+#[test]
+fn syn_3_the_highlighter_forgets_a_file_that_is_closed() {
+    // Its parse states and a copy of its text (shared with a buffer that is gone) would stay for
+    // as long as sim runs, for every file ever opened.
+    let mut h = Highlighter::default();
+    h.run(req(1, "a.rs", 1, "fn a() {}\n", 0, 5));
+    h.run(req(2, "b.rs", 1, "fn b() {}\n", 0, 5));
+    assert_eq!(h.files(), 2);
+    h.forget(1);
+    assert_eq!(h.files(), 1);
+    h.forget(1);
+    h.forget(7);
+    assert_eq!(h.files(), 1, "forgetting what is not there does nothing");
+}
+
 fn spans_of(ev: SimEvent) -> Vec<Vec<(std::ops::Range<usize>, Look)>> {
     match ev {
         SimEvent::Spans(h) => h.spans,
@@ -736,9 +751,9 @@ fn syn_3_the_highlighter_thread_answers_the_newest_request_of_each_file() {
     let (tx, rx) = std::sync::mpsc::channel();
     let jobs = sim::io::highlight_thread(tx);
     for v in 1..=5 {
-        jobs.send(req(7, "a.rs", v, "fn f() {}\n", 0, 1)).unwrap();
+        jobs.send(HlJob::Run(req(7, "a.rs", v, "fn f() {}\n", 0, 1))).unwrap();
     }
-    jobs.send(req(8, "b.rs", 1, "let x = 1;\n", 0, 1)).unwrap();
+    jobs.send(HlJob::Run(req(8, "b.rs", 1, "let x = 1;\n", 0, 1))).unwrap();
     let mut seen = std::collections::HashMap::new();
     while seen.len() < 2 {
         match rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() {

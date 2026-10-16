@@ -107,7 +107,7 @@ fn syn_3_bench_the_highlighter_from_request_to_answer() {
     let ask = |ver: u64, text: &Rope, from: usize| {
         let t = Instant::now();
         let req = Req { id: 1, name: "main.rs".into(), ver, text: text.clone(), from, n: 70 };
-        jobs.send(req).unwrap();
+        jobs.send(sim::io::HlJob::Run(req)).unwrap();
         let Ok(SimEvent::Spans(h)) = rx.recv_timeout(Duration::from_secs(60)) else {
             panic!("no answer")
         };

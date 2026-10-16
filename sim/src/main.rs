@@ -13,7 +13,7 @@ use si::io::watch::watch;
 use si::io::{filter, journal, term};
 use signal_hook::consts::{SIGHUP, SIGTERM, SIGWINCH};
 use sim::color::{self, Input, Syntax};
-use sim::io::{self as sio, Job, MERGE};
+use sim::io::{self as sio, HlJob, Job, MERGE};
 use sim::paint::{MOUSE_ON, Painter, leave};
 use sim::rank::History;
 use sim::sim::{Env, Id, Sim, SimEffect, SimEvent, start};
@@ -172,7 +172,7 @@ fn main() -> ExitCode {
                     SimEffect::Files => drop(files.send(())),
                     SimEffect::Status => drop(git.send(())),
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
-                    SimEffect::Highlight(req) => drop(highlights.send(req)),
+                    SimEffect::Highlight(req) => drop(highlights.send(HlJob::Run(req))),
                     SimEffect::Open(id, path) => {
                         // Watching starts before the file is read, so that no change slips in between.
                         watchers.extend(watching(&tx, id, &path, false));
@@ -181,6 +181,7 @@ fn main() -> ExitCode {
                     }
                     SimEffect::Close(id) => {
                         drop(watchers.remove(&id));
+                        drop(highlights.send(HlJob::Forget(id)));
                         pgids.remove(&id).into_iter().for_each(filter::cancel); // nobody waits for it
                     }
                     SimEffect::Hold(id, key, pid) => drop(jobs.send(Job::Hold(id, key, pid))),
