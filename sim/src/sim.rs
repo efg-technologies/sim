@@ -2,11 +2,13 @@
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
-//! are in `panel.rs`.
+//! are in `panel.rs`, the search of file contents in `live.rs`.
+mod live;
 mod panel;
 mod ptr;
 
 use crate::color::Syntax;
+use crate::grep;
 use crate::io::GIT_SKIPPED;
 use crate::layout::{self, Mark};
 use crate::marks::Marks;
@@ -15,6 +17,7 @@ use crate::rank::History;
 use crate::syn::Spans;
 use crate::tree::{Entry, Row as TreeRow, Tree};
 use crossterm::event::MouseEvent;
+use live::Live;
 use panel::Search;
 use ropey::Rope;
 use si::core::app::{App, Effect, Event, Key, Read};
@@ -27,6 +30,7 @@ use si::io::journal::Snapshot;
 use std::collections::HashSet;
 use std::mem::{replace, take};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
@@ -64,6 +68,18 @@ pub enum SimEvent {
     Osc(String),
     /// SYN-3: the spans of a window of a file.
     Spans(Hl),
+    /// GREP-5: a batch of what a content search found.
+    Grep(grep::Batch),
+    /// GREP-4: the answer to `SimEffect::Preview`.
+    Preview(Pv),
+}
+
+/// GREP-4: a file read for the preview: the name asked for (relative to the root) and what the
+/// read gave.
+#[derive(Debug)]
+pub struct Pv {
+    pub path: String,
+    pub file: Read,
 }
 
 #[derive(Debug)]
@@ -91,6 +107,11 @@ pub enum SimEffect {
     History(History),
     /// Highlight a window of a file and answer with `SimEvent::Spans` (SYN-3).
     Highlight(Req),
+    /// Search the contents of files and answer with `SimEvent::Grep`, in batches; a search that
+    /// is not the newest is to stop (GREP-5).
+    Grep(grep::Request),
+    /// Read this file (relative to the root) for the preview and answer with `SimEvent::Preview` (GREP-4).
+    Preview(String),
     Quit(i32),
 }
 
@@ -160,6 +181,8 @@ pub struct Panel {
     reveal: Option<PathBuf>,
     /// FIND-1: the search that runs, if any.
     search: Option<Search>,
+    /// GREP-1: the content search that runs, if any.
+    live: Option<Live>,
 }
 
 #[derive(Default)]
@@ -175,8 +198,10 @@ pub struct Sim {
     /// The keys of `+cmd` and `file:line`, typed into the first file once it is open.
     keys: String,
     msg: Option<String>,
-    /// FIND-3: the files under the root, sorted.
-    files: Vec<String>,
+    /// FIND-3: the files under the root, sorted (shared with the thread of a content search).
+    files: Arc<Vec<String>>,
+    /// GREP-5: the generation of the last content search asked for.
+    live_gen: u64,
     /// MARK-1: git's status (and the prefix), the paths seen changing on disk, and the marks.
     status: (Vec<u8>, String),
     disk: HashSet<PathBuf>,
@@ -321,7 +346,8 @@ impl Sim {
             SimEvent::Term(Event::Resize(w, h)) => self.size = (w.max(1), h.max(2)),
             SimEvent::Term(Event::Bg(rgb)) => self.background(rgb, &mut out),
             SimEvent::Term(_) => {}
-            SimEvent::Mouse(m) => self.mouse(m, &mut out),
+            SimEvent::Mouse(m) if self.panel.live.is_none() => self.mouse(m, &mut out),
+            SimEvent::Mouse(_) => {}
             SimEvent::BackTab => self.step(self.bufs.len().saturating_sub(1)),
             SimEvent::App(id, e) => self.to(id, e, &mut out),
             SimEvent::Notice(m) => self.msg = Some(m),
@@ -348,8 +374,12 @@ impl Sim {
                 self.reveal_dir(&path, &mut out)
             }
             SimEvent::Files(files) => {
-                self.files = files;
+                let same = *self.files == files;
+                self.files = Arc::new(files);
                 self.search_run(&mut out);
+                if !same {
+                    self.live_run(&mut out);
+                }
             }
             SimEvent::Status(r) => match r {
                 Ok(status) => {
@@ -372,6 +402,8 @@ impl Sim {
                     b.hl = Some(h);
                 }
             }
+            SimEvent::Grep(b) => self.live_batch(b, &mut out),
+            SimEvent::Preview(pv) => self.live_preview(pv),
         }
         let screen = self.frame(&mut out);
         out.push(SimEffect::Render(screen));
@@ -510,6 +542,8 @@ impl Sim {
         match k {
             Key::Ctrl('n') => return self.toggle(out),
             Key::Ctrl('p') => return self.find(out),
+            Key::Ctrl('f') => return self.live_start(out),
+            _ if self.panel.live.is_some() => return self.live_key(k, out),
             Key::Tab if self.idle() => return self.step(1),
             _ if self.panel.open && self.panel.focus => return self.panel_key(k, out),
             _ => {}
@@ -603,6 +637,7 @@ impl Sim {
         self.panel.focus = false;
         if let Some(i) = self.bufs.iter().position(|b| b.key == o.key) {
             self.cur = i; // another name of a file that is open: one buffer, one snapshot
+            self.keys.clear(); // (a jump to a line was meant for the file just read)
             return out.push(SimEffect::Close(o.id));
         }
         let mut app = App::new(Some(o.path.clone()), o.file, (self.widths().1, self.size.1));
@@ -675,10 +710,15 @@ impl Sim {
     fn frame(&mut self, out: &mut Vec<SimEffect>) -> Screen {
         self.fit();
         self.scroll();
+        self.live_scroll();
         let ((w, h), (pw, ew)) = (self.size, self.widths());
         let (off, focus) = (if pw > 0 { pw + 1 } else { 0 }, self.panel.open && self.panel.focus);
-        let rows =
-            if pw > 0 { self.view().rows(self.panel.top, usize::from(h) - 1) } else { vec![] };
+        let live = self.panel.live.is_some();
+        let rows = if pw > 0 && !live {
+            self.view().rows(self.panel.top, usize::from(h) - 1)
+        } else {
+            vec![]
+        };
         let root_str = self.root.to_string_lossy();
         let likely = if pw > 0 { self.history.top(&root_str, 5, self.now) } else { vec![] };
         let marked: Vec<(TreeRow, Mark)> =
@@ -741,8 +781,16 @@ impl Sim {
                 (cursor, shape) = ((cols.min(usize::from(w) - 1) as u16, h - 1), Shape::Bar);
             }
         }
+        if let Some((s, cols)) = self.live_status(room) {
+            status = s;
+            if self.panel.live.as_ref().is_some_and(|l| l.typing) {
+                (cursor, shape) = ((cols.min(usize::from(w) - 1) as u16, h - 1), Shape::Bar);
+            } else {
+                (cursor, shape) = ((1.min(pw.saturating_sub(1)), self.live_cursor()), Shape::Block);
+            }
+        }
         status = layout::fit(&self.msg.clone().unwrap_or(status), room).0 + &pos;
-        let sel = focus.then(|| self.panel.cur - self.panel.top);
+        let sel = focus.then(|| self.panel.cur - self.panel.top).filter(|_| !live);
         let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
         if let (Some(i), false) = (sel, typing) {
             let col = at.map_or(0, |r| (2 * r.depth + 2) as u16);
@@ -754,10 +802,16 @@ impl Sim {
             b.asked = Some((req.ver, req.from, req.n));
             out.push(SimEffect::Highlight(req));
         }
-        let editor =
-            self.bufs.get(self.cur).and_then(|b| b.frame.as_ref()).map(|f| (f, &elooks[..]));
+        let pane = self.live_pane();
+        let editor = match &pane {
+            Some((f, l)) => Some((f, &l[..])),
+            None => {
+                self.bufs.get(self.cur).and_then(|b| b.frame.as_ref()).map(|f| (f, &elooks[..]))
+            }
+        };
         let (mut rows, mut looks) =
             layout::body(w, h, pw, &marked, sel, editor, self.syn.sel().is_some());
+        self.live_overlay(&mut rows, &mut looks, pw);
         rows.push(Row { text: layout::fit(&status, usize::from(w)).0, ..Row::default() });
         looks.push(vec![]);
         let frame = Frame { width: w, height: h, rows, cursor, shape, pal: self.pal };

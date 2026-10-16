@@ -130,7 +130,7 @@ impl Query {
 }
 
 /// The chars compared: lowercased unless the query is case-sensitive.
-fn fold(c: char, exact: bool) -> char {
+pub(crate) fn fold(c: char, exact: bool) -> char {
     if exact { c } else { c.to_lowercase().next().unwrap_or(c) }
 }
 

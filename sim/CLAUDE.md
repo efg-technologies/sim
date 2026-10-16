@@ -23,6 +23,8 @@ sim/
     sim/panel.rs   the panel's keys, the reveal of directories, the search, the narrowed tree (pure)
     tree.rs        the tree: entries, stable order, expansion, the visible rows (pure)
     find.rs        fuzzy matching of paths and ranking (pure)
+    grep.rs        the content search's literal smart-case query, the lines it finds in a text, the rows of the panel made of them, rg's output (pure)
+    sim/live.rs    the content search in the state: its keys, the results that arrive in batches, the preview in the editor pane, its status line (pure)
     rank.rs        recency/frequency likelihood from the open history (pure)
     marks.rs       git status and on-disk changes → marks for files and directories (pure)
     sim/ptr.rs     the mouse: clicks, drags and the wheel in the panel and the text (pure)
@@ -30,20 +32,20 @@ sim/
     color.rs       what si's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, and the terminal's replies put together out of the keys (pure)
     paint.rs       the looks beyond si's four styles, the Screen, the Painter that writes it, the mouse modes on and off
     layout.rs      the panel and the editor composed into one Screen: marks, search, colors; the char under a point (pure)
-    io.rs          directory reads, git, the file list, the history file, the threads (the impure parts)
+    io.rs          directory reads, git, the file list, the history file, the threads, the content search (rg or the built-in reader) and the preview's read (the impure parts)
 ```
 
 - Functional core, imperative shell, as in si: the pure modules never touch the file system, processes, clocks or the terminal
 - Each open file is one `si::core::app::App`. sim never reaches into an App's internals beyond its public API; when sim needs something si doesn't offer, add the smallest extension point to si (and keep si within its own 3,600 lines and its SPEC; when si is at its cap, only a visibility may change there)
 - Colors: the four styles are si's palette (`Event::Bg`, given to every App; `term::sgr` paints them); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; the change color stays the only chromatic background and no text color shares its hue (P3)
 - Dependencies: si, syntect and two-face (bat's syntaxes; pure-Rust regex backend), ropey. Anything else needs a reason in SPEC first
-- sim/src stays within 3,000 lines (counted like si's). Rules from si's CLAUDE.md (edition 2024, `#![forbid(unsafe_code)]`, clippy denies unwrap/expect/panic, no panics on I/O errors, `//!` ID headers, English everywhere) apply
+- sim/src stays within 3,500 lines (counted like si's; the reason it is not 3,000 any more is in CONCEPT.md). Rules from si's CLAUDE.md (edition 2024, `#![forbid(unsafe_code)]`, clippy denies unwrap/expect/panic, no panics on I/O errors, `//!` ID headers, English everywhere) apply
 
 ## Tests and checks
 
 - Unit/property tests for the pure modules, integration tests that feed events to sim's state, goldens for composed frames, E2E in tmux on its own socket, benches for SPEED
 - `tests/buf_model.rs` is si's `tests/model.rs` for many files: a model of the shell (one event channel, a save thread, a watcher and a filter for each file, late listings and highlights, the real journal thread, an outside process that edits, deletes and moves files) drives `Sim::update` with random events and checks that no word is lost or crosses to another file, that no watcher outlives its file and that no row of the screen holds a char SAFE-8 forbids. `SI_FUZZ_CASES=30000 cargo test --release -p sim --test buf_model` runs it longer (the default is 2000 cases)
-- `sim/scripts/check.sh`: fmt, clippy, tests, `sim/scripts/trace.sh`, sim/src ≤ 3,000 lines. si's own check.sh must keep passing too
+- `sim/scripts/check.sh`: fmt, clippy, tests, `sim/scripts/trace.sh`, sim/src ≤ 3,500 lines. si's own check.sh must keep passing too
 - Never touch the real `$HOME` / `$XDG_STATE_HOME` / git config in tests (check.sh runs them with no global git config; repositories in tests are made with none either)
 - Goldens are in `sim/tests/golden/`; `SIM_BLESS=1` rewrites them. Benches are the ignored `*_bench_*` tests: `cargo test --release -p sim -- --ignored bench --nocapture`
 

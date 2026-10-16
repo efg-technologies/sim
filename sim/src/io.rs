@@ -1,9 +1,11 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, GREP-4, GREP-5, GREP-7, GREP-8
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
-//! and highlight, git, the list of files, and the history file in sim's state directory.
+//! and highlight, git, the list of files, the history file in sim's state directory, and the
+//! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
+use crate::grep::{Batch, Group, HEAD, Line, MAX_LINES, Query, Request, is_binary, parse_rg};
 use crate::layout;
 use crate::rank::History;
-use crate::sim::{Found, Hl, Id, Opened, Req, SimEvent};
+use crate::sim::{Found, Hl, Id, Opened, Pv, Req, SimEvent};
 use crate::syn::{Spans, Syn};
 use crate::tree::{self, Entry};
 use ropey::Rope;
@@ -13,14 +15,15 @@ use si::io::journal::{self, NO_STATE, Snapshot};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{env, thread};
 
 /// How long a diff may take before it gives up (PROP-7).
 pub const MERGE: Duration = Duration::from_millis(50);
@@ -535,4 +538,285 @@ pub fn highlight_thread_within(tx: Sender<SimEvent>, budget: Duration) -> Sender
         }
     });
     jobs
+}
+
+// ---- GREP-4, GREP-5, GREP-7, GREP-8: the contents of files ----
+
+/// GREP-4: a file bigger than this is not previewed.
+const PREVIEW_MAX: u64 = 2 * 1024 * 1024;
+/// GREP-2: the built-in reader skips a file bigger than this.
+const READ_MAX: u64 = 16 * 1024 * 1024;
+/// GREP-5: a batch goes every so long, or after so many lines; rg is given the files in pieces
+/// of at most this many bytes of paths (a command line has a limit).
+const BATCH: Duration = Duration::from_millis(30);
+const BATCH_LINES: usize = 200;
+const PIECE: usize = 128 * 1024;
+
+/// GREP-8: `rg` in the directories of `path` that are absolute. An empty or relative entry would
+/// find a `rg` in the working directory, which can be the repository's own.
+pub fn which_rg(path: Option<OsString>) -> Option<PathBuf> {
+    let (path, runs) =
+        (path?, |m: fs::Metadata| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let dirs = env::split_paths(&path).filter(|d| d.is_absolute());
+    dirs.map(|d| d.join("rg")).find(|f| fs::metadata(f).is_ok_and(runs))
+}
+
+/// GREP-7: which files may be read: regular files, not links, whose directory really lies below
+/// the root (a link in the list, or a directory that has become one, leads out of the tree).
+struct Inside {
+    root: PathBuf,
+    dirs: HashMap<String, bool>,
+}
+
+impl Inside {
+    fn new(root: &Path) -> Inside {
+        Inside {
+            root: fs::canonicalize(root).unwrap_or_else(|_| root.into()),
+            dirs: HashMap::new(),
+        }
+    }
+
+    fn ok(&mut self, rel: &str) -> bool {
+        let dir = rel.rsplit_once('/').map_or("", |d| d.0);
+        let inside = *self.dirs.entry(dir.into()).or_insert_with(|| {
+            fs::canonicalize(self.root.join(dir)).is_ok_and(|d| d.starts_with(&self.root))
+        });
+        inside && fs::symlink_metadata(self.root.join(rel)).is_ok_and(|m| m.is_file())
+    }
+}
+
+/// GREP-4: the answer to `SimEffect::Preview`: the file as the editor would read it, but no more
+/// than `PREVIEW_MAX` bytes of it. A file that is not there is empty, as `:e` makes it.
+pub fn preview(root: &Path, rel: &str) -> SimEvent {
+    let read = || -> io::Result<Result<Option<Vec<u8>>, String>> {
+        let mut f = File::open(root.join(rel))?;
+        if f.metadata()?.len() > PREVIEW_MAX {
+            return Ok(Err("too big to preview".into()));
+        }
+        let mut bytes = vec![];
+        f.read_to_end(&mut bytes)?;
+        Ok(Ok(Some(bytes)))
+    };
+    let file = match fs::symlink_metadata(root.join(rel)) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        _ if !Inside::new(root).ok(rel) => Err("not a file below the root".into()),
+        _ => read().unwrap_or_else(|e| Err(why(&e))),
+    };
+    SimEvent::Preview(Pv { path: rel.into(), file })
+}
+
+/// GREP-5: what a search sends, in batches: groups are whole files, the first is sent as soon as
+/// it is there, then one every `BATCH` or `BATCH_LINES`. It counts the lines against the cap.
+struct Out<'a> {
+    generation: u64,
+    send: &'a mut dyn FnMut(Batch),
+    pending: Vec<Group>,
+    lines: usize,
+    total: usize,
+    last: Option<Instant>,
+    capped: bool,
+}
+
+impl Out<'_> {
+    /// Adds a line of file `path`; false at the cap: this one was the 1,001st.
+    fn push(&mut self, path: &str, line: Line) -> bool {
+        if self.total >= MAX_LINES {
+            self.capped = true;
+            return false;
+        }
+        if self.pending.last().is_none_or(|g| g.path != path) {
+            self.pending.push(Group { path: path.into(), lines: vec![] });
+        }
+        if let Some(g) = self.pending.last_mut() {
+            g.lines.push(line);
+        }
+        (self.total, self.lines) = (self.total + 1, self.lines + 1);
+        true
+    }
+
+    /// A file is whole: send what is pending if it is time.
+    fn end_file(&mut self) {
+        let due = self.last.is_none_or(|t| t.elapsed() >= BATCH) || self.lines >= BATCH_LINES;
+        if due && !self.pending.is_empty() {
+            self.flush(false);
+        }
+    }
+
+    fn flush(&mut self, done: bool) {
+        (self.last, self.lines) = (Some(Instant::now()), 0);
+        let groups = std::mem::take(&mut self.pending);
+        (self.send)(Batch { generation: self.generation, groups, done, capped: self.capped });
+    }
+}
+
+/// GREP-8: rg run in `root` on these files (relative to it) with nothing from the environment
+/// (`RIPGREP_CONFIG_PATH` among it) and no config: the repository must not be able to make it run
+/// a program (`--pre`). The query follows `-e` and the files `--`, so that neither is an option.
+pub fn rg_command(rg: &Path, root: &Path, query: &str, files: &[&str]) -> Command {
+    let mut c = Command::new(rg);
+    c.env_clear()
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    c.args(["--null", "--line-number", "--no-heading", "--with-filename", "--fixed-strings"]);
+    c.args(["--smart-case", "--no-config", "--no-ignore", "--no-messages", "--color=never"]);
+    c.args(["--max-columns=65536", "--max-columns-preview", "-e", query, "--"]).args(files);
+    c
+}
+
+/// GREP-5: reads rg's output into `out` until it ends, the cap is reached or the search is old.
+/// The notice rg prints for a binary file has no NUL and is not a line (GREP-2).
+fn read_rg(
+    r: &mut impl BufRead,
+    q: &Query,
+    live: &(dyn Fn() -> bool + Sync),
+    out: &mut Out,
+    stop: &AtomicBool,
+) {
+    let (mut buf, mut cur) = (vec![], String::new());
+    while live() && r.read_until(b'\n', &mut buf).is_ok_and(|n| n > 0) {
+        let line = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        if let Some((path, no, text)) = parse_rg(line) {
+            let path = String::from_utf8_lossy(path);
+            if *path != cur {
+                out.end_file();
+                cur = path.into_owned();
+            }
+            if !out.push(&cur, q.line(no, &String::from_utf8_lossy(text))) {
+                return stop.store(true, SeqCst);
+            }
+        }
+        buf.clear();
+    }
+    out.end_file();
+}
+
+/// GREP-5: one piece of the list searched by rg. A thread kills the process when the search is
+/// old or over. `None` if rg could not be started, or failed (exit code 2 or more, or a signal)
+/// before it said anything: the built-in reader goes on with the piece.
+fn run_rg(
+    rg: &Path,
+    q: &Query,
+    req: &Request,
+    files: &[&str],
+    live: &(dyn Fn() -> bool + Sync),
+    out: &mut Out,
+) -> Option<()> {
+    let mut child = rg_command(rg, &req.root, &req.query, files).spawn().ok()?;
+    let mut stdout = BufReader::new(child.stdout.take()?);
+    let (stop, over, before) = (AtomicBool::new(false), AtomicBool::new(false), out.total);
+    let status = thread::scope(|s| {
+        let reaper = s.spawn(|| {
+            while !stop.load(SeqCst) && live() && !over.load(SeqCst) {
+                thread::park_timeout(Duration::from_millis(5));
+            }
+            if !over.load(SeqCst) || stop.load(SeqCst) {
+                drop(child.kill());
+            }
+            child.wait().ok()
+        });
+        read_rg(&mut stdout, q, live, out, &stop);
+        over.store(true, SeqCst);
+        reaper.thread().unpark();
+        reaper.join().ok().flatten()
+    });
+    let fine = status.is_some_and(|s| s.code().is_some_and(|c| c <= 1));
+    (fine || out.total > before || stop.load(SeqCst) || !live()).then_some(())
+}
+
+/// GREP-2: the built-in reader on one file: not binary (a NUL in its first 8 KiB), not too big.
+fn scan_file(q: &Query, root: &Path, rel: &str, buf: &mut Vec<u8>, out: &mut Out) {
+    let Ok(mut f) = File::open(root.join(rel)) else { return };
+    buf.clear();
+    let big = f.metadata().is_ok_and(|m| m.len() > READ_MAX);
+    if big || (&mut f).take(HEAD as u64).read_to_end(buf).is_err() || is_binary(buf) {
+        return;
+    }
+    if f.read_to_end(buf).is_ok() {
+        for l in q.lines(&String::from_utf8_lossy(buf), MAX_LINES) {
+            if !out.push(rel, l) {
+                break;
+            }
+        }
+        out.end_file();
+    }
+}
+
+/// GREP-5: searches the files of the request, `first` before the rest of `files`, and sends the
+/// matching lines in batches, ending with one that says `done` (and `capped`). `live` says
+/// whether this is still the newest search: if not, it stops and says nothing more. Each piece of
+/// the list is given to rg if there is one, else read here.
+pub fn grep(
+    req: &Request,
+    rg: Option<&Path>,
+    live: &(dyn Fn() -> bool + Sync),
+    send: &mut dyn FnMut(Batch),
+) {
+    let Some(q) = Query::new(&req.query) else { return };
+    let mut out = Out {
+        generation: req.generation,
+        send,
+        pending: vec![],
+        lines: 0,
+        total: 0,
+        last: None,
+        capped: false,
+    };
+    let (mut inside, mut buf) = (Inside::new(&req.root), vec![]);
+    let first: HashSet<&str> = req.first.iter().map(String::as_str).collect();
+    let rest = req.files.iter().filter(|f| !first.contains(f.as_str()));
+    let mut order = req.first.iter().chain(rest).map(String::as_str).peekable();
+    while order.peek().is_some() && !out.capped {
+        let (mut piece, mut size) = (vec![], 0);
+        while size < PIECE
+            && let Some(f) = order.next()
+        {
+            if inside.ok(f) {
+                piece.push(f);
+                size += f.len() + 1;
+            }
+        }
+        if !live() {
+            return;
+        } else if piece.is_empty() {
+            continue; // (rg given no files would search the working directory)
+        }
+        if rg.is_none_or(|rg| run_rg(rg, &q, req, &piece, live, &mut out).is_none()) {
+            for f in piece {
+                if !live() || out.capped {
+                    break;
+                }
+                scan_file(&q, &req.root, f, &mut buf, &mut out);
+            }
+        }
+        if !live() {
+            return;
+        }
+    }
+    out.flush(true);
+}
+
+/// GREP-5: starts searches. Each request has a thread of its own, which looks at the newest
+/// generation as it goes and stops when its own is not it; a thread stuck on a file cannot hold
+/// up the next search. Its answers are `SimEvent::Grep`.
+pub struct Greps {
+    tx: Sender<SimEvent>,
+    latest: Arc<AtomicU64>,
+    rg: Option<PathBuf>,
+}
+
+impl Greps {
+    pub fn new(tx: Sender<SimEvent>, rg: Option<PathBuf>) -> Greps {
+        Greps { tx, latest: Arc::new(AtomicU64::new(0)), rg }
+    }
+
+    pub fn ask(&self, req: Request) {
+        self.latest.store(req.generation, SeqCst);
+        let (tx, latest, rg) = (self.tx.clone(), self.latest.clone(), self.rg.clone());
+        thread::spawn(move || {
+            let live = || latest.load(SeqCst) == req.generation;
+            grep(&req, rg.as_deref(), &live, &mut |b| drop(tx.send(SimEvent::Grep(b))));
+        });
+    }
 }

@@ -89,45 +89,6 @@ fn tree_1_names_that_would_do_harm_in_a_terminal_are_never_sent_raw() {
     assert!(r.panel().contains(&"  日本語.md".to_string()));
 }
 
-/// What is not sim's own in the bytes a Painter wrote: a control char other than the ESC that
-/// starts one of its CSI sequences (`ESC [ params final`), a C1 control, a bidirectional control.
-fn foreign(bytes: &[u8]) -> Vec<String> {
-    let (mut bad, mut i) = (vec![], 0);
-    let text = String::from_utf8_lossy(bytes);
-    bad.extend(
-        text.chars()
-            .filter(|c| "\u{202a}\u{202e}\u{2066}\u{2069}\u{200b}\u{feff}".contains(*c))
-            .map(|c| format!("{c:?}")),
-    );
-    while i < bytes.len() {
-        match bytes[i] {
-            0x1b if bytes.get(i + 1) == Some(&b'[') => {
-                let end = bytes[i + 2..].iter().position(|b| (0x40..=0x7e).contains(b));
-                let end = i + 2 + end.unwrap_or(bytes.len());
-                let params = &bytes[i + 2..end.min(bytes.len())];
-                let sgr = bytes.get(end).is_some_and(|f| b"mHKJhlq".contains(f));
-                if !sgr || !params.iter().all(|b| b"0123456789;? ".contains(b)) {
-                    bad.push(format!(
-                        "{:?}",
-                        String::from_utf8_lossy(&bytes[i..=end.min(bytes.len() - 1)])
-                    ));
-                }
-                i = end + 1;
-            }
-            b @ (0..=0x1f | 0x7f) => {
-                bad.push(format!("control {b:#x}"));
-                i += 1;
-            }
-            0xc2 if bytes.get(i + 1).is_some_and(|b| (0x80..=0x9f).contains(b)) => {
-                bad.push("C1 control".into());
-                i += 2;
-            }
-            _ => i += 1,
-        }
-    }
-    bad
-}
-
 #[test]
 fn tree_1_whatever_a_name_holds_the_bytes_written_to_the_terminal_are_sims_own() {
     // Names with an escape sequence (clear the screen, set the title, a CSI), a line break, a C1

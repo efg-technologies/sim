@@ -32,14 +32,18 @@ Lower numbers take priority. When two principles conflict, the lower number wins
 | 7 | Syntax highlighting showed no measurable effect on comprehension (Hannebauer et al. 2018, EMSE, n = 390; Beelders & du Plessis 2016, JEMR) and only a small speed gain for novices that fades with experience (Sarkar 2015, PPIG, n = 10) | Highlighting is a convenience, not a claim: on by default, one key turns it off |
 | 8 | A target with one unique feature pops out; the more similar and varied the distractors, the slower the search (Treisman & Gelade 1980; Duncan & Humphreys 1989) | Syntax colors are text colors from the terminal's own palette and never the change hue, so the change (a background) stays unique in both dimension and hue (P3) |
 
-No study compares fuzzy finders with trees, or shows that marking changed files helps. Those choices are hypotheses, like si's readability claim, and can be measured the same way.
+No study compares fuzzy finders with trees, or shows that marking changed files helps. Those choices are hypotheses, like si's readability claim, and can be measured the same way. The search of contents (Ctrl-f) is the author's habit from nvim (Telescope's live_grep), not a finding: it is the way in for the 4–15% of retrievals that search (finding 1), and it keeps the tree's promise that nothing moves: the results replace the panel while the search is on, and Esc puts back what was there.
 
 ## What sim adds to si
 
-A tree panel of the project, typing to light up matches in it, changed and likely files marked in it, several files open at once (each one a complete si), syntax highlighting in color, and the mouse.
+A tree panel of the project, typing to light up matches in it, searching the contents of the files with the results in the panel and a preview in the editor, changed and likely files marked in it, several files open at once (each one a complete si), syntax highlighting in color, and the mouse.
 
 ## What we don't build
 
 LSP, completion, plugins, config files, split windows (tmux does that), a terminal inside the editor, anything that only the mouse can do.
 
 Features we find ourselves wanting are only written down in NOTES.md.
+
+## How big
+
+sim/src was limited to 3,000 lines and is limited to 3,500. The search of contents (GREP-1 to GREP-8) took about 750 of them: a literal smart-case reader of files, a thread that runs ripgrep or reads the files itself and sends what it finds in batches that a newer query cancels, the results in the panel with a preview in the editor pane, and the checks that keep a repository from making that search run its code (ripgrep's config and `--pre`) or lead it out of the tree by a link. That is what the author asked for by name, a key he uses all day in nvim, and the safety checks (P1) are part of the cost, not a thing to cut. The limit is a pressure to keep asking "can we cut it?", not a race, and the author's measure is that the editors stay significantly smaller than Neovim: si and sim together are at most 7,100 lines, under 2% of Neovim's C (about 380,000 lines by GitHub's count).

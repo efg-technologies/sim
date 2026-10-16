@@ -1,10 +1,10 @@
-//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, PTR-1, SPEED-1, SPEED-2
+//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2
 //! The event loop: several si Apps, the panel, the threads, running Effects. It is si's main.rs
 //! for many files: one save thread and one journal thread for all of them, a watcher and a
 //! filter for each, and every job and answer tagged with the id of its file. The file list, git's
-//! status, the history and the highlighter each run in the background. The terminal is asked for
-//! its colors as si asks (the background at once, the first frame waiting for it at most 3 ms),
-//! and the mouse is reported until sim leaves, by any way.
+//! status, the history, the highlighter and the searches of file contents each run in the
+//! background. The terminal is asked for its colors as si asks (the background at once, the first
+//! frame waiting for it at most 3 ms), and the mouse is reported until sim leaves, by any way.
 #![forbid(unsafe_code)]
 use si::core::app::{Effect, Event};
 use si::core::buffer::hash;
@@ -150,6 +150,7 @@ fn main() -> ExitCode {
     let (jobs, finished) = sio::journal_thread(state.clone(), history, tx.clone());
     let saves = sio::save_thread(state.clone(), tx.clone());
     let highlights = sio::highlight_thread(tx.clone());
+    let greps = sio::Greps::new(tx.clone(), sio::which_rg(env::var_os("PATH")));
     let (r1, r2) = (sim.root.clone(), sim.root.clone());
     let files = sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1)));
     let git = sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2)));
@@ -175,6 +176,11 @@ fn main() -> ExitCode {
                     SimEffect::Status => drop(git.send(())),
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
                     SimEffect::Highlight(req) => drop(highlights.send(HlJob::Run(req))),
+                    SimEffect::Grep(req) => greps.ask(req),
+                    SimEffect::Preview(path) => {
+                        let (t, root) = (tx.clone(), sim.root.clone());
+                        thread::spawn(move || drop(t.send(sio::preview(&root, &path))));
+                    }
                     SimEffect::Open(id, path) => {
                         // Watching starts before the file is read, so that no change slips in between.
                         watchers.extend(watching(&tx, id, &path, false));

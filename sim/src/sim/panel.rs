@@ -63,7 +63,7 @@ impl Sim {
 
     /// Opens the panel with the focus, and reads again what may have changed meanwhile: the
     /// directories that are open (TREE-2), the list of files (FIND-3) and git's status (MARK-1).
-    fn show(&mut self, out: Out) {
+    pub(super) fn show(&mut self, out: Out) {
         (self.panel.open, self.panel.focus, self.no_repo) = (true, true, false);
         let rows = self.tree.rows(0, self.tree.visible());
         let open = rows.into_iter().filter(|r| r.is_dir && r.open).map(|r| self.root.join(r.path));
@@ -74,6 +74,7 @@ impl Sim {
 
     /// TREE-2: Ctrl-n opens the panel and focuses it, or closes it when it has the focus.
     pub(super) fn toggle(&mut self, out: Out) {
+        self.live_end(false, out);
         if self.panel.open && self.panel.focus {
             self.end_search();
             (self.panel.open, self.panel.focus) = (false, false);
@@ -218,6 +219,7 @@ impl Sim {
 
     /// `/` in the panel and Ctrl-p anywhere (FIND-4): the panel opens, and a search starts.
     pub(super) fn find(&mut self, out: Out) {
+        self.live_end(false, out);
         self.end_search();
         self.focus = None;
         if !self.panel.open {

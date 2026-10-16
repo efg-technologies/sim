@@ -4,6 +4,6 @@
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)
-TRACE_DIR=$here TRACE_PREFIX=S TRACE_FAMILIES='tree|buf|find|mark|syn|ptr|speed'
+TRACE_DIR=$here TRACE_PREFIX=S TRACE_FAMILIES='tree|buf|find|grep|mark|syn|ptr|speed'
 export TRACE_DIR TRACE_PREFIX TRACE_FAMILIES
 exec sh "$here/../scripts/trace.sh" "$@"

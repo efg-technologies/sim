@@ -3,6 +3,7 @@
 
 pub mod color;
 pub mod find;
+pub mod grep;
 pub mod io;
 pub mod layout;
 pub mod marks;

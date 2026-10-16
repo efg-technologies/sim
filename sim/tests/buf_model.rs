@@ -68,7 +68,7 @@ const OPEN: [&str; 12] = [
 // that follow are commands of the text and not, in part, the panel's: a `:wa` of which only the
 // `a` reached the text is the user's `a` and an Enter, which cut a typed word in two: not a loss.)
 /// Keys that move around and open things, but never delete or overwrite text.
-const NAV: [&str; 27] = [
+const NAV: [&str; 28] = [
     "<Tab>",
     "<C-n>",
     "<C-p>",
@@ -96,6 +96,7 @@ const NAV: [&str; 27] = [
     "/ev\n",
     "/nl\n",
     "/f2\n",
+    "<C-f>",
 ];
 const CMDS: [&str; 9] = [
     "<Esc><Esc>:w\n",
@@ -396,6 +397,11 @@ impl W {
                         let r = io::read_dir(&dir);
                         self.reads.push(SimEvent::Listing(dir, r));
                     }
+                    // GREP-5: a content search is answered at once (its threads are the shell's)
+                    SimEffect::Grep(req) => {
+                        io::grep(&req, None, &|| true, &mut |b| local.push(SimEvent::Grep(b)))
+                    }
+                    SimEffect::Preview(path) => local.push(io::preview(&self.sim.root, &path)),
                     SimEffect::Files => self.files_req = true,
                     SimEffect::Status => self.status_req = true,
                     SimEffect::History(h) => {

@@ -5,7 +5,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-MAX_LINES=3000
+MAX_LINES=3500
 
 step() {
   n=$1

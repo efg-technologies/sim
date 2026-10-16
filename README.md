@@ -10,8 +10,8 @@ This repository holds two editors built on one core:
 |---|---|---|
 | For | `$EDITOR` anywhere: git commit, Claude Code's prompt editing, quick fixes, over ssh | your own machine, all day |
 | Looks | no syntax highlighting; color is used only for change | syntax colors from your terminal's palette, never the change color's hue |
-| Adds | — | a project tree, typing to find files, changed and likely files marked, several files open, the mouse |
-| Size | ≤ 3,600 lines of Rust (~1% of Neovim's C) | ≤ 3,000 more |
+| Adds | — | a project tree, typing to find files and to search their contents, changed and likely files marked, several files open, the mouse |
+| Size | ≤ 3,600 lines of Rust (~1% of Neovim's C) | ≤ 3,500 more |
 
 Both keep the same promise: **without an explicit action, nobody's text is lost** — yours, another process's, an AI's.
 
@@ -76,6 +76,7 @@ The answer arrives as Proposals while you keep editing; review them with `]c`, t
 | `Ctrl-n` | open / close the tree |
 | `j k` `l h` `Enter` `-` | move, open / close, open, collapse all |
 | `/` in the tree, `Ctrl-p` anywhere | find a file: matches and the folders leading to them light up in place |
+| `Ctrl-f` anywhere | search the contents of the files as you type (ripgrep if it is on PATH): results grouped by file in the panel, the file under the cursor previewed with the match bold; `j k` move, `Enter` opens there, `Esc` puts everything back |
 | `.` in the tree | only the files that changed, are open, or were opened recently |
 | `Tab` `Shift-Tab` | next / previous open file |
 | `:wa` `:qa` `:qa!` | save all · quit all · quit all discarding |

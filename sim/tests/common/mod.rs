@@ -72,6 +72,7 @@ pub fn golden(name: &str, actual: &str) {
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use si::core::app::{App, Effect, Event, Key};
 use si::core::view::{Frame, Style};
+use sim::grep::Request;
 use sim::io;
 use sim::paint::{Look, Looks, Screen};
 use sim::rank::History;
@@ -144,6 +145,10 @@ pub struct Rig {
     /// Hold back the highlighter's requests until `deliver_spans` (SYN-3).
     pub hold_spans: bool,
     pub held: Vec<Req>,
+    /// Hold back the content searches until `deliver_grep` (GREP-5); the rg to search with, if any.
+    pub hold_grep: bool,
+    pub grep_held: Vec<Request>,
+    pub rg: Option<PathBuf>,
     hl: io::Highlighter,
     /// Every effect Sim has asked for, except the frames.
     pub log: Vec<SimEffect>,
@@ -209,6 +214,9 @@ pub fn rig_env(
         history: None,
         hold_spans: false,
         held: vec![],
+        hold_grep: false,
+        grep_held: vec![],
+        rg: None,
         hl: io::Highlighter::default(),
         sim,
         cwd,
@@ -244,6 +252,15 @@ impl Rig {
                     SimEffect::Highlight(req) => {
                         self.jobs.push("highlight");
                         self.queue.push_back(self.hl.run(req));
+                    }
+                    SimEffect::Grep(req) if self.hold_grep => self.grep_held.push(req),
+                    SimEffect::Grep(req) => {
+                        self.jobs.push("grep");
+                        self.grep(req);
+                    }
+                    SimEffect::Preview(path) => {
+                        self.jobs.push("preview");
+                        self.queue.push_back(io::preview(&self.sim.root, &path));
                     }
                     SimEffect::Read(dir) if self.defer => self.waiting.push(dir),
                     SimEffect::Read(dir) => {
@@ -285,6 +302,21 @@ impl Rig {
             let Some(ev) = self.queue.pop_front() else { return };
             todo.extend(self.sim.update(ev));
         }
+    }
+
+    /// The shell's search thread, run at once: its batches are queued as events.
+    fn grep(&mut self, req: Request) {
+        let mut batches = vec![];
+        io::grep(&req, self.rg.as_deref(), &|| true, &mut |b| batches.push(SimEvent::Grep(b)));
+        self.queue.extend(batches);
+    }
+
+    /// Delivers the searches held back by `hold_grep`.
+    pub fn deliver_grep(&mut self) {
+        for req in take(&mut self.grep_held) {
+            self.grep(req);
+        }
+        self.exec(vec![]);
     }
 
     pub fn send(&mut self, ev: SimEvent) {
@@ -565,4 +597,43 @@ pub fn release_only() {
         !cfg!(debug_assertions),
         "benchmarks need a release build: cargo test --release -- --ignored bench"
     );
+}
+
+/// What is not sim's own in the bytes a Painter wrote: a control char other than the ESC that
+/// starts one of its CSI sequences (`ESC [ params final`), a C1 control, a bidirectional control.
+pub fn foreign(bytes: &[u8]) -> Vec<String> {
+    let (mut bad, mut i) = (vec![], 0);
+    let text = String::from_utf8_lossy(bytes);
+    bad.extend(
+        text.chars()
+            .filter(|c| "\u{202a}\u{202e}\u{2066}\u{2069}\u{200b}\u{feff}".contains(*c))
+            .map(|c| format!("{c:?}")),
+    );
+    while i < bytes.len() {
+        match bytes[i] {
+            0x1b if bytes.get(i + 1) == Some(&b'[') => {
+                let end = bytes[i + 2..].iter().position(|b| (0x40..=0x7e).contains(b));
+                let end = i + 2 + end.unwrap_or(bytes.len());
+                let params = &bytes[i + 2..end.min(bytes.len())];
+                let sgr = bytes.get(end).is_some_and(|f| b"mHKJhlq".contains(f));
+                if !sgr || !params.iter().all(|b| b"0123456789;? ".contains(b)) {
+                    bad.push(format!(
+                        "{:?}",
+                        String::from_utf8_lossy(&bytes[i..=end.min(bytes.len() - 1)])
+                    ));
+                }
+                i = end + 1;
+            }
+            b @ (0..=0x1f | 0x7f) => {
+                bad.push(format!("control {b:#x}"));
+                i += 1;
+            }
+            0xc2 if bytes.get(i + 1).is_some_and(|b| (0x80..=0x9f).contains(b)) => {
+                bad.push("C1 control".into());
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+    bad
 }
