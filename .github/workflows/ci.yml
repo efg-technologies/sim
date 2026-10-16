@@ -54,6 +54,26 @@ jobs:
           GIT_CONFIG_SYSTEM: /dev/null
         run: cargo test --workspace --no-fail-fast
 
+      # TEMPORARY (removed before merge): what check.sh never reaches after a failed test step
+      # (trace, release size), and the timings that decide how PROP-1 is checked on this OS.
+      - name: diagnostic - trace, release size, PROP-1 timings
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_SYSTEM: /dev/null
+        run: |
+          set +e
+          sh scripts/trace.sh > /dev/null; echo "si trace rc=$?"
+          sh sim/scripts/trace.sh > /dev/null; echo "sim trace rc=$?"
+          cargo build --release --workspace
+          wc -c target/release/si target/release/sim
+          cargo test --test watch -- --nocapture --test-threads=1 prop_1_latency
+          cargo build
+          for i in 1 2 3 4 5; do
+            SI_BIN="$PWD/target/debug/si" sh scripts/e2e.sh --run-one prop_1_an_external_edit_appears_and_is_marked
+          done
+
       # fmt, clippy -D warnings, tests, trace, line cap, release binary size.
       - name: si - scripts/check.sh
         if: ${{ !cancelled() }}

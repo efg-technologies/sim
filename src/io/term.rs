@@ -123,7 +123,9 @@ impl Reply {
 /// the color if it came, and in order everything that came before it (App's to take in).
 pub fn wait_bg(rx: &Receiver<Event>, by: Instant) -> (Option<Rgb>, Vec<Event>) {
     let mut got = vec![];
-    while let Some(left) = by.checked_duration_since(Instant::now())
+    // No time left is no wait: a zero timeout would still take what is queued, and where the clock
+    // ticks coarsely (macOS) `by` can be the very instant that was just read.
+    while let Some(left) = by.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())
         && let Ok(ev) = rx.recv_timeout(left)
     {
         if let Event::Bg(rgb) = ev {

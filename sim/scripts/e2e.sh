@@ -150,7 +150,10 @@ now_ms() {
 
 run_one() {
   name=$1
-  CASE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sim-e2e.XXXXXX")
+  # Under /tmp whatever $TMPDIR says (macOS's is 50 characters, and the 80 columns of the status line
+  # then cut off the text that cases wait for), and canonical: /tmp and /var are links on macOS, and
+  # sim records and shows the paths it resolved.
+  CASE_DIR=$(cd "$(mktemp -d /tmp/sim-e2e.XXXXXX)" && pwd -P)
   SESSION=c$$
   SOCKET=$SOCKET-$$
   HOME=$CASE_DIR/home
@@ -259,8 +262,9 @@ wrap() {
     for kv in "$@"; do echo "export $(shq "$kv")"; done
     echo "sh -c 'echo \$\$ > \"\$0\"; exec \"\$@\"' $(shq "$CASE_DIR/sim.pid") $(shq "$REAL") \"\$@\""
     # tmux scrolls the first line away when the pane dies (remain-on-exit), so lead with a blank one.
-    echo 'rc=$?; echo; echo "exit=$rc"'
-    echo 'stty -a'
+    # A process that was killed leaves the tty raw: `stty -a` is read first, then the output modes are put
+    # right, or on macOS its long report staircases down the screen and pushes the exit status off the top.
+    printf '%s\n' 'rc=$?; modes=$(stty -a); stty opost onlcr; echo; echo "exit=$rc"; printf "%s\n" "$modes"'
   } > "$SIM_BIN"
   chmod +x "$SIM_BIN"
 }

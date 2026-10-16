@@ -17,12 +17,26 @@ struct Tmp(PathBuf);
 
 impl Tmp {
     fn new() -> Tmp {
+        Tmp::with(&[])
+    }
+
+    /// A directory that holds `files` (name, text) from the start. They are made aside and the
+    /// directory is renamed into place, so a watcher started afterwards has no event for them:
+    /// FSEvents (macOS) also reports what happened just before its stream began, and a test that
+    /// expects silence or an exact sequence would hear its own set-up.
+    fn with(files: &[(&str, &str)]) -> Tmp {
         static N: AtomicUsize = AtomicUsize::new(0);
         let n = N.fetch_add(1, Ordering::SeqCst);
         let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("watch-{}-{n}", std::process::id()));
+        let aside = dir.with_extension("aside");
         let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let _ = fs::remove_dir_all(&aside);
+        fs::create_dir_all(&aside).unwrap();
+        for (name, text) in files {
+            fs::write(aside.join(name), text).unwrap();
+        }
+        fs::rename(&aside, &dir).unwrap();
         Tmp(dir)
     }
 }
@@ -48,11 +62,8 @@ fn fixture() -> Fixture {
 }
 
 fn fixture_with(initial: bool) -> Fixture {
-    let dir = Tmp::new();
+    let dir = if initial { Tmp::with(&[("a.txt", "v0")]) } else { Tmp::new() };
     let file = dir.0.join("a.txt");
-    if initial {
-        fs::write(&file, "v0").unwrap();
-    }
     let (tx, rx) = mpsc::channel();
     let _watcher = watch(&file, move |_, c| drop(tx.send(c)), false).unwrap();
     Fixture { dir, file, rx, _watcher }
@@ -160,12 +171,13 @@ fn prop_1_latency_from_write_to_callback_is_under_100ms() {
     took.sort();
     let median = took[took.len() / 2];
     eprintln!("PROP-1 latency: median {median:?}, all {took:?}");
-    // CI machines are noisy and share cores; the spec's 100 ms is the target, not a CI gate.
-    let (limit, who) = match std::env::var_os("CI") {
-        Some(_) => (Duration::from_millis(500), "CI (limit relaxed from the 100 ms of PROP-1)"),
-        None => (Duration::from_millis(100), "local"),
-    };
-    assert!(median < limit, "{who}: median latency {median:?} over {limit:?}; all: {took:?}");
+    // PROP-1's 100 ms holds everywhere, CI included: this times the callback alone (no terminal, no
+    // polling), and the median of seven writes already takes one hiccup of a busy runner out.
+    let limit = Duration::from_millis(100);
+    assert!(
+        median < limit,
+        "median latency {median:?} over the {limit:?} of PROP-1; all: {took:?}"
+    );
 }
 
 #[test]
@@ -186,9 +198,8 @@ fn prop_1_dropping_the_watcher_stops_the_calls() {
 
 #[test]
 fn prop_1_a_watcher_asked_to_read_first_reads_the_file_once_on_its_own_thread() {
-    let dir = Tmp::new();
+    let dir = Tmp::with(&[("a.txt", "v0")]);
     let file = dir.0.join("a.txt");
-    fs::write(&file, "v0").unwrap();
     let (tx, rx) = mpsc::channel();
     let main = std::thread::current().id();
     let _watcher =
@@ -215,9 +226,8 @@ fn prop_1_a_watcher_asked_to_read_first_reads_the_file_once_on_its_own_thread() 
 
 #[test]
 fn prop_1_every_read_is_numbered_as_it_starts_from_one_counter() {
-    let dir = Tmp::new();
+    let dir = Tmp::with(&[("a.txt", "v0")]);
     let file = dir.0.join("a.txt");
-    fs::write(&file, "v0").unwrap();
     let (tx, rx) = mpsc::channel();
     let _w = watch(&file, move |n, c| drop(tx.send((n, c))), true).unwrap();
     let (first, c) = rx.recv_timeout(PATIENCE).unwrap();

@@ -345,7 +345,9 @@ fn tree_5_the_cursor_stays_on_its_entry_when_rows_arrive_above_it() {
 
 #[test]
 fn tree_5_a_directory_that_cannot_be_read_says_why_and_stays_empty() {
-    let mut r = rig("t5-fail", &["gone/x", "f"], &[]);
+    // Wide, so that the status line shows the whole path however long the temp directory is
+    // (macOS's is 50 characters, and the message would be cut before the name).
+    let mut r = rig_sized("t5-fail", &["gone/x", "f"], &[], (200, 24));
     std::fs::remove_dir_all(r.cwd.join("gone")).unwrap();
     r.keys("l");
     assert_eq!(r.panel(), ["▾ gone/", "  f"]);
