@@ -259,8 +259,23 @@ fn find_2_the_likelihood_of_a_file_decides_between_equal_matches() {
     let mut r = rig_env("f2-tie3", &["a/utility.rs", "b/util.rs"], &[], (80, 24), |e: &mut Env| {
         e.history.record(&e.cwd.join("a/utility.rs").to_string_lossy(), NOW - 120);
     });
-    r.keys("/util.");
-    assert_eq!(&r.panel()[..3], ["▸ a/", "▾ b/", "    util.rs"]);
+    r.keys("/util.<CR>");
+    assert_eq!(r.open_files(), ["b/util.rs"]);
+}
+
+#[test]
+fn find_2_the_file_opened_before_wins_over_a_shorter_path_of_the_same_name() {
+    // The common case for the history: `review.rs` in src and in tests, and the long path is the
+    // one that was opened.
+    let two = ["src/core/review.rs", "tests/review.rs"];
+    let mut r = rig_env("f2-same", &two, &[], (80, 24), |e: &mut Env| {
+        e.history.record(&e.cwd.join("src/core/review.rs").to_string_lossy(), NOW - 120);
+    });
+    r.keys("/review<CR>");
+    assert_eq!(r.open_files(), ["src/core/review.rs"]);
+    let mut r = rig("f2-same2", &two, &[]);
+    r.keys("/review<CR>");
+    assert_eq!(r.open_files(), ["tests/review.rs"], "with no history the shorter path");
 }
 
 #[test]

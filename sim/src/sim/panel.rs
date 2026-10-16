@@ -239,8 +239,11 @@ impl Sim {
     pub(super) fn search_run(&mut self, out: Out) {
         let Some(s) = self.panel.search.as_mut() else { return };
         let found = Query::new(&s.query).search(&self.files);
-        let (root, now, h) = (self.root.to_string_lossy(), self.now, &self.history);
-        let best = found.best(&self.files, |p| h.likelihood(&format!("{root}/{p}"), now));
+        // The likelihoods are the history's (at most 1,000 paths), by their place in the list.
+        let history = self.history.top(&self.root.to_string_lossy(), usize::MAX, self.now);
+        let place = |(p, l): (String, f64)| Some((self.files.binary_search(&p).ok()?, l));
+        let liked: Vec<(usize, f64)> = history.into_iter().filter_map(place).collect();
+        let best = found.best(&self.files, &liked);
         let target = best.map(|hit| self.files[hit.index].clone());
         (s.found, s.target) = (found, target.clone());
         if let Some(t) = target {
