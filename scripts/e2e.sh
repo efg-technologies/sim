@@ -115,7 +115,10 @@ now_ms() {
 
 run_one() {
   name=$1
-  CASE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/si-e2e.XXXXXX")
+  # Under /tmp whatever $TMPDIR says (macOS's is 50 characters, and the 80 columns of the status line
+  # then cut off the text that cases wait for), and canonical: /tmp and /var are links on macOS, and
+  # si records and shows the paths it resolved.
+  CASE_DIR=$(cd "$(mktemp -d /tmp/si-e2e.XXXXXX)" && pwd -P)
   SESSION=c$$
   SOCKET=$SOCKET-$$
   HOME=$CASE_DIR/home
@@ -216,8 +219,9 @@ wrap() {
     for kv in "$@"; do echo "export $(shq "$kv")"; done
     echo "sh -c 'echo \$\$ > \"\$0\"; exec \"\$@\"' $(shq "$CASE_DIR/si.pid") $(shq "$REAL") \"\$@\""
     # tmux scrolls the first line away when the pane dies (remain-on-exit), so lead with a blank one.
-    echo 'rc=$?; echo; echo "exit=$rc"'
-    echo 'stty -a'
+    # A process that was killed leaves the tty raw: `stty -a` is read first, then the output modes are put
+    # right, or on macOS its long report staircases down the screen and pushes the exit status off the top.
+    printf '%s\n' 'rc=$?; modes=$(stty -a); stty opost onlcr; echo; echo "exit=$rc"; printf "%s\n" "$modes"'
   } > "$SI_BIN"
   chmod +x "$SI_BIN"
 }
@@ -417,15 +421,25 @@ prop_1_an_external_edit_appears_and_is_marked() {
   printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
-  printf 'one\nTWO\nthree\n' > "$CASE_DIR/f.new"
+  # What the harness adds to any time taken here: a key that si answers at once (it redraws within a
+  # millisecond), sent and looked for the same way (tmux's send-keys, the 50 ms steps of wait_for,
+  # the clock). It is taken off below, so the speed of the machine is not read as si's.
   t0=$(now_ms)
+  typed j
+  wait_for "f  2:1  NORMAL"
+  t1=$(now_ms)
+  typed k
+  wait_for "f  1:1  NORMAL"
+  printf 'one\nTWO\nthree\n' > "$CASE_DIR/f.new"
+  t2=$(now_ms)
   mv "$CASE_DIR/f.new" "$CASE_DIR/f"
   wait_for "1 change on disk"
-  t1=$(now_ms)
-  # The 30 ms debounce, the read, the merge and the draw, plus tmux's own round trip and the
-  # 50 ms steps of wait_for: about 55 ms measured, 100 ms in PROP-1, and slack for a busy machine.
-  echo "rename to marked: $((t1 - t0)) ms"
-  [ $((t1 - t0)) -le 200 ]
+  t3=$(now_ms)
+  echo "key to screen: $((t1 - t0)) ms, rename to marked: $((t3 - t2)) ms"
+  # PROP-1: 100 ms from the rename to the callback (the 30 ms debounce, the read, the merge and the
+  # draw come out of it). Each look at the screen lands anywhere in a 50 ms step of wait_for, so the
+  # two times can differ by one more step than the watcher took.
+  [ $(((t3 - t2) - (t1 - t0))) -le 150 ]
   screen | grep -F -q "~  2 TWO"
   gone modified
   # PROP-9: the mark stays until the cursor enters its line.
@@ -866,7 +880,7 @@ ai_1_ref_copies_the_location() {
   want_clip "f:1-1"
   # A file outside the current directory is given by its absolute path.
   restart
-  outside=$(mktemp -d "${TMPDIR:-/tmp}/si-e2e-out.XXXXXX")
+  outside=$(mktemp -d /tmp/si-e2e-out.XXXXXX) # short, like $CASE_DIR
   printf 'x\ny\n' > "$outside/g"
   start "$outside/g"
   wait_for "g  1:1  NORMAL"
