@@ -184,13 +184,7 @@ run_one() {
           sleep 0.05
           tries=$((tries - 1))
         done
-        # TEMPORARY diagnostics: what keeps the directory from going
-        rm -rf "$CASE_DIR" || {
-          ls -lAR "$CASE_DIR" >&2
-          ps -A -o pid,ppid,pgid,stat,command >&2
-          lsof +D "$CASE_DIR" >&2 || true
-          exit 1
-        }
+        rm -rf "$CASE_DIR"
         exit "$status"' EXIT
   trap 'exit 130' HUP INT TERM
   "$name"
