@@ -1,9 +1,9 @@
-//! SYN-1, SYN-5, FIND-1
+//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7
 //! What sim draws beyond si's four styles: the looks a char can have, the Screen that carries
 //! them with si's Frame, and the Painter that writes a Screen to the terminal, row by row. The
 //! four styles are si's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
-use crate::color::Syntax;
-use si::core::color::Palette;
+use crate::color::{Syntax, fade};
+use si::core::color::{Palette, Rgb};
 use si::core::view::{Frame, Row, Shape, Style, width};
 use si::io::term::{self, sgr as base};
 use std::io::{self, Write};
@@ -39,12 +39,26 @@ pub enum Look {
 /// Column ranges of a row, in the columns of the Frame.
 pub type Looks = Vec<(Range<u16>, Look)>;
 
-/// A Frame (which carries si's palette) with the looks of each of its rows and the syntax colors
-/// they are drawn with.
+/// What a run of cells has beside its style and look (LOOK-2 to LOOK-7): colors of its own, which
+/// `layout` has worked out from the palette (a tint behind the text, the color of a box's line),
+/// and how far its text fades toward the page, in percent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Paint {
+    pub fg: Option<Rgb>,
+    pub bg: Option<Rgb>,
+    pub fade: u8,
+}
+
+/// Column ranges of a row and their paints; the first range a column is in decides.
+pub type Paints = Vec<(Range<u16>, Paint)>;
+
+/// A Frame (which carries si's palette) with the looks and the paints of each of its rows (no
+/// paints at all in calm) and the syntax colors they are drawn with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Screen {
     pub frame: Frame,
     pub looks: Vec<Looks>,
+    pub paints: Vec<Paints>,
     pub syn: Syntax,
 }
 
@@ -56,6 +70,7 @@ fn sgr(
     style: Style,
     underline: bool,
     look: Option<Look>,
+    paint: Paint,
     pal: Option<Palette>,
     syn: &Syntax,
 ) -> String {
@@ -79,6 +94,26 @@ fn sgr(
     if let (Some(i), Some(l), false) = (hue, look, change) {
         s += &syn.hue(l).map_or(format!(";3{i}"), fg);
     }
+    // LOOK-2 to LOOK-7: a background of its own (the tint, green or red, over the change style's
+    // blue too: layout only puts one where it means it), a color of its own, and the fade of the
+    // color the cell has by now (the change style never fades).
+    let shown = match look {
+        _ if change => None,
+        Some(Look::Com) => pal.map(|p| p.secondary),
+        Some(l @ (Look::Kw | Look::Str | Look::Ty | Look::Num | Look::Fun)) => syn.hue(l),
+        _ => pal.and_then(|p| match style {
+            Style::Primary => Some(p.primary),
+            Style::Secondary | Style::Deleted => Some(p.secondary),
+            Style::Change => None,
+        }),
+    };
+    if let Some((r, g, b)) = paint.bg {
+        s += &format!(";48;2;{r};{g};{b}");
+    }
+    if let (Some(c), Some(p), true) = (shown, pal, paint.fade > 0) {
+        s += &fg(fade(c, p.bg, f64::from(paint.fade) / 100.0));
+    }
+    s += &paint.fg.map_or(String::new(), fg);
     if let (Some(Look::Sel), false, Some((bg, t))) = (look, change, syn.sel()) {
         s += &format!(";48;2;{};{};{}{}", bg.0, bg.1, bg.2, fg(t));
     }
@@ -86,7 +121,12 @@ fn sgr(
 }
 
 /// The text of a row with an SGR sequence wherever style, underline or look changes.
-fn paint(b: &mut Vec<u8>, row: &Row, looks: &Looks, (pal, syn): (Option<Palette>, &Syntax)) {
+fn paint(
+    b: &mut Vec<u8>,
+    row: &Row,
+    (looks, paints): (&Looks, &[(Range<u16>, Paint)]),
+    (pal, syn): (Option<Palette>, &Syntax),
+) {
     let (mut now, mut col) = (None, 0u16);
     let cs: Vec<char> = row.text.chars().collect();
     for (i, &c) in cs.iter().enumerate() {
@@ -94,9 +134,10 @@ fn paint(b: &mut Vec<u8>, row: &Row, looks: &Looks, (pal, syn): (Option<Palette>
             row.spans.iter().find(|(r, _)| r.contains(&col)).map_or(Style::Primary, |s| s.1);
         let underline = row.underline.iter().any(|r| r.contains(&col));
         let look = looks.iter().find(|(r, _)| r.contains(&col)).map(|l| l.1);
-        if now != Some((style, underline, look)) {
-            b.extend(sgr(style, underline, look, pal, syn).as_bytes());
-            now = Some((style, underline, look));
+        let by = paints.iter().find(|(r, _)| r.contains(&col)).map(|p| p.1).unwrap_or_default();
+        if now != Some((style, underline, look, by)) {
+            b.extend(sgr(style, underline, look, by, pal, syn).as_bytes());
+            now = Some((style, underline, look, by));
         }
         b.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
         col += width(&cs, i, usize::from(col)) as u16; // si's own rule, as in its `Term` (VIS-7)
@@ -127,7 +168,8 @@ impl<W: Write> Painter<W> {
             (p.frame.width, p.frame.height, p.frame.pal, p.syn) == (f.width, f.height, f.pal, s.syn)
         });
         // A frame that rewrites anything is one synchronized update, so nothing tears.
-        let sync = same.is_none_or(|p| p.frame.rows != f.rows || p.looks != s.looks);
+        let sync = same
+            .is_none_or(|p| p.frame.rows != f.rows || p.looks != s.looks || p.paints != s.paints);
         if sync {
             b.extend(b"\x1b[?2026h");
         }
@@ -135,11 +177,17 @@ impl<W: Write> Painter<W> {
             b.extend(b"\x1b[2J");
         }
         for (i, row) in f.rows.iter().enumerate() {
-            if same.is_some_and(|p| p.frame.rows[i] == *row && p.looks[i] == s.looks[i]) {
+            let paints = s.paints.get(i).map_or(&[][..], Vec::as_slice);
+            let unchanged = |p: &Screen| {
+                p.frame.rows[i] == *row
+                    && p.looks[i] == s.looks[i]
+                    && p.paints.get(i) == s.paints.get(i)
+            };
+            if same.is_some_and(unchanged) {
                 continue;
             }
             write!(b, "\x1b[{};1H", i + 1)?;
-            paint(&mut b, row, &s.looks[i], (f.pal, &s.syn));
+            paint(&mut b, row, (&s.looks[i], paints), (f.pal, &s.syn));
             b.extend(b"\x1b[0m\x1b[K");
         }
         write!(b, "\x1b[{};{}H", f.cursor.1 + 1, f.cursor.0 + 1)?;

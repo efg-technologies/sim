@@ -14,6 +14,7 @@ use si::io::{filter, journal, term};
 use signal_hook::consts::{SIGHUP, SIGTERM, SIGWINCH};
 use sim::color::{self, Input, Syntax};
 use sim::io::{self as sio, HlJob, Job, MERGE};
+use sim::layout::Skin;
 use sim::paint::{MOUSE_ON, Painter, leave};
 use sim::rank::History;
 use sim::sim::{Env, Id, Sim, SimEffect, SimEvent, start};
@@ -101,6 +102,7 @@ fn main() -> ExitCode {
         history: history.as_deref().map_or_else(History::default, sio::load_history),
         syn: Syntax::new(truecolor),
         hook: env::var("SI_ON_NORMAL").ok().filter(|h| !h.is_empty()),
+        skin: history.as_deref().map_or(Skin::Depth, sio::load_look),
     };
     let (mut sim, mut fx) = Sim::new(s, env);
 
@@ -175,6 +177,7 @@ fn main() -> ExitCode {
                     SimEffect::Files => drop(files.send(())),
                     SimEffect::Status => drop(git.send(())),
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
+                    SimEffect::Look(k) => drop(jobs.send(Job::Look(k))),
                     SimEffect::Highlight(req) => drop(highlights.send(HlJob::Run(req))),
                     SimEffect::Grep(req) => greps.ask(req),
                     SimEffect::Preview(path) => {

@@ -29,6 +29,7 @@ use si::core::buffer::hash;
 use si::io::file::{self, Saved};
 use si::io::journal::{self, Snapshot};
 use sim::io::{self, Job};
+use sim::layout::Skin;
 use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, start};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
@@ -319,7 +320,10 @@ impl W {
         }
         let (tx, told) = mpsc::channel();
         let (jobs, finished) = io::journal_thread(Some(s.0.clone()), Some(h.0.join("sim")), tx);
-        let env = Env { cwd: dir.clone(), size, now: NOW, ..Env::default() };
+        // The look is depth, with a palette and truecolor: its boxes, tints, card and fog are checked
+        // with every other invariant (LOOK-3 to LOOK-7).
+        let (skin, syn) = (Skin::Depth, sim::color::Syntax::new(true));
+        let env = Env { cwd: dir.clone(), size, now: NOW, skin, syn, ..Env::default() };
         let args: Vec<String> = vec![];
         let st = start(&args, &dir, |f| Path::new(f).exists(), |d| d.is_dir()).unwrap();
         let (mut sim, fx) = Sim::new(st, env);
@@ -362,6 +366,8 @@ impl W {
             _guards: vec![d, s, h],
         };
         w.exec(fx);
+        let fx = w.step(SimEvent::Term(Event::Bg((0x1e, 0x1e, 0x1e))));
+        w.exec(fx);
         w
     }
 
@@ -402,6 +408,7 @@ impl W {
                         io::grep(&req, None, &|| true, &mut |b| local.push(SimEvent::Grep(b)))
                     }
                     SimEffect::Preview(path) => local.push(io::preview(&self.sim.root, &path)),
+                    SimEffect::Look(_) => {}
                     SimEffect::Files => self.files_req = true,
                     SimEffect::Status => self.status_req = true,
                     SimEffect::History(h) => {

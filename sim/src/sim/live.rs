@@ -5,11 +5,11 @@
 use super::panel::Out;
 use super::{Pv, Sim, SimEffect, text_of};
 use crate::grep::{self, Batch, Group, Line, PRow, Query, Request};
-use crate::layout;
+use crate::layout::{self, Geo};
 use crate::paint::{Look, Looks};
 use crate::syn::Spans;
 use si::core::app::{App, Event, Key};
-use si::core::view::{self, Frame, Row, Style};
+use si::core::view::{self, Frame};
 use std::collections::HashMap;
 use std::mem::take;
 use std::path::PathBuf;
@@ -195,7 +195,8 @@ impl Sim {
 
     /// GREP-4: the file has been read. An answer for a file that is no longer under the cursor is dropped.
     pub(super) fn live_preview(&mut self, pv: Pv) {
-        let (w, h) = (self.widths().1, self.size.1);
+        let g = self.geo();
+        let (w, h) = (g.ew, g.rows + 1);
         let Some(l) = self.panel.live.as_mut() else { return };
         l.asked = l.asked.take().filter(|a| *a != pv.path);
         if l.pick().is_none_or(|(g, _)| g.path != pv.path) {
@@ -207,7 +208,7 @@ impl Sim {
 
     /// GREP-1, GREP-4: a key while the search is on.
     pub(super) fn live_key(&mut self, k: Key, out: Out) {
-        let page = usize::from(self.size.1) - 1;
+        let page = usize::from(self.geo().rows);
         let Some(l) = self.panel.live.as_mut() else { return };
         if l.typing && !matches!(k, Key::Down | Key::Up) {
             match k {
@@ -305,25 +306,18 @@ impl Sim {
 
     /// Keeps the cursor row on screen, and its file's row with it when there is room.
     pub(super) fn live_scroll(&mut self) {
-        let rows = usize::from(self.size.1) - 1;
+        let rows = usize::from(self.geo().rows);
         let Some(l) = self.panel.live.as_mut() else { return };
         let (row, anchor, total) = l.rows_at();
         let lo = (row + 1).saturating_sub(rows);
         l.top = l.top.min(total.saturating_sub(rows)).clamp(lo, anchor.max(lo));
     }
 
-    /// GREP-3: the results in the panel's columns of the body rows `layout::body` made with no panel.
-    pub(super) fn live_overlay(&self, rows: &mut [Row], looks: &mut [Looks], pw: u16) {
-        let Some(l) = self.panel.live.as_ref().filter(|_| pw > 0) else { return };
-        for (i, p) in l.rows(l.top, rows.len(), usize::from(pw)).into_iter().enumerate() {
-            let used = layout::fit(&p.text, usize::MAX).1;
-            let editor: String = rows[i].text.chars().skip(usize::from(pw) + 1).collect();
-            rows[i].text =
-                format!("{}{} {editor}", p.text, " ".repeat(usize::from(pw).saturating_sub(used)));
-            rows[i].spans.extend((!p.dim.is_empty()).then_some((p.dim, Style::Secondary)));
-            rows[i].underline.extend(p.sel.then_some(0..used as u16));
-            looks[i].extend(p.bold.into_iter().map(|r| (r, Look::Bold)));
-        }
+    /// GREP-3: the results as the rows of the panel, which `layout::body` draws in place of the
+    /// tree's (none while no search is on, or when the panel is not drawn).
+    pub(super) fn live_rows(&self, g: Geo) -> Option<Vec<PRow>> {
+        let l = self.panel.live.as_ref().filter(|_| g.pw > 0)?;
+        Some(l.rows(l.top, usize::from(g.rows), usize::from(g.pw)))
     }
 
     /// The row of the terminal's cursor while the results are browsed: the one under the cursor.
@@ -335,7 +329,8 @@ impl Sim {
     /// middle and the matches on it bold. The frame is made again only when the line, the width or
     /// the height changed; until the file under the cursor has been read the last one stays.
     pub(super) fn live_pane(&mut self) -> Option<(Frame, Vec<Looks>)> {
-        let (w, h) = (self.widths().1, self.size.1);
+        let g = self.geo();
+        let (w, h) = (g.ew, g.rows + 1);
         let l = self.panel.live.as_mut()?;
         let (path, no) = l.pick().map(|(g, ln)| (g.path.clone(), ln.no))?;
         let (query, p) = (Query::new(&l.query), l.preview.as_mut()?);

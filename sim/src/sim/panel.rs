@@ -91,7 +91,7 @@ impl Sim {
         self.panel.reveal = None; // a key of the user's own cancels a reveal still waiting for a listing
         let browsing = self.panel.search.is_some();
         let last = self.view().visible().saturating_sub(1);
-        let page = usize::from(self.size.1) - 1;
+        let page = usize::from(self.geo().rows);
         let (cur, g) = (self.panel.cur, take(&mut self.panel.g));
         let to = match k {
             Key::Char('j') | Key::Down => cur + 1,
@@ -209,7 +209,7 @@ impl Sim {
 
     /// Keeps the cursor row on screen, and the first row where the tree has rows for it.
     pub(super) fn scroll(&mut self) {
-        let (rows, n) = (usize::from(self.size.1) - 1, self.view().visible());
+        let (rows, n) = (usize::from(self.geo().rows), self.view().visible());
         let p = &mut self.panel;
         p.cur = p.cur.min(n.saturating_sub(1));
         p.top = p.top.min(n.saturating_sub(rows)).clamp((p.cur + 1).saturating_sub(rows), p.cur);

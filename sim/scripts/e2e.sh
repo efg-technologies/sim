@@ -35,6 +35,8 @@
 #   $CT                set it (CT=truecolor) before `start` to run sim with COLORTERM=$CT; otherwise sim
 #                      runs without COLORTERM, whatever the user's terminal sets
 #   $SIM_PATH          set it before `start` to run sim with that PATH (for a fake or a missing rg)
+#   look WORD          make the look the next `start` begins with (calm, flat, depth, or none for no file:
+#                      LOOK-1); a case that does not say gets calm, so that the looks of the other cases stay what they were written for
 set -eu
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -53,7 +55,16 @@ shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 # ---- helpers used by cases ----
 
+# LOOK-1: the look is remembered in sim's state directory, and the first run is depth; the cases are
+# written for calm unless they say otherwise.
+look() {
+  mkdir -p "$XDG_STATE_HOME/sim"
+  if [ "$1" = none ]; then rm -f "$XDG_STATE_HOME/sim/look"; else echo "$1" > "$XDG_STATE_HOME/sim/look"; fi
+  LOOKED=1
+}
+
 start() {
+  [ -n "${LOOKED:-}" ] || [ -e "$XDG_STATE_HOME/sim/look" ] || look calm
   cmd="cd $(shq "$W") && env -u COLORTERM HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") ${CT:+COLORTERM=$CT} ${SIM_PATH:+PATH=$(shq "$SIM_PATH")} $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
@@ -1318,6 +1329,79 @@ ptr_2_the_mouse_edits_nothing() {
   keys Enter # nothing is modified, so this quits
   wait_exit
   [ "$(exit_code)" = 0 ]
+}
+
+look_1_zl_cycles_the_looks_and_the_choice_is_the_next_runs() {
+  printf 'one\ntwo\n' > "$W/a.txt"
+  start a.txt
+  wait_for "a.txt  1:1  NORMAL"
+  gone "╭"
+  typed zl
+  wait_for "look: flat"
+  gone "╭"
+  typed zl
+  wait_for "look: depth"
+  wait_for "²a.txt" # the boxes, in the terminal's own colors: nothing answered for a palette
+  screen | grep -F -q "╰"
+  screen | grep -F -q "   1 one"
+  typed zl
+  wait_for "look: calm"
+  gone "╭"
+  typed zl
+  wait_for "look: flat"
+  typed ":q"
+  keys Enter
+  wait_exit
+  [ "$(cat "$XDG_STATE_HOME/sim/look")" = flat ]
+  restart
+  start a.txt
+  wait_for "a.txt  1:1  NORMAL"
+  typed zl
+  wait_for "look: depth" # the one after flat: flat was the look this run began with
+  typed ":q"
+  keys Enter
+  wait_exit
+  # No file, or one that says anything else: depth, the first look.
+  restart
+  look none
+  start a.txt
+  wait_for "²a.txt"
+  restart
+  look nonsense
+  start a.txt
+  wait_for "²a.txt"
+}
+
+look_5_review_raises_the_hunk_being_decided_as_a_card() {
+  printf 'one\ntwo\nthree\nfour\n' > "$W/a.txt"
+  look depth
+  CT=truecolor
+  start a.txt
+  wait_for "a.txt  1:1  NORMAL"
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  typed jA
+  typed "!"
+  keys Escape
+  wait_for "modified"
+  printf 'one\nTWO\nthree\nfour\n' > "$W/a.new"
+  mv "$W/a.new" "$W/a.txt" # the disk changes the line that is changed here too
+  wait_for "1 proposal"
+  wait_esc '48;2;[0-9;]*m 1 proposal ' # the badge is on the change color, in the top border
+  typed "]c"
+  wait_for "REVIEW 1/1"
+  wait_for "REVIEW  y accept  n reject  Y all  N none  Esc back" # in the bottom border of the editor's box
+  screen | grep -F -q " 1/1 ─╮"
+  wait_esc '38;2;[0-9;]*m▄' # half a row above the card, in its color over the page
+  wait_esc '48;2;[0-9;]*m▀\|38;2;[0-9;]*;48;2;[0-9;]*m▀' # and below it, over the shadow
+  keys Escape
+  wait_gone "▄"
+  gone "▀"
+  gone "REVIEW"
+  typed zl
+  wait_for "look: calm"
+  typed "]c"
+  wait_for "REVIEW 1/1"
+  gone "▄" # calm has no card
 }
 
 main "$@"

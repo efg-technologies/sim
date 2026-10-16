@@ -16,7 +16,7 @@ impl App {
 
     /// The hunk REVIEW is on: the one `rev` names while the cursor is at its line, else the first
     /// one at or after the cursor (a merge may have moved the hunks meanwhile).
-    pub(super) fn current(&self) -> usize {
+    pub fn current(&self) -> usize {
         let (b, here) = (&self.buf, self.buf.line_of(self.buf.cursor));
         if self.rev < b.hunks.len() && self.anchor(self.rev) == here {
             return self.rev;

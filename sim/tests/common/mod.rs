@@ -72,9 +72,10 @@ pub fn golden(name: &str, actual: &str) {
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use si::core::app::{App, Effect, Event, Key};
 use si::core::view::{Frame, Style};
+use sim::color::Tones;
 use sim::grep::Request;
 use sim::io;
-use sim::paint::{Look, Looks, Screen};
+use sim::paint::{Look, Looks, Paints, Screen};
 use sim::rank::History;
 use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, start};
 use std::collections::VecDeque;
@@ -208,7 +209,12 @@ pub fn rig_env(
         pal: None,
     };
     let mut r = Rig {
-        shot: Screen { frame: blank.clone(), looks: vec![], syn: Default::default() },
+        shot: Screen {
+            frame: blank.clone(),
+            looks: vec![],
+            paints: vec![],
+            syn: Default::default(),
+        },
         screen: blank,
         jobs: vec![],
         history: None,
@@ -441,17 +447,53 @@ pub fn width(s: &str) -> usize {
 /// A Frame as text: its rows between bars, each followed by one style symbol per column (`.`
 /// Primary, `-` Secondary, `#` Change, `x` Deleted, `_` underlined, blank past the text).
 pub fn dump(f: &Frame) -> String {
-    dump_rows(f, &[])
+    dump_rows(f, &[], &[], None)
 }
 
 /// A Screen as text: the same, and under a row that has looks one more line with a symbol per
 /// column: `K` keyword, `S` string, `N` number or constant, `T` type, `F` function, `c` comment,
 /// `B` bold, `g` the selection's gray; `.` where there is none.
 pub fn dump_screen(s: &Screen) -> String {
-    dump_rows(&s.frame, &s.looks)
+    dump_rows(&s.frame, &s.looks, &[], None)
 }
 
-fn dump_rows(f: &Frame, looks: &[Looks]) -> String {
+/// A Screen of the looks as text (LOOK-2 to LOOK-7): `dump_screen`'s rows, and under each row that
+/// has paints one more line with a symbol per column: backgrounds `g` the tint of a gain, `r` of a
+/// loss, `h` of a hunk, `k` the card, `w` the shadow, `A` green and `D` red (words, the bar, the
+/// badge); colors of text `l` the lines of a box, `d` the dimmed title, `f` the secondary gray, `a`
+/// green and `e` red (the ruler), `u` the card's color on the page (a half row), `p` primary; a
+/// digit the tens of a fade in percent (`4` is 45); `.` where there is none.
+pub fn dump_look(s: &Screen, t: &Tones) -> String {
+    dump_rows(&s.frame, &s.looks, &s.paints, Some(t))
+}
+
+fn paint_symbols(p: &Paints, t: &Tones, width: u16) -> String {
+    (0..width)
+        .map(|col| match p.iter().find(|(r, _)| r.contains(&col)).map(|x| x.1) {
+            None => '.',
+            Some(x) => match (x.bg, x.fg, x.fade) {
+                (Some(c), ..) if c == t.gain => 'g',
+                (Some(c), ..) if c == t.loss => 'r',
+                (Some(c), ..) if c == t.hunk => 'h',
+                (Some(c), ..) if c == t.card => 'k',
+                (Some(c), ..) if c == t.shadow => 'w',
+                (Some(c), ..) if c == t.add => 'A',
+                (Some(c), ..) if c == t.del => 'D',
+                (_, Some(c), _) if c == t.line => 'l',
+                (_, Some(c), _) if c == t.dim => 'd',
+                (_, Some(c), _) if c == t.focus => 'f',
+                (_, Some(c), _) if c == t.add => 'a',
+                (_, Some(c), _) if c == t.del => 'e',
+                (_, Some(c), _) if c == t.card => 'u',
+                (_, Some(c), _) if c == t.primary => 'p',
+                (.., f) if f > 0 => char::from_digit(u32::from(f) / 10, 10).unwrap_or('?'),
+                _ => '?',
+            },
+        })
+        .collect()
+}
+
+fn dump_rows(f: &Frame, looks: &[Looks], paints: &[Paints], t: Option<&Tones>) -> String {
     let mut out =
         format!("{}x{} cursor {},{} {:?}\n", f.width, f.height, f.cursor.0, f.cursor.1, f.shape);
     for (i, r) in f.rows.iter().enumerate() {
@@ -486,6 +528,9 @@ fn dump_rows(f: &Frame, looks: &[Looks]) -> String {
             };
             let line: String = (0..f.width).map(sym).collect();
             out += &format!("|{line}|\n");
+        }
+        if let (Some(p), Some(t)) = (paints.get(i).filter(|p| !p.is_empty()), t) {
+            out += &format!("|{}|\n", paint_symbols(p, t, f.width));
         }
     }
     out

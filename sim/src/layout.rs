@@ -1,11 +1,18 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
-use crate::paint::{Look, Looks};
+use crate::color::Tones;
+use crate::grep::PRow;
+use crate::paint::{Look, Looks, Paint, Paints};
 use crate::syn::Spans;
 use crate::tree;
+use si::core::app::App;
+use si::core::color::Rgb;
+use si::core::vi::Mode;
 use si::core::view::{Frame, Row, Style, shorten, width};
+use std::mem::take;
+use std::ops::Range;
 
 /// What the editor area shows while no file is open (TREE-1).
 const HELP: [&str; 5] =
@@ -85,64 +92,609 @@ pub fn label(r: &tree::Row, m: &Mark) -> String {
     }
 }
 
-/// The body rows of the screen (all but the status line), `w` columns wide, and their looks:
-/// the panel's `pw` columns showing `panel` (the row `sel` underlined), a column of space, then
-/// the `editor`'s rows and looks, which are as wide as what is left; without an editor, the
-/// help. With `gray` the Visual selection of the editor is a gray background instead of an
-/// underline (SYN-5).
+/// LOOK-1: how the screen looks. Calm is si's four styles, flat adds tints to the rows of changes,
+/// depth adds boxes, an overview ruler, a raised card in REVIEW and fading.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Skin {
+    #[default]
+    Calm,
+    Flat,
+    Depth,
+}
+
+impl Skin {
+    /// What `zl` goes to.
+    pub fn next(self) -> Skin {
+        [Skin::Flat, Skin::Depth, Skin::Calm][self as usize]
+    }
+
+    pub fn name(self) -> &'static str {
+        ["calm", "flat", "depth"][self as usize]
+    }
+
+    /// The word of the state file (the line break after it is allowed).
+    pub fn parse(s: &str) -> Option<Skin> {
+        [Skin::Calm, Skin::Flat, Skin::Depth]
+            .into_iter()
+            .find(|k| k.name() == s.trim_end_matches('\n'))
+    }
+}
+
+/// LOOK-3: where the parts of a screen are, for its size, its look and a panel that is open or not:
+/// the columns of the panel (`pw`, none when it is closed or too narrow) and of the editor (`ew`),
+/// the column each starts at (after the left border of its box in depth), the first body row and
+/// how many there are. Depth needs 40 columns and 10 rows for its boxes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Geo {
+    pub boxed: bool,
+    pub pw: u16,
+    pub ew: u16,
+    pub px: u16,
+    pub ex: u16,
+    pub y0: u16,
+    pub rows: u16,
+}
+
+impl Geo {
+    pub fn new((w, h): (u16, u16), skin: Skin, panel: bool) -> Geo {
+        let boxed = skin == Skin::Depth && w >= 40 && h >= 10;
+        let (b, pw) = (u16::from(boxed), if panel { (w / 3).min(32) } else { 0 });
+        let pw = if pw < 4 { 0 } else { pw };
+        let ex = if pw > 0 { pw + 1 + 2 * b } else { b };
+        Geo {
+            boxed,
+            pw,
+            ew: w.saturating_sub(ex + b),
+            px: b,
+            ex,
+            y0: b,
+            rows: h.saturating_sub(1 + 2 * b),
+        }
+    }
+}
+
+/// A row of the screen being put together: the row, the looks and the paints of its columns, and
+/// how many columns it takes.
+#[derive(Default)]
+struct Line {
+    row: Row,
+    looks: Looks,
+    paints: Paints,
+    cols: u16,
+}
+
+/// A piece of a border: its text, a style, a look, and paint of its own.
+type Seg<'a> = (&'a str, Option<Style>, Option<Look>, Option<Paint>);
+
+impl Line {
+    /// Writes `s` after what is there.
+    fn put(&mut self, (s, style, look, paint): Seg) {
+        let (text, n) = fit(s, usize::MAX);
+        let r = self.cols..self.cols + n as u16;
+        self.row.text += &text;
+        self.row.spans.extend(style.map(|s| (r.clone(), s)));
+        self.looks.extend(look.map(|l| (r.clone(), l)));
+        self.paints.extend(paint.map(|p| (r.clone(), p)));
+        self.cols = r.end;
+    }
+
+    /// Puts another line after this one: its columns move by the columns this one takes.
+    fn add(&mut self, o: Line) {
+        let go = |r: Range<u16>| r.start + self.cols..r.end + self.cols;
+        self.row.text += &o.row.text;
+        self.row.spans.extend(o.row.spans.into_iter().map(|(r, s)| (go(r), s)));
+        self.row.underline.extend(o.row.underline.into_iter().map(go));
+        self.looks.extend(o.looks.into_iter().map(|(r, l)| (go(r), l)));
+        self.paints.extend(o.paints.into_iter().map(|(r, p)| (go(r), p)));
+        self.cols += o.cols;
+    }
+
+    /// Fills up to `to` columns with blanks.
+    fn pad(&mut self, to: u16) {
+        self.row.text += &" ".repeat(usize::from(to.saturating_sub(self.cols)));
+        self.cols = self.cols.max(to);
+    }
+}
+
+/// How the panel's text is faded (LOOK-7): none, `Recede` while the editor has the focus, or by the
+/// distance from the cursor row `Find(row)` while the search has it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fade {
+    None,
+    Recede,
+    Find(usize),
+}
+
+/// LOOK-7: the fade of a row `d` rows from the cursor row of a search, in percent.
+fn find_fog(d: usize) -> u8 {
+    ((0.12 + d as f64 / 16.0 * 0.6).min(0.7) * 100.0).round() as u8
+}
+
+/// LOOK-6: the fade of a row `d` rows from the card, in percent.
+fn card_fog(d: usize) -> u8 {
+    (((d as f64 - 2.0) / 11.0 * 0.6).clamp(0.0, 0.6) * 100.0).round() as u8
+}
+
+/// What the borders of the boxes say (LOOK-3, LOOK-4).
+#[derive(Default)]
+pub struct Chrome {
+    /// The editor's path; none while no file is open.
+    pub title: Option<String>,
+    /// The notes of si's status line on changes on disk and on proposals: `2 changes on disk`.
+    pub badge: [String; 2],
+    /// REVIEW: the hunk being decided and how many there are.
+    pub review: Option<(usize, usize)>,
+    /// The overview ruler, a row of the right border each (`ruler`).
+    pub ruler: Vec<Tick>,
+    /// Whether the panel has the focus (else the editor has).
+    pub panel: bool,
+}
+
+/// LOOK-4: what a row of the overview ruler shows, the plain border first: the lines on screen, a
+/// deletion point (red), text that was gained or changed (green). The later wins.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Tick {
+    #[default]
+    Plain,
+    Shown,
+    Loss,
+    Gain,
+}
+
+/// LOOK-4: the rows of the overview ruler: `rows` of them stand for the lines of a file of `n`
+/// lines, line `l` on row `l * rows / n`; a row is `Gain` or `Loss` where one of `changes` is (a
+/// range of lines and which it is; an empty range stands for its place), `Shown` where the lines
+/// on screen (the first and the last) are.
+pub fn ruler(
+    rows: usize,
+    n: usize,
+    changes: impl Iterator<Item = (Range<usize>, Tick)>,
+    shown: Option<(usize, usize)>,
+) -> Vec<Tick> {
+    let mut out = vec![Tick::Plain; rows];
+    if rows == 0 || n == 0 {
+        return out;
+    }
+    let row = |l: usize| (l.min(n - 1) * rows / n).min(rows - 1);
+    if let Some((a, z)) = shown {
+        out[row(a)..=row(z.max(a))].fill(Tick::Shown);
+    }
+    for (c, k) in changes {
+        out[row(c.start)..=row(c.end.max(c.start + 1) - 1)]
+            .iter_mut()
+            .for_each(|t| *t = (*t).max(k));
+    }
+    out
+}
+
+/// What the borders say about the file `app` has open (none: the help shows), with the lines on
+/// screen `shown` and `rows` rows of ruler for it (LOOK-3, LOOK-4).
+pub fn chrome(
+    app: Option<&App>,
+    shown: Option<(usize, usize)>,
+    rows: usize,
+    panel: bool,
+) -> Chrome {
+    let Some(a) = app else {
+        return Chrome { ruler: vec![Tick::Plain; rows], panel, ..Chrome::default() };
+    };
+    let b = &a.buf;
+    // A change on disk is a run of marked lines next to each other (si's status line counts so).
+    let runs = (0..b.marks.len()).filter(|&i| i == 0 || b.marks[i - 1].line + 1 < b.marks[i].line);
+    let note = |n: usize, one: &str, many: &str| {
+        if n == 0 { String::new() } else { format!("{n} {}", if n == 1 { one } else { many }) }
+    };
+    let loss = |gone: bool| if gone { Tick::Loss } else { Tick::Gain };
+    let marks = b.marks.iter().map(|m| (m.line..m.line + 1, loss(m.kind == '-')));
+    let hunks = b.hunks.iter().map(|h| (h.mine.clone(), loss(h.theirs.is_empty())));
+    Chrome {
+        title: Some(a.path.clone().unwrap_or_else(|| "[no name]".into())),
+        badge: [
+            note(runs.count(), "change on disk", "changes on disk"),
+            note(b.hunks.len(), "proposal", "proposals"),
+        ],
+        review: (a.vi.mode == Mode::Review).then(|| (a.current() + 1, b.hunks.len())),
+        ruler: ruler(rows, b.lines(), marks.chain(hunks), shown),
+        panel,
+    }
+}
+
+/// The line number a row of an editor frame shows, if it starts a line.
+fn number(r: &Row, digits: usize) -> Option<usize> {
+    r.text.chars().skip(1).take(digits).collect::<String>().trim().parse().ok()
+}
+
+/// What a row of an editor frame is (LOOK-2): no change, text that a change from disk gained or
+/// changed (`Gain`), a deletion point (`Loss`, the `-` of the gutter), or a row of a hunk, which has
+/// both (`Hunk`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Plain,
+    Gain,
+    Loss,
+    Hunk,
+}
+
+/// LOOK-2: the kind of each row of an editor frame, read from its gutter: a symbol in the first
+/// column is a change (of a hunk if `hunk(line)` says the line is one, else a deletion point or a
+/// gain), a row of a hunk's own that has no number starts with `+`, and the rows after a change whose
+/// gutter is blank (the wrapped rows of the line, or the rows a hunk goes on in) are part of it.
+pub fn changed(f: &Frame, digits: usize, hunk: &dyn Fn(usize) -> bool) -> Vec<Kind> {
+    let mut last = Kind::Plain;
+    let body = f.rows.len().saturating_sub(1);
+    f.rows[..body]
+        .iter()
+        .map(|r| {
+            match (r.text.chars().next(), number(r, digits)) {
+                (Some(' '), None) => {} // the rest of a row that has a change
+                (Some(' ') | None, _) => last = Kind::Plain, // a line of no change, or past the end
+                (Some(c), n) => {
+                    last = match n {
+                        None => Kind::Hunk, // a hunk's row that is the proposal's alone, `+`
+                        Some(n) if hunk(n.saturating_sub(1)) => Kind::Hunk,
+                        _ if c == '-' => Kind::Loss,
+                        _ => Kind::Gain,
+                    }
+                }
+            }
+            last
+        })
+        .collect()
+}
+
+/// LOOK-5: the rows of the card in REVIEW: from the first changed row at or after the cursor to
+/// the row before the first row numbered past the hunk's lines (`end`, one past its last), or to
+/// the end of the frame.
+pub fn card(f: &Frame, ch: &[Kind], digits: usize, end: usize) -> Option<Range<usize>> {
+    let (cur, body) = (usize::from(f.cursor.1), f.rows.len().saturating_sub(1));
+    let start = (cur..body).find(|&i| ch.get(i).is_some_and(|k| *k != Kind::Plain))?;
+    let past = |i: &usize| number(&f.rows[*i], digits).is_some_and(|n| n > end);
+    Some(start..(start + 1..body).find(past).unwrap_or(body))
+}
+
+/// PTR-1: the row of the frame that a row of the screen shows, with the half rows around the card
+/// inserted: the half rows are the card's first and last row.
+pub fn unshift(y: usize, c: &Range<usize>) -> usize {
+    y - usize::from(y > c.start) - usize::from(y > c.end)
+}
+
+/// LOOK-2: a blank between two cells on the same background is on it too (`words` are the paints
+/// of the changed words of the row, from `from` on).
+fn join(text: &str, words: &mut Paints, from: u16) {
+    let on = |w: &Paints, c: u16| w.iter().find(|(r, _)| r.contains(&c)).and_then(|p| p.1.bg);
+    let (cs, mut col, mut gaps) = (text.chars().collect::<Vec<_>>(), 0u16, vec![]);
+    for i in 0..cs.len() {
+        let w = width(&cs, i, usize::from(col)) as u16;
+        if cs[i] == ' ' && col > from {
+            let bg = on(words, col - 1);
+            if bg.is_some() && bg == on(words, col + 1) && on(words, col).is_none() {
+                gaps.push((col..col + 1, Paint { bg, ..Paint::default() }));
+            }
+        }
+        col += w;
+    }
+    words.extend(gaps);
+}
+
+/// The editor as `body` takes it: si's frame (its last row is its status line, which the screen
+/// shows apart), the looks of its rows, the width of its line numbers, what each row is
+/// (`changed`, empty when the look draws no tint), the rows of the card (`card`) and whether
+/// REVIEW is on.
+pub struct Ed<'a> {
+    pub frame: &'a Frame,
+    pub looks: &'a [Looks],
+    pub digits: usize,
+    pub ch: Vec<Kind>,
+    pub card: Option<Range<usize>>,
+    pub review: bool,
+}
+
+/// What `body` needs to know about the look: the geometry, the tones (none when no tint, fog or
+/// color of a box can be drawn: calm, or no palette or truecolor), the fade of the panel, the
+/// borders' words (depth), and whether the Visual selection is a gray background (SYN-5).
+pub struct Deck<'a> {
+    pub geo: Geo,
+    pub tones: Option<&'a Tones>,
+    pub fade: Fade,
+    pub chrome: Option<Chrome>,
+    pub gray: bool,
+    /// GREP-3: the rows of a content search, in place of the tree's.
+    pub live: Option<Vec<PRow>>,
+}
+
+/// What comes (the change style: text from disk, a proposal's words) is on green, what goes on red:
+/// the paints of the two, with their text grays.
+fn ink(t: &Tones, red: bool) -> Paint {
+    let (bg, fg) = if red { (t.del, t.del_text) } else { (t.add, t.add_text) };
+    Paint { bg: Some(bg), fg: Some(fg), fade: 0 }
+}
+
+/// A row of the panel, `pw` columns: the name with its marks (on green if the file changed), the
+/// selected row underlined.
+fn panel_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: Option<&Tones>) -> Line {
+    let mut line = Line::default();
+    if let Some((r, m)) = at {
+        let (text, used) = fit(&label(r, m), usize::from(pw));
+        line.put((&text, None, None, None));
+        let start = (2 * r.depth + 2).min(used);
+        let end = (start + fit(&r.name, usize::MAX).1 + usize::from(r.is_dir)).min(used);
+        if m.change {
+            line.row.spans.push((start as u16..end as u16, Style::Change));
+            line.paints.extend(t.map(|t| (start as u16..end as u16, ink(t, false))));
+        }
+        match m.hit {
+            Some(false) => line.row.spans.push((0..used as u16, Style::Secondary)),
+            Some(true) => line.looks.push((0..used as u16, Look::Bold)),
+            None => {}
+        }
+        if sel {
+            line.row.underline.push(0..used as u16);
+        }
+    }
+    line.pad(pw);
+    line
+}
+
+/// A row of a content search's results as a row of the panel, `pw` columns (GREP-3).
+fn live_line(pw: u16, p: Option<&PRow>) -> Line {
+    let mut l = Line::default();
+    if let Some(p) = p {
+        l.put((&p.text, None, None, None));
+        l.row.spans.extend((!p.dim.is_empty()).then(|| (p.dim.clone(), Style::Secondary)));
+        l.row.underline.extend(p.sel.then_some(0..l.cols));
+        l.looks.extend(p.bold.iter().map(|r| (r.clone(), Look::Bold)));
+    }
+    l.pad(pw);
+    l
+}
+
+/// The tint and the fade of a row of the panel (LOOK-2, LOOK-7): a changed file's row is tinted
+/// across; the panel recedes (but not a row on the change background), or fades by the distance
+/// from the cursor row while a search has the focus (but not its bold rows).
+fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
+    let fade = match fade {
+        Fade::Recede if !m.change => 45,
+        Fade::Find(c) if m.hit == Some(false) => find_fog(i.abs_diff(c)),
+        _ => 0,
+    };
+    Paint { bg: m.change.then_some(t.gain), fade, ..Paint::default() }
+}
+
+/// The rows of the editor, `ew` columns each where something is drawn behind the blanks and as
+/// they are else: si's rows with the looks; in flat and depth (`t`) the words of the change style
+/// on green or red, the tint of the rows that have a change, the joined words and the bar of the
+/// gutter; with a card, its tint, its half rows and the fog of the rows that are no change
+/// (LOOK-2, LOOK-5, LOOK-6).
+fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> {
+    let (rows, ew, to) = (usize::from(g.rows), g.ew, if g.boxed { g.ew } else { 0 });
+    let Some(ed) = ed else {
+        let help = |i: usize| {
+            let mut l = Line::default();
+            HELP.get(i).iter().for_each(|h| {
+                l.put((&fit(h, usize::from(ew)).0, Some(Style::Secondary), None, None))
+            });
+            l.pad(to);
+            l
+        };
+        return (0..rows).map(help).collect();
+    };
+    let gutter = ed.digits as u16 + 2;
+    let half = |glyph: &str, bg: Option<Rgb>| {
+        let mut l = Line::default();
+        l.pad(gutter);
+        l.put((&glyph.repeat(usize::from(ew.saturating_sub(gutter))), None, None, None));
+        l.paints.push((gutter..ew, Paint { fg: t.map(|t| t.card), bg, fade: 0 }));
+        l.pad(ew);
+        l
+    };
+    let mut out = Vec::with_capacity(rows);
+    for (i, e) in ed.frame.rows[..ed.frame.rows.len().saturating_sub(1)].iter().enumerate() {
+        let mut line =
+            Line { row: e.clone(), cols: fit(&e.text, usize::MAX).1 as u16, ..Line::default() };
+        // The Visual selection is a gray background instead of an underline (SYN-5), ahead of the syntax looks.
+        if gray {
+            line.looks =
+                take(&mut line.row.underline).into_iter().map(|r| (r, Look::Sel)).collect();
+        }
+        line.looks.extend(ed.looks[i].iter().cloned());
+        let kind = ed.ch.get(i).copied().unwrap_or(Kind::Plain);
+        if let (Some(t), true) = (t, kind != Kind::Plain) {
+            // Words that come are on green, the words of mine that a proposal would replace (Normal
+            // mode) and the words that go (REVIEW) on red; the gutter's symbol by its own char.
+            let sym = e.text.chars().next();
+            let mut words = Paints::new();
+            for (r, style) in &e.spans {
+                let red = match style {
+                    Style::Deleted => true,
+                    Style::Change if r.start == 0 => sym == Some('-'),
+                    Style::Change => kind == Kind::Hunk && !ed.review,
+                    _ => continue,
+                };
+                let mut paint = ink(t, red);
+                paint.fg = paint.fg.filter(|_| *style == Style::Change); // a struck word keeps its dim text
+                words.push((r.clone(), paint));
+            }
+            join(&e.text, &mut words, gutter);
+            if e.text.starts_with(' ') {
+                let bg = Some(if kind == Kind::Loss { t.del } else { t.add }); // the bar goes on over the wrapped rows
+                words.push((0..1, Paint { bg, ..Paint::default() }));
+            }
+            line.paints.extend(words);
+            line.pad(ew);
+            let raised = ed.card.as_ref().is_some_and(|c| c.contains(&i));
+            let bg = match kind {
+                Kind::Gain => t.gain,
+                Kind::Loss => t.loss,
+                _ if raised => t.card,
+                _ => t.hunk,
+            };
+            line.paints.push((gutter..ew, Paint { bg: Some(bg), ..Paint::default() }));
+        } else if let Some(c) = &ed.card {
+            let fade = card_fog(if i < c.start { c.start - i } else { i + 1 - c.end });
+            if fade > 0 {
+                line.paints.push((0..ew, Paint { fade, ..Paint::default() }));
+            }
+        }
+        line.pad(to);
+        if ed.card.as_ref().is_some_and(|c| c.start == i) {
+            out.push(half("▄", None));
+        }
+        out.push(line);
+        if ed.card.as_ref().is_some_and(|c| c.end == i + 1) {
+            out.push(half("▀", t.map(|t| t.shadow)));
+        }
+    }
+    out.resize_with(rows, Line::default);
+    out
+}
+
+/// A border row (LOOK-3): `ends` are its corners, `left` follows the first one and `right` comes
+/// before the last, with `─` between all of them, in `line`'s paint. `w` columns.
+fn border(w: u16, ends: [char; 2], line: Option<Paint>, left: &[Seg], right: &[Seg]) -> Line {
+    let mut l = Line::default();
+    l.put((&format!("{}─", ends[0]), None, None, line));
+    left.iter().for_each(|s| l.put(*s));
+    let used: u16 = right.iter().map(|s| fit(s.0, usize::MAX).1 as u16).sum();
+    l.put((&"─".repeat(usize::from(w.saturating_sub(l.cols + used + 2))), None, None, line));
+    right.iter().for_each(|s| l.put(*s));
+    l.put((&format!("─{}", ends[1]), None, None, line));
+    l
+}
+
+/// The keys of REVIEW in the bottom border (LOOK-3).
+const KEYS: [(&str, &str); 5] =
+    [("y", " accept"), ("n", " reject"), ("Y", " all"), ("N", " none"), ("Esc", " back")];
+
+/// The top and the bottom border of the panel's box and the editor's (LOOK-3).
+fn borders(g: &Geo, c: &Chrome, t: Option<&Tones>) -> [Line; 2] {
+    let fg = |c: Option<Rgb>| c.map(|c| Paint { fg: Some(c), ..Paint::default() });
+    let own = |panel: bool| panel == c.panel; // whether that box has the focus
+    let line = |panel: bool| fg(t.map(|t| if own(panel) { t.focus } else { t.line }));
+    let dim = |panel: bool| fg(t.filter(|_| !own(panel)).map(|t| t.dim));
+    let num = |n, panel| (n, None, None, fg(t.map(|t| if own(panel) { t.focus } else { t.dim })));
+    let (pw, ew) = (g.pw + 2, g.ew + 2);
+    let files = [num("¹", true), ("files", None, Some(Look::Bold), dim(true))];
+    // The editor's title keeps what the number, the badges and ` i/n ` leave of the border.
+    let mut room = usize::from(ew).saturating_sub(5);
+    let nth = c.review.map(|(i, n)| format!(" {i}/{n} ")).filter(|s| s.len() + 10 <= room);
+    room -= nth.as_ref().map_or(0, String::len);
+    // The changes on disk are on green; the proposals on the neutral surface, with primary text.
+    // Without a palette both are on the change style (reverse video).
+    let mut badges = vec![];
+    for (i, b) in c.badge.iter().enumerate().filter(|b| !b.1.is_empty()) {
+        let text = format!(" {b} ");
+        if text.len() + 11 <= room {
+            room -= text.len() + 1;
+            let surface = |t: &Tones| Paint { bg: Some(t.card), fg: Some(t.primary), fade: 0 };
+            badges.push((text, t.map(|t| if i == 0 { ink(t, false) } else { surface(t) })));
+        }
+    }
+    let path = c.title.as_deref().map(|p| short(p, room));
+    let mut left =
+        vec![num("²", false), (path.as_deref().unwrap_or(""), None, Some(Look::Bold), dim(false))];
+    for (text, paint) in &badges {
+        let style = paint.is_none().then_some(Style::Change);
+        left.extend([("─", None, None, line(false)), (text.as_str(), style, None, *paint)]);
+    }
+    let right = nth.as_deref().map(|n| (n, None, Some(Look::Bold), None));
+    let left = if path.is_some() { &left[..] } else { &[] };
+    let mut keys = vec![];
+    if c.review.is_some() {
+        keys.push((" REVIEW ", None, Some(Look::Bold), None));
+        let mut used = 14;
+        for (k, word) in KEYS {
+            used += k.len() + word.len() + 2;
+            if used > usize::from(ew) {
+                break;
+            }
+            let gap = if keys.len() == 1 { " " } else { "  " };
+            keys.extend([(gap, None, None, None), (k, None, Some(Look::Bold), None)]);
+            keys.push((word, Some(Style::Secondary), None, None));
+        }
+        keys.push((" ", None, None, None));
+    }
+    let (mut top, mut bottom) = (Line::default(), Line::default());
+    if g.pw > 0 {
+        top.add(border(pw, ['╭', '╮'], line(true), &files, &[]));
+        bottom.add(border(pw, ['╰', '╯'], line(true), &[], &[]));
+    }
+    top.add(border(ew, ['╭', '╮'], line(false), left, right.as_slice()));
+    bottom.add(border(ew, ['╰', '╯'], line(false), &keys, &[]));
+    [top, bottom]
+}
+
+/// The body rows of the screen (all but the status line), their looks and their paints: the panel
+/// (the rows `panel`, `sel` the one that is underlined), a column of space and the editor; in depth
+/// the boxes around them, with a title, the keys and the overview ruler in their borders.
 pub fn body(
-    w: u16,
-    h: u16,
-    pw: u16,
+    d: &Deck,
     panel: &[(tree::Row, Mark)],
     sel: Option<usize>,
-    ed: Option<(&Frame, &[Looks])>,
-    gray: bool,
-) -> (Vec<Row>, Vec<Looks>) {
-    let off = if pw > 0 { pw + 1 } else { 0 };
-    let (mut rows, mut all) = (Vec::with_capacity(usize::from(h)), vec![]);
-    for i in 0..usize::from(h) - 1 {
-        let (mut row, mut looks) = (Row::default(), Looks::new());
-        if pw > 0 {
-            let at = panel.get(i);
-            let (text, used) =
-                at.map_or((String::new(), 0), |(r, m)| fit(&label(r, m), usize::from(pw)));
-            row.text = format!("{text}{} ", " ".repeat(usize::from(pw) - used));
-            if let Some((r, m)) = at {
-                let start = (2 * r.depth + 2).min(used);
-                let end = (start + fit(&r.name, usize::MAX).1 + usize::from(r.is_dir)).min(used);
-                if m.change {
-                    row.spans.push((start as u16..end as u16, Style::Change));
-                }
-                match m.hit {
-                    Some(false) => row.spans.push((0..used as u16, Style::Secondary)),
-                    Some(true) => looks.push((0..used as u16, Look::Bold)),
-                    None => {}
-                }
-            }
-            if sel == Some(i) {
-                row.underline.push(0..used as u16);
-            }
+    ed: Option<&Ed>,
+) -> (Vec<Row>, Vec<Looks>, Vec<Paints>) {
+    let (g, t, c) = (&d.geo, d.tones, d.chrome.as_ref().filter(|_| d.geo.boxed));
+    let editor = editor(g, ed, d.gray, t);
+    let mut out: (Vec<Row>, Vec<Looks>, Vec<Paints>) = Default::default();
+    let mut push = |l: Line| {
+        out.0.push(l.row);
+        out.1.push(l.looks);
+        out.2.push(l.paints);
+    };
+    let [top, bottom] = c.map_or([None, None], |c| borders(g, c, t).map(Some));
+    top.into_iter().for_each(&mut push);
+    let ink = |s: &str, fg: Option<Rgb>| {
+        let mut l = Line::default();
+        l.put((s, None, None, fg.map(|c| Paint { fg: Some(c), ..Paint::default() })));
+        l
+    };
+    let edge = |panel: bool| {
+        let own = c.is_some_and(|c| c.panel == panel);
+        ink("│", t.map(|t| if own { t.focus } else { t.line }))
+    };
+    for (i, e) in editor.into_iter().enumerate() {
+        let mut line = Line::default();
+        if c.is_some() && g.pw > 0 {
+            line.add(edge(true));
         }
-        if let Some((e, l)) = ed.map(|(f, l)| (&f.rows[i], &l[i])) {
-            row.text += &e.text;
-            row.spans.extend(e.spans.iter().map(|(r, s)| (r.start + off..r.end + off, *s)));
-            let picked = e.underline.iter().map(|r| r.start + off..r.end + off);
-            if gray {
-                looks.extend(picked.map(|r| (r, Look::Sel)));
+        if g.pw > 0 {
+            let found = d.live.as_ref().map(|rows| rows.get(i));
+            let mut p = match found {
+                Some(row) => live_line(g.pw, row),
+                None => panel_line(g.pw, panel.get(i), sel == Some(i), t),
+            };
+            // (the rows of a search fade by their distance from the cursor, but the ones with a match)
+            let paint = match (found, d.fade, t) {
+                (Some(Some(r)), Fade::Find(c), Some(_)) if r.bold.is_empty() => {
+                    Some(Paint { fade: find_fog(i.abs_diff(c)), ..Paint::default() })
+                }
+                (Some(_), ..) => None,
+                _ => t.zip(panel.get(i)).map(|(t, (_, m))| panel_paint(i, m, d.fade, t)),
+            };
+            p.paints.extend(paint.filter(|p| *p != Paint::default()).map(|p| (0..g.pw, p)));
+            line.add(p);
+            if c.is_some() {
+                line.add(edge(true));
             } else {
-                row.underline.extend(picked);
+                line.put((" ", None, None, None));
             }
-            looks.extend(l.iter().map(|(r, k)| (r.start + off..r.end + off, *k)));
-        } else if let Some(help) = HELP.get(i) {
-            let (text, used) = fit(help, usize::from(w - off));
-            row.text += &text;
-            row.spans.push((off..off + used as u16, Style::Secondary));
         }
-        rows.push(row);
-        all.push(looks);
+        if c.is_some() {
+            line.add(edge(false));
+        }
+        line.add(e);
+        if let Some(c) = c {
+            let tick = c.ruler.get(i).copied().unwrap_or_default();
+            line.add(match tick {
+                Tick::Gain => ink("┃", t.map(|t| t.add)),
+                Tick::Loss => ink("┃", t.map(|t| t.del)),
+                Tick::Shown if t.is_some() => ink("┃", t.map(|t| t.line)),
+                _ => edge(false),
+            });
+        }
+        push(line);
     }
-    (rows, all)
+    bottom.into_iter().for_each(&mut push);
+    out
 }
 
 /// How `cs[i]` of the buffer is written in a row of the editor when it starts at column `col`

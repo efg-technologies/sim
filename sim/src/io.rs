@@ -1,9 +1,9 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, GREP-4, GREP-5, GREP-7, GREP-8
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the history file in sim's state directory, and the
 //! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
 use crate::grep::{Batch, Group, HEAD, Line, MAX_LINES, Query, Request, is_binary, parse_rg};
-use crate::layout;
+use crate::layout::{self, Skin};
 use crate::rank::History;
 use crate::sim::{Found, Hl, Id, Opened, Pv, Req, SimEvent};
 use crate::syn::{Spans, Syn};
@@ -66,6 +66,8 @@ pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
 pub enum Job {
     /// The history of opened files, to save (MARK-2).
     History(History),
+    /// The look that was chosen, to save (LOOK-1).
+    Look(Skin),
     /// A snapshot that a dead session left for this file, to delete when ours replaces it.
     Hold(Id, String, u32),
     /// What this file's App asked of the journal: a `Snapshot`, an `Unsnapshot` (SAFE-6), a
@@ -99,6 +101,9 @@ pub fn journal_thread(
             match job {
                 Job::History(h) => {
                     hist.iter().filter_map(|d| save_history(d, &h).err()).for_each(|e| say(1, e))
+                }
+                Job::Look(k) => {
+                    hist.iter().filter_map(|d| save_look(d, k).err()).for_each(|e| say(1, e))
                 }
                 Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
                 Job::App(_, Effect::Remember { path, line, col }) => {
@@ -384,24 +389,37 @@ pub fn load_history(dir: &Path) -> History {
         .map_or_else(|_| History::default(), |text| History::parse(&text))
 }
 
-/// Saves the history in `dir` (made with 0700 if needed): a temporary file (0600) is written and
-/// synced, then renamed over the old one, so the file is always whole.
+/// LOOK-1: the look saved in `dir` (`save_look`); depth when there is none, or it says anything else.
+pub fn load_look(dir: &Path) -> Skin {
+    fs::read_to_string(dir.join("look")).ok().and_then(|t| Skin::parse(&t)).unwrap_or(Skin::Depth)
+}
+
+pub fn save_look(dir: &Path, skin: Skin) -> Result<(), String> {
+    save_state(dir, "look", &format!("{}\n", skin.name()))
+}
+
 pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {
+    save_state(dir, "history", &history.serialize())
+}
+
+/// Saves the file `name` in `dir` (made with 0700 if needed): a temporary file (0600) is written
+/// and synced, then renamed over the old one, so the file is always whole.
+fn save_state(dir: &Path, name: &str, text: &str) -> Result<(), String> {
     let fail = |what: &str, e: std::io::Error| {
-        format!("history: cannot {what} {}: {}", layout::short(&dir.to_string_lossy(), 30), why(&e))
+        format!("{name}: cannot {what} {}: {}", layout::short(&dir.to_string_lossy(), 30), why(&e))
     };
     if fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink()) {
         return Err(fail("use", io::Error::other("it is a link")));
     }
     DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(|e| fail("create", e))?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| fail("protect", e))?;
-    let tmp = dir.join(format!("history.{}.tmp", std::process::id()));
+    let tmp = dir.join(format!("{name}.{}.tmp", std::process::id()));
     let _ = fs::remove_file(&tmp);
     let write = || -> std::io::Result<()> {
         let mut f = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
-        f.write_all(history.serialize().as_bytes())?;
+        f.write_all(text.as_bytes())?;
         f.sync_all()?;
-        fs::rename(&tmp, dir.join("history"))
+        fs::rename(&tmp, dir.join(name))
     };
     write().map_err(|e| {
         let _ = fs::remove_file(&tmp);

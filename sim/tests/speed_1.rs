@@ -7,6 +7,9 @@
 mod common;
 use common::*;
 use si::core::app::{Event, Key};
+use si::core::vi::Mode;
+use sim::color::Syntax;
+use sim::layout::Skin;
 use sim::paint::Painter;
 use sim::sim::{SimEffect, SimEvent};
 use std::time::{Duration, Instant};
@@ -19,12 +22,14 @@ struct Bench {
     r: Rig,
     term: Painter<Vec<u8>>,
     size: (u16, u16),
+    /// What the events took in `Sim::update` and in the painter, all together (for the print).
+    spent: (Duration, Duration),
 }
 
 impl Bench {
     /// 100,000 lines in `big.rs`, a tree of some 300 files beside it, the panel open, the cursor
     /// in the middle of the file and the focus in the text.
-    fn new(size: (u16, u16), colored: bool) -> Bench {
+    fn new(size: (u16, u16), colored: bool, skin: Skin) -> Bench {
         let code = code_text(100_000, 70);
         let mut files: Vec<String> =
             (0..300).map(|i| format!("dir{}/file{i}.rs", i % 12)).collect();
@@ -32,6 +37,8 @@ impl Bench {
         let names: Vec<&str> = files.iter().map(String::as_str).collect();
         // A history as full as it gets (MARK-2: 1,000 files), for the marks of the panel.
         let mut r = rig_env("speed-1", &names, &["big.rs"], size, |e| {
+            // The look, with a palette and truecolor, so that the tints, the fog and the card are drawn too (LOOK-3 to LOOK-7).
+            (e.skin, e.syn) = (skin, Syntax::new(true));
             for i in 0..1000 {
                 e.history.record(
                     &e.cwd.join(format!("dir{}/file{i}.rs", i % 12)).to_string_lossy(),
@@ -40,6 +47,7 @@ impl Bench {
             }
         });
         r.hold_spans = true; // parsing 50,000 lines takes seconds: once, and only if the run is to be colored
+        r.send(SimEvent::Term(Event::Bg((0x1e, 0x1e, 0x1e))));
         r.keys("<C-n>llll<Esc>"); // the panel open, some directories expanded
         r.keys("50000G");
         if colored {
@@ -53,18 +61,21 @@ impl Bench {
             b.lines() >= 100_000 && b.line_of(b.cursor) == 49_999,
             "the big file, in the middle"
         );
-        Bench { r, term: Painter::new(Vec::new()), size }
+        Bench { r, term: Painter::new(Vec::new()), size, spent: Default::default() }
     }
 
     /// The time of one event: the state's update and the painter's bytes into memory.
     fn one(&mut self, ev: SimEvent) -> Duration {
         let t = Instant::now();
-        for e in self.r.sim.update(ev) {
+        let fx = self.r.sim.update(ev);
+        let mid = t.elapsed();
+        for e in fx {
             if let SimEffect::Render(f) = e {
                 self.term.draw(f).unwrap();
             }
         }
         let d = t.elapsed();
+        self.spent = (self.spent.0 + mid, self.spent.1 + d - mid);
         self.term.out.clear();
         d
     }
@@ -127,6 +138,31 @@ fn panel(b: &mut Bench) -> Times {
     out
 }
 
+/// LOOK-5, LOOK-6: REVIEW in depth on the big file with twenty proposals around the cursor: the card
+/// is raised, the rest fades, and the App's frame is rendered two rows shorter. Each `]c` and `[c`
+/// is timed (the proposals come from the disk changing the lines that were edited here, which
+/// is not timed).
+fn reviews(b: &mut Bench) -> Times {
+    let id = b.r.sim.bufs[0].id;
+    let old = std::fs::read_to_string(b.r.cwd.join("big.rs")).unwrap();
+    let mut lines: Vec<String> = old.lines().map(str::to_string).collect();
+    for i in 0..20 {
+        b.r.keys(&format!("{}GA?<Esc>", 49_990 + 3 * i));
+        lines[49_989 + 3 * i].push('!');
+    }
+    b.r.send(SimEvent::App(id, disk((lines.join("\n") + "\n").as_bytes())));
+    assert_eq!(b.r.app().buf.hunks.len(), 20);
+    b.time("gg");
+    let mut out = vec![];
+    for _ in 0..100 {
+        out.extend(b.time("]c]c]c]c]c]c]c]c]c]c[c[c[c[c[c[c[c[c[c[c"));
+    }
+    assert_eq!(b.r.app().vi.mode, Mode::Review);
+    let fog = b.r.shot.paints.iter().flatten().any(|(_, p)| p.fade > 0);
+    assert_eq!(fog, b.r.sim.skin == Skin::Depth, "the fog is drawn in depth");
+    out
+}
+
 /// The mouse (PTR-1) on the big file with the panel open: clicks in the text, drags (a press, some
 /// moves, a release), the wheel in the text (three lines a notch, the cursor keeping its context)
 /// and over the panel. Each event is timed, as a key is.
@@ -177,48 +213,59 @@ fn mouse(b: &mut Bench) -> Times {
 fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     release_only();
     let mut failed = vec![];
-    for size in [(80, 24), (240, 60)] {
-        type Kind = fn(&mut Bench) -> Times;
-        let kinds: [(&str, Kind); 5] = [
-            ("motions", motions),
-            ("insert", inserts),
-            ("delete", deletes),
-            ("panel", panel),
-            ("mouse", mouse),
-        ];
-        for (name, run) in kinds {
-            run(&mut Bench::new(size, false)); // warm up: page in the text and the allocator
-            let mut b = Bench::new(size, true);
-            let mut t = run(&mut b);
-            t.sort();
-            let (p50, p99, max) = (percentile(&t, 50), percentile(&t, 99), t[t.len() - 1]);
-            eprintln!(
-                "SPEED-1 {}x{} {name:8} keys {:5}  p50 {:>8.1?}  p99 {:>8.1?}  max {:>8.1?} ({:?})",
-                size.0,
-                size.1,
-                t.len(),
-                p50.0,
-                p99.0,
-                max.0,
-                max.1
-            );
-            if name == "mouse" {
-                for label in ['c', 'd', 'w', 'r'] {
-                    let of: Times = t.iter().copied().filter(|k| k.1 == Key::Char(label)).collect();
-                    eprintln!(
-                        "          {label} {:5}  p99 {:>8.1?}  max {:>8.1?}",
-                        of.len(),
-                        percentile(&of, 99).0,
-                        of[of.len() - 1].0
-                    );
+    // Each look: calm is si's; depth has the boxes, the tints, the card and the fog (LOOK-3 to LOOK-7).
+    for skin in [Skin::Calm, Skin::Depth] {
+        for size in [(80, 24), (240, 60)] {
+            type Kind = fn(&mut Bench) -> Times;
+            let kinds: [(&str, Kind); 6] = [
+                ("motions", motions),
+                ("insert", inserts),
+                ("delete", deletes),
+                ("panel", panel),
+                ("mouse", mouse),
+                ("review", reviews),
+            ];
+            for (name, run) in kinds {
+                // `SPEED_1_ONLY=review` runs the kinds named, for a look at one of them
+                if std::env::var("SPEED_1_ONLY").is_ok_and(|o| !o.split(',').any(|k| k == name)) {
+                    continue;
                 }
-            }
-            assert!(t.len() >= 1000);
-            // A wheel notch and the first move of a drag render twice (the cursor goes where the
-            // first render showed it must), so an event of the mouse has twice a key's time (PTR-1).
-            let most = if name == "mouse" { 2 * P99 } else { P99 };
-            if p99.0 > most {
-                failed.push(format!("{name} {}x{}: p99 {:?}", size.0, size.1, p99.0));
+                run(&mut Bench::new(size, false, skin)); // warm up: page in the text and the allocator
+                let mut b = Bench::new(size, true, skin);
+                let mut t = run(&mut b);
+                t.sort();
+                let (p50, p99, max) = (percentile(&t, 50), percentile(&t, 99), t[t.len() - 1]);
+                eprintln!(
+                    "SPEED-1 {skin:?} {}x{} {name:8} keys {:5}  p50 {:>8.1?}  p99 {:>8.1?}  max {:>8.1?} ({:?})  mean: update {:>7.1?}, painter {:>7.1?}",
+                    size.0,
+                    size.1,
+                    t.len(),
+                    p50.0,
+                    p99.0,
+                    max.0,
+                    max.1,
+                    b.spent.0 / t.len() as u32,
+                    b.spent.1 / t.len() as u32
+                );
+                if name == "mouse" {
+                    for label in ['c', 'd', 'w', 'r'] {
+                        let of: Times =
+                            t.iter().copied().filter(|k| k.1 == Key::Char(label)).collect();
+                        eprintln!(
+                            "          {label} {:5}  p99 {:>8.1?}  max {:>8.1?}",
+                            of.len(),
+                            percentile(&of, 99).0,
+                            of[of.len() - 1].0
+                        );
+                    }
+                }
+                assert!(t.len() >= 1000);
+                // A wheel notch and the first move of a drag render twice (the cursor goes where the
+                // first render showed it must), so an event of the mouse has twice a key's time (PTR-1).
+                let most = if name == "mouse" { 2 * P99 } else { P99 };
+                if p99.0 > most {
+                    failed.push(format!("{skin:?} {name} {}x{}: p99 {:?}", size.0, size.1, p99.0));
+                }
             }
         }
     }

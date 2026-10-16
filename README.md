@@ -9,7 +9,7 @@ This repository holds two editors built on one core:
 | | **si** | **sim** |
 |---|---|---|
 | For | `$EDITOR` anywhere: git commit, Claude Code's prompt editing, quick fixes, over ssh | your own machine, all day |
-| Looks | no syntax highlighting; color is used only for change | syntax colors from your terminal's palette, never the change color's hue |
+| Looks | no syntax highlighting; color is used only for change | syntax colors from your terminal's palette, never the change color's hue; three looks (`zl`): calm, flat (a diff in green and red with tinted rows) and depth (btop-like boxes, a gradient, a raised card in REVIEW) |
 | Adds | — | a project tree, typing to find files and to search their contents, changed and likely files marked, several files open, the mouse |
 | Size | ≤ 3,600 lines of Rust (~1% of Neovim's C) | ≤ 3,500 more |
 

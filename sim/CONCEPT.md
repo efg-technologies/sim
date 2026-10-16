@@ -36,7 +36,9 @@ No study compares fuzzy finders with trees, or shows that marking changed files 
 
 ## What sim adds to si
 
-A tree panel of the project, typing to light up matches in it, searching the contents of the files with the results in the panel and a preview in the editor, changed and likely files marked in it, several files open at once (each one a complete si), syntax highlighting in color, and the mouse.
+A tree panel of the project, typing to light up matches in it, searching the contents of the files with the results in the panel and a preview in the editor, changed and likely files marked in it, several files open at once (each one a complete si), syntax highlighting in color, the mouse, and three looks.
+
+The looks (`zl` goes round them, and the choice is remembered) differ in how much of the screen is drawn to help the eye find the change. **Calm** is si's own: four styles, one chromatic background (blue, hue 250). **Flat** shows a diff the way GitHub, VS Code and delta do: what comes is on green and what goes on red, and every row of a change has a faint tint behind it (green for a line that gained or changed text, red for a deletion point, a neutral gray for a hunk, which holds both), so that a change is a band across the screen and not only a patch of words. **Depth**, the default, adds btop-like boxes around the tree and the text, an overview ruler on the text's right border, and a gradient: the text fades into the page by its distance from the cursor, the tree by its distance from the open file, and in REVIEW the hunk being decided is raised as a neutral card with its own shadow while whatever is no change fades by its distance from the card. The owner chose red and green here and set color vision aside for these two looks, so P3's single chromatic hue holds in calm only; calm is the look for anyone who cannot tell red from green. Without a palette or truecolor flat is calm and depth is calm in its boxes. Like the rest of sim's choices of look, these are hypotheses: no study compares them with calm, and the M6-style benchmark (time and accuracy to find a change) would.
 
 ## What we don't build
 

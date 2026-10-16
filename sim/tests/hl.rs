@@ -176,7 +176,7 @@ fn syn_1_the_painter_writes_sgr_31_to_36_without_a_palette_and_never_blue() {
         ],
         vec![],
     ];
-    p.draw(Screen { frame, looks, syn: Syntax::default() }).unwrap();
+    p.draw(Screen { frame, looks, paints: vec![], syn: Syntax::default() }).unwrap();
     let out = String::from_utf8(p.out).unwrap();
     for sgr in [
         "\x1b[0;1;31mfn",
@@ -212,7 +212,7 @@ fn syn_1_the_painter_counts_columns_by_si_s_rule_so_spans_stay_on_their_chars() 
     };
     let looks = vec![vec![(c..c + 1, Look::Kw)]];
     let mut p = Painter::new(Vec::new());
-    p.draw(Screen { frame, looks, syn: Syntax::default() }).unwrap();
+    p.draw(Screen { frame, looks, paints: vec![], syn: Syntax::default() }).unwrap();
     let out = String::from_utf8(p.out).unwrap();
     // A zero-width char (the selector, the joiner) goes with the column it stands on, as in si's Term.
     assert!(out.contains("\x1b[0;7m\u{fe0f}b\x1b[0m"), "the change style covers b only: {out:?}");
@@ -245,7 +245,7 @@ fn syn_1_the_change_background_wins_over_a_color_and_a_color_never_makes_a_backg
             pal: None,
         };
         let looks = vec![vec![(0..2, Look::Kw), (0..4, Look::Sel)], vec![]];
-        p.draw(Screen { frame, looks, syn: palette("1e/1e/1e") }).unwrap();
+        p.draw(Screen { frame, looks, paints: vec![], syn: palette("1e/1e/1e") }).unwrap();
         String::from_utf8(p.out).unwrap()
     };
     let on_change = draw(Style::Change);
@@ -484,7 +484,7 @@ fn syn_1_the_change_background_wins_over_every_syntax_color_under_si_s_palette()
             pal: Some(pal),
         };
         let looks = vec![vec![(0..2, Look::Kw), (2..3, Look::Com), (3..4, Look::Sel)], vec![]];
-        p.draw(Screen { frame, looks, syn: palette("1e/1e/1e") }).unwrap();
+        p.draw(Screen { frame, looks, paints: vec![], syn: palette("1e/1e/1e") }).unwrap();
         String::from_utf8(p.out).unwrap()
     };
     let on_change = draw(Style::Change);

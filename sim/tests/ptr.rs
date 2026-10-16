@@ -524,14 +524,19 @@ fn ptr_2_a_modified_file_stays_as_it_is_and_nothing_is_saved_by_the_mouse() {
 fn ptr_2_any_mouse_event_at_any_place_in_any_mode_edits_nothing_and_never_panics() {
     // from a roomy screen to the smallest one: a panel too narrow to be drawn, two rows
     for (n, size) in [(50, (50, 14)), (30, (30, 3)), (20, (6, 2)), (10, (80, 24)), (11, (3, 5))] {
-        fuzz(n, size);
+        fuzz(n, size, sim::layout::Skin::Calm);
+        // The boxes (LOOK-3) move the text, the panel and the borders: the same, in depth.
+        fuzz(n + 100, size, sim::layout::Skin::Depth);
     }
 }
 
-fn fuzz(seed: u64, size: (u16, u16)) {
+fn fuzz(seed: u64, size: (u16, u16), skin: sim::layout::Skin) {
     let big: String = lines(60);
     let files = [&format!("f.txt={big}"), "日本語.txt=日本語\n\ttab\n", "e.txt="];
-    let mut r = rig_sized(&format!("ptr2-fuzz{seed}"), &files, &["f.txt"], size);
+    let mut r = rig_env(&format!("ptr2-fuzz{seed}"), &files, &["f.txt"], size, |e| {
+        (e.skin, e.syn) = (skin, sim::color::Syntax::new(true));
+    });
+    r.send(SimEvent::Term(si::core::app::Event::Bg((0x1e, 0x1e, 0x1e))));
     r.keys("<C-n><Esc>:e 日本語.txt\n");
     let text = r.sim.bufs.iter().map(|b| b.app.buf.text.to_string()).collect::<Vec<_>>();
     let mut rng = Rng(0x2545_f491_4f6c_dd1d ^ seed);

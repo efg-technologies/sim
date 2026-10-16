@@ -31,14 +31,15 @@ impl Sim {
     /// nothing with them. Only the left button acts; the others, and a pointer that only moves,
     /// are ignored.
     pub(super) fn mouse(&mut self, m: MouseEvent, out: Out) {
-        let (h, (pw, _)) = (self.size.1, self.widths());
-        let off = if pw > 0 { pw + 1 } else { 0 };
-        let (x, y, body) = (m.column, m.row, m.row + 1 < h);
-        let (panel, text) = (body && x < pw, body && x >= off);
+        let g = self.geo();
+        let (x, y) = (m.column, m.row.saturating_sub(g.y0));
+        let body = m.row >= g.y0 && y < g.rows;
+        let (panel, text) =
+            (body && x >= g.px && x - g.px < g.pw, body && x >= g.ex && x - g.ex < g.ew);
         match m.kind {
             K::Down(B::Left) if panel => self.click_panel(usize::from(y), out),
-            K::Down(B::Left) if text => self.press(x - off, y, out),
-            K::Drag(B::Left) => self.drag(x.saturating_sub(off), y.min(h - 2), out),
+            K::Down(B::Left) if text => self.press(x - g.ex, y, out),
+            K::Drag(B::Left) => self.drag(x.saturating_sub(g.ex), y.min(g.rows - 1), out),
             K::Up(B::Left) => self.drag = None,
             K::ScrollUp | K::ScrollDown if panel => self.roll(m.kind == K::ScrollUp),
             K::ScrollUp | K::ScrollDown if text => self.wheel(m.kind == K::ScrollUp, out),
@@ -70,6 +71,8 @@ impl Sim {
     /// the line is told, by the gutter: the point is the start of the row.
     fn char_at(&self, x: u16, y: u16) -> Option<usize> {
         let b = self.bufs.get(self.cur)?;
+        // The half rows around a card (LOOK-5) are not rows of the frame.
+        let y = self.card(&self.changes()).map_or(y, |c| layout::unshift(y.into(), &c) as u16);
         let (buf, x) = (&b.app.buf, if b.app.vi.mode == Mode::Review { 0 } else { usize::from(x) });
         let digits = buf.lines().to_string().len().max(3);
         let (l, i) = layout::hit(b.frame.as_ref()?, digits, &|l| text_of(buf, l), (x, y.into()))?;
@@ -186,7 +189,7 @@ impl Sim {
 
     /// The wheel over the panel scrolls its rows three a notch, and its cursor stays on the screen.
     fn roll(&mut self, up: bool) {
-        let (rows, n) = (usize::from(self.size.1) - 1, self.view().visible());
+        let (rows, n) = (usize::from(self.geo().rows), self.view().visible());
         let p = &mut self.panel;
         p.top = if up {
             p.top.saturating_sub(NOTCH)
