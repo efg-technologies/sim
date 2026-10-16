@@ -151,6 +151,7 @@ fn main() -> ExitCode {
     let (r1, r2) = (sim.root.clone(), sim.root.clone());
     let files = sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1)));
     let git = sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2)));
+    let reads = sio::Reads::default();
     let (mut painter, tmux) = (Painter::new(io::stdout()), env::var_os("TMUX").is_some());
     let (mut watchers, mut local, mut first) = (HashMap::<Id, Held>::new(), vec![], true);
     let (mut pgids, mut waiting) = (HashMap::<Id, u32>::new(), true);
@@ -161,10 +162,11 @@ fn main() -> ExitCode {
                 match e {
                     SimEffect::Render(f) => frame = Some(f),
                     SimEffect::Read(dir) => {
-                        let t = tx.clone();
+                        let (t, reads, ticket) = (tx.clone(), reads.clone(), reads.start());
                         thread::spawn(move || {
                             let r = sio::read_dir(&dir);
-                            drop(t.send(SimEvent::Listing(dir, r)));
+                            let to = dir.clone();
+                            reads.answer(&to, ticket, || drop(t.send(SimEvent::Listing(dir, r))));
                         });
                     }
                     SimEffect::Files => drop(files.send(())),
