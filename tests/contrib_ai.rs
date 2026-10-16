@@ -166,11 +166,14 @@ fn the_blank_lines_ending_the_text_are_the_texts_not_claudes() {
         let r = run(&t, &["go"], input.as_bytes(), &[]);
         assert_eq!((r.code, r.out.as_str()), (0, want), "reply {reply:?} for {input:?}");
     }
-    // Text of nothing but blanks has nothing to rewrite: it is not sent, and not an error.
-    t.stub("echo ran > \"$0.ran\"; printf 'x\\n'");
+    // Text of nothing but blanks still goes to the model (`:.!ai 'write a haiku'` on an empty line);
+    // if nothing comes back there was nothing to rewrite, and the text stays as it was.
+    t.stub("printf ''");
     let r = run(&t, &["go"], b"\n\n", &[]);
-    assert_eq!((r.code, r.out.as_str()), (0, "\n\n"));
-    assert!(!t.0.join("bin").join("claude.ran").exists());
+    assert_eq!((r.code, r.out.as_str(), r.err.as_str()), (0, "\n\n", ""));
+    t.stub("printf 'five\\nseven\\n'");
+    let r = run(&t, &["haiku"], b"\n", &[]);
+    assert_eq!((r.code, r.out.as_str()), (0, "five\nseven\n"));
 }
 
 #[test]
