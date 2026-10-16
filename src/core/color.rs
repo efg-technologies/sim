@@ -184,14 +184,16 @@ fn change(bg: Rgb) -> Rgb {
 }
 
 /// The gray nearest to `primary`, on its side, with |Lc| of `TEXT_ON_CHANGE` + MARGIN against
-/// `change`; black or white if that is out of reach.
+/// `change`; if that is out of reach, black or white, whichever reads better on `change`.
 fn change_text(bg: Rgb, primary: Rgb, change: Rgb) -> Rgb {
-    let reach = |g: &u8| apca((*g, *g, *g), change).abs() >= TEXT_ON_CHANGE + MARGIN;
+    let lc = |g: u8| apca((g, g, g), change).abs();
+    let reach = |g: &u8| lc(*g) >= TEXT_ON_CHANGE + MARGIN;
     let g = if apca(primary, bg) < 0.0 {
         (primary.0..=255).find(reach).unwrap_or(255)
     } else {
         (0..=primary.0).rev().find(reach).unwrap_or(0)
     };
+    let g = if lc(255 - g) > lc(g) && !reach(&g) { 255 - g } else { g };
     (g, g, g)
 }
 

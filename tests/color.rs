@@ -172,6 +172,31 @@ fn vis_4_text_on_change_reaches_75() {
     }
 }
 
+/// Where 75 is out of reach on primary's side (a mid-luminance background, whose change color is
+/// light), text on the change background is the better of black and white, not the worse: white on
+/// a light blue over an orange terminal was |Lc| 30, black on it 76.
+#[test]
+fn vis_4_text_on_change_is_never_worse_than_black_or_white_on_any_background() {
+    let steps = [0u8, 32, 64, 96, 128, 160, 192, 224, 255];
+    for r in steps {
+        for g in steps {
+            for b in steps {
+                let p = palette((r, g, b));
+                let lc = |t: u8| apca((t, t, t), p.change).abs();
+                let got = apca(p.change_text, p.change).abs();
+                let best = lc(0).max(lc(255));
+                assert!(
+                    got >= 75.0 || got >= best - 0.001,
+                    "{}: {} on change {} |Lc| {got:.1}, black or white gives {best:.1}",
+                    hex((r, g, b)),
+                    hex(p.change_text),
+                    hex(p.change)
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn vis_4_change_is_a_calm_tint_not_a_shout() {
     // Just above the 15 + 0.5 floor, as far as the color vision filter allows.
@@ -190,15 +215,19 @@ fn vis_4_palette_is_total_and_deterministic() {
         assert_eq!(p, palette(bg));
         assert!(is_gray(p.primary) && is_gray(p.secondary));
         assert!(apca(p.primary, bg).abs() >= apca(p.secondary, bg).abs() - 1e-9);
-        // change_text: gray, on primary's side, and the extreme if it cannot reach 75.
+        // change_text: gray, on primary's side, and the extreme if it cannot reach 75; unless the other
+        // extreme reads better on the change color then (VIS-4).
         let t = p.change_text;
         assert!(is_gray(t));
         let light = apca(p.primary, bg) < 0.0;
-        assert!(if light { t.0 >= p.primary.0 } else { t.0 <= p.primary.0 }, "{bg:?}: {p:?}");
-        assert!(
-            apca(t, p.change).abs() >= 75.5 || t.0 == if light { 255 } else { 0 },
-            "{bg:?}: {p:?}"
-        );
+        let (own, other) = (if light { 255 } else { 0 }, if light { 0 } else { 255 });
+        let lc = |g: u8| apca((g, g, g), p.change).abs();
+        if t.0 == other && p.primary.0 != other {
+            assert!(lc(other) > lc(own) && lc(own) < 75.5, "{bg:?}: {p:?}");
+        } else {
+            assert!(if light { t.0 >= p.primary.0 } else { t.0 <= p.primary.0 }, "{bg:?}: {p:?}");
+            assert!(lc(t.0) >= 75.5 || t.0 == own, "{bg:?}: {p:?}");
+        }
     }
     // A few colored backgrounds, and the extremes of each channel.
     for bg in [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (12, 34, 56), (200, 100, 50)] {
