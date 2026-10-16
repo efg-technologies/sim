@@ -205,6 +205,23 @@ fn mark_2_a_save_that_fails_says_why_and_leaves_no_litter() {
 }
 
 #[test]
+fn mark_2_a_history_directory_that_is_a_link_is_not_written_through() {
+    // The state directory can be somewhere others can make links (an `XDG_STATE_HOME` in a shared
+    // directory): writing through a link would put the file, and the mode, in any directory.
+    let t = temp_dir("mark2-link");
+    let elsewhere = t.0.join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::set_permissions(&elsewhere, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let dir = t.0.join("sim");
+    std::os::unix::fs::symlink(&elsewhere, &dir).unwrap();
+    let err = io::save_history(&dir, &opened(&[("/p/a", &[MIN])])).unwrap_err();
+    assert!(err.starts_with("history: cannot use") && err.contains("link"), "{err}");
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0, "nothing was written there");
+    let mode = std::fs::metadata(&elsewhere).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o755, "and its mode was not changed");
+}
+
+#[test]
 fn mark_2_an_unreadable_or_foreign_history_file_loads_as_empty() {
     let t = temp_dir("mark2-bad");
     std::fs::write(t.0.join("history"), [0xff, 0xfe, 0x00, 0x80]).unwrap();
