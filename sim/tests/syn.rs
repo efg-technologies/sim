@@ -356,6 +356,33 @@ fn syn_4_the_languages_the_author_uses_daily_have_a_syntax() {
 }
 
 #[test]
+fn syn_4_javascript_is_read_with_typescript_s_syntax_because_the_one_for_javascript_loops() {
+    // bat's "JavaScript" syntax loops for ever in syntect 5.3 with the pure-Rust regex engine on
+    // `x = y /* c */`, a statement without a semicolon that ends in a comment, and has no `.mjs`,
+    // `.cjs` or `.jsx` (bat maps those itself). TypeScript's syntax reads JavaScript, and does not.
+    let name = |file: &str, first: &str| Syn::new(file, first).map(|s| s.name);
+    for file in ["a.js", "a.mjs", "a.cjs", "a.es6", "A.JS"] {
+        assert_eq!(name(file, ""), Some("TypeScript"), "{file}");
+    }
+    assert_eq!(name("a.jsx", ""), Some("TypeScriptReact"));
+    assert_eq!(
+        name("cli", "#!/usr/bin/env node"),
+        Some("TypeScript"),
+        "a first line that names node"
+    );
+    assert_eq!(name("a.ts", ""), Some("TypeScript"));
+    // The text that loops, in a thread that is given up on if it does.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let text = ["x = y /* c */".to_string(), "/".into(), "/".into(), " /*".into()];
+        let mut syn = Syn::new("a.js", "").unwrap();
+        let _ = tx.send(syn.spans(&|i| text.get(i).cloned(), 0, 4));
+    });
+    let spans = rx.recv_timeout(std::time::Duration::from_secs(10)).expect("a.js did not finish");
+    assert!(spans[0].contains(&(6..13, Look::Com)), "{:?}", spans[0]);
+}
+
+#[test]
 fn syn_1_golden_toml() {
     golden("syn_toml", &dump("Cargo.toml", "", TOML));
 }
