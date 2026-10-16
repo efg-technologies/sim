@@ -860,7 +860,7 @@ impl Sim {
         };
         let room = usize::from(w).saturating_sub(pos.width());
         let (mut status, mut cursor, mut shape) =
-            (layout::short(&root, room), (g.ex, g.y0), Shape::Block);
+            (layout::short(&root, room), (g.tx(), g.y0), Shape::Block);
         if let Some(b) = self.bufs.get_mut(self.cur) {
             if b.frame.as_ref().is_some_and(|f| (f.width, f.height) != b.app.size) {
                 b.frame = None;
@@ -869,7 +869,7 @@ impl Sim {
             if b.app.vi.mode != Mode::Cmd {
                 b.crow = usize::from(f.cursor.1);
             }
-            (shape, cursor) = (f.shape, (f.cursor.0 + g.ex, f.cursor.1 + g.y0));
+            (shape, cursor) = (f.shape, (f.cursor.0 + g.tx(), f.cursor.1 + g.y0));
             status = f.rows.last().map_or(String::new(), |r| r.text.clone());
             // The App cuts its status line to its own width; the screen has more (all of it for
             // the command line, what the position leaves for the status), or less (no panel, a position).
@@ -975,6 +975,9 @@ impl Sim {
                 ch,
                 card,
                 crow: b.crow,
+                cur_line: (ui && b.app.vi.mode != Mode::Review)
+                    .then(|| b.app.buf.line_of(b.app.buf.cursor)),
+                insert: b.app.vi.mode == Mode::Insert,
                 md: &colored.md,
                 ..Ed::new(f, &colored.looks)
             }),

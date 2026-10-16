@@ -35,11 +35,11 @@ impl Sim {
         let (x, y) = (m.column, m.row.saturating_sub(g.y0));
         let body = m.row >= g.y0 && y < g.rows;
         let (panel, text) =
-            (body && x >= g.px && x - g.px < g.pw, body && x >= g.ex && x - g.ex < g.ew);
+            (body && x >= g.px && x - g.px < g.pw, body && x >= g.tx() && x - g.tx() < g.ew);
         match m.kind {
             K::Down(B::Left) if panel => self.click_panel(usize::from(y), out),
-            K::Down(B::Left) if text => self.press(x - g.ex, y, out),
-            K::Drag(B::Left) => self.drag(x.saturating_sub(g.ex), y.min(g.rows - 1), out),
+            K::Down(B::Left) if text => self.press(x - g.tx(), y, out),
+            K::Drag(B::Left) => self.drag(x.saturating_sub(g.tx()), y.min(g.rows - 1), out),
             K::Up(B::Left) => self.drag = None,
             K::ScrollUp | K::ScrollDown if panel => self.roll(m.kind == K::ScrollUp),
             K::ScrollUp | K::ScrollDown if text => self.wheel(m.kind == K::ScrollUp, out),

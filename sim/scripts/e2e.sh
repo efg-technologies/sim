@@ -1538,4 +1538,31 @@ ui_3_the_tree_shows_the_home_relative_root_icons_git_letters_and_zi_turns_icons_
   [ "$(cat "$XDG_STATE_HOME/sim/icons")" = on ]
 }
 
+ui_5_the_numbers_are_relative_the_cursors_line_is_lit_and_insert_mode_has_a_surface() {
+  i=1
+  while [ "$i" -le 12 ]; do echo "line $i" >> "$W/a.txt"; i=$((i + 1)); done
+  look flat
+  CT=truecolor
+  start a.txt
+  wait_for "a.txt"
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_esc '38;2;[0-9;]*m'
+  typed 3j
+  wait_for "line 4"
+  screen | grep -F -q "  4   line 4" # the cursor's line: its own number, left-aligned
+  screen | grep -F -q "    1 line 3" # the others: the distance
+  screen | grep -F -q "    3 line 1"
+  wait_esc '1m.*38;2;[0-9;]*m4  ' # amber and bold
+  ! screen_esc | grep -a 'line' | grep -q '48;2;' # Normal mode: no surface on the line (the tab has one)
+  typed i
+  wait_for "INSERT"
+  tries=60
+  while ! screen_esc | grep -a 'line 4' | grep -q '48;2;' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  screen_esc | grep -a 'line 4' | grep -q '48;2;' # Insert mode: the whole line has one
+  ! screen_esc | grep -a 'line 5' | grep -q '48;2;'
+  keys Escape
+  wait_for "NORMAL"
+  ! screen_esc | grep -a 'line' | grep -q '48;2;'
+}
+
 main "$@"

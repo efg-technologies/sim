@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -138,6 +138,9 @@ impl Skin {
 pub struct Geo {
     pub boxed: bool,
     pub head: u16,
+    /// UI-5: the columns the editor keeps to the left of its text for the signs (0 or 1; the second
+    /// cell of the sign column is the App's own change symbol, the first of its row).
+    pub sign: u16,
     pub pw: u16,
     pub ew: u16,
     pub px: u16,
@@ -157,9 +160,16 @@ impl Geo {
         let (b, pw) = (u16::from(boxed), if panel { (w / 3).min(32) } else { 0 });
         let (pw, head) = (if pw < 4 { 0 } else { pw }, u16::from(head && h >= 10));
         let ex = if pw > 0 { pw + 1 + 2 * b } else { b };
-        let ew = w.saturating_sub(ex + b);
+        // (the editor keeps at least 24 columns for its text)
+        let sign = u16::from(head > 0 && w.saturating_sub(ex + b) >= 25);
+        let ew = w.saturating_sub(ex + b + sign);
         let y0 = b + head;
-        Geo { boxed, head, pw, ew, px: b, ex, y0, rows: h.saturating_sub(1 + 2 * b + head) }
+        Geo { boxed, head, sign, pw, ew, px: b, ex, y0, rows: h.saturating_sub(1 + 2 * b + head) }
+    }
+
+    /// The column the editor's text starts at: after its sign column.
+    pub fn tx(&self) -> u16 {
+        self.ex + self.sign
     }
 }
 
@@ -343,6 +353,10 @@ pub struct Ed<'a> {
     pub ch: Vec<Kind>,
     pub card: Option<Range<usize>>,
     pub crow: usize,
+    /// UI-5: the line the cursor is on (0-based) when the editor draws relative numbers and the
+    /// cursor's line, and whether the mode is Insert (the whole line has a surface then).
+    pub cur_line: Option<usize>,
+    pub insert: bool,
 }
 
 impl<'a> Ed<'a> {
@@ -356,6 +370,8 @@ impl<'a> Ed<'a> {
             ch: vec![],
             card: None,
             crow: usize::from(frame.cursor.1),
+            cur_line: None,
+            insert: false,
         }
     }
 }
@@ -615,6 +631,16 @@ fn md_row(line: &mut Line, m: &Md, t: &Tones, gutter: u16, ew: u16) {
 /// (LOOK-2, LOOK-5, LOOK-6).
 fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> {
     let (rows, ew, to) = (usize::from(g.rows), g.ew, if g.boxed { g.ew } else { 0 });
+    // The sign column's first cell, ahead of the App's row (UI-5); `bg` is the cursor's line.
+    let signed = |l: Line, bg: Option<Rgb>| {
+        if g.sign == 0 {
+            return l;
+        }
+        let mut s = Line::default();
+        s.put(" ", Paint { bg, ..Paint::default() });
+        s.add(l);
+        s
+    };
     let Some(ed) = ed else {
         let help = |i: usize| {
             let mut l = Line::default();
@@ -623,7 +649,7 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
                 l.row.spans.push((0..l.cols, Style::Secondary));
             }
             l.pad(to);
-            l
+            signed(l, None)
         };
         return (0..rows).map(help).collect();
     };
@@ -634,8 +660,16 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         let p = Paint { fg: t.map(|t| t.card), bg, ..Paint::default() };
         l.put(&glyph.repeat(usize::from(ew.saturating_sub(gutter))), p);
         l.pad(ew);
-        l
+        signed(l, None)
     };
+    // UI-5: the line each row belongs to (1-based; none for a row past the end, or the rest of a
+    // line that began above the screen).
+    let mut owner = Vec::with_capacity(ed.frame.rows.len());
+    let mut last = None;
+    for r in &ed.frame.rows {
+        last = if r.text.is_empty() { None } else { number(r, ed.digits).or(last) };
+        owner.push(last);
+    }
     let mut out = Vec::with_capacity(rows);
     for (i, e) in ed.frame.rows[..ed.frame.rows.len().saturating_sub(1)].iter().enumerate() {
         let cols = if e.text.is_ascii() { e.text.len() } else { fit(&e.text, usize::MAX).1 };
@@ -690,16 +724,39 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         if let (Some(t), Some(m)) = (t, ed.md.get(i)) {
             md_row(&mut line, m, t, gutter, ew);
         }
+        // UI-5: the numbers as Neovim's `number` and `relativenumber` draw them: the cursor's line
+        // is absolute, left-aligned, amber and bold; the others are the distance from it. In Insert
+        // mode the whole line has a surface, else only its number is lit.
+        let mut sign_bg = None;
+        if let (Some(t), Some(cl)) = (t, ed.cur_line) {
+            let digits = ed.digits;
+            if let Some(n) = number(e, digits) {
+                let shown = if n == cl + 1 {
+                    let accent =
+                        Paint { fg: Some(t.fg(Accent::Amber)), bold: true, ..Paint::default() };
+                    line.paints.insert(0, (1..1 + digits as u16, accent));
+                    format!("{n:<digits$}")
+                } else {
+                    format!("{:>digits$}", n.abs_diff(cl + 1))
+                };
+                line.row.text.replace_range(1..1 + digits, &shown);
+            }
+            if ed.insert && owner[i] == Some(cl + 1) {
+                line.pad(ew);
+                line.paints.push((0..ew, Paint { bg: Some(t.cursor), ..Paint::default() }));
+                sign_bg = Some(t.cursor);
+            }
+        }
         line.pad(to);
         if ed.card.as_ref().is_some_and(|c| c.start == i) {
             out.push(half("▄", None));
         }
-        out.push(line);
+        out.push(signed(line, sign_bg));
         if ed.card.as_ref().is_some_and(|c| c.end == i + 1) {
             out.push(half("▀", t.map(|t| t.shadow)));
         }
     }
-    out.resize_with(rows, Line::default);
+    out.resize_with(rows, || signed(Line::default(), None));
     out
 }
 
@@ -737,7 +794,7 @@ fn borders(d: &Deck) -> [Line; 2] {
     let title = |panel| paint(t.filter(|_| !own(panel)).map(|t| t.dim), true);
     let num = |panel| paint(t.map(|t| if own(panel) { t.focus } else { t.dim }), false);
     let s = |text: &str, p| (text.to_string(), p);
-    let (pw, ew) = (g.pw + 2, g.ew + 2);
+    let (pw, ew) = (g.pw + 2, g.ew + g.sign + 2);
     let (mut top, mut bottom) = (Line::default(), Line::default());
     let files = [s("¹", num(true)), s("files", title(true))];
     if g.pw > 0 {
@@ -841,7 +898,7 @@ pub fn body(
     };
     if let (Some(c), Some(t), true) = (&d.chrome, t, g.head > 0) {
         let p = (g.pw > 0).then(|| header_line(g.pw, c.root, c.icons, t));
-        lines.push(compose(p, tabs_line(g.ew, c, t), edge(false)));
+        lines.push(compose(p, tabs_line(g.ew + g.sign, c, t), edge(false)));
     }
     for (i, e) in editor(g, ed, d.gray, t).into_iter().enumerate() {
         let p = (g.pw > 0).then(|| {
