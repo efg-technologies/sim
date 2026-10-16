@@ -54,8 +54,8 @@ pub enum SimEvent {
     Listing(PathBuf, Result<Vec<Entry>, String>),
     /// The answer to `SimEffect::Open`: the file, read.
     Opened(Opened),
-    /// The answer to `SimEffect::Open` when the path is a directory.
-    Dir(String),
+    /// The answer to `SimEffect::Open` when the path is a directory: the id asked for, and the path.
+    Dir(Id, String),
     /// FIND-3: the files under the root, sorted, relative to it.
     Files(Vec<String>),
     /// MARK-1: git's status, and where the root lies below the top of the repository.
@@ -312,7 +312,10 @@ impl Sim {
             }
             SimEvent::Listing(dir, r) => self.listing(&dir, r, &mut out),
             SimEvent::Opened(o) => self.opened(o, &mut out),
-            SimEvent::Dir(path) => self.reveal_dir(&path, &mut out),
+            SimEvent::Dir(id, path) => {
+                out.push(SimEffect::Close(id)); // no file is open: its watcher is not needed
+                self.reveal_dir(&path, &mut out)
+            }
             SimEvent::Files(files) => {
                 self.files = files;
                 self.search_run(&mut out);

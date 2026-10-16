@@ -37,7 +37,7 @@ fn key(path: &Path) -> String {
 /// dead session left for it (SAFE-6) is looked up.
 pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
     if at.is_dir() {
-        return SimEvent::Dir(shown.into());
+        return SimEvent::Dir(id, shown.into());
     }
     let key = key(at);
     let found = state.and_then(|state| {
