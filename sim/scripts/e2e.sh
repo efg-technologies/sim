@@ -487,6 +487,34 @@ buf_1_a_change_on_disk_after_a_save_is_still_merged() {
   wait_for "+  2 fn more() {}" # taken in and marked, though the message of the save still shows
 }
 
+buf_1_a_reload_does_not_merge_what_the_old_watcher_read_of_the_file_it_left() {
+  printf 'alpha\n' > "$W/a"
+  printf 'beta\n' > "$W/b"
+  ln -s a "$W/cur"
+  start cur
+  wait_for "cur  1:1  NORMAL"
+  # a is rewritten every few milliseconds, so the watcher of `cur` (which is a) always has a read on
+  # its way when the link moves to b and `:e` reads it: a Disk carries no name, and that read, begun
+  # after the number of the `:e`'s read was taken, was merged into b's buffer as news of the disk
+  (
+    i=0
+    while [ "$i" -lt 300 ]; do
+      printf 'rewritten %s\n' "$i" > "$W/a"
+      i=$((i + 1))
+      sleep 0.01
+    done
+  ) &
+  writer=$!
+  sleep 0.2
+  ln -sf b "$W/cur"
+  typed ":e"
+  keys Enter
+  wait_for "beta"
+  sleep 0.5
+  gone "rewritten" # b's buffer holds b, and no word of a's
+  wait "$writer"
+}
+
 buf_1_kill_9_leaves_a_snapshot_for_every_modified_file() {
   project
   wrap
