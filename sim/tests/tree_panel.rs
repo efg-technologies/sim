@@ -558,21 +558,35 @@ fn tree_2_a_notice_from_a_thread_is_told_on_the_status_line_until_the_next_key()
 
 proptest! {
     #[test]
-    fn tree_1_a_cut_path_fits_and_is_the_end_of_the_path(
+    fn tree_1_a_cut_text_fits_and_is_the_end_of_the_text(
+        text in "[a-z/日本é\u{200d}\u{1f600}]{0,40}",
+        max in 0..45usize,
+    ) {
+        let (cut, whole) = (sim::layout::tail(&text, max), width(&text));
+        prop_assert!(width(&cut) <= max, "{cut:?} in {max}");
+        if whole <= max {
+            prop_assert_eq!(&cut, &text);
+        } else if max > 0 {
+            let rest = cut.strip_prefix('…').unwrap_or("");
+            prop_assert!(cut.starts_with('…') && text.ends_with(rest), "{cut:?} of {text:?}");
+        }
+    }
+
+    #[test]
+    fn tree_1_a_path_made_to_fit_ends_as_the_path_does_and_the_state_words_stay(
         path in "[a-z/日本é\u{200d}\u{1f600}]{0,40}",
         max in 0..45usize,
     ) {
-        let (cut, whole) = (sim::layout::tail(&path, max), width(&path));
-        prop_assert!(width(&cut) <= max, "{cut:?} in {max}");
-        if whole <= max {
-            prop_assert_eq!(&cut, &path);
-        } else if max > 0 {
-            let rest = cut.strip_prefix('…').unwrap_or("");
-            prop_assert!(cut.starts_with('…') && path.ends_with(rest), "{cut:?} of {path:?}");
+        // si's `shorten` keeps the last components (`…/dir/file`); a name wider than the room is cut.
+        let short = sim::layout::short(&path, max);
+        prop_assert!(width(&short) <= max, "{short:?} in {max}");
+        let last = path.rsplit('/').find(|c| !c.is_empty()).unwrap_or("");
+        if width(&path) > max && max > 3 + width(last) {
+            prop_assert!(short.starts_with("…/") && short.ends_with(last), "{short:?} of {path:?}");
         }
         // The state words are never cut: `stated` keeps them whole while there is room for them.
-        let (line, head) = sim::layout::stated(&path, "  TREE", max);
-        prop_assert!(width(&line) <= max && head <= max);
+        let line = sim::layout::stated(&path, "  TREE", max);
+        prop_assert!(width(&line) <= max);
         if max >= 6 {
             prop_assert!(line.ends_with("  TREE"), "{line:?} in {max}");
         }

@@ -156,7 +156,7 @@ impl Sim {
         let entries = r.unwrap_or_else(|e| {
             let name = if rel.as_os_str().is_empty() { &self.root } else { rel };
             self.msg =
-                Some(format!("cannot read {}: {e}", layout::tail(&name.to_string_lossy(), 32)));
+                Some(format!("cannot read {}: {e}", layout::short(&name.to_string_lossy(), 32)));
             vec![]
         });
         let kept =
@@ -176,8 +176,11 @@ impl Sim {
         let abs = self.cwd.join(path);
         let Ok(rel) = abs.strip_prefix(&self.root) else {
             let (root, abs) = (self.root.to_string_lossy(), abs.to_string_lossy());
-            return self.msg =
-                Some(format!("not under {}: {}", layout::tail(&root, 28), layout::tail(&abs, 34)));
+            return self.msg = Some(format!(
+                "not under {}: {}",
+                layout::short(&root, 28),
+                layout::short(&abs, 34)
+            ));
         };
         (self.panel.reveal, self.focus) = (Some(rel.to_path_buf()), None);
         self.end_search();

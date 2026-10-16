@@ -5,7 +5,7 @@
 use crate::paint::{Look, Looks};
 use crate::syn::Spans;
 use crate::tree;
-use si::core::view::{Frame, Row, Style, width};
+use si::core::view::{Frame, Row, Style, shorten, width};
 
 /// What the editor area shows while no file is open (TREE-1).
 const HELP: [&str; 5] =
@@ -28,8 +28,8 @@ pub fn fit(s: &str, max: usize) -> (String, usize) {
     (cs[..end].iter().collect(), cols)
 }
 
-/// `s` cut from the left to `max` columns, so that its end stays: `…/dir/file` for a path (the cut
-/// is at a `/` when one lets it fit), the last chars of a query. Hostile chars are replaced.
+/// `s` cut from the left to `max` columns, so that its end stays: `…` and the last chars (a query
+/// as it is typed). Hostile chars are replaced.
 pub fn tail(s: &str, max: usize) -> String {
     let all = fit(s, usize::MAX).0;
     let cs: Vec<char> = all.chars().collect();
@@ -45,19 +45,21 @@ pub fn tail(s: &str, max: usize) -> String {
         let mid = (lo + hi) / 2;
         *(if cols(mid) < max { &mut hi } else { &mut lo }) = mid;
     }
-    let slash = (hi..cs.len().saturating_sub(1)).find(|&j| cs[j] == '/');
-    let before = hi.checked_sub(1).filter(|&j| cs[j] == '/' && cols(j) < max);
-    let from = slash.or(before).unwrap_or(hi);
-    format!("…{}", cs[from..].iter().collect::<String>())
+    format!("…{}", cs[hi..].iter().collect::<String>())
 }
 
-/// A line of a head (a path, a query) and the words that say the state: the state is never cut,
-/// the head is shortened from the left to make room (`tail`). With the columns the head takes.
-pub fn stated(head: &str, state: &str, max: usize) -> (String, usize) {
+/// A path made to fit `max` columns, the way si's status line does it (`shorten`): `…/` and as
+/// many of its last components as fit, the file name at least; a file name wider than that is cut
+/// from the left (`tail`).
+pub fn short(path: &str, max: usize) -> String {
+    tail(&shorten(&fit(path, usize::MAX).0, "", max), max)
+}
+
+/// A line of a path and the words that say the state: the state is never cut, the path is made to
+/// fit what is left (`short`).
+pub fn stated(path: &str, state: &str, max: usize) -> String {
     let (state, used) = fit(state, max);
-    let head = tail(head, max - used);
-    let cols = fit(&head, usize::MAX).1;
-    (head + &state, cols)
+    short(path, max - used) + &state
 }
 
 /// What the panel shows about a row besides its name: MARK-1 (`change` the change color on the
