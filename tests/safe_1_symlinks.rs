@@ -129,7 +129,12 @@ proptest! {
     #[test]
     fn safe_1_the_walk_of_a_path_meets_the_links_the_kernel_meets(plan in plan(), qs in prop::collection::vec(query(), 1..8)) {
         let root = temp_dir("hunt-links");
-        let root_path = fs::canonicalize(&root.0).unwrap();
+        // The tree sits 12 directories down in a directory of its own, so a path that climbs out
+        // of it (a query's 7 `..` and a link's 2 at most) meets only those, never the system's own
+        // directories: macOS keeps a `C` beside its temp dir, which its case-insensitive disk takes
+        // for `c`.
+        let root_path = (0..12).fold(fs::canonicalize(&root.0).unwrap(), |p, i| p.join(format!("u{i}")));
+        fs::create_dir_all(&root_path).unwrap();
         // The tree's own base directories, so deeper names exist.
         for n in SKELETON {
             fs::create_dir(root_path.join(n)).unwrap();
