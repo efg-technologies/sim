@@ -445,9 +445,10 @@ prop_1_an_external_edit_appears_and_is_marked() {
   echo "key to screen: $((t1 - t0)) ms, rename to marked: $((t3 - t2)) ms, timers late by $late ms"
   # PROP-1: 100 ms from the rename to the callback (the 30 ms debounce, the read, the merge and the
   # draw come out of it). Each look at the screen lands anywhere in a 50 ms step of wait_for, so the
-  # two times can differ by one more step than the watcher took. The one timer in si's path may be
-  # late by what this machine's timers are (measured); nothing else is allowed on top of the 100 ms.
-  [ $(((t3 - t2) - (t1 - t0))) -le $((150 + late)) ]
+  # two times can differ by one more step than the watcher took. Two timers are in the path, si's
+  # debounce and that step's `sleep`, and each may be late by what this machine's timers are
+  # (measured above); nothing else is allowed on top of the 100 ms.
+  [ $(((t3 - t2) - (t1 - t0))) -le $((150 + 2 * late)) ]
   screen | grep -F -q "~  2 TWO"
   gone modified
   # PROP-9: the mark stays until the cursor enters its line.
