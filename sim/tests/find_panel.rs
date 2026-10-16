@@ -405,6 +405,15 @@ fn find_3_outside_git_the_files_come_from_a_walk_that_skips_dot_git_and_links() 
 }
 
 #[test]
+fn find_3_a_walk_stops_at_its_limit_even_inside_one_directory() {
+    let d = temp_dir("f3-walk-max");
+    let files: Vec<String> = (0..150).map(|i| format!("big/f{i}")).collect();
+    make(&d.0, &files.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_eq!(io::walk(&d.0, 100).len(), 100, "the limit was checked between directories only");
+    assert_eq!(io::walk(&d.0, 1000).len(), 150);
+}
+
+#[test]
 fn find_3_a_list_is_sorted_and_has_no_duplicates_whatever_git_says() {
     let d = temp_dir("f3-sorted");
     repo(&d.0, &["b.rs", "a.rs", "dir/z.rs", "dir/a.rs", "Dir/x.rs"]);

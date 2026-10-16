@@ -274,11 +274,15 @@ pub fn git_prefix(dir: &Path) -> Result<String, String> {
 /// home directory must not eat the memory.
 const WALK_MAX: usize = 200_000;
 
-/// The files below `root` without git, relative to it. Links are files, never followed.
-fn walk(root: &Path) -> Vec<String> {
+/// The files below `root` without git, relative to it, at most `max`. Links are files, never
+/// followed.
+pub fn walk(root: &Path, max: usize) -> Vec<String> {
     let (mut out, mut todo) = (vec![], vec![PathBuf::new()]);
-    while let Some(rel) = todo.pop().filter(|_| out.len() < WALK_MAX) {
+    while let Some(rel) = todo.pop() {
         for e in fs::read_dir(root.join(&rel)).into_iter().flatten().flatten() {
+            if out.len() >= max {
+                return out; // (a directory of millions of files is one directory)
+            }
             let path = rel.join(e.file_name());
             match e.file_type() {
                 Ok(t) if t.is_dir() => todo.extend((e.file_name() != ".git").then_some(path)),
@@ -296,7 +300,7 @@ pub fn files(root: &Path) -> Vec<String> {
         let names = out.split(|&b| b == 0).filter(|p| !p.is_empty());
         names.map(|p| String::from_utf8_lossy(p).into_owned()).collect()
     };
-    let mut list = git_files(root).map_or_else(|_| walk(root), listed);
+    let mut list = git_files(root).map_or_else(|_| walk(root, WALK_MAX), listed);
     list.sort_unstable();
     list.dedup();
     list
