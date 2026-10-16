@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -8,10 +8,11 @@ mod panel;
 mod ptr;
 
 use crate::color::{Syntax, Tones};
+use crate::diff::{Diff, Sign};
 use crate::grep;
 use crate::io::GIT_SKIPPED;
 use crate::layout::{self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Mark, Md, Skin};
-use crate::marks::Marks;
+use crate::marks::{Git, Marks};
 use crate::paint::{Looks, Screen};
 use crate::rank::History;
 use crate::syn::Spans;
@@ -73,6 +74,18 @@ pub enum SimEvent {
     Grep(grep::Batch),
     /// GREP-4: the answer to `SimEffect::Preview`.
     Preview(Pv),
+    /// UI-5: git's diff of a file against HEAD (or why there is none), and how many lines the file
+    /// had when it was asked for.
+    Diff(Id, Result<Vec<u8>, String>, usize),
+}
+
+/// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
+/// directory), and how many lines it has now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffReq {
+    pub id: Id,
+    pub path: String,
+    pub lines: usize,
 }
 
 /// GREP-4: a file read for the preview: the name asked for (relative to the root) and what the
@@ -113,6 +126,9 @@ pub enum SimEffect {
     Grep(grep::Request),
     /// Read this file (relative to the root) for the preview and answer with `SimEvent::Preview` (GREP-4).
     Preview(String),
+    /// Ask for the diff of a file against HEAD and answer with `SimEvent::Diff` (UI-5). Requests
+    /// for one file that wait are one: the newest.
+    Diff(DiffReq),
     /// LOOK-1: the look that was chosen, to remember.
     Look(Skin),
     /// UI-2: whether the icons are on, to remember.
@@ -172,6 +188,8 @@ pub struct Buf {
     wide: usize,
     /// The row of the frame the text's cursor is on, kept while the command line has the cursor (LOOK-6).
     crow: usize,
+    /// UI-5: the file's changes against HEAD, as the last answer of git said.
+    diff: Option<Diff>,
 }
 
 #[derive(Default)]
@@ -424,6 +442,7 @@ impl Sim {
                 Ok(status) => {
                     self.status = status;
                     self.remark();
+                    self.diff(self.id(), &mut out); // (a commit moves HEAD)
                 }
                 Err(e) if e.starts_with("not a git repository") => self.no_repo = true,
                 Err(e) if e.starts_with(GIT_SKIPPED) => {
@@ -446,6 +465,11 @@ impl Sim {
             }
             SimEvent::Grep(b) => self.live_batch(b, &mut out),
             SimEvent::Preview(pv) => self.live_preview(pv),
+            SimEvent::Diff(id, r, lines) => {
+                if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
+                    b.diff = r.ok().map(|out| Diff::parse(&out, lines));
+                }
+            }
         }
         let screen = self.frame(&mut out);
         out.push(SimEffect::Render(screen));
@@ -510,6 +534,15 @@ impl Sim {
         self.refocus();
     }
 
+    /// UI-5: asks for the diff of a file against HEAD (not where git said there is no repository).
+    fn diff(&self, id: Id, out: &mut Vec<SimEffect>) {
+        let req = self.bufs.iter().find(|b| b.id == id).and_then(|b| {
+            let path = b.app.path.clone()?;
+            Some(DiffReq { id, path, lines: b.app.buf.lines() })
+        });
+        out.extend(req.filter(|_| !self.no_repo).map(SimEffect::Diff));
+    }
+
     /// MARK-2: notes that the user opened a file, and has the history saved.
     fn note(&mut self, path: &Path, out: &mut Vec<SimEffect>) {
         self.history.record(&key_of(path), self.now);
@@ -529,6 +562,7 @@ impl Sim {
                 self.remark();
             }
             self.git(out);
+            self.diff(id, out);
         }
     }
 
@@ -732,10 +766,12 @@ impl Sim {
             asked: None,
             wide: 0,
             crow: 0,
+            diff: None,
         });
         self.cur = self.bufs.len() - 1;
         self.refocus();
         self.run(o.id, fx, out);
+        self.diff(o.id, out);
     }
 
     // ---- the frame ----
@@ -801,6 +837,25 @@ impl Sim {
             Some(layout::changed(b.frame.as_ref()?, digits(&b.app.buf), review))
         })
         .unwrap_or_default()
+    }
+
+    /// UI-5: the git sign of each row of the frame of a file: from the last answer of git, and every
+    /// line for a file git does not know yet.
+    fn signs(&self, b: &Buf, f: &Frame, ui: bool) -> Vec<Option<Sign>> {
+        let (buf, rel) = (&b.app.buf, b.app.path.as_ref().map(|p| self.cwd.join(p)));
+        let untracked =
+            rel.and_then(|p| p.strip_prefix(&self.root).ok().map(|r| self.marks.git(r))).flatten()
+                == Some(Git::Untracked);
+        let all = Diff::all_added(buf.lines());
+        let Some(diff) = b.diff.as_ref().filter(|_| !untracked).or(untracked.then_some(&all))
+        else {
+            return vec![];
+        };
+        if !ui {
+            return vec![];
+        }
+        let (edit, now) = (buf.line_of(buf.cursor), buf.lines());
+        layout::sign_rows(f, digits(buf), &|l| diff.sign(l, edit, now))
     }
 
     /// UI-3: the open file's path below the root, if it is below it.
@@ -978,6 +1033,7 @@ impl Sim {
                 cur_line: (ui && b.app.vi.mode != Mode::Review)
                     .then(|| b.app.buf.line_of(b.app.buf.cursor)),
                 insert: b.app.vi.mode == Mode::Insert,
+                signs: self.signs(b, f, ui),
                 md: &colored.md,
                 ..Ed::new(f, &colored.looks)
             }),

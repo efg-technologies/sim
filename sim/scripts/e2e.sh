@@ -1565,4 +1565,22 @@ ui_5_the_numbers_are_relative_the_cursors_line_is_lit_and_insert_mode_has_a_surf
   ! screen_esc | grep -a 'line' | grep -q '48;2;'
 }
 
+ui_5_the_git_signs_of_the_file_against_head_are_in_the_sign_column() {
+  gitproject
+  look flat
+  CT=truecolor
+  # line 1 of src/lib.rs changed, a line added at the end
+  sed -i '1s/^/changed /' "$W/src/lib.rs"
+  printf 'added line\n' >> "$W/src/lib.rs"
+  start src/lib.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "changed "
+  # The first cell of the sign column: a bar in amber for the changed line, in green for the added.
+  tries=100
+  while ! screen | grep -F 'changed ' | grep -q '^▎' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  screen | grep -F 'changed ' | grep -q '^▎'
+  screen | grep -F 'added line' | grep -q '^▎'
+  screen_esc | grep -a 'added line' | grep -q '38;2;[0-9;]*m▎'
+}
+
 main "$@"

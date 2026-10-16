@@ -408,7 +408,7 @@ impl W {
                         io::grep(&req, None, &|| true, &mut |b| local.push(SimEvent::Grep(b)))
                     }
                     SimEffect::Preview(path) => local.push(io::preview(&self.sim.root, &path)),
-                    SimEffect::Look(_) | SimEffect::Icons(_) => {}
+                    SimEffect::Look(_) | SimEffect::Icons(_) | SimEffect::Diff(_) => {}
                     SimEffect::Files => self.files_req = true,
                     SimEffect::Status => self.status_req = true,
                     SimEffect::History(h) => {

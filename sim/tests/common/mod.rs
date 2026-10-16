@@ -139,7 +139,7 @@ pub struct Rig {
     pub screen: Frame,
     /// The whole last screen: the frame, its looks and its palette.
     pub shot: Screen,
-    /// The background jobs Sim asked for, by name (`files`, `status`, `history`, `highlight`).
+    /// The background jobs Sim asked for, by name (`files`, `status`, `history`, `highlight`, `diff`).
     pub jobs: Vec<&'static str>,
     /// The last history Sim asked to have saved.
     pub history: Option<History>,
@@ -263,6 +263,11 @@ impl Rig {
                     SimEffect::Grep(req) => {
                         self.jobs.push("grep");
                         self.grep(req);
+                    }
+                    SimEffect::Diff(req) => {
+                        self.jobs.push("diff");
+                        let answer = io::diff(&self.cwd, &req);
+                        self.queue.push_back(SimEvent::Diff(req.id, answer, req.lines));
                     }
                     SimEffect::Preview(path) => {
                         self.jobs.push("preview");

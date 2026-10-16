@@ -3,6 +3,7 @@
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
 use crate::color::{Accent, Tones};
+use crate::diff::Sign;
 use crate::grep::PRow;
 use crate::icons;
 use crate::marks::Git;
@@ -270,6 +271,17 @@ pub fn ruler(
     out
 }
 
+/// UI-5: the git sign of each row of an editor frame: the row a line starts in has that line's
+/// sign (`of(l)`, 0-based), the rows that go on in have none.
+pub fn sign_rows(
+    f: &Frame,
+    digits: usize,
+    of: &dyn Fn(usize) -> Option<Sign>,
+) -> Vec<Option<Sign>> {
+    let line = |r: &Row| number(r, digits).and_then(|n| n.checked_sub(1));
+    f.rows.iter().map(|r| line(r).and_then(of)).collect()
+}
+
 /// The line number a row of an editor frame shows, if it starts a line.
 fn number(r: &Row, digits: usize) -> Option<usize> {
     r.text.get(1..1 + digits)?.trim().parse().ok()
@@ -357,6 +369,8 @@ pub struct Ed<'a> {
     /// cursor's line, and whether the mode is Insert (the whole line has a surface then).
     pub cur_line: Option<usize>,
     pub insert: bool,
+    /// UI-5: the git sign of each row (the row a line starts in carries its sign).
+    pub signs: Vec<Option<Sign>>,
 }
 
 impl<'a> Ed<'a> {
@@ -372,6 +386,7 @@ impl<'a> Ed<'a> {
             crow: usize::from(frame.cursor.1),
             cur_line: None,
             insert: false,
+            signs: vec![],
         }
     }
 }
@@ -632,12 +647,19 @@ fn md_row(line: &mut Line, m: &Md, t: &Tones, gutter: u16, ew: u16) {
 fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> {
     let (rows, ew, to) = (usize::from(g.rows), g.ew, if g.boxed { g.ew } else { 0 });
     // The sign column's first cell, ahead of the App's row (UI-5); `bg` is the cursor's line.
-    let signed = |l: Line, bg: Option<Rgb>| {
+    let signed = |l: Line, bg: Option<Rgb>, sign: Option<Sign>| {
         if g.sign == 0 {
             return l;
         }
         let mut s = Line::default();
-        s.put(" ", Paint { bg, ..Paint::default() });
+        let (glyph, accent) = match sign {
+            Some(Sign::Add) => ("▎", Some(Accent::Green)),
+            Some(Sign::Change) => ("▎", Some(Accent::Amber)),
+            Some(Sign::Del) => ("▁", Some(Accent::Red)),
+            Some(Sign::DelTop) => ("▔", Some(Accent::Red)),
+            None => (" ", None),
+        };
+        s.put(glyph, Paint { bg, fg: accent.zip(t).map(|(a, t)| t.fg(a)), ..Paint::default() });
         s.add(l);
         s
     };
@@ -649,7 +671,7 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
                 l.row.spans.push((0..l.cols, Style::Secondary));
             }
             l.pad(to);
-            signed(l, None)
+            signed(l, None, None)
         };
         return (0..rows).map(help).collect();
     };
@@ -660,7 +682,7 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         let p = Paint { fg: t.map(|t| t.card), bg, ..Paint::default() };
         l.put(&glyph.repeat(usize::from(ew.saturating_sub(gutter))), p);
         l.pad(ew);
-        signed(l, None)
+        signed(l, None, None)
     };
     // UI-5: the line each row belongs to (1-based; none for a row past the end, or the rest of a
     // line that began above the screen).
@@ -751,12 +773,12 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         if ed.card.as_ref().is_some_and(|c| c.start == i) {
             out.push(half("▄", None));
         }
-        out.push(signed(line, sign_bg));
+        out.push(signed(line, sign_bg, ed.signs.get(i).copied().flatten()));
         if ed.card.as_ref().is_some_and(|c| c.end == i + 1) {
             out.push(half("▀", t.map(|t| t.shadow)));
         }
     }
-    out.resize_with(rows, || signed(Line::default(), None));
+    out.resize_with(rows, || signed(Line::default(), None, None));
     out
 }
 

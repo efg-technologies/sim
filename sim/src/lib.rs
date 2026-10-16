@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod color;
+pub mod diff;
 pub mod find;
 pub mod grep;
 pub mod icons;

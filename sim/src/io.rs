@@ -1,11 +1,11 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the history file in sim's state directory, and the
 //! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
 use crate::grep::{Batch, Group, HEAD, Line, MAX_LINES, Query, Request, is_binary, parse_rg};
 use crate::layout::{self, Skin};
 use crate::rank::History;
-use crate::sim::{Found, Hl, Id, Opened, Pv, Req, SimEvent};
+use crate::sim::{DiffReq, Found, Hl, Id, Opened, Pv, Req, SimEvent};
 use crate::syn::{Spans, Syn};
 use crate::tree::{self, Entry};
 use ropey::Rope;
@@ -384,6 +384,44 @@ pub fn worker(tx: Sender<SimEvent>, job: impl Fn() -> SimEvent + Send + 'static)
         }
     });
     ask
+}
+
+/// UI-5: what a file differs from HEAD by, as `git diff -U0` says it, for the signs of the sign
+/// column and the counts of the status line. It runs through the same guard and the same hardened
+/// environment as every git of sim's (`git`, `run`): no external diff and no text conversion
+/// (those are commands a repository can name), no color, and nothing fetched.
+pub fn git_diff(dir: &Path, name: &str) -> Result<Vec<u8>, String> {
+    let args = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "-U0", "HEAD", "--", name];
+    git(dir, &args)
+}
+
+/// UI-5: the diff of the file a request names (its path is relative to `cwd`, as its App has it).
+pub fn diff(cwd: &Path, req: &DiffReq) -> Result<Vec<u8>, String> {
+    let at = cwd.join(&req.path);
+    let name = at.file_name().map(|n| n.to_string_lossy().into_owned());
+    let (Some(dir), Some(name)) = (at.parent(), name) else { return Err("no file".into()) };
+    git_diff(dir, &name)
+}
+
+/// UI-5: the thread that asks git for the diffs of the files, off the main thread (P4). Of the
+/// requests waiting for it only the newest for each file is run, since the others are about a text
+/// that is gone; the answers are `SimEvent::Diff`.
+pub fn diff_thread(tx: Sender<SimEvent>, cwd: PathBuf) -> Sender<DiffReq> {
+    let (jobs, rx) = mpsc::channel::<DiffReq>();
+    thread::spawn(move || {
+        while let Ok(first) = rx.recv() {
+            let mut latest = HashMap::<Id, DiffReq>::new();
+            for r in std::iter::once(first).chain(rx.try_iter()) {
+                latest.insert(r.id, r);
+            }
+            for (_, r) in latest {
+                if tx.send(SimEvent::Diff(r.id, diff(&cwd, &r), r.lines)).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    jobs
 }
 
 /// UI-3: the entries git ignores, as `!! path` lines of `git status --porcelain=v1 -z`: with

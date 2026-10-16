@@ -1,4 +1,4 @@
-//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2
+//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5
 //! The event loop: several si Apps, the panel, the threads, running Effects. It is si's main.rs
 //! for many files: one save thread and one journal thread for all of them, a watcher and a
 //! filter for each, and every job and answer tagged with the id of its file. The file list, git's
@@ -78,6 +78,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     let cwd = env::current_dir().unwrap_or_default();
+    let here = cwd.clone();
     let Some(mut s) = start(&args, &cwd, |f| std::path::Path::new(f).exists(), |d| d.is_dir())
     else {
         eprintln!("{USAGE}");
@@ -155,6 +156,7 @@ fn main() -> ExitCode {
     let (jobs, finished) = sio::journal_thread(state.clone(), history, tx.clone());
     let saves = sio::save_thread(state.clone(), tx.clone());
     let highlights = sio::highlight_thread(tx.clone());
+    let diffs = sio::diff_thread(tx.clone(), here); // UI-5: the diffs against HEAD, off the main thread
     let greps = sio::Greps::new(tx.clone(), sio::which_rg(env::var_os("PATH")));
     let (r1, r2) = (sim.root.clone(), sim.root.clone());
     let files = sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1)));
@@ -178,6 +180,7 @@ fn main() -> ExitCode {
                         });
                     }
                     SimEffect::Files => drop(files.send(())),
+                    SimEffect::Diff(req) => drop(diffs.send(req)),
                     SimEffect::Status => drop(git.send(())),
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
                     SimEffect::Look(k) => drop(jobs.send(Job::Look(k))),
