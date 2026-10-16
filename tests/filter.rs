@@ -169,6 +169,22 @@ fn prop_5_cancel_stops_the_whole_process_group_including_background_children() {
 }
 
 #[test]
+fn prop_5_a_child_left_behind_with_the_pipes_open_does_not_hold_the_filter() {
+    // The shell is done at once; `sleep` keeps stdout and stderr open for 20 s, as a daemon that a
+    // filter started would. The filter ends with what the shell printed.
+    let started = Instant::now();
+    let (pgid, rx) = start("sleep 20 & echo hi; echo oops >&2", vec![]);
+    let out = rx.recv_timeout(Duration::from_secs(10));
+    cancel(pgid); // the sleeper is in the group
+    let out = out.expect("done was not called although the shell exited");
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_eq!(
+        (out.status, out.stdout, out.stderr),
+        (Some(0), b"hi\n".to_vec(), b"oops\n".to_vec())
+    );
+}
+
+#[test]
 fn prop_5_cancel_of_a_finished_or_unknown_group_does_nothing() {
     cancel(u32::MAX / 2); // no such group; must not panic or hurt anything
     let out = run("echo still fine", vec![]);

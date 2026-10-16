@@ -1,9 +1,16 @@
 //! PROP-5, PROP-6
 //! Running `sh -c` in its own process group, and cancelling the whole group.
 use std::io::{self, Read, Write};
+use std::iter;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{Builder, JoinHandle};
+use std::time::{Duration, Instant};
+
+/// How long the output may take to end once the shell has: a child it left behind can hold the pipes
+/// open for ever, and the filter is not to wait for that (PROP-5).
+const GRACE: Duration = Duration::from_secs(1);
 
 pub struct Output {
     pub status: Option<i32>,
@@ -15,13 +22,12 @@ fn bg<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> io::Result<J
     Builder::new().spawn(f)
 }
 
-// Everything until EOF; what was read before an error is kept.
-fn drain(pipe: Option<impl Read>) -> Vec<u8> {
-    let mut buf = Vec::new();
-    if let Some(mut p) = pipe {
-        let _ = p.read_to_end(&mut buf);
+// Everything until EOF, in chunks, so that what was read is not lost when the waiter gives up.
+fn pump(pipe: Option<impl Read>, out: Sender<Vec<u8>>) {
+    let (Some(mut p), mut buf) = (pipe, [0; 1 << 16]) else { return };
+    while let Some(n) = p.read(&mut buf).ok().filter(|&n| n > 0) {
+        drop(out.send(buf[..n].to_vec())); // nobody listens any more: the rest is let go
     }
-    buf
 }
 
 /// Runs `sh -c cmd` in its own process group, writes `input` to its stdin from a separate thread
@@ -41,14 +47,19 @@ pub fn spawn(
         .spawn()?;
     let pgid = child.id();
     let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
+    let ((otx, orx), (etx, erx)) = (mpsc::channel(), mpsc::channel());
     let threads = (|| {
         bg(move || stdin.map(|mut s| s.write_all(&input)))?; // EPIPE: it did not want the input
-        let err = bg(move || drain(stderr))?;
+        bg(move || pump(stdout, otx))?;
+        bg(move || pump(stderr, etx))?;
         bg(move || {
-            let stdout = drain(stdout);
-            let stderr = err.join().unwrap_or_default();
             let status = child.wait().ok().and_then(|s| s.code()); // also reaps it
-            done(Output { status, stdout, stderr });
+            let end = Instant::now() + GRACE; // what the pumps sent until they are done, or `end`
+            let all = |rx: Receiver<Vec<u8>>| {
+                let left = || end.saturating_duration_since(Instant::now());
+                iter::from_fn(move || rx.recv_timeout(left()).ok()).flatten().collect()
+            };
+            done(Output { status, stdout: all(orx), stderr: all(erx) });
         })
     })();
     if let Err(e) = threads {
@@ -63,13 +74,7 @@ pub fn spawn(
 /// Only for a group `spawn` returned whose `done` has not been called: the id may be reused after.
 pub fn cancel(pgid: u32) {
     if pgid > 1 {
-        // 0 and 1 would mean our own group and every process.
-        let mut kill = Command::new("kill");
-        let _ = kill
-            .args(["-TERM", "--", &format!("-{pgid}")])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        // 0 and 1 would mean our own group and every process. `output` gives it no input and takes its words.
+        let _ = Command::new("kill").args(["-TERM", "--", &format!("-{pgid}")]).output();
     }
 }
