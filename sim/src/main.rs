@@ -21,6 +21,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
@@ -32,24 +33,25 @@ const DRAIN: Duration = Duration::from_millis(100);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 const USAGE: &str = "usage: sim [+cmd] [dir | file]\n       sim [+cmd] -- file";
 
-/// A watcher, kept alive by holding it (PROP-1).
-type Held = Box<dyn Any>;
+/// A watcher, kept alive by holding it, and the switch that silences it (PROP-1).
+type Held = (Box<dyn Any>, Arc<AtomicBool>);
 
 /// Watches `path` for file `id` (PROP-1), as si's main does for its one file. The deadline of each
 /// change is stamped when the watcher reads the file, since the core reads no clock (PROP-7), and
 /// its hash is made there too, so that no key waits for it (P3). With `first`, the watcher's thread
 /// also reads the file once at the start, ordered before the debounced reads.
 fn watching(tx: &Sender<SimEvent>, id: Id, path: &str, first: bool) -> Option<(Id, Held)> {
-    let t = tx.clone();
+    let (t, live) = (tx.clone(), Arc::new(AtomicBool::new(true)));
+    let on_ = live.clone();
     let on = move |seq: u64, bytes: Option<Vec<u8>>| {
         let hash = bytes.as_deref().map(hash);
         let ev = Event::Disk { bytes, hash, deadline: Instant::now() + MERGE, seq };
-        drop(t.send(SimEvent::App(id, ev)))
+        on_.load(SeqCst).then(|| drop(t.send(SimEvent::App(id, ev))));
     };
     watch(&file::resolve(path), on, first)
         .inspect_err(|e| drop(tx.send(SimEvent::Notice(format!("cannot watch {path}: {e}")))))
         .ok()
-        .map(|w| (id, Box::new(w) as Held))
+        .map(|w| (id, (Box::new(w) as Box<dyn Any>, live)))
 }
 
 /// Tells file `id`'s App that its filter ended (PROP-6). The diff of its result gives up after
@@ -190,6 +192,12 @@ fn main() -> ExitCode {
                             drop(saves.send((id, path, bytes, expect_hash)))
                         }
                         Effect::Open(path) => {
+                            // The watcher of the file being left goes quiet before the read's number
+                            // is taken: what it says later began earlier, and App drops it (PROP-1).
+                            watchers
+                                .get(&id)
+                                .iter()
+                                .for_each(|(_, live)| live.store(false, SeqCst));
                             let seq = file::seq(); // taken before the read starts (PROP-1)
                             let opened = Event::Opened(path.clone(), read(&path), seq);
                             local.push(SimEvent::App(id, opened));
