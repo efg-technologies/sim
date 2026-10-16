@@ -274,6 +274,22 @@ fn mark_2_the_command_line_and_the_arguments_record_opens_too() {
 }
 
 #[test]
+fn mark_2_a_directory_named_by_e_is_no_opened_file_and_a_dot_in_the_path_is_the_same_file() {
+    let mut r = rig("m2-edir", &["a.txt", "sub/x.txt"], &["a.txt"]);
+    r.keys(":e ./sub\n");
+    let h = r.history.clone().unwrap();
+    let at = |f: &str| h.likelihood(&r.cwd.join(f).to_string_lossy(), NOW);
+    assert_eq!(at("sub"), 0.0, "a directory is shown, not opened: {h:?}");
+    assert!(at("a.txt") > 0.0);
+    // `./a.txt` and `a.txt` are one file: the opens add up.
+    let once = at("a.txt");
+    r.keys(":e ./a.txt\n");
+    let h = r.history.clone().unwrap();
+    assert!(h.likelihood(&r.cwd.join("a.txt").to_string_lossy(), NOW) > once, "{h:?}");
+    assert_eq!(h.top(&r.cwd.to_string_lossy(), 9, NOW).len(), 1, "{h:?}");
+}
+
+#[test]
 fn mark_2_the_time_comes_from_the_ticks() {
     let mut r = rig("m2-tick", &["a.txt"], &[]);
     r.keys("<CR>");
@@ -319,6 +335,17 @@ fn mark_3_dot_narrows_the_tree_to_changed_open_and_recent_files_with_their_direc
         "docs/old.md was opened a month ago, README.md and Cargo.toml never"
     );
     golden("mark_3_panel_focus", &dump_screen(&r.shot));
+}
+
+#[test]
+fn mark_3_a_directory_revealed_by_e_does_not_hide_the_recent_files_below_it() {
+    // x.txt was opened and closed: it is recent. `:e sub` shows the directory it is in; the
+    // directory was taken for a recent file, which left no directory for x.txt to be listed in.
+    let mut r = rig("m3-dir", &["a.txt", "sub/x.txt"], &["sub/x.txt"]);
+    r.keys(":e a.txt\n<Tab>q");
+    assert_eq!(r.open_files(), ["a.txt"]);
+    r.keys(":e sub\n.");
+    assert_eq!(r.panel(), ["▾ sub/", "  • x.txt", "• a.txt"]);
 }
 
 #[test]
