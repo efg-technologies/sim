@@ -268,7 +268,8 @@ impl App {
         let Some(re) = self.regex(&pat, false) else { return };
         let (mut subs, mut lines, mut at) = (0, 0, None);
         self.buf.checkpoint();
-        for l in l1..=l2 {
+        // Last line first: the marks of the lines still to do stay where they are (PERF-2).
+        for l in (l1..=l2).rev() {
             let b = &mut self.buf;
             let text = b.text.line(l).to_string();
             let (mut n, text) = (0, text.trim_end_matches('\n'));
@@ -278,7 +279,7 @@ impl App {
             });
             if n > 0 {
                 b.replace(b.start(l)..b.end(l), &out);
-                (subs, lines, at) = (subs + n, lines + 1, Some(l));
+                (subs, lines, at) = (subs + n, lines + 1, at.max(Some(l)));
             }
         }
         match at {
