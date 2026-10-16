@@ -69,8 +69,6 @@ jobs:
           cargo build --release --workspace
           wc -c target/release/si target/release/sim
           cargo test --test watch -- --nocapture --test-threads=1 prop_1_latency
-          cargo test --test diag_tmp -- --ignored --nocapture
-          perl -MTime::HiRes=usleep,time -e 'for (1..20) { $t = time; usleep(25000); printf "%.0f ", (time - $t) * 1000 } print "\n"'
           cargo build
           for i in 1 2 3 4 5; do
             SI_BIN="$PWD/target/debug/si" sh scripts/e2e.sh --run-one prop_1_an_external_edit_appears_and_is_marked
