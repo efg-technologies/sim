@@ -1,16 +1,11 @@
 //! PROP-5, PROP-6
 //! Running `sh -c` in its own process group, and cancelling the whole group.
 use std::io::{self, Read, Write};
-use std::iter;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{Builder, JoinHandle};
 use std::time::{Duration, Instant};
-
-/// How long the output may take to end once the shell has: a child it left behind can hold the pipes
-/// open for ever, and the filter is not to wait for that (PROP-5).
-const GRACE: Duration = Duration::from_secs(1);
 
 pub struct Output {
     pub status: Option<i32>,
@@ -54,10 +49,12 @@ pub fn spawn(
         bg(move || pump(stderr, etx))?;
         bg(move || {
             let status = child.wait().ok().and_then(|s| s.code()); // also reaps it
-            let end = Instant::now() + GRACE; // what the pumps sent until they are done, or `end`
+            // The output may take a second more to end once the shell has: a child it left behind can hold the
+            // pipes open for ever (PROP-5). What the pumps sent until they are done, or `end`:
+            let end = Instant::now() + Duration::from_secs(1);
             let all = |rx: Receiver<Vec<u8>>| {
                 let left = || end.saturating_duration_since(Instant::now());
-                iter::from_fn(move || rx.recv_timeout(left()).ok()).flatten().collect()
+                std::iter::from_fn(move || rx.recv_timeout(left()).ok()).flatten().collect()
             };
             done(Output { status, stdout: all(orx), stderr: all(erx) });
         })

@@ -200,6 +200,35 @@ fn prop_1_latency_from_write_to_callback_is_under_100ms() {
     );
 }
 
+/// A watch can die without a word: the directory it watches is deleted and made again (`rm -rf dir`,
+/// `git checkout`), and the new one is not the one inotify knew. The file is looked at once a second.
+#[test]
+fn prop_1_a_change_is_seen_after_the_directory_was_deleted_and_made_again() {
+    let dir = Tmp::new();
+    let (sub, file) = (dir.0.join("sub"), dir.0.join("sub/a.txt"));
+    fs::create_dir(&sub).unwrap();
+    fs::write(&file, "v0").unwrap();
+    let (tx, rx) = mpsc::channel();
+    let _w = watch(&file, move |_, c| drop(tx.send(c)), false).unwrap();
+    fs::write(&file, "v1").unwrap();
+    assert_eq!(
+        rx.recv_timeout(PATIENCE).unwrap().as_deref(),
+        Some(&b"v1"[..]),
+        "premise: it works"
+    );
+    fs::remove_dir_all(&sub).unwrap();
+    assert_eq!(rx.recv_timeout(PATIENCE).unwrap(), None, "the file is gone");
+    fs::create_dir(&sub).unwrap();
+    fs::write(&file, "v2").unwrap();
+    let seen = std::iter::from_fn(|| rx.recv_timeout(Duration::from_secs(4)).ok());
+    assert!(
+        seen.into_iter().any(|c| c.as_deref() == Some(&b"v2"[..])),
+        "the new file was never seen"
+    );
+    // An unchanged file is not read again and again.
+    assert_eq!(rx.recv_timeout(Duration::from_millis(2500)), Err(RecvTimeoutError::Timeout));
+}
+
 #[test]
 fn prop_1_watching_a_missing_directory_is_an_error_not_a_panic() {
     let dir = Tmp::new();

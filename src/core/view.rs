@@ -134,10 +134,8 @@ fn cols(s: &str) -> usize {
 fn shorten(path: &str, tail: &str, w: usize) -> String {
     let parts: Vec<_> = path.split('/').filter(|p| !p.is_empty()).collect();
     let last = |k: usize| format!("…/{}", parts[parts.len() - k..].join("/"));
-    let fits = |p: &str| cols(p) + cols(tail) <= w;
-    let short = (1..parts.len()).rev().map(last).find(|p| fits(p));
-    let name = (parts.len() > 1).then(|| last(1));
-    Some(path.into()).filter(|p: &String| fits(p)).or(short).or(name).unwrap_or(path.into())
+    let mut all = std::iter::once(path.to_string()).chain((1..parts.len()).rev().map(last));
+    all.clone().find(|p| cols(p) + cols(tail) <= w).or_else(|| all.next_back()).unwrap_or_default()
 }
 
 fn status(a: &App, w: usize) -> String {

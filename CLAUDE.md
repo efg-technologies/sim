@@ -49,7 +49,7 @@ src/
   io/
     file.rs       reading a file, atomic save, comparison by hash right before the rename, keeping attributes
     journal.rs    snapshots and recovery, the places files were closed at, and where they live (a private state directory, never /tmp)
-    watch.rs      notify. Debounces changes and sends the disk content as an Event
+    watch.rs      notify. Debounces changes and sends the disk content as an Event; looks at the file once a second too, in case the watch died
     filter.rs     running sh -c, and cancelling it
     term.rs       crossterm, diffed Frame output, OSC 11 / 52, cursor shape
 ```

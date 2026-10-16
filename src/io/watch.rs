@@ -1,11 +1,11 @@
 //! PROP-1
 //! notify: debounces changes to one file and hands over the disk content.
-use super::file::opt;
+use super::file::{opt, stamp};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::sync::mpsc::{self, RecvTimeoutError::Disconnected};
+use std::time::Duration;
 
 // The wait after the first event of a burst. Well inside the 100 ms of PROP-1.
 const DEBOUNCE: Duration = Duration::from_millis(30);
@@ -38,19 +38,23 @@ pub fn watch(
     let path: PathBuf = path.into();
     // Ends when the watcher is dropped (and the sender with it).
     std::thread::Builder::new().spawn(move || {
-        let read = || {
-            let n = super::file::seq();
-            opt(fs::read(&path)).into_iter().for_each(|b| on_change(n, b))
-        };
-        if first {
-            read();
-        }
-        while rx.recv().is_ok() {
-            let end = Instant::now() + DEBOUNCE;
-            while let Some(left) = end.checked_duration_since(Instant::now())
-                && rx.recv_timeout(left).is_ok()
-            {}
-            read();
+        let (mut seen, mut due) = (stamp(&path).ok(), first);
+        loop {
+            if due {
+                let n = super::file::seq();
+                seen = stamp(&path).ok();
+                opt(fs::read(&path)).into_iter().for_each(|b| on_change(n, b));
+            }
+            due = match rx.recv_timeout(Duration::from_secs(1)) {
+                Ok(()) => {
+                    std::thread::sleep(DEBOUNCE);
+                    while rx.try_recv().is_ok() {}
+                    true
+                }
+                Err(Disconnected) => return,
+                // No event in a second: the file is as the last read saw it, or the watch is dead (PROP-1).
+                Err(_) => stamp(&path).ok() != seen,
+            };
         }
     })?;
     Ok(watcher)
