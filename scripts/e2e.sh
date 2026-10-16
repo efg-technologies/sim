@@ -145,12 +145,25 @@ run_one() {
         # si saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
         for pid in $panes; do
           tries=100
-          while pgrep -s "$pid" > /dev/null 2>&1 && [ "$tries" -gt 0 ]; do
+          while { pgrep -s "$pid" > /dev/null 2>&1 || kill -0 -- "-$pid" 2> /dev/null; } && [ "$tries" -gt 0 ]; do
             sleep 0.05
             tries=$((tries - 1))
           done
         done
-        rm -rf "$CASE_DIR"
+        # a process on its way out can still add a file while rm empties a directory ("Directory not
+        # empty", seen on macOS): rm again, which finds it empty once the process is gone
+        tries=40
+        until rm -rf "$CASE_DIR" 2> /dev/null || [ "$tries" -le 0 ]; do
+          sleep 0.05
+          tries=$((tries - 1))
+        done
+        # TEMPORARY diagnostics: what keeps the directory from going
+        rm -rf "$CASE_DIR" || {
+          ls -lAR "$CASE_DIR" >&2
+          ps -A -o pid,ppid,pgid,stat,command >&2
+          lsof +D "$CASE_DIR" >&2 || true
+          exit 1
+        }
         exit "$status"' EXIT
   trap 'exit 130' HUP INT TERM
   "$name"
