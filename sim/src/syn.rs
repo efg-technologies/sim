@@ -21,6 +21,11 @@ pub type Text<'a> = &'a dyn Fn(usize) -> Option<String>;
 /// states of 70,000 lines at 16, measured).
 pub const EVERY: usize = 16;
 
+/// A line of more than this many bytes is plain and is not parsed: some syntaxes take time that
+/// grows with the square of a line (a shell heredoc whose word is 100,000 chars: 5.8 s), and the
+/// highlighter is one thread for every file. Code with lines this long is minified or generated.
+pub const MAX_LINE: usize = 10_000;
+
 /// The syntaxes of bat (the `two-face` crate), which has the languages syntect's own set lacks
 /// (SYN-4). The first call decodes their index, and the first highlight of a language its
 /// contexts and regexes: do both in a thread, never before the first frame.
@@ -122,6 +127,9 @@ impl Syn {
     }
 
     fn line(&mut self, parse: &mut ParseState, stack: &mut ScopeStack, line: &str) -> Spans {
+        if line.len() > MAX_LINE {
+            return vec![]; // the state stays as it was: the lines after it do not start from a guess
+        }
         self.parsed += 1;
         let text = format!("{line}\n");
         let Ok(ops) = parse.parse_line(&text, syntaxes()) else { return vec![] };

@@ -5,7 +5,7 @@ mod common;
 use common::golden;
 use proptest::prelude::*;
 use sim::paint::Look;
-use sim::syn::{EVERY, Spans, Syn};
+use sim::syn::{EVERY, MAX_LINE, Spans, Syn};
 
 fn lines(text: &str) -> Vec<String> {
     text.lines().map(str::to_string).collect()
@@ -245,6 +245,32 @@ fn syn_3_after_an_edit_the_edited_line_costs_less_than_a_step_of_parsing() {
         assert_eq!(spans(&mut syn, &text, e, 1).len(), 1);
         assert_eq!(syn.parsed, e % EVERY + 1, "edit at {e}");
     }
+}
+
+#[test]
+fn syn_3_a_line_over_the_limit_is_plain_and_not_parsed_and_the_lines_around_it_are_not_hurt() {
+    // The parse time of one line is bounded: a shell heredoc whose word is 100,000 chars took
+    // 5.8 s (release) in the one thread that highlights every file; minified code, a megabyte
+    // on a line, takes seconds at every edit.
+    let long = format!("cat <<{}", "E".repeat(MAX_LINE));
+    assert!(long.len() > MAX_LINE);
+    let text = vec!["if true; then".to_string(), long, "fi # done".to_string()];
+    let mut syn = Syn::new("a.sh", "").unwrap();
+    let all = spans(&mut syn, &text, 0, 3);
+    assert_eq!(syn.parsed, 2, "the long line was not parsed");
+    assert!(all[1].is_empty(), "and is plain");
+    assert_eq!(all[0], [(0..2, Look::Kw), (3..7, Look::Fun), (9..13, Look::Kw)]);
+    assert_eq!(
+        all[2],
+        [(0..2, Look::Kw), (3..9, Look::Com)],
+        "the lines around it have their looks"
+    );
+    // One byte less is parsed.
+    let text = vec![format!("cat <<{}", "E".repeat(MAX_LINE - 6))];
+    spans(&mut Syn::new("a.sh", "").unwrap(), &text, 0, 1);
+    let mut syn = Syn::new("a.sh", "").unwrap();
+    spans(&mut syn, &text, 0, 1);
+    assert_eq!(syn.parsed, 1);
 }
 
 #[test]
