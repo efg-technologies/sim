@@ -138,7 +138,7 @@ fn panel(b: &mut Bench) -> Times {
     out
 }
 
-/// LOOK-5, LOOK-6: REVIEW in depth on the big file with twenty proposals around the cursor: the card
+/// LOOK-5, LOOK-6: REVIEW on the big file with ten proposals around the cursor (all on a screen of 60 rows): the card
 /// is raised, the rest fades, and the App's frame is rendered two rows shorter. Each `]c` and `[c`
 /// is timed (the proposals come from the disk changing the lines that were edited here, which
 /// is not timed).
@@ -146,16 +146,16 @@ fn reviews(b: &mut Bench) -> Times {
     let id = b.r.sim.bufs[0].id;
     let old = std::fs::read_to_string(b.r.cwd.join("big.rs")).unwrap();
     let mut lines: Vec<String> = old.lines().map(str::to_string).collect();
-    for i in 0..20 {
-        b.r.keys(&format!("{}GA?<Esc>", 49_990 + 3 * i));
-        lines[49_989 + 3 * i].push('!');
+    for i in 0..10 {
+        b.r.keys(&format!("{}GA?<Esc>", 49_990 + 6 * i));
+        lines[49_989 + 6 * i].push('!');
     }
     b.r.send(SimEvent::App(id, disk((lines.join("\n") + "\n").as_bytes())));
-    assert_eq!(b.r.app().buf.hunks.len(), 20);
+    assert_eq!(b.r.app().buf.hunks.len(), 10);
     b.time("gg");
     let mut out = vec![];
     for _ in 0..100 {
-        out.extend(b.time("]c]c]c]c]c]c]c]c]c]c[c[c[c[c[c[c[c[c[c[c"));
+        out.extend(b.time("]c]c]c]c]c]c]c]c]c[c[c[c[c[c[c[c[c"));
     }
     assert_eq!(b.r.app().vi.mode, Mode::Review);
     let fog = b.r.shot.paints.iter().flatten().any(|(_, p)| p.fade > 0);

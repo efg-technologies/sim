@@ -1137,6 +1137,28 @@ syn_1_si_s_palette_paints_the_text_and_the_change_once_the_terminal_answers() {
   gone modified
 }
 
+syn_1_a_terminal_that_answers_the_background_only_still_gets_truecolor_syntax_colors() {
+  # (inside tmux the replies to OSC 4 often never come)
+  printf 'fn main() {} // c\n' > "$W/a.rs"
+  CT=truecolor
+  start a.rs
+  wait_for "a.rs  1:1  NORMAL"
+  wait_esc '31mfn' # the theme's own until the terminal answers about its background
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_esc '38;2;[0-9;]*mfn' # derived from the hue of a keyword: truecolor, no reply for red needed
+  ! screen_esc | grep -q '31mfn'
+  keyword() { screen_esc | grep -a 'fn' | sed -n 's/.*\(38;2;[0-9;]*\)mfn.*/\1/p' | head -1; }
+  before=$(keyword)
+  [ -n "$before" ]
+  reply '4;1;rgb:ff/00/00' # a late real reply replaces the derived color
+  tries=60
+  while [ "$(keyword)" = "$before" ] && [ "$tries" -gt 0 ]; do
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+  [ "$(keyword)" != "$before" ]
+}
+
 syn_2_zh_turns_the_colors_off_and_on() {
   printf 'fn main() {}\n' > "$W/a.rs"
   start a.rs

@@ -4,7 +4,7 @@
 //! four styles are si's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
 use crate::color::{Syntax, fade};
 use si::core::color::{Palette, Rgb};
-use si::core::view::{Frame, Row, Shape, Style, width};
+use si::core::view::{Frame, Shape, Style, width};
 use si::io::term::{self, sgr as base};
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -42,7 +42,7 @@ pub type Looks = Vec<(Range<u16>, Look)>;
 
 /// What a run of cells has beside its style and look (LOOK-2 to LOOK-7): colors of its own, which
 /// `layout` has worked out from the palette (a tint behind the text, the color of a box's line),
-/// and how far its text fades toward the page, in percent.
+/// how far its text fades toward the page, in percent, and whether it is bold (a title).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Paint {
     pub fg: Option<Rgb>,
@@ -124,16 +124,12 @@ fn sgr(
 }
 
 /// The text of a row with an SGR sequence wherever style, underline or look changes.
-fn paint(
-    b: &mut Vec<u8>,
-    row: &Row,
-    (looks, paints): (&Looks, &[(Range<u16>, Paint)]),
-    (pal, syn): (Option<Palette>, &Syntax),
-    memo: &mut Memo,
-) {
+fn paint(b: &mut Vec<u8>, s: &Screen, i: usize, memo: &mut Memo) {
+    let (row, looks, pal, syn) = (&s.frame.rows[i], &s.looks[i], s.frame.pal, &s.syn);
+    let paints = s.paints.get(i).map_or(&[][..], Vec::as_slice);
     let (mut now, mut col) = (None, 0u16);
     let cs: Vec<char> = row.text.chars().collect();
-    for (i, &c) in cs.iter().enumerate() {
+    for (k, &c) in cs.iter().enumerate() {
         let style =
             row.spans.iter().find(|(r, _)| r.contains(&col)).map_or(Style::Primary, |s| s.1);
         let underline = row.underline.iter().any(|r| r.contains(&col));
@@ -149,7 +145,7 @@ fn paint(
             now = Some((style, underline, look, by));
         }
         b.extend(c.encode_utf8(&mut [0; 4]).as_bytes());
-        col += width(&cs, i, usize::from(col)) as u16; // si's own rule, as in its `Term` (VIS-7)
+        col += width(&cs, k, usize::from(col)) as u16; // si's own rule, as in its `Term` (VIS-7)
     }
 }
 
@@ -192,7 +188,6 @@ impl<W: Write> Painter<W> {
             b.extend(b"\x1b[2J");
         }
         for (i, row) in f.rows.iter().enumerate() {
-            let paints = s.paints.get(i).map_or(&[][..], Vec::as_slice);
             let unchanged = |p: &Screen| {
                 p.frame.rows[i] == *row
                     && p.looks[i] == s.looks[i]
@@ -202,7 +197,7 @@ impl<W: Write> Painter<W> {
                 continue;
             }
             write!(b, "\x1b[{};1H", i + 1)?;
-            paint(&mut b, row, (&s.looks[i], paints), (f.pal, &s.syn), &mut self.memo);
+            paint(&mut b, &s, i, &mut self.memo);
             b.extend(b"\x1b[0m\x1b[K");
         }
         write!(b, "\x1b[{};{}H", f.cursor.1 + 1, f.cursor.0 + 1)?;

@@ -428,10 +428,8 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
     let half = |glyph: &str, bg: Option<Rgb>| {
         let mut l = Line::default();
         l.pad(gutter);
-        l.put(
-            &glyph.repeat(usize::from(ew.saturating_sub(gutter))),
-            Paint { fg: t.map(|t| t.card), bg, ..Paint::default() },
-        );
+        let p = Paint { fg: t.map(|t| t.card), bg, ..Paint::default() };
+        l.put(&glyph.repeat(usize::from(ew.saturating_sub(gutter))), p);
         l.pad(ew);
         l
     };
@@ -535,14 +533,9 @@ fn borders(d: &Deck) -> [Line; 2] {
     let s = |text: &str, p| (text.to_string(), p);
     let (pw, ew) = (g.pw + 2, g.ew + 2);
     let (mut top, mut bottom) = (Line::default(), Line::default());
+    let files = [s("¹", num(true)), s("files", title(true))];
     if g.pw > 0 {
-        top.add(border(
-            pw,
-            ['╭', '╮'],
-            line(true),
-            &[s("¹", num(true)), s("files", title(true))],
-            &[],
-        ));
+        top.add(border(pw, ['╭', '╮'], line(true), &files, &[]));
         bottom.add(border(pw, ['╰', '╯'], line(true), &[], &[]));
     }
     let (mut left, mut right, mut keys) = (vec![], vec![], vec![]);
@@ -567,15 +560,12 @@ fn borders(d: &Deck) -> [Line; 2] {
         if a.vi.mode == Mode::Review {
             right.push(s(&format!(" {}/{} ", a.current() + 1, b.hunks.len()), paint(None, true)));
             keys.push(s(" REVIEW ", paint(None, true)));
-            for (k, word) in
+            let (key, word) = (paint(None, true), paint(t.map(|t| t.focus), false));
+            for (k, w) in
                 [("y", "accept"), ("n", "reject"), ("Y", "all"), ("N", "none"), ("Esc", "back")]
             {
                 let gap = if keys.len() == 1 { " " } else { "  " };
-                keys.extend([
-                    s(gap, Paint::default()),
-                    s(k, paint(None, true)),
-                    s(&format!(" {word}"), paint(t.map(|t| t.focus), false)),
-                ]);
+                keys.extend([s(gap, Paint::default()), s(k, key), s(&format!(" {w}"), word)]);
             }
             keys.push(s(" ", Paint::default()));
         }

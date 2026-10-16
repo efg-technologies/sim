@@ -228,7 +228,13 @@ impl Syntax {
 
     fn derive(&mut self) {
         let bg = self.bg.filter(|_| self.truecolor);
-        self.hues = [1, 2, 3, 5, 6].map(|i| Some(contrast(self.ansi[i]?, bg?, 75.0)));
+        // A color the terminal has not told (OSC 4 is often not answered, as inside tmux) is made of
+        // the OKLCH hue of its class, red, green, yellow, magenta and cyan, and a moderate chroma.
+        let class = [(1, 25.0), (2, 145.0), (3, 85.0), (5, 320.0), (6, 195.0)];
+        self.hues = class.map(|(i, hue)| {
+            let own = self.ansi[i].unwrap_or_else(|| from_lch([0.5, 0.12, hue]));
+            Some(contrast(own, bg?, 75.0))
+        });
         // SYN-5: a neutral gray (lightness only) at |Lc| >= 15, and gray text on it at >= 75.
         self.sel = bg.map(|bg| {
             let gray = contrast(from_lch([to_lch(bg)[0], 0.0, 0.0]), bg, 15.0);
@@ -238,7 +244,7 @@ impl Syntax {
 
     /// Whether replies are still to come (the quit then waits for the terminal to finish, VIS-4).
     pub fn pending(&self) -> bool {
-        self.truecolor && self.hues.iter().any(Option::is_none)
+        self.truecolor && [1, 2, 3, 5, 6].iter().any(|&i| self.ansi[i].is_none())
     }
 
     /// The text color of a syntax look, or none (then the terminal's own SGR 31-36 is used).

@@ -291,14 +291,105 @@ fn syn_1_the_colors_keep_their_hue_and_blue_is_not_asked_for() {
         assert!(d < 12.0, "{look:?}: hue {:.0} became {:.0}", a[2], b[2]);
     }
     assert!(!color::QUERY.contains("4;4;"), "ANSI blue is never asked for");
+    // Blue is never used: a reply for it changes nothing, and the colors that stand in for the
+    // ones that did not come are not blue either.
     let mut only_blue = Syntax::new(true);
     only_blue.bg((0, 0, 0));
+    let all = [Look::Kw, Look::Str, Look::Ty, Look::Num, Look::Fun];
+    let before = all.map(|l| only_blue.hue(l));
     only_blue.reply("4;4;rgb:00/00/ff");
-    assert!(
-        [Look::Kw, Look::Str, Look::Ty, Look::Num, Look::Fun]
-            .iter()
-            .all(|l| only_blue.hue(*l).is_none())
-    );
+    assert_eq!(all.map(|l| only_blue.hue(l)), before);
+    for l in all {
+        let hue = color::to_lch(only_blue.hue(l).unwrap())[2];
+        assert!(!(220.0..280.0).contains(&hue), "{l:?}: hue {hue:.0} is blue");
+    }
+}
+
+/// VIS-4's backgrounds.
+const BGS: [(u8, u8, u8); 8] = [
+    (0x00, 0x00, 0x00),
+    (0x1e, 0x1e, 0x1e),
+    (0x28, 0x2c, 0x34),
+    (0x00, 0x2b, 0x36),
+    (0xff, 0xff, 0xff),
+    (0xfa, 0xfa, 0xfa),
+    (0xfd, 0xf6, 0xe3),
+    (0xef, 0xf1, 0xf5),
+];
+
+#[test]
+fn syn_1_where_osc_4_is_silent_but_the_background_is_known_each_class_has_a_truecolor_of_its_hue() {
+    // (inside tmux the replies often never come): red, green, yellow, magenta, cyan by their hues.
+    let classes = [
+        (Look::Kw, 25.0),
+        (Look::Str, 145.0),
+        (Look::Ty, 85.0),
+        (Look::Num, 320.0),
+        (Look::Fun, 195.0),
+    ];
+    for bg in BGS {
+        let mut syn = Syntax::new(true);
+        syn.bg(bg);
+        for (look, hue) in classes {
+            let c = syn.hue(look);
+            assert!(c.is_some(), "{look:?} on {bg:?}: derived, not SGR 3x");
+            let (c, lch) = (c.unwrap(), color::to_lch(c.unwrap()));
+            let lc = apca(c, bg).abs();
+            assert!(lc >= 75.0, "{look:?} on {bg:?}: {c:?} |Lc| {lc:.1}");
+            let d = (lch[2] - hue).abs().min(360.0 - (lch[2] - hue).abs());
+            assert!(d < 6.0, "{look:?} on {bg:?}: hue {:.0}, not {hue}", lch[2]);
+            assert!(lch[1] > 0.03, "{look:?} on {bg:?}: chroma {:.3} is no color", lch[1]);
+        }
+        assert!(syn.pending(), "the replies may still come: the quit still waits for them");
+    }
+    // The background is not known: the terminal's own SGR 31-36 stand in.
+    let mut none = Syntax::new(true);
+    assert!(classes.iter().all(|(l, _)| none.hue(*l).is_none()));
+    none.reply("4;1;rgb:cc/00/00");
+    assert!(none.hue(Look::Kw).is_none());
+}
+
+#[test]
+fn syn_1_a_late_osc_4_reply_replaces_the_derived_color_and_the_screen_is_redrawn() {
+    let bg = (0x1e, 0x1e, 0x1e);
+    let mut syn = Syntax::new(true);
+    syn.bg(bg);
+    let derived = syn.hue(Look::Kw).unwrap();
+    let before = syn;
+    syn.reply("4;1;rgb:ff/40/40");
+    let real = syn.hue(Look::Kw).unwrap();
+    assert_ne!(real, derived, "the terminal's own red");
+    assert!(apca(real, bg).abs() >= 75.0);
+    assert_ne!(syn, before, "the painter compares it and draws everything again");
+    // The other four are still derived, and the quit waits until all five have come.
+    assert!(syn.pending());
+    for (i, c) in
+        [(2, "rgb:40/ff/40"), (3, "rgb:ff/ff/40"), (5, "rgb:ff/40/ff"), (6, "rgb:40/ff/ff")]
+    {
+        syn.reply(&format!("4;{i};{c}"));
+    }
+    assert!(!syn.pending());
+    // What is painted: truecolor for a keyword with no reply (not `;31`), and the real one later.
+    let mut late = Syntax::new(true);
+    late.bg(bg);
+    let drawn = |syn: Syntax| {
+        let rows = vec![Row { text: "fn".into(), ..Row::default() }, Row::default()];
+        let frame = Frame {
+            width: 4,
+            height: 2,
+            rows,
+            cursor: (0, 0),
+            shape: Shape::Block,
+            pal: Some(si_palette(bg)),
+        };
+        let looks = vec![vec![(0..2, Look::Kw)], vec![]];
+        let mut p = Painter::new(Vec::<u8>::new());
+        p.draw(Screen { frame, looks, paints: vec![], syn }).unwrap();
+        String::from_utf8(p.out).unwrap()
+    };
+    let out = drawn(late);
+    let (r, g, b) = derived;
+    assert!(out.contains(&format!(";38;2;{r};{g};{b}")) && !out.contains(";31"), "{out:?}");
 }
 
 #[test]
