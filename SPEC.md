@@ -225,6 +225,7 @@ The vi grammar the hands already know, departing from vi wherever vi is worse th
   - **Decided** (P2): an entry is a change of mode to Normal from Insert, Visual, the command line or REVIEW (leaving REVIEW with its last decision, with Esc or another key, or with a paste). Esc in Normal mode and the motions are not entries, and nothing runs on the way out. An empty `SI_ON_NORMAL` counts as unset.
   - **Decided** (P1, P3): the shell runs it with `sh -c` in its own process group, with no input, reaps it from a thread, and drops its output and its failure: a hook can never block a key or write on the screen.
 - **VI-12** [P5][M1] The keys every editor has work everywhere: the arrows, Home, End, PageUp, PageDown and Delete in Normal, Visual and Insert mode, and Left, Right, Home, End, BS and Delete on the command line — U
+  - **Decided** (P5): Ctrl-h is Backspace, as in vi: a terminal set to send byte 8 for its Backspace key (PuTTY's option, `stty erase ^H`) has no other, and crossterm reads that byte as Ctrl-h.
   - **Decided** (P2): a command line longer than the screen scrolls to keep its cursor visible.
   - **Decided** (P2): it keeps the scroll it has while the cursor stays on the screen, and always the char before the cursor, so Home shows the start again.
 - **VI-13** [P5][M1] Finishing takes few keys: Ctrl-s saves in every mode (Insert mode stays Insert mode); `ZZ` saves if modified and quits, like `:x`; `ZQ` quits without saving, like `:q!`; `q` quits like `:q` (as in less; si has no macros). Ctrl-c with nothing to cancel says `q to quit` — U

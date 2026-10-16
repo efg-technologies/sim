@@ -52,6 +52,7 @@ pub fn convert(ev: Ev) -> Option<Event> {
                 KeyCode::Home => Key::Home, KeyCode::End => Key::End,
                 KeyCode::PageUp => Key::PageUp, KeyCode::PageDown => Key::PageDown,
                 KeyCode::Char('[') if ctrl => Key::Esc,
+                KeyCode::Char('h') if ctrl => Key::Backspace,
                 KeyCode::Char(c) if ctrl => Key::Ctrl(c.to_ascii_lowercase()),
                 KeyCode::Char(c) => Key::Char(c),
                 _ => return None,
