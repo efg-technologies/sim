@@ -141,6 +141,20 @@ fn mark_1_a_clean_repository_has_no_marks_and_a_plain_directory_is_an_error() {
     assert!(err.starts_with("not a git repository"), "{err}");
 }
 
+#[test]
+fn mark_1_a_bare_repository_and_a_git_directory_have_no_work_tree_and_so_no_marks() {
+    // `git status` says "this operation must be run in a work tree" there. That is no failure to
+    // tell the user at every save: like a directory that is no repository, it has no marks.
+    let d = temp_dir("mark1-bare");
+    repo(&d.0, &["a.rs"]);
+    let bare = d.0.join("bare.git");
+    git(&d.0, &["clone", "-q", "--bare", ".", bare.to_str().unwrap()]);
+    for dir in [bare, d.0.join(".git")] {
+        let err = io::git_status(&dir).unwrap_err();
+        assert!(err.starts_with("not a git repository"), "{dir:?}: {err}");
+    }
+}
+
 // ---- the guard: git is not run where the repository's own config could run commands ----
 // The config is read by git itself (`git config --list --show-scope -z`), so the cases below are
 // texts that git and a parser of sim's own could read differently.

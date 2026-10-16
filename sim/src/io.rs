@@ -1,6 +1,7 @@
 //! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, and the history file in sim's state directory.
+use crate::layout;
 use crate::rank::History;
 use crate::sim::{Found, Hl, Id, Opened, Req, SimEvent};
 use crate::syn::{Spans, Syn};
@@ -218,13 +219,15 @@ fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
         .current_dir(dir)
         .env("LC_ALL", "C")
         .output();
-    let out = out.map_err(|e| format!("cannot run git in {}: {}", dir.display(), why(&e)))?;
+    let shown = layout::tail(&dir.to_string_lossy(), 30); // (the reason is what matters: it is last)
+    let out = out.map_err(|e| format!("cannot run git in {shown}: {}", why(&e)))?;
     if out.status.success() {
         return Ok(out.stdout);
     }
     let err = String::from_utf8_lossy(&out.stderr);
     let err = err.lines().next().unwrap_or_default();
-    Err(if err.contains("not a git repository") {
+    // (a bare repository, or inside `.git`, has no marks to give: it is no repository to this)
+    Err(if err.contains("not a git repository") || err.contains("must be run in a work tree") {
         format!("not a git repository: {}", dir.display())
     } else {
         format!("git {}: {err}", args[0])
