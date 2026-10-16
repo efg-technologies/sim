@@ -39,8 +39,8 @@ fn tree_5_read_dir_says_why_it_cannot_read() {
     let d = temp_dir("io-readdir-err");
     make(&d.0, &["file"]);
     let err = io::read_dir(&d.0.join("missing")).unwrap_err();
-    assert!(err.starts_with("cannot read ") && err.contains("missing"), "{err}");
-    assert!(io::read_dir(&d.0.join("file")).unwrap_err().starts_with("cannot read "));
+    assert!(!err.is_empty() && !err.contains("missing"), "the reason, not the path: {err}");
+    assert!(!io::read_dir(&d.0.join("file")).unwrap_err().is_empty());
 }
 
 #[test]

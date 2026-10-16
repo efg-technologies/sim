@@ -141,6 +141,22 @@ fn buf_1_a_directory_named_by_e_gives_back_the_watcher_started_for_it() {
 }
 
 #[test]
+fn buf_2_the_position_is_not_cut_off_by_a_long_status() {
+    // The App's status line (path, cursor, mode) is as wide as the screen or more; the position
+    // follows it all the same, and the App is the one to make room for it.
+    let (a, b) = (format!("{}.txt", "a".repeat(70)), format!("{}.txt", "b".repeat(70)));
+    let mut r = rig_sized("b2-long", &[&format!("{a}=A\n"), &format!("{b}=B\n")], &[&a], (80, 8));
+    r.keys(&format!(":e {b}\n"));
+    assert_eq!(r.open_files(), [a.clone(), b.clone()]);
+    assert!(r.status().ends_with("  2/2") && width(r.status()) <= 80, "{}", r.status());
+    r.keys("<Tab>");
+    assert!(r.status().ends_with("  1/2") && width(r.status()) <= 80, "{}", r.status());
+    r.keys("<C-n>"); // with the panel the status line is across the whole width as well
+    r.keys("<C-n>");
+    assert!(r.status().ends_with("  1/2") && width(r.status()) <= 80, "{}", r.status());
+}
+
+#[test]
 fn buf_1_two_names_for_one_file_are_one_buffer() {
     let mut r = rig("b1-link", &FILES, &[]);
     std::os::unix::fs::symlink("a.txt", r.cwd.join("link.txt")).unwrap();

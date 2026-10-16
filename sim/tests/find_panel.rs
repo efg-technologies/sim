@@ -211,6 +211,19 @@ fn find_1_backspace_edits_the_query_and_ends_the_search_when_there_is_nothing_le
 }
 
 #[test]
+fn find_1_a_long_query_keeps_the_count_and_the_cursor_on_the_screen() {
+    let name = "q".repeat(100);
+    let mut r = rig("f1-long", &[&name], &[]);
+    r.keys(&format!("/{name}"));
+    let (text, w) = (r.status().to_string(), 80);
+    assert!(text.starts_with("…q") && text.ends_with("q  1 match"), "{text}");
+    assert_eq!(width(&text), w, "{text}");
+    assert!(usize::from(r.screen.cursor.0) < w && r.screen.cursor.1 == 23, "{:?}", r.screen.cursor);
+    r.keys("z");
+    assert!(r.status().ends_with("z  no match") && width(r.status()) <= w, "{}", r.status());
+}
+
+#[test]
 fn find_1_the_query_is_text_and_every_key_but_the_few_is_ignored() {
     let mut r = rig("f1-keys", &FILES, &[]);
     r.keys("/njq.<Left><C-d><PageDown>");

@@ -3,6 +3,7 @@
 //! arrive, the search that lights up matches, and the narrowed tree.
 use super::{Sim, SimEffect};
 use crate::find::{Found, Query};
+use crate::layout;
 use crate::tree::{self, Entry, Row as TreeRow, Tree};
 use si::core::app::Key;
 use std::cmp::Ordering;
@@ -153,7 +154,9 @@ impl Sim {
     pub(super) fn listing(&mut self, dir: &Path, r: Result<Vec<Entry>, String>, out: Out) {
         let Ok(rel) = dir.strip_prefix(&self.root) else { return };
         let entries = r.unwrap_or_else(|e| {
-            self.msg = Some(e);
+            let name = if rel.as_os_str().is_empty() { &self.root } else { rel };
+            self.msg =
+                Some(format!("cannot read {}: {e}", layout::tail(&name.to_string_lossy(), 32)));
             vec![]
         });
         let kept =
@@ -172,8 +175,9 @@ impl Sim {
     pub(super) fn reveal_dir(&mut self, path: &str, out: Out) {
         let abs = self.cwd.join(path);
         let Ok(rel) = abs.strip_prefix(&self.root) else {
+            let (root, abs) = (self.root.to_string_lossy(), abs.to_string_lossy());
             return self.msg =
-                Some(format!("{} is not under {}", abs.display(), self.root.display()));
+                Some(format!("not under {}: {}", layout::tail(&root, 28), layout::tail(&abs, 34)));
         };
         (self.panel.reveal, self.focus) = (Some(rel.to_path_buf()), None);
         self.end_search();
