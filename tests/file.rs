@@ -8,7 +8,7 @@ use si::io::file::{Saved, foreign_link, open_same, read, save, symlinks};
 use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 const OLD: &[u8] = b"old\n";
 const NEW: &[u8] = b"new text\n";
@@ -278,7 +278,9 @@ fn safe_2_a_mount_point_is_written_in_place() {
     let ns = |script: &str| {
         let mut c = Command::new("unshare");
         c.args(["--user", "--map-root-user", "--mount", "sh", "-c", script]).current_dir(&d.0);
-        c.env("SI_TEST_BIND", &d.0).stdout(Stdio::null()).stderr(Stdio::null());
+        c.env("SI_TEST_BIND", &d.0)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
         c.status().is_ok_and(|s| s.success())
     };
     if !ns("mount --bind src target") {
