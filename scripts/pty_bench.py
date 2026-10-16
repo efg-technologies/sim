@@ -26,7 +26,8 @@ script plays the terminal on the other side of it (class Terminal).
                                       order; `:q` as soon as the first frame is up. `leaked` is the
                                       number of bytes of its answers that were still unread when si
                                       had gone, i.e. what the shell would have typed (VIS-4);
-                                      `quit_ms` the time from `:q` to the exit
+                                      `quit_ms` the time from `:q` to the exit, `owed_ms` the time from
+                                      `:q` to the last answer that was due (what a quit has to wait for)
 
 Prints key=value lines (times in ms, memory in kB) after a readable summary on stderr.
 Used by scripts/bench.sh, tests/perf_1.rs, tests/perf_5.rs and tests/vis_4.rs. Standard library only.
@@ -74,6 +75,7 @@ class Terminal:
         self.master, self.delay, self.osc, self.silent = master, delay, osc, silent
         self.seen, self.scanned, self.due, self.last = b"", 0, [], 0.0
         self.queried = set()
+        self.owed = 0.0  # seconds the answers still owed were due after the `:q` (see `session`)
 
     def pump(self, wait=0.0005):
         """Reads what is there (for at most `wait` seconds), schedules the answers to the queries
@@ -145,6 +147,7 @@ def session(binary, path, **terminal):
         took = time.perf_counter() - start
         os.write(master, b":q\r")
         typed = time.perf_counter()
+        term.owed = max((d[0] for d in term.due), default=typed) - typed
         while proc.poll() is None and time.time() < deadline:
             term.pump(0.0002)
         quit = time.perf_counter() - typed
@@ -245,6 +248,7 @@ def leak(binary, path, delay_ms):
     print(f"leak: {len(left)} bytes left for the shell: {left!r}; :q to exit {quit * 1000:.1f} ms", file=sys.stderr)
     print(f"leaked={len(left)}")
     print(f"quit_ms={quit * 1000:.3f}")
+    print(f"owed_ms={term.owed * 1000:.3f}")
 
 
 def rss(binary, path):

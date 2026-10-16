@@ -498,8 +498,9 @@ buf_1_kill_9_leaves_a_snapshot_for_every_modified_file() {
   screen | grep -F -q "fn lib() {} // LIB"
   typed ":e src/main.rs"
   keys Enter
+  # The text first: the message of the first recovery is still on the screen until the keys are taken.
+  wait_for "fn main() {} // MAIN"
   wait_for "recovered unsaved changes from"
-  screen | grep -F -q "fn main() {} // MAIN"
   printf 'fn lib() {}\n' | cmp - "$W/src/lib.rs"
   typed ":qa!"
   keys Enter
@@ -520,8 +521,9 @@ buf_1_sigterm_snapshots_every_modified_file() {
   screen | grep -F -q "fn lib() {} // LIB"
   typed ":e src/main.rs"
   keys Enter
+  # The text first: the message of the first recovery is still on the screen until the keys are taken.
+  wait_for "fn main() {} // MAIN"
   wait_for "recovered unsaved changes from"
-  screen | grep -F -q "fn main() {} // MAIN"
 }
 
 buf_2_tab_switches_only_in_normal_mode() {
