@@ -685,8 +685,9 @@ impl Sim {
             rows.into_iter().map(|r| self.mark(r, &likely)).collect();
         let at = self.row(self.panel.cur);
         let root = self.root.display().to_string();
-        let tree = at.as_ref().map_or(root.clone(), |r| {
-            format!("{}{}", r.path.display(), if r.is_dir { "/" } else { "" })
+        // (a directory's name ends with `/`, which is part of the state words: a path is cut as a list of components)
+        let (tree, slash) = at.as_ref().map_or((root.clone(), ""), |r| {
+            (r.path.display().to_string(), if r.is_dir { "/" } else { "" })
         });
         // BUF-2: the position `2/5` follows the status, which is cut to what is left of the width;
         // on the command line, which has the whole width, there is none.
@@ -698,7 +699,7 @@ impl Sim {
         };
         let room = usize::from(w).saturating_sub(pos.width());
         let (mut status, mut cursor, mut shape) =
-            (layout::tail(&root, room), (off, 0), Shape::Block);
+            (layout::short(&root, room), (off, 0), Shape::Block);
         if let Some(b) = self.bufs.get_mut(self.cur) {
             if b.frame.as_ref().is_some_and(|f| (f.width, f.height) != (ew, h)) {
                 b.frame = None;
@@ -723,7 +724,7 @@ impl Sim {
             }
         }
         if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
-            status = layout::stated(&tree, "  TREE", room).0;
+            status = layout::stated(&tree, &format!("{slash}  TREE"), room);
         }
         if let (true, Some(s)) = (focus, &self.panel.search) {
             let n = s.found.hits.len();
@@ -732,8 +733,10 @@ impl Sim {
                 (_, 0) => "  no match".into(),
                 _ => format!("  {n} match{}", if n == 1 { "" } else { "es" }),
             };
-            let (text, cols) = layout::stated(&format!("/{}", s.query), &found, room);
-            status = text;
+            let (found, used) = layout::fit(&found, room);
+            let head = layout::tail(&format!("/{}", s.query), room - used);
+            let cols = layout::fit(&head, usize::MAX).1;
+            status = head + &found;
             if s.typing {
                 (cursor, shape) = ((cols.min(usize::from(w) - 1) as u16, h - 1), Shape::Bar);
             }

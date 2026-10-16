@@ -232,7 +232,7 @@ fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
         .env("GIT_ALLOW_PROTOCOL", "sim-none")
         .env("GIT_TERMINAL_PROMPT", "0")
         .output();
-    let shown = layout::tail(&dir.to_string_lossy(), 30); // (the reason is what matters: it is last)
+    let shown = layout::short(&dir.to_string_lossy(), 30); // (the reason is what matters: it is last)
     let out = out.map_err(|e| format!("cannot run git in {shown}: {}", why(&e)))?;
     if out.status.success() {
         return Ok(out.stdout);
@@ -385,7 +385,7 @@ pub fn load_history(dir: &Path) -> History {
 /// synced, then renamed over the old one, so the file is always whole.
 pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {
     let fail = |what: &str, e: std::io::Error| {
-        format!("history: cannot {what} {}: {}", layout::tail(&dir.to_string_lossy(), 30), why(&e))
+        format!("history: cannot {what} {}: {}", layout::short(&dir.to_string_lossy(), 30), why(&e))
     };
     if fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink()) {
         return Err(fail("use", io::Error::other("it is a link")));
