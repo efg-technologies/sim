@@ -34,6 +34,7 @@
 #   $W                 sim's working directory, $CASE_DIR/work: the project a case makes
 #   $CT                set it (CT=truecolor) before `start` to run sim with COLORTERM=$CT; otherwise sim
 #                      runs without COLORTERM, whatever the user's terminal sets
+#   $SIM_PATH          set it before `start` to run sim with that PATH (for a fake or a missing rg)
 set -eu
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
@@ -53,7 +54,7 @@ shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # ---- helpers used by cases ----
 
 start() {
-  cmd="cd $(shq "$W") && env -u COLORTERM HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") ${CT:+COLORTERM=$CT} $(shq "$SIM_BIN")"
+  cmd="cd $(shq "$W") && env -u COLORTERM HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") ${CT:+COLORTERM=$CT} ${SIM_PATH:+PATH=$(shq "$SIM_PATH")} $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
   # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after sim exits.
@@ -800,6 +801,163 @@ find_4_ctrl_p_works_in_insert_mode_and_never_types() {
   keys Escape # gives the focus back (tmux would send two at once as Alt-Esc)
   wait_for "src/main.rs  1:1  INSERT" # still inserting, and nothing was typed
   gone modified
+}
+
+# A project for the search of contents: a file of 100 lines with `needle` on line 60.
+grepproject() {
+  project
+  i=1
+  while [ "$i" -le 100 ]; do
+    if [ "$i" -eq 60 ]; then echo "the needle is here"; else echo "line $i"; fi
+    i=$((i + 1))
+  done > "$W/big.txt"
+  printf 'fn needle() {}\nfn other() {}\n' > "$W/src/lib.rs"
+}
+
+grep_1_ctrl_f_searches_the_contents_as_you_type_and_esc_puts_everything_back() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  gone "▸"
+  keys C-f
+  typed fn
+  wait_for "/fn  2 matches in 2 files"
+  screen | grep -F -q "src/lib.rs  1" # grouped by file, with the count
+  screen | grep -F -q " 1  fn lib() {}" # and the line, numbered
+  typed " m"
+  wait_for "/fn m  1 match in 1 file"
+  gone "src/lib.rs"
+  keys BSpace BSpace
+  wait_for "/fn  2 matches in 2 files"
+  keys Escape
+  wait_for "src/main.rs  1:1  NORMAL"
+  gone "▸" # the panel was closed before, and is again
+  gone "matches"
+  [ "$(cat "$W/src/main.rs")" = "fn main() {}" ] # nothing was written
+}
+
+grep_1_ctrl_f_works_in_insert_mode_and_never_types() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  typed i
+  wait_for INSERT
+  keys C-f
+  typed guide
+  wait_for "/guide  1 match in 1 file"
+  keys Escape
+  wait_for "src/main.rs  1:1  INSERT"
+  gone modified
+}
+
+grep_3_the_matches_are_bold_and_the_line_numbers_dim() {
+  grepproject
+  start
+  wait_for "▸ src/"
+  keys C-f
+  typed needle
+  wait_for "/needle  2 matches in 2 files"
+  wait_esc '1mneedle' # the match, bold
+  screen_esc | grep -q '\[2m1.*fn' # the line number is the secondary gray (faint)
+  ! screen_esc | grep -q '\[[34][0-7]m' # and no color is used
+}
+
+grep_4_the_pane_previews_the_result_enter_opens_it_there_and_esc_puts_the_tree_back() {
+  grepproject
+  start
+  wait_for "▸ src/"
+  keys C-f
+  typed needle
+  wait_for "/needle  2 matches in 2 files"
+  wait_for "the needle is here" # the preview of big.txt (the first result by path), in the pane
+  wait_for "  55 line 55" # centered: 11 lines above it
+  gone "  10 line 10"
+  keys Down
+  wait_for "/needle  2 matches in 2 files  src/lib.rs:1"
+  wait_for "   1 fn needle() {}" # the preview follows the cursor into the other file
+  gone "line 55"
+  keys Up
+  wait_for "  55 line 55"
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null)" ] # not an open: no history yet
+  keys Enter
+  wait_for "big.txt  60:5  NORMAL" # the line, and the column of the match
+  screen | grep -F -q "▸ src/" # the tree is back
+  gone "matches"
+  keys Tab
+  keys C-f
+  typed other
+  wait_for "/other  1 match in 1 file"
+  keys Enter
+  wait_for "src/lib.rs  2:4  NORMAL"
+  wait_for "▾ src/" # the tree shows where the file is
+}
+
+grep_4_esc_puts_back_the_file_the_position_and_the_tree() {
+  grepproject
+  start big.txt
+  wait_for "big.txt  1:1  NORMAL"
+  typed 5j
+  wait_for "big.txt  6:1  NORMAL"
+  keys C-n
+  keys Right # into src/? the focus is in the panel: open the first directory
+  wait_for "▾ docs/"
+  keys C-f
+  typed needle
+  wait_for "/needle  2 matches in 2 files"
+  keys Escape
+  wait_for "docs/  TREE" # the panel, as it was: the same row, the same expansion
+  screen | grep -F -q "▾ docs/"
+  keys Escape
+  wait_for "big.txt  6:1  NORMAL" # and the file, with the cursor where it was
+}
+
+grep_5_a_slow_search_never_blocks_a_key_and_a_new_query_stops_the_old_rg() {
+  project
+  mkdir -p "$CASE_DIR/bin"
+  # a rg that takes a long time and says where it is
+  printf '#!/bin/sh\necho $$ >> "%s"\nexec sleep 30\n' "$CASE_DIR/rg.pids" > "$CASE_DIR/bin/rg"
+  chmod +x "$CASE_DIR/bin/rg"
+  SIM_PATH="$CASE_DIR/bin:$PATH"
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  keys C-f
+  typed f
+  wait_for "/f  searching…"
+  tries=100
+  until [ -s "$CASE_DIR/rg.pids" ] || [ "$tries" -le 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  first=$(head -n 1 "$CASE_DIR/rg.pids")
+  kill -0 "$first"
+  typed n # the keys go on while rg sleeps; the new query kills the old process
+  wait_for "/fn  searching…"
+  tries=100
+  while kill -0 "$first" 2> /dev/null && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  ! kill -0 "$first" 2> /dev/null
+  keys Escape # a key at once, and the search that was running is stopped too
+  wait_for "src/main.rs  1:1  NORMAL"
+  second=$(tail -n 1 "$CASE_DIR/rg.pids")
+  tries=100
+  while kill -0 "$second" 2> /dev/null && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  ! kill -0 "$second" 2> /dev/null
+}
+
+grep_5_without_rg_or_git_the_built_in_reader_searches_the_walk() {
+  project
+  printf 'ignored needle\n' > "$W/skip.txt"
+  mkdir -p "$CASE_DIR/bin"
+  ln -s "$(command -v sh)" "$CASE_DIR/bin/sh"
+  ln -s "$(command -v env)" "$CASE_DIR/bin/env"
+  SIM_PATH="$CASE_DIR/bin"
+  start
+  wait_for "▸ src/"
+  keys C-f
+  typed main
+  wait_for "/main  1 match in 1 file"
+  screen | grep -F -q "src/main.rs  1"
+  keys Escape
+  keys C-f
+  typed needle
+  wait_for "/needle  1 match in 1 file"
+  screen | grep -F -q "skip.txt  1"
 }
 
 mark_1_changed_files_have_the_change_color_and_their_directories_a_tilde() {
