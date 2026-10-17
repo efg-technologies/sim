@@ -9,6 +9,7 @@ use crate::icons;
 use crate::marks::Git;
 use crate::paint::{Look, Looks, Paint, Paints};
 use crate::syn::Spans;
+use crate::tabs::Tab;
 use crate::tree;
 use si::core::app::App;
 use si::core::color::Rgb;
@@ -414,7 +415,7 @@ pub struct Deck<'a> {
 pub struct Chrome<'a> {
     pub icons: bool,
     pub root: &'a str,
-    pub tabs: Vec<(&'a str, bool)>,
+    pub tabs: Vec<Tab>,
     pub cur: usize,
 }
 
@@ -552,31 +553,9 @@ fn header_line(pw: u16, root: &str, icons: bool, t: &Tones) -> Line {
     line
 }
 
-/// UI-4: the first row of the editor: a tab for each open file, the one that is shown raised.
+/// UI-4: the first row of the editor: the tab bar (`tabs.rs`).
 fn tabs_line(ew: u16, c: &Chrome, t: &Tones) -> Line {
-    let mut line = Line::default();
-    let bar = Paint { bg: Some(t.bar), ..Paint::default() };
-    for (i, (name, modified)) in c.tabs.iter().enumerate() {
-        let raised = Paint {
-            bg: Some(if i == c.cur { t.card } else { t.bar }),
-            bold: i == c.cur,
-            ..Paint::default()
-        };
-        let (glyph, accent) = icons::of(name, false, false);
-        line.put(" ", raised);
-        if c.icons {
-            let ink = accent.map_or(t.focus, |a| t.fg(a));
-            line.put(&format!("{glyph} "), Paint { fg: Some(ink), ..raised });
-        }
-        line.put(&fit(name, usize::from(ew).saturating_sub(6)).0, raised);
-        if *modified {
-            line.put(" ●", Paint { fg: Some(t.fg(Accent::Amber)), ..raised });
-        }
-        line.put(" ", raised);
-    }
-    line.pad(ew);
-    line.paints.push((0..ew, bar));
-    line
+    crate::tabs::layout(&c.tabs, c.icons, c.cur, ew, Some(t)).0
 }
 
 fn live_line(pw: u16, p: Option<&PRow>) -> Line {

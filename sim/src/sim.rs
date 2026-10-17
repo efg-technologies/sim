@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -18,6 +18,7 @@ use crate::marks::{Git, Marks};
 use crate::paint::{Looks, Screen};
 use crate::rank::History;
 use crate::syn::Spans;
+use crate::tabs::{self, Tab};
 use crate::tree::{Entry, Row as TreeRow, Tree};
 use crossterm::event::MouseEvent;
 use live::Live;
@@ -195,6 +196,9 @@ pub struct Buf {
     /// UI-10: the language server's state for this file (` rust-analyzer · sandboxed`), which the
     /// code of the server's own sets and the status line shows as it is; sim never writes it.
     pub lsp: Option<String>,
+    /// UI-4: the language server's errors and warnings for the file, which the tab shows (`✘ 2 ▲ 1`);
+    /// set by the server's own code, never by sim.
+    pub diag: (usize, usize),
 }
 
 #[derive(Default)]
@@ -542,6 +546,21 @@ impl Sim {
         self.refocus();
     }
 
+    /// UI-4: the tabs: one for each open file, in order.
+    pub fn tabs(&self) -> Vec<Tab> {
+        let paths: Vec<&str> =
+            self.bufs.iter().map(|b| b.app.path.as_deref().unwrap_or("[no name]")).collect();
+        let names = tabs::names(&paths);
+        let tab = |(b, name): (&Buf, String)| Tab {
+            name,
+            dirty: b.app.buf.dirty(),
+            disk: !b.app.buf.marks.is_empty(),
+            errors: b.diag.0,
+            warns: b.diag.1,
+        };
+        self.bufs.iter().zip(names).map(tab).collect()
+    }
+
     /// UI-5: asks for the diff of a file against HEAD (not where git said there is no repository).
     fn diff(&self, id: Id, out: &mut Vec<SimEffect>) {
         let req = self.bufs.iter().find(|b| b.id == id).and_then(|b| {
@@ -776,6 +795,7 @@ impl Sim {
             crow: 0,
             diff: None,
             lsp: None,
+            diag: (0, 0),
         });
         self.cur = self.bufs.len() - 1;
         self.refocus();
@@ -1013,9 +1033,7 @@ impl Sim {
         };
         let pane = self.live_pane();
         let home_root = tilde(&self.root, self.home.as_deref());
-        // (the open file's tab alone for now: the bar of every file's tab is UI-4's)
-        let tabs: Vec<(String, bool)> =
-            self.bufs.get(self.cur).map(|b| (tab_name(b), b.app.buf.dirty())).into_iter().collect();
+        let tabs = self.tabs();
         let deck = Deck {
             geo: g,
             tones: tones.as_ref(),
@@ -1025,12 +1043,7 @@ impl Sim {
             app: self.bufs.get(self.cur).map(|b| &b.app),
             win,
             focus,
-            chrome: ui.then(|| Chrome {
-                icons: self.icons,
-                root: &home_root,
-                tabs: tabs.iter().map(|(n, m)| (n.as_str(), *m)).collect(),
-                cur: 0,
-            }),
+            chrome: ui.then(|| Chrome { icons: self.icons, root: &home_root, tabs, cur: self.cur }),
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
         let editor = match (&pane, cur) {
@@ -1123,7 +1136,7 @@ impl Sim {
             Mode::Normal => ("NORMAL".into(), Accent::Blue),
         };
         let mut notes = state_words(si_status, line + 1, col + 1);
-        if self.bufs.len() > 1 {
+        if self.bufs.len() > 1 && self.geo().head == 0 {
             notes = format!("{}/{}  {notes}", self.cur + 1, self.bufs.len()).trim_end().to_string();
         }
         let untracked = self.open_path().is_some_and(|p| marks.git(&p) == Some(Git::Untracked));
@@ -1216,10 +1229,4 @@ pub fn tilde(path: &Path, home: Option<&Path>) -> String {
         Some(rest) => format!("~/{}", rest.display()),
         None => path.display().to_string(),
     }
-}
-
-/// UI-4: what a tab calls a file: its name.
-fn tab_name(b: &Buf) -> String {
-    let path = b.app.path.as_deref().unwrap_or("[no name]");
-    Path::new(path).file_name().map_or(path.into(), |n| n.to_string_lossy().into_owned())
 }

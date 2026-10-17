@@ -1615,4 +1615,34 @@ ui_10_the_status_line_is_a_bar_with_the_mode_the_branch_the_file_and_the_positio
   keys Escape
 }
 
+ui_4_every_open_file_has_a_tab_and_a_click_on_a_tab_shows_that_file() {
+  project
+  look flat
+  CT=truecolor
+  start README.md
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "README.md"
+  typed ':e src/lib.rs'
+  keys Enter
+  wait_for "src/lib.rs" # the status line's bar names the file shown
+  typed ':e src/main.rs'
+  keys Enter
+  tries=100
+  while ! screen | sed -n 1p | grep -q 'main.rs' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  last() { screen | grep -v '^$' | tail -1; }
+  first=$(screen | sed -n 1p)
+  printf '%s\n' "$first" | grep -q 'README.md'
+  printf '%s\n' "$first" | grep -q 'lib.rs'
+  printf '%s\n' "$first" | grep -q 'main.rs'
+  printf '%s\n' "$first" | grep -q '▎' # the shown tab's indicator
+  last | grep -q 'src/main.rs'
+  # A click on the first tab (tmux's columns count from 1): README.md is shown.
+  col=$(printf '%s\n' "$first" | awk '{ print index($0, "README.md") }')
+  click "$col" 1
+  tries=100
+  while ! last | grep -q 'README.md' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  last | grep -q 'README.md'
+  screen | sed -n 1p | grep -q 'main.rs' # no tab is lost
+}
+
 main "$@"

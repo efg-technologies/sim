@@ -239,7 +239,7 @@ fn ui_10_a_message_the_command_line_and_a_search_take_the_row_over() {
 }
 
 #[test]
-fn ui_10_si_s_state_words_are_in_the_bar_and_a_second_file_is_counted() {
+fn ui_10_si_s_state_words_are_in_the_bar_and_a_second_file_is_in_the_tabs() {
     let mut r = rig("ui10-notes", Skin::Flat, (140, 24), true);
     let id = r.sim.bufs[0].id;
     r.send(SimEvent::App(id, disk(b"l1\nL2\nl3\nl4\nl5\nnew\nl6\nl7\nl9\nl10\nl11\n")));
@@ -253,7 +253,7 @@ fn ui_10_si_s_state_words_are_in_the_bar_and_a_second_file_is_counted() {
     );
     r.keys(":e b.rs\n");
     let text = last(&r);
-    assert!(text.contains("2/2"), "the position among the files: {text}");
+    assert!(!text.contains("2/2"), "the tab bar says where you are, the bar does not: {text}");
     assert!(text.contains("b.rs"), "{text}");
 }
 

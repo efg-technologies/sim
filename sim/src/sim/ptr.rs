@@ -1,10 +1,11 @@
-//! PTR-1, PTR-2
+//! PTR-1, PTR-2, UI-4
 //! The mouse (pure): a click in the panel acts on its row, a click in the text puts the cursor on
 //! the char under the pointer (through the composed frame, `layout::hit`), a drag selects as Visual
 //! mode does, and the wheel scrolls what is under the pointer. Nothing here edits: the mouse
 //! changes the cursor, the focus, the scroll and the selection, and nothing else (PTR-2).
 use super::{Id, Sim, SimEffect, text_of};
 use crate::layout;
+use crate::tabs::{self, Hit};
 use crossterm::event::{MouseButton as B, MouseEvent, MouseEventKind as K};
 use si::core::app::{App, Event, Key};
 use si::core::vi::Mode;
@@ -36,7 +37,10 @@ impl Sim {
         let body = m.row >= g.y0 && y < g.rows;
         let (panel, text) =
             (body && x >= g.px && x - g.px < g.pw, body && x >= g.tx() && x - g.tx() < g.ew);
+        // UI-4: a press on the tab bar (the header row, over the editor) switches the file.
+        let on_bar = g.head > 0 && m.row + 1 == g.y0 && x >= g.ex && x - g.ex < g.ew + g.sign;
         match m.kind {
+            K::Down(B::Left) if on_bar => self.click_tab(x - g.ex, out),
             K::Down(B::Left) if panel => self.click_panel(usize::from(y), out),
             K::Down(B::Left) if text => self.press(x - g.tx(), y, out),
             K::Drag(B::Left) => self.drag(x.saturating_sub(g.tx()), y.min(g.rows - 1), out),
@@ -45,6 +49,31 @@ impl Sim {
             K::ScrollUp | K::ScrollDown if text => self.wheel(m.kind == K::ScrollUp, out),
             _ => {}
         }
+    }
+
+    /// UI-4: a click on the tab bar at column `x` of it: the file of that tab is shown (the arrows
+    /// go one file back or on), as Tab and Shift-Tab would, and nothing is edited (PTR-2). What the
+    /// file being left had pending (a count, an operator, a selection) ends as a click ends it.
+    fn click_tab(&mut self, x: u16, out: Out) {
+        let g = self.geo();
+        let hit = tabs::hit(&self.tabs(), self.icons, self.cur, g.ew + g.sign, x);
+        let to = match hit {
+            Some(Hit::Tab(i)) => i,
+            Some(Hit::Prev) => self.cur.saturating_sub(1),
+            Some(Hit::Next) => (self.cur + 1).min(self.bufs.len().saturating_sub(1)),
+            None => return,
+        };
+        let Some(b) = self.bufs.get(self.cur) else { return };
+        let id = b.id;
+        if b.app.vi.mode == Mode::Cmd {
+            return; // a half-typed command line is not left by a click
+        }
+        self.drag = None;
+        self.msg = None;
+        self.settle(id, true, out);
+        self.cur = to.min(self.bufs.len().saturating_sub(1));
+        self.panel.focus = false;
+        self.panel.search.iter_mut().for_each(|s| s.typing = false);
     }
 
     /// A click on a row of the panel: the panel's cursor goes there and the panel has the focus;
