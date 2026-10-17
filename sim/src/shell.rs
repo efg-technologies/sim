@@ -125,9 +125,10 @@ pub fn arguments(args: &[String], cwd: &Path) -> Option<Start> {
 pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
     let keys = !s.keys.is_empty();
     let history = world.history.as_deref();
+    let plain = s.plain || world.privileged;
     let (icons, hint) = match front.icons {
         Some(on) => (on, false),
-        None => sio::start_icons(history, |k| env::var(k).ok()),
+        None => sio::start_icons(history, plain, |k| env::var(k).ok()),
     };
     let env = Env {
         cwd: cwd.to_path_buf(),

@@ -1991,6 +1991,33 @@ color_2_a_terminal_that_cannot_do_8_colors_gets_none_either() {
   if grep -E '(\[|;)(3[0-8]|4[0-8]|9[0-7]|10[0-7])(;|m)' "$CASE_DIR/sgr" > /dev/null; then fail "a color was written"; fi
 }
 
+# ICON-1, PLAIN-1: `zi` does nothing in plain mode, so the hint is never given there, and the marker that
+# says it was given is not made: the editor's first run after a plain one still gets the hint, once.
+icon_1_plain_mode_gives_no_hint_and_leaves_the_marker_for_the_editor() {
+  project
+  HINTED=1 # (this case wants to see the hint where it is due)
+  start --plain src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL  plain"
+  sleep 0.3
+  if screen | grep -F -q "Nerd Font"; then fail "the hint came in plain mode"; fi
+  typed ":q"
+  keys Enter
+  wait_exit
+  [ ! -e "$XDG_STATE_HOME/sim/icons-hint" ] || fail "plain mode used up the marker"
+  restart
+  start src/lib.rs
+  wait_for "zi: icons (needs a Nerd Font)"
+  typed ":q"
+  keys Enter
+  wait_exit
+  [ -e "$XDG_STATE_HOME/sim/icons-hint" ]
+  restart
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  sleep 0.3
+  if screen | grep -F -q "Nerd Font"; then fail "the hint came twice"; fi
+}
+
 # ICON-1: in a terminal that is not known to bring Nerd Font symbols the icons start off, and the status
 # line says once how to turn them on; what `zi` chose last wins over what the terminal is known for.
 icon_1_the_icons_start_off_with_a_hint_once_and_the_remembered_choice_wins() {

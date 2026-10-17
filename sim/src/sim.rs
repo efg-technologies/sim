@@ -517,7 +517,7 @@ impl Sim {
             sim.retone();
         }
         (sim.now, sim.t0) = (env.now, env.now);
-        sim.msg = env.hint.then(|| "zi: icons (needs a Nerd Font)".into());
+        sim.msg = (env.hint && !plain).then(|| "zi: icons (needs a Nerd Font)".into());
         let mut out = vec![SimEffect::Read(sim.root.clone())];
         out.push(SimEffect::Files);
         sim.git(&mut out);

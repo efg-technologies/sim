@@ -827,8 +827,13 @@ pub fn icons_by(var: impl Fn(&str) -> Option<String>) -> Icons {
 
 /// ICON-1: whether the icons start on, and whether to say how to turn them on. What `zi` chose
 /// last (`dir/icons`) wins; else `icons_by`. The hint is due once: its marker is written here, and
-/// without a state directory there is nowhere to remember that it was given, so it is not.
-pub fn start_icons(dir: Option<&Path>, var: impl Fn(&str) -> Option<String>) -> (bool, bool) {
+/// without a state directory there is nowhere to remember that it was given, so it is not. In plain
+/// mode `zi` is refused, so there is no hint, and the marker is neither read nor written.
+pub fn start_icons(
+    dir: Option<&Path>,
+    plain: bool,
+    var: impl Fn(&str) -> Option<String>,
+) -> (bool, bool) {
     if let Some(on) = dir.and_then(load_icons) {
         return (on, false);
     }
@@ -837,7 +842,7 @@ pub fn start_icons(dir: Option<&Path>, var: impl Fn(&str) -> Option<String>) -> 
     match icons_by(var) {
         Icons::On => (true, false),
         Icons::Off => (false, false),
-        Icons::Hint => (false, dir.is_some_and(hint)),
+        Icons::Hint => (false, !plain && dir.is_some_and(hint)),
     }
 }
 

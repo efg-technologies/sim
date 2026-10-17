@@ -83,27 +83,56 @@ fn icon_1_what_zi_chose_last_always_wins_and_the_hint_comes_once() {
     let plain = [UTF8, ("TERM", "xterm-256color")];
     let dir = temp_dir("icon-1-choice");
     // nothing chosen: the default, and the hint only where the default is off for want of a font
-    assert_eq!(start_icons(Some(&dir.0), env(&ghostty)), (true, false));
+    assert_eq!(start_icons(Some(&dir.0), false, env(&ghostty)), (true, false));
     assert_eq!(
-        start_icons(Some(&dir.0), env(&console)),
+        start_icons(Some(&dir.0), false, env(&console)),
         (false, false),
         "a console is told nothing"
     );
-    assert_eq!(start_icons(Some(&dir.0), env(&plain)), (false, true), "off, and the hint");
-    assert_eq!(start_icons(Some(&dir.0), env(&plain)), (false, false), "the hint came once");
+    assert_eq!(start_icons(Some(&dir.0), false, env(&plain)), (false, true), "off, and the hint");
+    assert_eq!(start_icons(Some(&dir.0), false, env(&plain)), (false, false), "the hint came once");
     // chosen: that, in any terminal, with no hint
     save_icons(&dir.0, true).unwrap();
     assert_eq!(load_icons(&dir.0), Some(true));
     for vars in [&ghostty[..], &console[..], &plain[..]] {
-        assert_eq!(start_icons(Some(&dir.0), env(vars)), (true, false), "on stays on: {vars:?}");
+        assert_eq!(
+            start_icons(Some(&dir.0), false, env(vars)),
+            (true, false),
+            "on stays on: {vars:?}"
+        );
     }
     save_icons(&dir.0, false).unwrap();
     for vars in [&ghostty[..], &console[..], &plain[..]] {
-        assert_eq!(start_icons(Some(&dir.0), env(vars)), (false, false), "off stays off: {vars:?}");
+        assert_eq!(
+            start_icons(Some(&dir.0), false, env(vars)),
+            (false, false),
+            "off stays off: {vars:?}"
+        );
     }
     // no state directory: no choice to read, and no way to say the hint was given: no hint
-    assert_eq!(start_icons(None, env(&plain)), (false, false));
-    assert_eq!(start_icons(None, env(&ghostty)), (true, false));
+    assert_eq!(start_icons(None, false, env(&plain)), (false, false));
+    assert_eq!(start_icons(None, false, env(&ghostty)), (true, false));
+}
+
+#[test]
+fn icon_1_plain_mode_neither_reads_nor_writes_the_marker_and_the_editor_after_it_gets_the_hint() {
+    let terminal = [UTF8, ("TERM", "xterm-256color")];
+    let dir = temp_dir("icon-1-plain-marker");
+    let marker = dir.0.join("icons-hint");
+    // plain mode, run after run: no hint, and nothing made in the state directory
+    for _ in 0..2 {
+        assert_eq!(start_icons(Some(&dir.0), true, env(&terminal)), (false, false));
+    }
+    assert!(!marker.exists(), "plain mode used up the hint");
+    // the editor's first run after them gets it, once
+    assert_eq!(start_icons(Some(&dir.0), false, env(&terminal)), (false, true));
+    assert_eq!(start_icons(Some(&dir.0), false, env(&terminal)), (false, false));
+    // a plain run leaves the marker as it was; what `zi` chose is still what it starts with
+    let was = std::fs::read(&marker).unwrap();
+    assert_eq!(start_icons(Some(&dir.0), true, env(&terminal)), (false, false));
+    assert_eq!(std::fs::read(&marker).unwrap(), was);
+    save_icons(&dir.0, true).unwrap();
+    assert_eq!(start_icons(Some(&dir.0), true, env(&terminal)), (true, false));
 }
 
 #[test]
@@ -116,6 +145,20 @@ fn icon_1_the_hint_names_the_key_and_the_font() {
     r.keys("j");
     assert!(!r.status().contains("Nerd Font"), "the next key puts it out: {:?}", r.status());
     assert!(!hinted(false).status().contains("Nerd Font"));
+}
+
+#[test]
+fn icon_1_plain_mode_never_shows_the_hint_asked_for_or_privileged() {
+    // `zi` does nothing in plain mode (PLAIN-1), so the hint would name a key that is refused.
+    let asked =
+        rig_env("icon-1-plain", &["a.txt"], &["--plain", "a.txt"], (80, 24), |e| e.hint = true);
+    let privileged = rig_env("icon-1-root", &["a.txt"], &["a.txt"], (80, 24), |e| {
+        (e.hint, e.plain) = (true, true)
+    });
+    for (how, r) in [("--plain", asked), ("privileged", privileged)] {
+        assert!(!r.status().contains("Nerd Font"), "{how}: {:?}", r.status());
+        assert_eq!(r.status(), "a.txt  1:1  NORMAL  plain", "{how}: the status line says plain");
+    }
 }
 
 /// A Rig with the interface drawn and the icons as asked, on a repository with a few files open.
