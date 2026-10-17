@@ -175,6 +175,7 @@ fn cell(r: &Rig, y: u16, x: u16) -> Paint {
         bg: a.bg.or(p.bg),
         fade: if a.fade > 0 { a.fade } else { p.fade },
         bold: a.bold || p.bold,
+        soft: a.soft || p.soft,
     })
 }
 
@@ -227,6 +228,7 @@ fn pick_1_nothing_behind_the_window_changes() {
                     bg: a.bg.or(p.bg),
                     fade: a.fade.max(p.fade),
                     bold: a.bold || p.bold,
+                    soft: a.soft || p.soft,
                 })
             };
             assert_eq!(own(paints), own(&before.1), "paint ({x},{y})");

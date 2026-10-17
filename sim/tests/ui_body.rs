@@ -79,6 +79,7 @@ fn paint(r: &Rig, y: usize, x: u16) -> Paint {
         bg: a.bg.or(p.bg),
         fade: if a.fade > 0 { a.fade } else { p.fade },
         bold: a.bold || p.bold,
+        soft: a.soft || p.soft,
     })
 }
 
@@ -239,6 +240,8 @@ fn ui_5_the_other_numbers_fade_with_their_distance_in_depth_as_the_text_does_and
         paint(&r, far, text).fade,
         "by the same curve as the text of its row"
     );
+    // ... down to its own floor: |Lc| 40 for a number, 60 for the text (LOOK-6)
+    assert!(paint(&r, far, num).soft && !paint(&r, far, text).soft);
     r.keys("20j");
     let (near, far) = (at(&r, "line 21"), usize::from(g.y0)); // (the first row shown)
     assert_eq!(paint(&r, near, num).fade, 0);

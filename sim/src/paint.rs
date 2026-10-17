@@ -2,7 +2,7 @@
 //! What sim draws beyond si's four styles: the looks a char can have, the Screen that carries
 //! them with si's Frame, and the Painter that writes a Screen to the terminal, row by row. The
 //! four styles are si's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
-use crate::color::{Syntax, fade};
+use crate::color::{NUMBER_FLOOR, Syntax, TEXT_FLOOR, fade_to};
 use si::core::color::{Palette, Rgb};
 use si::core::view::{Frame, Shape, Style, width};
 use si::io::term::{self, sgr as base};
@@ -114,6 +114,8 @@ pub struct Paint {
     pub bg: Option<Rgb>,
     pub fade: u8,
     pub bold: bool,
+    /// The fade stops at |Lc| 40, not 60: the line numbers, and what is only decoration (LOOK-6).
+    pub soft: bool,
 }
 
 /// Column ranges of a row and their paints; the first range a column is in decides.
@@ -180,7 +182,8 @@ fn sgr(
         (fg, ansi) = (Some(c), None);
     }
     if let (Some(c), Some(p), true, false) = (fg, pal, paint.fade > 0, change) {
-        fg = Some(fade(c, p.bg, f64::from(paint.fade) / 100.0));
+        let floor = if paint.soft { NUMBER_FLOOR } else { TEXT_FLOOR };
+        fg = Some(fade_to(c, p.bg, f64::from(paint.fade) / 100.0, floor));
     }
     let mut out = format!("\x1b[0{attrs}");
     if let (Some(Look::Sel), false, Some((sbg, text))) = (look, change, syn.sel()) {
@@ -228,7 +231,13 @@ fn cells(cells: &mut Vec<Cell>, s: &Screen, i: usize, cols: usize) {
         let on = |c: &mut Cell| {
             let q = c.paint;
             let fade = if p.fade > 0 { p.fade } else { q.fade };
-            c.paint = Paint { fg: p.fg.or(q.fg), bg: p.bg.or(q.bg), fade, bold: p.bold || q.bold };
+            c.paint = Paint {
+                fg: p.fg.or(q.fg),
+                bg: p.bg.or(q.bg),
+                fade,
+                bold: p.bold || q.bold,
+                soft: p.soft || q.soft,
+            };
         };
         cells[span(r)].iter_mut().for_each(on);
     }

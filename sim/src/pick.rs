@@ -454,7 +454,7 @@ pub fn lay(
         }
     }
     let Some(t) = shadow else { return };
-    let dark = Paint { bg: Some(t.shadow), fade: 70, ..Paint::default() };
+    let dark = Paint { bg: Some(t.shadow), fade: 70, soft: true, ..Paint::default() };
     let (right, below) = (w.x + w.w, w.y + w.h);
     for y in usize::from(w.y) + 1..=usize::from(below) {
         let cells = if y == usize::from(below) { w.x + 1..right + 1 } else { right..right + 1 };

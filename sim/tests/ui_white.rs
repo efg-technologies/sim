@@ -40,6 +40,7 @@ fn paint(r: &Rig, y: usize, x: u16) -> Paint {
         bg: a.bg.or(p.bg),
         fade: if a.fade > 0 { a.fade } else { p.fade },
         bold: a.bold || p.bold,
+        soft: a.soft || p.soft,
     })
 }
 

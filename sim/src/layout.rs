@@ -842,6 +842,8 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
                 None => ramp(i.abs_diff(ed.crow), 3.0, 24.0, 0.45),
             };
             if fade > 0 {
+                // (the numbers of the gutter have a floor of their own: LOOK-6)
+                line.paints.push((0..gutter, Paint { fade, soft: true, ..Paint::default() }));
                 line.paints.push((0..ew, Paint { fade, ..Paint::default() }));
             }
         }

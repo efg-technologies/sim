@@ -72,26 +72,34 @@ fn lerp(p: [f64; 3], q: [f64; 3], t: f64) -> Rgb {
     from_lab([0, 1, 2].map(|i| p[i] + (q[i] - p[i]) * t))
 }
 
+/// LOOK-6: the floor of the fog for text, |Lc| 60 (APCA's minimum for content text), and for the
+/// line numbers, which are there to find a line and not to read, 40.
+pub const TEXT_FLOOR: f64 = 60.0;
+pub const NUMBER_FLOOR: f64 = 40.0;
+
 /// LOOK-6: `fg` faded `f` of the way into the page `bg`, but no further than where it still reads at
-/// |Lc| 40 against it (found by bisecting the fade, five steps). Text that is under 40 already
-/// is left as it is.
+/// the text's floor against it.
 pub fn fade(fg: Rgb, bg: Rgb, f: f64) -> Rgb {
-    thread_local!(static MEMO: RefCell<HashMap<(Rgb, Rgb, u64), Rgb>> = RefCell::default());
-    let key = (fg, bg, f.to_bits());
+    fade_to(fg, bg, f, TEXT_FLOOR)
+}
+
+/// `fade` with the floor given: no further than where `fg` still reads at |Lc| `floor` against
+/// `bg` (found by bisecting the fade, six steps). Text that is under the floor already is left as
+/// it is.
+pub fn fade_to(fg: Rgb, bg: Rgb, f: f64, floor: f64) -> Rgb {
+    thread_local!(static MEMO: RefCell<HashMap<(Rgb, Rgb, u64, u8), Rgb>> = RefCell::default());
+    let key = (fg, bg, f.to_bits(), floor as u8);
     if let Some(c) = MEMO.with(|m| m.borrow().get(&key).copied()) {
         return c;
     }
     let (p, q) = (to_lab(fg), to_lab(bg));
-    let reads = |t: f64| apca(lerp(p, q, t), bg).abs() >= 40.0;
+    let reads = |t: f64| apca(lerp(p, q, t), bg).abs() >= floor;
+    // How far it can go and still read: the same for every `f`, so a fade never wobbles as it grows.
     let step = |(lo, hi): (f64, f64), _| {
         let mid = (lo + hi) / 2.0;
         if reads(mid) { (mid, hi) } else { (lo, mid) }
     };
-    let c = if !reads(0.0) {
-        fg
-    } else {
-        lerp(p, q, if reads(f) { f } else { (0..5).fold((0.0, f), step).0 })
-    };
+    let c = if !reads(0.0) { fg } else { lerp(p, q, f.min((0..6).fold((0.0, 1.0), step).0)) };
     MEMO.with(|m| m.borrow_mut().insert(key, c));
     c
 }

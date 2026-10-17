@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 use si::core::color::{Rgb, apca, palette};
 use si::core::view::{Frame, Row, Shape, Style};
-use sim::color::{Syntax, Tones, contrast, fade, mix};
+use sim::color::{Syntax, Tones, contrast, fade, fade_to, mix};
 use sim::paint::{Look, Paint, Painter, Screen};
 
 /// VIS-4's backgrounds.
@@ -101,7 +101,7 @@ fn look_2_the_tones_are_oklab_mixes_from_the_pages_colors() {
 }
 
 #[test]
-fn look_6_a_fade_goes_toward_the_page_and_never_takes_text_below_lc_40() {
+fn look_6_a_fade_goes_toward_the_page_and_never_takes_text_below_lc_60() {
     for bg in BGS {
         let p = palette(bg);
         // A syntax color is a hue moved until it reads: the same clamp holds for it.
@@ -114,7 +114,7 @@ fn look_6_a_fade_goes_toward_the_page_and_never_takes_text_below_lc_40() {
                 let f = f64::from(i) / 20.0;
                 let now = apca(fade(fg, bg, f), bg).abs();
                 assert!(
-                    now >= 40.0f64.min(was) - 1e-9,
+                    now >= 60.0f64.min(was) - 1e-9,
                     "{} {}: f {f} |Lc| {now:.1}",
                     hex(bg),
                     hex(fg)
@@ -128,20 +128,20 @@ fn look_6_a_fade_goes_toward_the_page_and_never_takes_text_below_lc_40() {
                 last = now;
             }
         }
-        // Gray text on a gray page: a plain mix until it would go under 40, and then it stops.
-        let (far, near) = (fade(p.primary, bg, 0.3), fade(p.primary, bg, 1.0));
-        assert_eq!(far, mix(p.primary, bg, 0.3), "{}: below the clamp it is the mix", hex(bg));
-        assert!(apca(near, bg).abs() >= 40.0, "{}: all the way is clamped", hex(bg));
+        // Gray text on a gray page: a plain mix until it would go under 60, and then it stops.
+        let (far, near) = (fade(p.primary, bg, 0.1), fade(p.primary, bg, 1.0));
+        assert_eq!(far, mix(p.primary, bg, 0.1), "{}: below the clamp it is the mix", hex(bg));
+        assert!(apca(near, bg).abs() >= 60.0, "{}: all the way is clamped", hex(bg));
         assert_ne!(near, bg);
     }
-    // Text that is already under 40 is left as it is (a fade must not push it the other way).
+    // Text that is already under its floor is left as it is (a fade must not push it the other way).
     let dim = mix((0x55, 0x55, 0x55), DARK, 0.5);
     assert_eq!(fade(dim, DARK, 0.5), dim);
     // The mockup's number for primary on #1e1e1e, 45% of the way, is 132 and reads at Lc 35: the
-    // clamp stops short of it, within the bisection's step of the Lc 40 line.
+    // clamp stops short of it, within the bisection's step of the Lc 60 line.
     let (p, held) = (palette(DARK).primary, fade(palette(DARK).primary, DARK, 0.45));
     assert_eq!(fade(p, DARK, 0.2), mix(p, DARK, 0.2), "where it reads, it is the mix");
-    assert!(held.0 > 132 && (40.0..43.0).contains(&apca(held, DARK).abs()), "{held:?}");
+    assert!(held.0 > 132 && (60.0..63.0).contains(&apca(held, DARK).abs()), "{held:?}");
 }
 
 /// The SGR parameters written just before the char `ch`.
@@ -268,4 +268,36 @@ fn look_6_the_painter_fades_the_syntax_colors_too() {
     let out = draw(s);
     let k = sgr_before(&out, 'k');
     assert!(k.contains(&format!("38;2;{}", rgb(fade(hue, DARK, 0.4)))), "{k}");
+}
+
+#[test]
+fn look_6_the_line_numbers_have_a_floor_of_their_own_at_lc_40_and_the_text_at_60() {
+    for bg in BGS {
+        let p = palette(bg);
+        let (text, number) = (fade(p.primary, bg, 1.0), fade_to(p.primary, bg, 1.0, 40.0));
+        let (lt, ln) = (apca(text, bg).abs(), apca(number, bg).abs());
+        assert!((60.0..63.5).contains(&lt), "{}: text {lt:.1}", hex(bg));
+        assert!((40.0..43.5).contains(&ln), "{}: a number {ln:.1}", hex(bg));
+        assert_ne!(text, number);
+        // what is under its floor already is left alone, whatever the floor
+        let dim = mix(p.primary, bg, 0.9);
+        assert_eq!(
+            fade_to(dim, bg, 0.5, 40.0),
+            if apca(dim, bg).abs() < 40.0 { dim } else { fade_to(dim, bg, 0.5, 40.0) }
+        );
+    }
+    // the Painter: a paint with `soft` stops at 40, one without at 60
+    let p = palette(DARK);
+    let s = screen(
+        "pq",
+        vec![],
+        vec![
+            (0..1, Paint { fade: 100, ..Paint::default() }),
+            (1..2, Paint { fade: 100, soft: true, ..Paint::default() }),
+        ],
+    );
+    let out = draw(s);
+    let ink = |c: Rgb| format!("38;2;{}", rgb(c));
+    assert!(sgr_before(&out, 'p').contains(&ink(fade(p.primary, DARK, 1.0))), "{out:?}");
+    assert!(sgr_before(&out, 'q').contains(&ink(fade_to(p.primary, DARK, 1.0, 40.0))), "{out:?}");
 }
