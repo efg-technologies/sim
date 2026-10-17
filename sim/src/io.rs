@@ -430,13 +430,14 @@ pub fn neutralizing(listing: &[u8]) -> Vec<String> {
         ("process", "git-lfs filter-process"),
     ];
     let mut names: Vec<(&str, bool)> = vec![]; // (name, every entry so far is git-lfs's own)
+    let mut lfs_unsafe = false;
     let mut fields = listing.split(|&b| b == 0);
     while let (Some(scope), Some(_), Some(entry)) = (fields.next(), fields.next(), fields.next()) {
         let nl = entry.iter().position(|&b| b == b'\n').unwrap_or(entry.len());
         let (key, value) = (&entry[..nl], entry.get(nl + 1..).unwrap_or_default());
-        let Some(name) =
-            filter_name(key).filter(|_| !matches!(scope, b"system" | b"global" | b"command"))
-        else {
+        let own_scope = !matches!(scope, b"system" | b"global" | b"command");
+        lfs_unsafe |= own_scope && !lfs_harmless(key);
+        let Some(name) = filter_name(key).filter(|_| own_scope) else {
             continue;
         };
         let var = key.rsplit(|&b| b == b'.').next().unwrap_or_default();
@@ -445,6 +446,15 @@ pub fn neutralizing(listing: &[u8]) -> Vec<String> {
         match names.iter_mut().find(|n| n.0 == name) {
             Some(n) => n.1 &= own,
             None => names.push((name, own)),
+        }
+    }
+    // a setting of git-lfs's that the repository made which would let git-lfs write or run outside
+    // it (its storage, an extension, a transfer program) takes the exception away, and the lfs
+    // filter is turned off even where only the user's own config defines it
+    if lfs_unsafe {
+        match names.iter_mut().find(|n| n.0 == "lfs") {
+            Some(n) => n.1 = false,
+            None => names.push(("lfs", false)),
         }
     }
     let off = |name: &str| {
@@ -456,6 +466,31 @@ pub fn neutralizing(listing: &[u8]) -> Vec<String> {
         .flat_map(|n| off(n.0))
         .flat_map(|k| ["-c".to_string(), k])
         .collect()
+}
+
+/// GIT-2: whether a key can stay in the repository's own config without taking away the exception for
+/// git-lfs's filter: every key that is not one of git-lfs's (`lfs.*`), and of those the ones that cannot
+/// make git-lfs write or run anything outside the repository: what git-lfs lets a `.lfsconfig` set
+/// (`git-lfs-config(5)`, and its own warning "These unsafe '.lfsconfig' keys were ignored", which
+/// names `lfs.storage`, `lfs.extension.*`, `lfs.customtransfer.*` and the like), and what `git lfs`
+/// writes into `.git/config` itself: `lfs.repositoryformatversion`, and for a url `access` and
+/// `locksverify`.
+fn lfs_harmless(key: &[u8]) -> bool {
+    const KEYS: [&str; 9] = [
+        "allowincompletepush",
+        "fetchexclude",
+        "fetchinclude",
+        "gitprotocol",
+        "locksverify",
+        "pushurl",
+        "repositoryformatversion",
+        "skipdownloaderrors",
+        "url",
+    ];
+    let Some(rest) = key.strip_prefix(b"lfs.") else { return true };
+    let var = rest.rsplit(|&b| b == b'.').next().unwrap_or_default();
+    KEYS.iter().any(|k| k.as_bytes() == rest)
+        || (rest.len() > var.len() && matches!(var, b"access" | b"locksverify"))
 }
 
 /// What git said when it failed, as sim says it: "not a git repository" is told from the rest.

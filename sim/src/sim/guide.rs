@@ -159,8 +159,10 @@ impl Sim {
     }
 }
 
-/// A file's name as a tab letter is taken from it: the last part of its path.
+/// A file's name as a tab letter is taken from it: the last part of its path; HEAD's version of a file
+/// (DIFF-3) keeps its `HEAD:`, as its tab says it.
 fn tab_name(path: Option<&str>) -> String {
     let p = path.unwrap_or("[no name]");
-    p.rsplit('/').next().unwrap_or(p).to_string()
+    let (head, rest) = p.strip_prefix("HEAD:").map_or(("", p), |r| ("HEAD:", r));
+    format!("{head}{}", rest.rsplit('/').next().unwrap_or(rest))
 }

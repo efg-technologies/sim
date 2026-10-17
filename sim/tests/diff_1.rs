@@ -330,7 +330,8 @@ fn diff_2_a_narrow_panel_cuts_the_name_and_keeps_the_numbers() {
 }
 
 #[test]
-fn diff_2_in_calm_a_long_name_is_cut_and_the_numbers_after_it_are_kept_and_no_name_is_green() {
+fn diff_2_in_calm_a_long_name_is_cut_with_an_ellipsis_the_numbers_after_it_are_kept_and_no_name_is_green()
+ {
     let mut r = rig_env("d2-calm-narrow", &FILES, &[], (60, 14), |e| changed(&e.cwd));
     r.keys(" ge");
     let (pw, _) = r.sim.widths();
@@ -338,8 +339,8 @@ fn diff_2_in_calm_a_long_name_is_cut_and_the_numbers_after_it_are_kept_and_no_na
     for row in &rows {
         assert!(row.chars().count() <= usize::from(pw), "{row:?}");
     }
-    let moved = rows.iter().find(|l| l.contains("../top")).unwrap();
-    assert!(moved.ends_with("  R +1"), "{moved:?}");
+    // a rename's new name is where the file is now: it stays whole, and the old name is what is cut
+    assert!(rows.contains(&"    … → top.md  R +1".to_string()), "{rows:?}");
     // every row is a change: the change color says nothing here
     let change = r.screen.rows.iter().flat_map(|row| &row.spans);
     assert!(
@@ -349,6 +350,54 @@ fn diff_2_in_calm_a_long_name_is_cut_and_the_numbers_after_it_are_kept_and_no_na
         "{:?}",
         change.collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn diff_4_a_rename_row_keeps_its_new_name_whole_and_cuts_the_old_one_with_an_ellipsis() {
+    // the old name is cut from the left, so that its own name stays
+    let wide = |cols: u16| {
+        let mut r = rig_env("d4-cut", &FILES, &[], (cols, 14), |e| changed(&e.cwd));
+        r.keys(" ge");
+        r.panel().into_iter().find(|l| l.ends_with("R +1")).unwrap()
+    };
+    assert_eq!(wide(84), "    ../top.md → top.md  R +1", "it fits (the panel is 28 columns)");
+    assert_eq!(wide(78), "    …top.md → top.md  R +1");
+    assert_eq!(wide(72), "    …p.md → top.md  R +1");
+    assert_eq!(wide(60), "    … → top.md  R +1");
+    // and where not even the new name fits it is cut as every name is: with a `…`
+    let cramped = wide(42);
+    assert_eq!(cramped, "    top…  R +1", "{cramped:?}");
+    for cols in [42, 48, 54, 60, 66, 72, 78] {
+        let row = wide(cols);
+        let name = row.split("  R").next().unwrap().trim();
+        // (where not even `… → top.md` fits, the new name alone is the row, and its letter says `R`)
+        assert!(name.contains('…') || name == "top.md", "{cols}: {row:?}");
+    }
+}
+
+#[test]
+fn diff_4_no_name_of_the_panel_is_cut_without_an_ellipsis_in_the_tree_or_in_the_view() {
+    let long = "a_very_long_file_name_for_the_panel.rs";
+    let mut r =
+        rig_env("d4-dots", &[long, "short.rs", "dir_with_a_long_name/x.rs"], &[], (60, 12), |_| {});
+    let (pw, _) = r.sim.widths();
+    let rows = r.panel();
+    for row in rows.iter().filter(|l| l.contains("a_very") || l.contains("dir_with")) {
+        assert!(row.ends_with('…') && row.chars().count() == usize::from(pw), "{row:?}");
+    }
+    assert!(rows.iter().any(|l| l.trim() == "short.rs"), "{rows:?}");
+    // in depth, with the interface's row, and in the changes view
+    let mut d = rig_env("d4-dots-depth", &[long], &[], (60, 12), |e| {
+        git(&e.cwd, &["init", "-q"]);
+        e.skin = Skin::Depth;
+        e.chrome = true;
+        e.syn = Syntax::new(true);
+    });
+    d.send(SimEvent::Term(Event::Bg((0x1e, 0x1e, 0x1e))));
+    assert!(boxed(&d).iter().any(|l| l.contains("a_very") && l.contains('…')), "{:?}", boxed(&d));
+    d.keys(" ge");
+    assert!(boxed(&d).iter().any(|l| l.contains("a_very") && l.contains('…')), "{:?}", boxed(&d));
+    r.keys("j");
 }
 
 #[test]
@@ -406,6 +455,36 @@ fn diff_3_a_binary_blob_and_a_missing_one_say_what_they_are() {
     // from a directory below the top, the path is the root's own
     let sub = root.join("src");
     assert_eq!(io::show_head(&sub, "lib.rs").unwrap(), b"pub fn l() {}\n");
+}
+
+#[test]
+fn diff_3_the_tab_and_the_letters_of_head_s_version_say_head_like_its_name_and_its_message() {
+    use sim::tabs::names;
+    assert_eq!(
+        names(&["HEAD:x.rs", "x.rs", "HEAD:a/x.rs", "b/x.rs", "HEAD:old/gone.rs"]),
+        ["HEAD:x.rs", "x.rs", "HEAD:a/x.rs", "b/x.rs", "HEAD:gone.rs"]
+    );
+    // the tab bar of the interface
+    let mut d = rig("d3-tab", Skin::Depth);
+    d.keys(" ge");
+    d.keys("jjjjjj<CR>");
+    let tabs: Vec<String> = d.sim.tabs().into_iter().map(|t| t.name).collect();
+    assert_eq!(tabs, ["HEAD:gone.rs"], "{tabs:?}");
+    assert!(
+        d.screen.rows.iter().any(|row| row.text.contains("HEAD:gone.rs")),
+        "{}",
+        dump(&d.screen)
+    );
+    // where there is no tab bar the letters are on the status line, with the same name
+    let mut r = rig_env("d3-letters", &FILES, &["src/lib.rs"], (100, 14), |e| changed(&e.cwd));
+    r.keys("<C-n> ge");
+    let at = r.panel().iter().position(|l| l.contains("gone.rs")).unwrap();
+    r.keys(&"j".repeat(at));
+    r.keys("<CR>");
+    assert_eq!(r.open_files(), ["src/lib.rs", "HEAD:old/gone.rs"], "{:?}", r.open_files());
+    r.keys(" bp");
+    assert!(r.status().contains("H HEAD:gone.rs"), "{}", r.status());
+    r.keys("<Esc>");
 }
 
 #[test]

@@ -52,13 +52,21 @@ pub enum Hit {
 /// The names the tabs show for these paths: the file's name, and for the files whose names are the
 /// same as another's as many components of their paths, from the end, as it takes to tell them apart.
 pub fn names(paths: &[&str]) -> Vec<String> {
-    let parts: Vec<Vec<&str>> =
-        paths.iter().map(|p| p.split('/').filter(|c| !c.is_empty()).collect()).collect();
+    // DIFF-3: HEAD's version of a file is named `HEAD:path`, and its tab says so: `HEAD:name`
+    let heads: Vec<&str> =
+        paths.iter().map(|p| p.strip_prefix("HEAD:").map_or("", |_| "HEAD:")).collect();
+    let parts: Vec<Vec<&str>> = (paths.iter().zip(&heads))
+        .map(|(p, h)| p[h.len()..].split('/').filter(|c| !c.is_empty()).collect())
+        .collect();
     let mut keep = vec![1usize; paths.len()];
     let show = |i: usize, k: usize| {
         let p = &parts[i];
         let from = p.len().saturating_sub(k);
-        if p.is_empty() { paths[i].to_string() } else { p[from..].join("/") }
+        if p.is_empty() {
+            paths[i].to_string()
+        } else {
+            format!("{}{}", heads[i], p[from..].join("/"))
+        }
     };
     for _ in 0..16 {
         let now: Vec<String> = (0..paths.len()).map(|i| show(i, keep[i])).collect();

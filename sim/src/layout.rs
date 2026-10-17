@@ -99,18 +99,45 @@ pub struct Mark {
 
 /// How a row of the tree is written: indent 2 per depth, `▸ name/` or `▾ name/` (then ` ~` if
 /// something below changed), `• name` for a likely file, `  name` for any other.
-pub fn label(r: &tree::Row, m: &Mark) -> (String, String) {
+pub fn label(r: &tree::Row, m: &Mark) -> (String, String, String) {
     let indent = "  ".repeat(r.depth);
     // DIFF-2: the changes view has the letter and the numbers after the name, two blanks away
     let letter = m.git.filter(|_| m.changes).map(|g| g.letter().to_string());
     let words: Vec<String> = [letter, m.stat.map(|s| s.show())].into_iter().flatten().collect();
     let words = words.join(" ");
-    let tail = if words.trim().is_empty() { String::new() } else { format!("  {}", words.trim()) };
+    let words = if words.trim().is_empty() { String::new() } else { format!("  {}", words.trim()) };
     if r.is_dir {
         let (mark, below) = (if r.open { "▾ " } else { "▸ " }, if m.below { " ~" } else { "" });
-        (format!("{indent}{mark}{}/{below}", r.name), tail)
+        (format!("{indent}{mark}"), format!("{}/", r.name), format!("{below}{words}"))
     } else {
-        (format!("{indent}{}{}", if m.likely { "• " } else { "  " }, r.name), tail)
+        (format!("{indent}{}", if m.likely { "• " } else { "  " }), r.name.clone(), words)
+    }
+}
+
+/// `s` in `max` columns, a cut ending in `…`: no name is cut without saying so, or it would look like a
+/// whole one (a file called `readme.`).
+fn dots(s: &str, max: usize) -> String {
+    let (all, cut) = (s.chars().count(), fit(s, max).0);
+    if max == 0 || cut.chars().count() == all {
+        return cut;
+    }
+    format!("{}…", fit(s, max - 1).0)
+}
+
+/// A row's name in `room` columns (`name` is what the row shows: `r.name`, and a `/` after a folder's).
+/// A cut has a `…`. A renamed file's row reads `old → new` (DIFF-4): its new name is where the file is
+/// now and stays whole, and the old one is what is cut, from the left, so that its own name stays.
+fn cut(r: &tree::Row, name: &str, room: usize) -> String {
+    // (a row that shows more than its file's name is a rename's: the others cost no allocation)
+    let new = r.path.file_name().and_then(|n| n.to_str()).filter(|n| *n != r.name);
+    let split = new.and_then(|n| Some((name.strip_suffix(&format!(" → {n}"))?, n)));
+    match split {
+        Some((old, new)) => {
+            let rest = format!(" → {new}");
+            let room_old = room.saturating_sub(fit(&rest, usize::MAX).1);
+            if room_old == 0 { dots(new, room) } else { format!("{}{rest}", tail(old, room_old)) }
+        }
+        None => dots(name, room),
     }
 }
 
@@ -514,14 +541,14 @@ fn ink_of(t: &Tones, red: bool) -> Paint {
 fn panel_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: Option<&Tones>) -> Line {
     let mut line = Line::default();
     if let Some((r, m)) = at {
-        // (a name too long for the panel is cut, and the numbers after it are not)
-        let (head, tail) = label(r, m);
-        let room = usize::from(pw).saturating_sub(fit(&tail, usize::MAX).1);
-        let (text, used) = fit(&head, room);
-        line.put(&(text + &tail), Paint::default());
-        let used = used + fit(&tail, usize::MAX).1;
-        let start = (2 * r.depth + 2).min(used);
-        let end = (start + fit(&r.name, usize::MAX).1 + usize::from(r.is_dir)).min(used);
+        // (a name too long for the panel is cut, with a `…`, and what follows it is not)
+        let (pre, name, post) = label(r, m);
+        let wide = |s: &str| fit(s, usize::MAX).1;
+        let room = usize::from(pw).saturating_sub(wide(&pre) + wide(&post));
+        let name = cut(r, &name, room);
+        let (start, end) = (wide(&pre), wide(&pre) + wide(&name));
+        line.put(&format!("{pre}{name}{post}"), Paint::default());
+        let used = end + wide(&post);
         if m.change {
             line.row.spans.push((start as u16..end as u16, Style::Change));
             line.paints.extend(t.map(|t| (start as u16..end as u16, ink_of(t, false))));
@@ -579,6 +606,7 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
     }
     let start = line.cols;
     let text = if r.is_dir && !icons { format!("{}/", r.name) } else { r.name.clone() };
+    let text = cut(r, &text, room.saturating_sub(usize::from(line.cols)));
     put(&mut line, &text, Paint::default());
     let (name, used) = (start..line.cols, line.cols);
     if m.change {

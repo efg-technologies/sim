@@ -412,6 +412,64 @@ fn git_2_the_exact_lfs_filter_is_left_alone_and_any_other_is_neutralized() {
     assert_eq!(io::neutralizing(&listing("local", &[("filter.a.b.c.clean", "x")])), off("a.b.c"));
 }
 
+#[test]
+fn git_2_only_git_lfs_s_own_harmless_settings_keep_the_exception() {
+    let with = |extra: (&'static str, &'static str)| {
+        let mut all = LFS.to_vec();
+        all.push(extra);
+        io::neutralizing(&listing("local", &all))
+    };
+    // what git-lfs lets a `.lfsconfig` set (git-lfs-config(5): lfs.allowincompletepush, fetchexclude,
+    // fetchinclude, gitprotocol, locksverify, pushurl, skipdownloaderrors, url, lfs.*.access and
+    // remote.*.lfsurl), and what `git lfs` writes into `.git/config`: its format version, and a url's
+    // access and locksverify
+    for ok in [
+        ("lfs.repositoryformatversion", "0"),
+        ("lfs.url", "https://a.example/lfs"),
+        ("lfs.pushurl", "https://a.example/lfs"),
+        ("lfs.locksverify", "false"),
+        ("lfs.fetchinclude", "src/"),
+        ("lfs.fetchexclude", "docs/"),
+        ("lfs.gitprotocol", "ssh"),
+        ("lfs.allowincompletepush", "true"),
+        ("lfs.skipdownloaderrors", "true"),
+        ("lfs.https://a.example/lfs.access", "basic"),
+        ("lfs.https://a.example/lfs.locksverify", "true"),
+        ("remote.origin.lfsurl", "https://a.example/lfs"),
+        ("core.bare", "false"),
+    ] {
+        assert_eq!(with(ok), Vec::<String>::new(), "{ok:?}");
+    }
+    // the others can make git-lfs write or run outside the repository: git-lfs's own warning names
+    // lfs.storage, concurrenttransfers, standalonetransferagent, cachecredentials, pathfiltercachesize,
+    // tustransfers, customtransfer.*.path, extension.*.clean; and a key it does not have yet
+    for bad in [
+        ("lfs.storage", "/elsewhere"),
+        ("lfs.concurrenttransfers", "4"),
+        ("lfs.standalonetransferagent", "lfs-standalone-file"),
+        ("lfs.cachecredentials", "true"),
+        ("lfs.pathfiltercachesize", "5"),
+        ("lfs.tustransfers", "true"),
+        ("lfs.customtransfer.foo.path", "/bin/true"),
+        ("lfs.extension.x.clean", "true"),
+        ("lfs.something-new", "x"),
+        ("lfs.access", "basic"),
+    ] {
+        assert_eq!(with(bad), off("lfs"), "{bad:?}");
+    }
+    // even where only the user's own config defines the filter (`git lfs install` writes it there)
+    let mut mixed = listing("global", &LFS);
+    mixed.extend(listing("local", &[("lfs.storage", "/elsewhere")]));
+    assert_eq!(io::neutralizing(&mixed), off("lfs"));
+    mixed = listing("global", &LFS);
+    mixed.extend(listing("local", &[("lfs.url", "https://a.example/lfs")]));
+    assert_eq!(io::neutralizing(&mixed), Vec::<String>::new());
+    // and the user's own settings are the user's
+    let mut own = listing("global", &[("lfs.storage", "/mine")]);
+    own.extend(listing("local", &LFS));
+    assert_eq!(io::neutralizing(&own), Vec::<String>::new());
+}
+
 fn has_lfs() -> bool {
     std::process::Command::new("git")
         .args(["lfs", "version"])
@@ -430,6 +488,15 @@ fn git_2_a_repository_with_git_lfs_files_has_the_status_plain_git_has() {
     let f = fx("g2-lfs");
     git(&f.repo, &["lfs", "install", "--local"]);
     git(&f.repo, &["lfs", "track", "*.bin"]);
+    // the settings git-lfs writes into `.git/config` and the ones a repository sets for it
+    for (k, v) in [
+        ("lfs.url", "https://lfs.example/x/info/lfs"),
+        ("lfs.https://lfs.example/x/info/lfs.access", "basic"),
+        ("lfs.https://lfs.example/x/info/lfs.locksverify", "false"),
+        ("lfs.fetchinclude", "*.bin"),
+    ] {
+        config(&f.repo, k, v);
+    }
     for (n, body) in [("a.bin", "x".repeat(100)), ("b.bin", "y".repeat(200))] {
         std::fs::write(f.repo.join(n), body).unwrap();
         set_mtime(&f.repo.join(n), SystemTime::now() - Duration::from_secs(1000));
@@ -579,4 +646,37 @@ fn git_4_a_submodule_is_one_entry_and_its_own_config_never_runs() {
     let out = out.unwrap().stdin(Stdio::null()).output().unwrap();
     assert!(out.stdout.is_empty(), "{:?}", String::from_utf8_lossy(&out.stdout));
     assert_eq!(ran(&witness), Vec::<String>::new());
+}
+
+#[test]
+fn git_2_lfs_storage_in_the_repository_s_config_writes_nothing_outside_it() {
+    if !has_lfs() {
+        eprintln!("skipped: git-lfs is not installed (the choice itself is tested above)");
+        return;
+    }
+    let f = fx("g2-lfs-storage");
+    let outside = temp_dir("g2-lfs-outside");
+    git(&f.repo, &["lfs", "install", "--local"]);
+    git(&f.repo, &["lfs", "track", "*.bin"]);
+    let a = f.repo.join("a.bin");
+    std::fs::write(&a, "x".repeat(100)).unwrap();
+    set_mtime(&a, SystemTime::now() - Duration::from_secs(1000));
+    git(&f.repo, &["add", "-A"]);
+    git(&f.repo, &["commit", "-q", "-m", "lfs"]);
+    // the repository points git-lfs's storage out of the repository, and the file gets new content of
+    // the same size, which git must read through the filter to see
+    config(&f.repo, "lfs.storage", outside.0.to_str().unwrap());
+    let stored = |dir: &Path| std::fs::read_dir(dir).unwrap().count();
+    std::fs::write(&a, "y".repeat(100)).unwrap();
+    bump(&a);
+    // the control: plain git runs git-lfs, which stores the object and its temporary files there
+    assert!(plain(&f.repo, &["status", "--porcelain"]).status().unwrap().success());
+    assert!(stored(&outside.0) > 0, "the control: git-lfs writes under lfs.storage");
+    std::fs::remove_dir_all(&outside.0).unwrap();
+    std::fs::create_dir(&outside.0).unwrap();
+    std::fs::write(&a, "z".repeat(100)).unwrap();
+    bump(&a);
+    let status = String::from_utf8(io::git_status(&f.repo).unwrap()).unwrap();
+    assert_eq!(status.split('\0').filter(|e| !e.is_empty()).collect::<Vec<_>>(), [" M a.bin"]);
+    assert_eq!(stored(&outside.0), 0, "nothing is written outside the repository");
 }
