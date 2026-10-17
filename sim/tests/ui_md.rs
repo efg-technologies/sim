@@ -560,3 +560,69 @@ fn ui_8_a_done_task_is_drawn_in_the_secondary_gray_in_every_look() {
         );
     }
 }
+
+// ---- thematic breaks ----
+
+const BREAKS: &str = "intro\n\n---\n\nmid\n\n***\n\n___\n\n- - -\n\nend\n\n```\n---\n```\n";
+
+#[test]
+fn ui_8_a_thematic_break_is_a_rule_except_in_a_fence_and_at_the_top_of_a_file() {
+    let all = spans_of(BREAKS);
+    let rule = |n: usize| all[n].iter().any(|(_, l)| *l == Look::Rule);
+    for n in [2, 6, 8, 10] {
+        assert!(rule(n), "line {}: {:?}", n + 1, all[n]);
+        let width = BREAKS.lines().nth(n).unwrap().chars().count();
+        assert_eq!(
+            all[n].iter().filter(|s| s.1 == Look::Rule).map(|s| s.0.len()).sum::<usize>(),
+            width
+        );
+    }
+    assert!(!rule(15), "a `---` in a fenced block is code: {:?}", all[15]);
+    assert!((0..all.len()).filter(|&n| ![2, 6, 8, 10].contains(&n)).all(|n| !rule(n)));
+    // the first line of a file opens YAML front matter; what closes it reads as a setext heading
+    let front = spans_of("---\ntitle: x\n---\nbody\n\n---\n");
+    assert!(front.iter().take(3).all(|s| s.iter().all(|(_, l)| *l != Look::Rule)), "{front:?}");
+    assert!(
+        front[5].iter().any(|(_, l)| *l == Look::Rule),
+        "a later one is a break: {:?}",
+        front[5]
+    );
+}
+
+#[test]
+fn ui_8_a_thematic_break_is_drawn_as_a_line_across_the_pane_in_the_secondary_gray() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let r = shown("md-rule", skin, BREAKS);
+        let (g, t) = (r.sim.geo(), Tones::new(&palette(BG)));
+        let (from, to) = (usize::from(g.tx()) + 5, usize::from(g.tx() + g.ew));
+        let body = usize::from(g.y0)..usize::from(g.y0 + g.rows);
+        let rules: Vec<usize> = body
+            .filter(|&y| {
+                let cs: Vec<char> = r.shot.frame.rows[y].text.chars().collect();
+                cs.len() >= to && cs[from..to].iter().all(|c| *c == '─')
+            })
+            .collect();
+        assert_eq!(
+            rules.len(),
+            4,
+            "{skin:?}: four breaks across the pane:\n{}",
+            dump_screen(&r.shot)
+        );
+        for &y in &rules {
+            for x in [from as u16, to as u16 - 1] {
+                assert_eq!(fg_at(&r, y, x), Some(t.focus), "{skin:?}: the secondary gray at {x}");
+            }
+        }
+        assert_eq!(r.text(), BREAKS.trim_end_matches('\n'), "the file's chars are the file's");
+    }
+}
+
+#[test]
+fn ui_8_calm_shows_a_break_as_the_chars_it_has_in_the_secondary_gray() {
+    let r = shown("md-rule-calm", Skin::Calm, "intro\n\n---\n");
+    let out = draw(r.shot.clone());
+    let p = palette(BG);
+    let gray = format!("38;2;{};{};{}", p.secondary.0, p.secondary.1, p.secondary.2);
+    assert!(r.shot.frame.rows.iter().any(|x| x.text.contains("---")));
+    assert!(before(&out, "---").join(";").contains(&gray), "{:?}", before(&out, "---"));
+}

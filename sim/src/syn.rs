@@ -91,6 +91,7 @@ const RULES: &[(&str, Option<Look>)] = &[
     ("markup.list.unnumbered.bullet", Some(Look::Bullet)),
     ("markup.list.numbered.bullet", Some(Look::Bullet)),
     ("punctuation.definition.blockquote", Some(Look::Quote)),
+    ("meta.separator.thematic-break", Some(Look::Rule)),
     ("meta.table.header-separator", Some(Look::Mark)), // `|---|:--:|`, end to end: layout draws it as a grid
     ("punctuation.separator.table-cell", Some(Look::Mark)),
     ("punctuation.section.table-header", Some(Look::Mark)),
@@ -179,7 +180,11 @@ impl Syn {
         let mut out = vec![];
         for i in first..from.saturating_add(n) {
             let Some(line) = text(i) else { break };
-            let spans = self.line(&mut parse, &mut stack, &line);
+            let mut spans = self.line(&mut parse, &mut stack, &line);
+            if i == 0 {
+                // the first line of a file opens YAML front matter, which bat's markdown does not know
+                spans.retain(|s| s.1 != Look::Rule);
+            }
             if i >= from {
                 out.push(spans);
             }

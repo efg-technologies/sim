@@ -694,6 +694,7 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
             }
             let ink = match g.tone {
                 Tone::Plain => None,
+                Tone::Mark => Some(t.focus),
                 Tone::Dim | Tone::Guide => Some(t.line),
                 Tone::Scope => Some(t.focus),
             };
@@ -1093,6 +1094,8 @@ fn shown(cs: &[char], i: usize, col: usize) -> (usize, usize) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
     Plain,
+    /// UI-8: the secondary gray (a thematic break's rule).
+    Mark,
     Dim,
     Guide,
     Scope,
@@ -1208,7 +1211,7 @@ pub fn colors<'a>(
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, Band::None);
     let (mut lui, mut trail, mut badge, mut hk) = (LineUi::default(), 0, 0..0, 0);
-    let (mut delim, mut framed, mut pipes) = (false, false, (0, 0));
+    let (mut delim, mut framed, mut pipes, mut rule) = (false, false, (0, 0), false);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         let starts = number(row, digits).and_then(|n| n.checked_sub(1));
@@ -1229,6 +1232,7 @@ pub fn colors<'a>(
             // only `|`, `-`, `:` and blanks, with a `|` and a `-`, and its first and last pipe are
             // drawn as `├` and `┤`.
             framed = cs.iter().find(|&&c| c != ' ') == Some(&'|');
+            rule = sp.is_some_and(|s| s.iter().any(|s| s.1 == Look::Rule));
             delim = cs.contains(&'|')
                 && cs.contains(&'-')
                 && cs.iter().all(|c| matches!(c, '|' | '-' | ':' | ' '));
@@ -1281,6 +1285,11 @@ pub fn colors<'a>(
                     col: at.1,
                     tone: Tone::Plain,
                 }));
+            }
+            // UI-8: a thematic break's chars are `─`, and the row goes on so to the pane's edge.
+            if look == Some(Look::Rule) {
+                let at = (gutter + used, (gutter + col) as u16);
+                md[i].glyph.push(Glyph { idx: at.0, ch: '─', col: at.1, tone: Tone::Mark });
             }
             // UI-14: the cells of a match of a search, the current one apart, merged where they touch.
             while lui.hits.get(hk).is_some_and(|h| h.end <= ci) {
@@ -1337,6 +1346,16 @@ pub fn colors<'a>(
                 _ => {}
             }
             (used, col, ci) = (used + n, col + w, ci + 1);
+        }
+        // UI-8: the rule of a thematic break goes on to the pane's edge.
+        if rule && ci == cs.len() && (starts.is_some() || len > 0) {
+            let from = gutter + col;
+            md[i].glyph.extend((from..usize::from(f.width)).map(|c| Glyph {
+                idx: gutter + used + (c - from),
+                ch: '─',
+                col: c as u16,
+                tone: Tone::Mark,
+            }));
         }
         // UI-6: `↲` after the last char of a line, where the row has a cell left for it.
         let room = gutter + col < usize::from(f.width);
