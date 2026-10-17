@@ -12,7 +12,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 /// What is asked of the terminal besides its background (which si's `term::enter` asks, VIS-4): the
-/// five ANSI colors that carry syntax (red, green, yellow, magenta, cyan), each ended with ST.
+/// five ANSI colors that carry syntax or are the interface's (red, green, yellow, magenta for the
+/// alert, cyan), each ended with ST.
 pub const QUERY: &str =
     "\x1b]4;1;?\x1b\\\x1b]4;2;?\x1b\\\x1b]4;3;?\x1b\\\x1b]4;5;?\x1b\\\x1b]4;6;?\x1b\\";
 
@@ -404,8 +405,8 @@ pub struct Syntax {
     pub truecolor: bool,
     bg: Option<Rgb>,
     ansi: [Option<Rgb>; 8],
-    /// Red, green, yellow, magenta, cyan, moved until |Lc| >= 75 against the background.
-    hues: [Option<Rgb>; 5],
+    /// Red, green, yellow, cyan, moved until |Lc| >= 75 against the background.
+    hues: [Option<Rgb>; 4],
     /// The selection's background and the text on it.
     sel: Option<(Rgb, Rgb)>,
 }
@@ -434,8 +435,9 @@ impl Syntax {
     fn derive(&mut self) {
         let bg = self.bg.filter(|_| self.truecolor);
         // A color the terminal has not told (not every terminal answers OSC 4; tmux relays the reply, SYN-1) is made of
-        // the OKLCH hue of its class, red, green, yellow, magenta and cyan, and a moderate chroma.
-        let class = [(1, 25.0), (2, 145.0), (3, 85.0), (5, 320.0), (6, 195.0)];
+        // the OKLCH hue of its class, red, green, yellow and cyan, and a moderate chroma (magenta is
+        // the alert's alone, COLOR-1: no look of the text takes it).
+        let class = [(1, 25.0), (2, 145.0), (3, 85.0), (6, 195.0)];
         self.hues = class.map(|(i, hue)| {
             let own = self.ansi[i].unwrap_or_else(|| from_lch([0.5, 0.12, hue]));
             Some(contrast(own, bg?, 75.0))
@@ -463,10 +465,9 @@ impl Syntax {
     pub fn hue(&self, look: Look) -> Option<Rgb> {
         let i = match look {
             Look::Kw => 0,
-            Look::Str => 1,
+            Look::Str | Look::Num => 1, // both are literal values
             Look::Ty => 2,
-            Look::Num => 3,
-            Look::Fun => 4,
+            Look::Fun => 3,
             _ => return None,
         };
         self.hues[i]

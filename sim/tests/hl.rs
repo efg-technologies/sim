@@ -184,7 +184,7 @@ fn syn_1_the_painter_writes_sgr_31_to_36_without_a_palette_and_never_blue() {
     for sgr in [
         "\x1b[0;1;31mfn",
         "\x1b[0;32ms",
-        "\x1b[0;35m1",
+        "\x1b[0;32m1", // a number is the strings' green (COLOR-1: magenta is the alert's)
         "\x1b[0;33mT",
         "\x1b[0;36mf",
         "\x1b[0;2;3mc",
@@ -286,7 +286,7 @@ fn syn_1_the_colors_keep_their_hue_and_blue_is_not_asked_for() {
     for (look, ansi) in [
         (Look::Kw, (0xcc, 0, 0)),
         (Look::Str, (0, 0xaa, 0)),
-        (Look::Num, (0xaa, 0, 0xaa)),
+        (Look::Num, (0, 0xaa, 0)),
         (Look::Fun, (0, 0xaa, 0xaa)),
     ] {
         let (a, b) = (color::to_lch(ansi), color::to_lch(pal.hue(look).unwrap()));
@@ -322,12 +322,12 @@ const BGS: [(u8, u8, u8); 8] = [
 
 #[test]
 fn syn_1_where_osc_4_is_silent_but_the_background_is_known_each_class_has_a_truecolor_of_its_hue() {
-    // (inside tmux the replies often never come): red, green, yellow, magenta, cyan by their hues.
+    // (inside tmux the replies often never come): red, green, yellow, cyan by their hues, and numbers in the strings' green.
     let classes = [
         (Look::Kw, 25.0),
         (Look::Str, 145.0),
         (Look::Ty, 85.0),
-        (Look::Num, 320.0),
+        (Look::Num, 145.0),
         (Look::Fun, 195.0),
     ];
     for bg in BGS {

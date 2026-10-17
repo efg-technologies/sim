@@ -360,3 +360,40 @@ fn color_1_the_picker_and_a_lit_search_use_only_neutral_surfaces_and_the_accent(
         walk(&r, &format!("{skin:?} put out"), true, false, false);
     }
 }
+
+#[test]
+fn color_1_no_look_of_the_text_is_magenta_the_alert_s_hue() {
+    use Look::*;
+    // every look there is, with the color the Painter gives it where it has a palette (the syntax
+    // hues of `Syntax::hue`, derived or answered by the terminal) and where it has none (SGR 31-36)
+    let all = [
+        Com, Str, Kw, Num, Ty, Fun, Tick, Lang, Mark, Url, Link, Code, H1, H2, H3, H4, H5, H6,
+        Bullet, Quote, Em, Band, Bold, Sel,
+    ];
+    for bg in BGS {
+        for answered in [false, true] {
+            let mut syn = Syntax::new(true);
+            syn.bg(bg);
+            if answered {
+                // the terminal's own magenta (the alert's) answers too, and no look takes it
+                syn.reply("4;5;rgb:ff/00/ff");
+                syn.reply("4;2;rgb:00/ff/00");
+            }
+            for look in all {
+                let Some(c) = syn.hue(look) else { continue };
+                assert_ne!(hue_of(c), Ok(Some(Hue::Magenta)), "{bg:?} {look:?} {c:?} is magenta");
+            }
+        }
+    }
+    for look in all {
+        assert_ne!(
+            sim::paint::ansi_of(look),
+            Some(5),
+            "{look:?} is SGR 35, magenta, without a palette"
+        );
+    }
+    // numbers and constants are the strings' green, whatever the terminal says
+    let mut syn = Syntax::new(true);
+    syn.bg(BG);
+    assert_eq!(syn.hue(Num), syn.hue(Str));
+}

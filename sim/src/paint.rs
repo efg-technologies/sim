@@ -85,6 +85,18 @@ pub fn syntax_hue(look: Look) -> Option<Look> {
     made_of(look, true).1
 }
 
+/// The SGR 31-36 that stands for a syntax look where there is no palette or no truecolor: red for
+/// keywords, green for strings and numbers (both are literal values; magenta, 35, is the alert's
+/// alone, COLOR-1), yellow for types, cyan for functions.
+pub fn ansi_of(look: Look) -> Option<u8> {
+    Some(match syntax_hue(look)? {
+        Look::Kw => 1,
+        Look::Str | Look::Num => 2,
+        Look::Ty => 3,
+        _ => 6,
+    })
+}
+
 /// Column ranges of a row, in the columns of the Frame.
 pub type Looks = Vec<(Range<u16>, Look)>;
 
@@ -150,23 +162,10 @@ fn sgr(
         if dim {
             fg = Some(p.secondary);
         } else if let Some(k) = kin {
-            let i = match k {
-                Look::Kw => 1,
-                Look::Str => 2,
-                Look::Ty => 3,
-                Look::Num => 5,
-                _ => 6,
-            };
-            (fg, ansi) = (syn.hue(k), syn.hue(k).map_or(Some(i), |_| None));
+            (fg, ansi) = (syn.hue(k), syn.hue(k).map_or(ansi_of(k), |_| None));
         }
     } else if let (false, None, Some(k)) = (change, pal, kin) {
-        ansi = Some(match k {
-            Look::Kw => 1,
-            Look::Str => 2,
-            Look::Ty => 3,
-            Look::Num => 5,
-            _ => 6,
-        });
+        ansi = ansi_of(k);
     }
     // LOOK-2 to LOOK-7: a background of its own (the tint, green or red, over the change style's
     // blue too: layout only puts one where it means it), a color of its own, and the fade of the
