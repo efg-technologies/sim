@@ -72,9 +72,9 @@ fn lerp(p: [f64; 3], q: [f64; 3], t: f64) -> Rgb {
     from_lab([0, 1, 2].map(|i| p[i] + (q[i] - p[i]) * t))
 }
 
-/// LOOK-6: the floor of the fog for text, |Lc| 60 (APCA's minimum for content text), and for the
+/// LOOK-6: the floor of the fog for text, |Lc| 75 (APCA's minimum for body text), and for the
 /// line numbers, which are there to find a line and not to read, 40.
-pub const TEXT_FLOOR: f64 = 60.0;
+pub const TEXT_FLOOR: f64 = 75.0;
 pub const NUMBER_FLOOR: f64 = 40.0;
 
 /// LOOK-6: `fg` faded `f` of the way into the page `bg`, but no further than where it still reads at

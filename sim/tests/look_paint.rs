@@ -101,7 +101,7 @@ fn look_2_the_tones_are_oklab_mixes_from_the_pages_colors() {
 }
 
 #[test]
-fn look_6_a_fade_goes_toward_the_page_and_never_takes_text_below_lc_60() {
+fn look_6_a_fade_goes_toward_the_page_and_never_takes_text_below_lc_75() {
     for bg in BGS {
         let p = palette(bg);
         // A syntax color is a hue moved until it reads: the same clamp holds for it.
@@ -114,7 +114,7 @@ fn look_6_a_fade_goes_toward_the_page_and_never_takes_text_below_lc_60() {
                 let f = f64::from(i) / 20.0;
                 let now = apca(fade(fg, bg, f), bg).abs();
                 assert!(
-                    now >= 60.0f64.min(was) - 1e-9,
+                    now >= 75.0f64.min(was) - 1e-9,
                     "{} {}: f {f} |Lc| {now:.1}",
                     hex(bg),
                     hex(fg)
@@ -128,20 +128,20 @@ fn look_6_a_fade_goes_toward_the_page_and_never_takes_text_below_lc_60() {
                 last = now;
             }
         }
-        // Gray text on a gray page: a plain mix until it would go under 60, and then it stops.
-        let (far, near) = (fade(p.primary, bg, 0.1), fade(p.primary, bg, 1.0));
-        assert_eq!(far, mix(p.primary, bg, 0.1), "{}: below the clamp it is the mix", hex(bg));
-        assert!(apca(near, bg).abs() >= 60.0, "{}: all the way is clamped", hex(bg));
+        // Gray text on a gray page: a plain mix until it would go under 75, and then it stops.
+        let (far, near) = (fade(p.primary, bg, 0.02), fade(p.primary, bg, 1.0));
+        assert_eq!(far, mix(p.primary, bg, 0.02), "{}: below the clamp it is the mix", hex(bg));
+        assert!(apca(near, bg).abs() >= 75.0, "{}: all the way is clamped", hex(bg));
         assert_ne!(near, bg);
     }
     // Text that is already under its floor is left as it is (a fade must not push it the other way).
     let dim = mix((0x55, 0x55, 0x55), DARK, 0.5);
     assert_eq!(fade(dim, DARK, 0.5), dim);
     // The mockup's number for primary on #1e1e1e, 45% of the way, is 132 and reads at Lc 35: the
-    // clamp stops short of it, within the bisection's step of the Lc 60 line.
+    // clamp stops short of it, within the bisection's step of the Lc 75 line.
     let (p, held) = (palette(DARK).primary, fade(palette(DARK).primary, DARK, 0.45));
-    assert_eq!(fade(p, DARK, 0.2), mix(p, DARK, 0.2), "where it reads, it is the mix");
-    assert!(held.0 > 132 && (60.0..63.0).contains(&apca(held, DARK).abs()), "{held:?}");
+    assert_eq!(fade(p, DARK, 0.05), mix(p, DARK, 0.05), "where it reads, it is the mix");
+    assert!(held.0 > 132 && (75.0..78.0).contains(&apca(held, DARK).abs()), "{held:?}");
 }
 
 /// The SGR parameters written just before the char `ch`.
@@ -234,16 +234,9 @@ fn look_6_the_painter_fades_the_foreground_of_a_run_toward_the_page() {
     let out = draw(s);
     let at = |c: char| sgr_before(&out, c);
     assert!(at('p').contains(&format!("38;2;{}", rgb(fade(p.primary, DARK, 0.5)))), "{}", at('p'));
-    assert!(
-        at('q').contains(&format!("38;2;{}", rgb(fade(p.secondary, DARK, 0.5)))),
-        "{}",
-        at('q')
-    );
-    assert!(
-        at('r').contains(&format!("38;2;{}", rgb(fade(p.secondary, DARK, 0.5)))),
-        "{}",
-        at('r')
-    );
+    // secondary text does not fade: it is rank, the fog is distance (COLOR-1)
+    let gray = format!("38;2;{}", rgb(p.secondary));
+    assert!(at('q').contains(&gray) && at('r').contains(&gray), "{} {}", at('q'), at('r'));
     let c = at('c');
     assert!(!c.contains(&rgb(fade(p.change_text, DARK, 0.5))), "{c}: the change style never fades");
 }
@@ -271,12 +264,12 @@ fn look_6_the_painter_fades_the_syntax_colors_too() {
 }
 
 #[test]
-fn look_6_the_line_numbers_have_a_floor_of_their_own_at_lc_40_and_the_text_at_60() {
+fn look_6_the_line_numbers_have_a_floor_of_their_own_at_lc_40_and_the_text_at_75() {
     for bg in BGS {
         let p = palette(bg);
         let (text, number) = (fade(p.primary, bg, 1.0), fade_to(p.primary, bg, 1.0, 40.0));
         let (lt, ln) = (apca(text, bg).abs(), apca(number, bg).abs());
-        assert!((60.0..63.5).contains(&lt), "{}: text {lt:.1}", hex(bg));
+        assert!((75.0..78.5).contains(&lt), "{}: text {lt:.1}", hex(bg));
         assert!((40.0..43.5).contains(&ln), "{}: a number {ln:.1}", hex(bg));
         assert_ne!(text, number);
         // what is under its floor already is left alone, whatever the floor
@@ -286,7 +279,7 @@ fn look_6_the_line_numbers_have_a_floor_of_their_own_at_lc_40_and_the_text_at_60
             if apca(dim, bg).abs() < 40.0 { dim } else { fade_to(dim, bg, 0.5, 40.0) }
         );
     }
-    // the Painter: a paint with `soft` stops at 40, one without at 60
+    // the Painter: a paint with `soft` stops at 40, one without at 75
     let p = palette(DARK);
     let s = screen(
         "pq",
@@ -300,4 +293,55 @@ fn look_6_the_line_numbers_have_a_floor_of_their_own_at_lc_40_and_the_text_at_60
     let ink = |c: Rgb| format!("38;2;{}", rgb(c));
     assert!(sgr_before(&out, 'p').contains(&ink(fade(p.primary, DARK, 1.0))), "{out:?}");
     assert!(sgr_before(&out, 'q').contains(&ink(fade_to(p.primary, DARK, 1.0, 40.0))), "{out:?}");
+}
+
+/// One row of `text` on the palette of `bg`: the spans given, and a fade of 100% (the farthest fog)
+/// over all of it.
+fn fogged(bg: Rgb, text: &str, spans: Vec<(std::ops::Range<u16>, Style)>, soft: bool) -> String {
+    let width = text.chars().count() as u16;
+    let row = Row { text: text.into(), spans, underline: vec![] };
+    let frame = Frame {
+        width,
+        height: 2,
+        rows: vec![row, Row::default()],
+        cursor: (0, 0),
+        shape: Shape::Block,
+        pal: Some(palette(bg)),
+    };
+    let paints = vec![vec![(0..width, Paint { fade: 100, soft, ..Paint::default() })], vec![]];
+    draw(Screen { frame, looks: vec![vec![], vec![]], paints, syn: Syntax::default() })
+}
+
+/// The foreground set just before the first `ch` of `out`.
+fn ink_of(out: &str, ch: char) -> Rgb {
+    let seq = sgr_before(out, ch);
+    let rest = &seq[seq.rfind("38;2;").unwrap() + 5..];
+    let v: Vec<u8> =
+        rest.split(';').take(3).map(|n| n.trim_end_matches('m').parse().unwrap()).collect();
+    (v[0], v[1], v[2])
+}
+
+#[test]
+fn look_6_in_the_farthest_fog_primary_text_stays_15_lc_above_secondary_and_secondary_does_not_fade()
+{
+    for bg in BGS {
+        let p = palette(bg);
+        // a primary cell and a secondary one (what a comment, a done task, a marker is), faded all the way
+        let out = fogged(bg, "ps", vec![(1..2, Style::Secondary)], false);
+        let (primary, secondary) = (ink_of(&out, 'p'), ink_of(&out, 's'));
+        assert_eq!(secondary, p.secondary, "{}: secondary text does not fade", hex(bg));
+        let (lp, ls) = (apca(primary, bg).abs(), apca(secondary, bg).abs());
+        println!("{}: primary {lp:.1}, secondary {ls:.1}", hex(bg));
+        assert!(lp >= 75.0, "{}: primary text keeps body readability, Lc {lp:.1}", hex(bg));
+        assert!(
+            lp - ls >= 15.0 - 1e-9,
+            "{}: primary {lp:.1} is not 15 above secondary {ls:.1}",
+            hex(bg)
+        );
+        // a line number is secondary and fades, to its own floor
+        let out = fogged(bg, "ps", vec![(1..2, Style::Secondary)], true);
+        let number = ink_of(&out, 's');
+        assert_ne!(number, p.secondary, "{}: a number fades", hex(bg));
+        assert!(apca(number, bg).abs() >= 40.0 - 1e-9 || apca(p.secondary, bg).abs() < 40.0);
+    }
 }

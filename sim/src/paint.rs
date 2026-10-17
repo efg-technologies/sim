@@ -185,7 +185,10 @@ fn sgr(
     if let Some(c) = paint.fg {
         (fg, ansi) = (Some(c), None);
     }
-    if let (Some(c), Some(p), true, false) = (fg, pal, paint.fade > 0, change) {
+    // The secondary gray is rank and the fog is distance: only the gutter's numbers fade it (LOOK-6).
+    if let (Some(c), Some(p), true, false) = (fg, pal, paint.fade > 0, change)
+        && (paint.soft || c != p.secondary)
+    {
         let floor = if paint.soft { NUMBER_FLOOR } else { TEXT_FLOOR };
         fg = Some(fade_to(c, p.bg, f64::from(paint.fade) / 100.0, floor));
     }
