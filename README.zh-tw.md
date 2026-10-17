@@ -12,13 +12,23 @@ sim 的每一項承諾，都適用於其中開啟的每一個檔案：**沒有�
 
 ## 安裝
 
-可執行檔是 `sim`。套件名稱在 AUR 與 crates.io 上是 `sim-editor`，在 Homebrew 上是 `efg-technologies/tap/sim`；它所依據的函式庫在 crates.io 上是 `sim-editor-core`。這些都在規劃中，**尚未推出**，所以目前請從原始碼建置：
+可執行檔是 `sim`。套件名稱在 AUR 與 crates.io 上是 `sim-editor`，在 Homebrew 上是 `efg-technologies/tap/sim`；它所依據的函式庫在 crates.io 上是 `sim-editor-core`。
+
+sim 0.1.0 已經推出。可以用 Homebrew 安裝：
+
+```sh
+brew install efg-technologies/tap/sim
+```
+
+發行版本的原始碼在 [GitHub 的 v0.1.0 發行頁面](https://github.com/efg-technologies/sim/releases/tag/v0.1.0)（`sim-0.1.0.tar.gz`）。從原始碼建置：
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
 cd sim
 cargo install --locked --path sim
 ```
+
+AUR 套件 `sim-editor`，以及 crates.io 上的 `sim-editor` 與 `sim-editor-core`，即將推出。
 
 之後，如果你喜歡把它當作自己的編輯器：
 
@@ -122,7 +132,7 @@ Vim、Neovim 與 Helix 都是成熟的編輯器，而 sim 是新的。這裡只�
 
 ## 路線圖（規劃中，尚未推出）
 
-Vim 的暫存器、巨集與標記 · 超出 OSC 52 的剪貼簿整合 · 沙盒化的語言伺服器用戶端 · `:tutor` · Markdown 閱讀檢視 · git 差異樹 · 真正有層次感的 GUI（原型） · AUR、crates.io 與 Homebrew 的套件。
+Vim 的暫存器、巨集與標記 · 超出 OSC 52 的剪貼簿整合 · 沙盒化的語言伺服器用戶端 · `:tutor` · Markdown 閱讀檢視 · git 差異樹 · 真正有層次感的 GUI（原型） · AUR 與 crates.io 的套件。
 
 ## 參與開發
 

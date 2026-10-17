@@ -12,13 +12,23 @@ sim이 하는 모든 약속은 sim에서 열려 있는 모든 파일에 대한 �
 
 ## 설치
 
-바이너리는 `sim`입니다. 패키지 이름은 AUR과 crates.io에서는 `sim-editor`, Homebrew에서는 `efg-technologies/tap/sim`이며, sim의 기반이 되는 라이브러리는 crates.io의 `sim-editor-core`입니다. 모두 예정 단계이며 **아직 공개되지 않았으므로**, 지금은 소스에서 빌드해야 합니다:
+바이너리는 `sim`입니다. 패키지 이름은 AUR과 crates.io에서는 `sim-editor`, Homebrew에서는 `efg-technologies/tap/sim`이며, sim의 기반이 되는 라이브러리는 crates.io의 `sim-editor-core`입니다.
+
+sim 0.1.0을 공개했습니다. Homebrew로 설치할 수 있습니다:
+
+```sh
+brew install efg-technologies/tap/sim
+```
+
+릴리스의 소스는 [GitHub의 v0.1.0 릴리스](https://github.com/efg-technologies/sim/releases/tag/v0.1.0)(`sim-0.1.0.tar.gz`)에 있습니다. 소스에서 직접 빌드하려면 다음과 같이 합니다:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
 cd sim
 cargo install --locked --path sim
 ```
+
+AUR 패키지 `sim-editor`와 crates.io의 `sim-editor`, `sim-editor-core`는 곧 공개됩니다.
 
 마음에 든다면 에디터로 지정하세요:
 
@@ -122,7 +132,7 @@ Vim, Neovim, Helix는 성숙한 에디터이고 sim은 새로 나온 에디터�
 
 ## 로드맵(예정, 미제공)
 
-Vim 레지스터, 매크로, 마크 · OSC 52를 넘어서는 클립보드 연동 · 샌드박스 안에서 실행되는 언어 서버 클라이언트 · `:tutor` · Markdown 읽기 보기 · git diff 트리 · 진짜 깊이감을 가진 GUI(프로토타입) · AUR, crates.io, Homebrew 패키지.
+Vim 레지스터, 매크로, 마크 · OSC 52를 넘어서는 클립보드 연동 · 샌드박스 안에서 실행되는 언어 서버 클라이언트 · `:tutor` · Markdown 읽기 보기 · git diff 트리 · 진짜 깊이감을 가진 GUI(프로토타입) · AUR, crates.io 패키지.
 
 ## 개발에 참여하기
 

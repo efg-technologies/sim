@@ -12,13 +12,23 @@ Alles, was sim verspricht, verspricht es für jede darin geöffnete Datei: **ohn
 
 ## Installation
 
-Die Binärdatei heißt `sim`. Der Paketname lautet `sim-editor` im AUR und auf crates.io und `efg-technologies/tap/sim` bei Homebrew; die Bibliothek, auf der es aufbaut, heißt `sim-editor-core` auf crates.io. Alle sind geplant und **noch nicht veröffentlicht**, daher heute aus dem Quellcode bauen:
+Die Binärdatei heißt `sim`. Der Paketname lautet `sim-editor` im AUR und auf crates.io und `efg-technologies/tap/sim` bei Homebrew; die Bibliothek, auf der es aufbaut, heißt `sim-editor-core` auf crates.io.
+
+sim 0.1.0 ist veröffentlicht. Mit Homebrew installieren Sie es so:
+
+```sh
+brew install efg-technologies/tap/sim
+```
+
+Der Quellcode der Version liegt auf der [Release-Seite v0.1.0 auf GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.1.0) (`sim-0.1.0.tar.gz`). Aus dem Quellcode bauen:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
 cd sim
 cargo install --locked --path sim
 ```
+
+Das AUR-Paket `sim-editor` und die Crates `sim-editor` und `sim-editor-core` auf crates.io folgen.
 
 Danach, wenn Sie es als Ihren Editor haben möchten:
 
@@ -122,7 +132,7 @@ Was die anderen vorerst noch besser können: Neovim und Helix liefern einen Lang
 
 ## Roadmap (geplant, nicht ausgeliefert)
 
-Vim-Register, Makros und Marken · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · eine Leseansicht für Markdown · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR, crates.io und Homebrew.
+Vim-Register, Makros und Marken · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · eine Leseansicht für Markdown · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
 
 ## Entwicklung
 

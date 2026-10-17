@@ -12,13 +12,23 @@
 
 ## Установка
 
-Исполняемый файл называется `sim`. Имя пакета — `sim-editor` в AUR и на crates.io и `efg-technologies/tap/sim` в Homebrew; библиотека, на которой он построен, называется `sim-editor-core` и лежит на crates.io. Все они запланированы и **пока не опубликованы**, поэтому сегодня собирайте из исходников:
+Исполняемый файл называется `sim`. Имя пакета — `sim-editor` в AUR и на crates.io и `efg-technologies/tap/sim` в Homebrew; библиотека, на которой он построен, называется `sim-editor-core` и лежит на crates.io.
+
+sim 0.1.0 выпущен. Установить его можно через Homebrew:
+
+```sh
+brew install efg-technologies/tap/sim
+```
+
+Исходный код релиза лежит на [странице релиза v0.1.0 на GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.1.0) (`sim-0.1.0.tar.gz`). Чтобы собрать из исходников:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
 cd sim
 cargo install --locked --path sim
 ```
+
+Пакет `sim-editor` в AUR и крейты `sim-editor` и `sim-editor-core` на crates.io появятся позже.
 
 Затем, если он вам по душе как редактор:
 
@@ -122,7 +132,7 @@ Vim, Neovim и Helix — зрелые редакторы, а sim — новый.
 
 ## Дорожная карта (запланировано, не выпущено)
 
-Регистры, макросы и метки Vim · интеграция с буфером обмена сверх OSC 52 · клиент языкового сервера в песочнице · `:tutor` · режим чтения Markdown · дерево git diff · графический интерфейс с настоящей глубиной (прототип) · пакеты для AUR, crates.io и Homebrew.
+Регистры, макросы и метки Vim · интеграция с буфером обмена сверх OSC 52 · клиент языкового сервера в песочнице · `:tutor` · режим чтения Markdown · дерево git diff · графический интерфейс с настоящей глубиной (прототип) · пакеты для AUR и crates.io.
 
 ## Участие в разработке
 

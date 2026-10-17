@@ -12,13 +12,23 @@ sim が約束することは、開いているどのファイルにも当ては�
 
 ## インストール
 
-バイナリ名は `sim` です。パッケージ名は、AUR と crates.io では `sim-editor`、Homebrew では `efg-technologies/tap/sim` です。土台になるライブラリは crates.io の `sim-editor-core` です。どれも予定で、**まだ公開していません**。いまはソースからビルドしてください。
+バイナリ名は `sim` です。パッケージ名は、AUR と crates.io では `sim-editor`、Homebrew では `efg-technologies/tap/sim` です。土台になるライブラリは crates.io の `sim-editor-core` です。
+
+sim 0.1.0 を公開しました。Homebrew なら次のコマンドで入ります。
+
+```sh
+brew install efg-technologies/tap/sim
+```
+
+リリースのソースコードは [GitHub の v0.1.0 リリース](https://github.com/efg-technologies/sim/releases/tag/v0.1.0)(`sim-0.1.0.tar.gz`)にあります。ソースからビルドするには次のようにします。
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
 cd sim
 cargo install --locked --path sim
 ```
+
+AUR のパッケージ `sim-editor` と、crates.io の `sim-editor`・`sim-editor-core` は、これから公開します。
 
 そのうえで、エディタとして使いたければ次のようにします。
 
@@ -122,7 +132,7 @@ Vim、Neovim、Helix は成熟したエディタで、sim は新しいエディ�
 
 ## ロードマップ(予定。まだ提供していません)
 
-Vim のレジスタ、マクロ、マーク ・ OSC 52 を超えるクリップボード連携 ・ サンドボックスつきの言語サーバークライアント ・ `:tutor` ・ Markdown の閲覧ビュー ・ git の差分ツリー ・ 本物の奥行きをもつ GUI(プロトタイプ) ・ AUR、crates.io、Homebrew のパッケージ。
+Vim のレジスタ、マクロ、マーク ・ OSC 52 を超えるクリップボード連携 ・ サンドボックスつきの言語サーバークライアント ・ `:tutor` ・ Markdown の閲覧ビュー ・ git の差分ツリー ・ 本物の奥行きをもつ GUI(プロトタイプ) ・ AUR、crates.io のパッケージ。
 
 ## 開発に参加する
 

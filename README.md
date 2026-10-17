@@ -12,13 +12,23 @@ Everything sim promises, it promises for every file open in it: **without an exp
 
 ## Install
 
-The binary is `sim`. The package is `sim-editor` on the AUR and crates.io, and `efg-technologies/tap/sim` on Homebrew; the library it is built on is `sim-editor-core` on crates.io. All of them are planned and **not published yet**, so build from source today:
+The binary is `sim`. The package is `sim-editor` on the AUR and crates.io, and `efg-technologies/tap/sim` on Homebrew; the library it is built on is `sim-editor-core` on crates.io.
+
+sim 0.1.0 is out. Install it with Homebrew:
+
+```sh
+brew install efg-technologies/tap/sim
+```
+
+The source of the release is on the [v0.1.0 release page](https://github.com/efg-technologies/sim/releases/tag/v0.1.0) (`sim-0.1.0.tar.gz`). To build it from source:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
 cd sim
 cargo install --locked --path sim
 ```
+
+The AUR package `sim-editor` and the crates.io crates `sim-editor` and `sim-editor-core` are coming.
 
 Then, if you like it as your editor:
 
@@ -122,7 +132,7 @@ What the others still do better, for now: Neovim and Helix ship a language-serve
 
 ## Roadmap (planned, not shipped)
 
-Vim registers, macros and marks · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a Markdown reading view · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR, crates.io and Homebrew.
+Vim registers, macros and marks · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a Markdown reading view · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
 
 ## Working on it
 
