@@ -223,6 +223,28 @@ fn help(b: &mut Bench) -> Times {
     out
 }
 
+/// DIFF-1: the changes view over 300 changed files, in a repository made here (the bench's files
+/// committed, then a line added to each small one): moved in by lines and pages, folded and unfolded,
+/// to the top and the bottom. The numbers are asked of git and answered off the clock, as the status.
+fn changes(b: &mut Bench) -> Times {
+    let root = b.r.sim.root.clone();
+    git(&root, &["init", "-q"]);
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-q", "-m", "bench"]);
+    for i in 0..300 {
+        let at = root.join(format!("dir{}/file{i}.rs", i % 12));
+        std::fs::write(at, format!("dir{}/file{i}.rs\nmore\n", i % 12)).unwrap();
+    }
+    b.r.send(SimEvent::Status(sim::io::status(&root)));
+    b.r.keys(" ge");
+    assert!(b.r.sim.panel.focus && b.r.status().contains("CHANGES"), "{}", b.r.status());
+    let mut out = vec![];
+    for _ in 0..40 {
+        out.extend(b.time("jjjjjjjjjjkkkkkkkkkk<C-d><C-u><PageDown><PageUp>Gggjjhljjkk"));
+    }
+    out
+}
+
 /// The mouse (PTR-1) on the big file with the panel open: clicks in the text, drags (a press, some
 /// moves, a release), the wheel in the text (three lines a notch, the cursor keeping its context)
 /// and over the panel. Each event is timed, as a key is.
@@ -277,7 +299,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     for skin in [Skin::Calm, Skin::Depth] {
         for size in [(80, 24), (240, 60)] {
             type Kind = fn(&mut Bench) -> Times;
-            let kinds: [(&str, Kind); 9] = [
+            let kinds: [(&str, Kind); 10] = [
                 ("motions", motions),
                 ("insert", inserts),
                 ("delete", deletes),
@@ -286,6 +308,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
                 ("picker", picker),
                 ("whichkey", whichkey),
                 ("help", help),
+                ("changes", changes),
                 ("lit", lit),
             ];
             for (name, run) in kinds {

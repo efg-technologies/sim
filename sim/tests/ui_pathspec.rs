@@ -151,7 +151,9 @@ fn ui_5_the_sign_diff_never_enters_a_submodule_not_even_one_named_exactly_or_dir
 #[test]
 fn mark_1_every_git_runs_with_literal_pathspecs_and_a_short_submodule_diff() {
     let e = evil("mark1-env");
-    let c = io::command(&e.sup, &["status"]);
+    // the one builder of the command lines (GIT-1): the guard reads the config around `sup` first, and
+    // the superproject's `diff.submodule = diff` is no key that holds a command
+    let c = io::git_command(&e.sup, &["status"]).unwrap();
     let env: Vec<(String, String)> = c
         .get_envs()
         .filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_string_lossy().into())))
@@ -161,10 +163,18 @@ fn mark_1_every_git_runs_with_literal_pathspecs_and_a_short_submodule_diff() {
     let pair = |k: &str, v: &str| args.windows(2).any(|w| w[0] == k && w[1] == v);
     assert!(pair("-c", "diff.submodule=short"), "{args:?}");
     assert!(pair("-c", "core.fsmonitor=false") && args.contains(&"--no-optional-locks".into()));
-    assert_eq!(args.last().map(String::as_str), Some("status"));
-    // the diff of one file takes no submodule in either way
-    let named = io::git_diff_args("a.txt");
-    assert!(named.contains(&"--ignore-submodules=all"), "{named:?}");
-    assert_eq!(named.last(), Some(&"a.txt"), "{named:?}");
-    assert_eq!(named[named.len() - 2], "--", "the name comes after `--`: {named:?}");
+    // every diff of sim's takes no submodule in either way: the sign column's, and the numbers'
+    let line = |args: &[&str]| -> Vec<String> {
+        let c = io::git_command(&e.sup, args).unwrap();
+        c.get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+    };
+    let signs = line(&io::git_diff_args("a.txt"));
+    assert!(signs.contains(&"--ignore-submodules=all".to_string()), "{signs:?}");
+    assert_eq!(signs.last().map(String::as_str), Some("a.txt"), "{signs:?}");
+    assert_eq!(signs[signs.len() - 2], "--", "the name comes after `--`: {signs:?}");
+    let numbers = line(&["diff", "--numstat", "-z", "HEAD"]);
+    assert!(numbers.contains(&"--ignore-submodules=all".to_string()), "{numbers:?}");
+    // a status sees a submodule as one entry (its commit), and no more
+    let status = line(&["status"]);
+    assert!(status.contains(&"--ignore-submodules=dirty".to_string()), "{status:?}");
 }

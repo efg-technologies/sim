@@ -324,7 +324,7 @@ gone() { ! screen | grep -F -q -- "$1"; }
 # What is left in si's state directory but the places where files were closed (CLI-6, which stay).
 # What the journal left in the state directory: not the places, and not the choices sim keeps beside it
 # (`look`, `history`, `icons`, and the marker of the hint, STATE-1).
-journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|tab-uses|\.migrated)$' || true; }
+journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|tab-uses|no-hooks|\.migrated)$' || true; }
 
 # After sim is gone: the normal screen is back and the tty is in cooked mode again.
 terminal_restored() {
@@ -921,7 +921,7 @@ grep_4_the_pane_previews_the_result_enter_opens_it_there_and_esc_puts_the_tree_b
   gone "line 57"
   keys Up
   wait_for " 57 line 57"
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(look|icons-hint|tab-uses)$')" ] # not an open: no history yet (`look` is the seeded look)
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(look|icons-hint|tab-uses|no-hooks)$')" ] # not an open: no history yet (`look` is the seeded look)
   keys Enter
   wait_for "big.txt  60:5  NORMAL" # the line, and the column of the match
   screen | grep -F -q "▸ src/" # the tree is as it was
@@ -1025,10 +1025,9 @@ mark_1_changed_files_have_the_change_color_and_their_directories_a_tilde() {
 mark_1_git_is_skipped_where_the_repositorys_config_could_run_commands() {
   gitproject
   printf 'more\n' >> "$W/src/lib.rs"
-  git -C "$W" config filter.canary.clean "touch $W/witness; cat"
-  printf '* filter=canary\n' > "$W/.gitattributes"
+  git -C "$W" config core.sshCommand "touch $W/witness"
   start
-  wait_for "git skipped: filter.canary.clean in .git/config could run a command"
+  wait_for "git skipped: core.sshcommand in .git/config could run a command"
   keys C-n
   keys C-n
   wait_for "▸ src/"
@@ -1294,7 +1293,7 @@ buf_1_snapshots_are_off_when_the_state_directory_is_not_private() {
   typed ":w"
   keys Enter
   wait_content "$W/src/lib.rs" "n lib() {}" # saving works all the same
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(look|icons-hint|tab-uses)$')" ] # and nothing was written there (the case's own files aside)
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(look|icons-hint|tab-uses|no-hooks)$')" ] # and nothing was written there (the case's own files aside)
 }
 
 # ---- S4: the mouse ----
@@ -2196,6 +2195,114 @@ ui_5_a_file_named_star_does_not_make_git_run_a_submodule_s_own_commands() {
   wait_for "*  1:1  NORMAL"
   sleep 1 # the diff is asked for in a thread of its own
   [ ! -e "$CASE_DIR/witness" ]
+}
+
+# GIT-2: a monitor, a filter and a hook of the repository's own never run, and git is not skipped for them.
+git_2_a_monitor_a_filter_and_a_hook_of_the_repository_never_run() {
+  gitproject
+  printf '#!/bin/sh\ntouch "%s/witness-monitor"\n' "$CASE_DIR" > "$W/mon.sh"
+  printf '#!/bin/sh\ntouch "%s/witness-filter"\ncat\n' "$CASE_DIR" > "$W/filt.sh"
+  mkdir -p "$W/hooks"
+  printf '#!/bin/sh\ntouch "%s/witness-hook"\n' "$CASE_DIR" > "$W/hooks/post-index-change"
+  chmod +x "$W/mon.sh" "$W/filt.sh" "$W/hooks/post-index-change"
+  git -C "$W" config core.fsmonitor "$W/mon.sh"
+  git -C "$W" config filter.canary.clean "$W/filt.sh"
+  git -C "$W" config core.hooksPath "$W/hooks"
+  printf '* filter=canary\n' > "$W/.gitattributes"
+  printf 'more\n' >> "$W/docs/guide.md"
+  touch "$W/src/lib.rs" "$W/src/main.rs"
+  # the control: git as the user runs it asks the monitor and runs the filter
+  git -C "$W" status --porcelain > /dev/null
+  [ -e "$CASE_DIR/witness-monitor" ] && [ -e "$CASE_DIR/witness-filter" ]
+  rm -f "$CASE_DIR"/witness-*
+  touch "$W/src/lib.rs" "$W/src/main.rs"
+  start
+  wait_for "▸ docs/ ~" # the marks are there: git ran
+  gone "git skipped"
+  [ ! -e "$CASE_DIR/witness-monitor" ] && [ ! -e "$CASE_DIR/witness-filter" ] && [ ! -e "$CASE_DIR/witness-hook" ]
+}
+
+# GIT-1: the directory that core.hooksPath is pointed to is in the state directory, private and empty.
+git_1_the_hooks_directory_is_private_and_empty_in_the_state_directory() {
+  gitproject
+  start
+  wait_for "▸ src/"
+  dir="$XDG_STATE_HOME/sim/no-hooks"
+  [ -d "$dir" ] && [ -z "$(ls -A "$dir")" ]
+  ls -ld "$dir" | grep -q '^drwx------'
+}
+
+# DIFF-1, DIFF-2: <Space>ge shows only what differs from HEAD, with letters and numbers; again, it goes back.
+diff_1_space_g_e_shows_what_differs_from_head_and_space_g_e_again_goes_back() {
+  gitproject
+  printf 'one\ntwo\n' >> "$W/src/lib.rs"
+  printf 'x\ny\nz\n' > "$W/docs/new.md"
+  rm "$W/src/main.rs"
+  start
+  wait_for "▸ src/ ~"
+  typed " ge"
+  wait_for "CHANGES"
+  wait_for "new.md"
+  screen | grep -F -q "+3"
+  screen | grep -F -q "lib.rs"
+  screen | grep -F -q "+2"
+  screen | grep -F -q "−1"
+  gone "guide.md"
+  gone "README.md"
+  typed " ge"
+  wait_gone "CHANGES"
+  wait_for "TREE"
+  typed " ge"
+  wait_for "CHANGES"
+  typed q
+  wait_for "TREE"
+  screen | grep -F -q "▸ src/"
+}
+
+# DIFF-3: Enter on a deleted file opens HEAD's version, read-only.
+diff_3_enter_on_a_deleted_file_opens_head_s_version_read_only() {
+  gitproject
+  rm "$W/src/main.rs"
+  start
+  wait_for "▸ src/ ~"
+  typed " ge"
+  wait_for "main.rs"
+  typed j
+  keys Enter
+  wait_for "HEAD:src/main.rs (read-only)"
+  wait_for "fn main() {}"
+  typed dd
+  screen | grep -F -q "fn main() {}"
+  typed ":w"
+  keys Enter
+  wait_for "read-only"
+  [ ! -e "$W/src/main.rs" ] && [ ! -e "$W/HEAD:src/main.rs" ]
+}
+
+# DIFF-5: in plain mode the key is refused and says why.
+diff_5_in_plain_mode_space_g_e_is_refused_naming_plain_mode() {
+  gitproject
+  start --plain src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed " ge"
+  wait_for "plain mode runs no program: no changes view"
+  gone "CHANGES"
+}
+
+# DIFF-6: the pause after <Space>g lists the key, and :help finds it.
+diff_6_which_key_and_help_list_space_g_e() {
+  gitproject
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed " g"
+  wait_for "changes from HEAD"
+  keys Escape
+  wait_gone "changes from HEAD"
+  typed ":help"
+  keys Enter
+  wait_for "Help · keys and commands"
+  typed "HEAD"
+  wait_for "<Space>ge"
 }
 
 main "$@"

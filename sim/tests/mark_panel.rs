@@ -73,14 +73,13 @@ fn mark_1_changed_and_untracked_files_get_the_change_color_and_their_directories
 
 #[test]
 fn mark_1_where_git_is_skipped_the_status_line_says_so_once_and_the_files_come_from_a_walk() {
-    let skip = "git skipped: filter.x.clean in .git/config could run a command";
+    let skip = "git skipped: core.sshcommand in .git/config could run a command";
     let files = ["a.rs", "b.rs", ".gitignore=target/\n", "target/x.o"];
     let mut r = rig_env("m1-skip", &files, &[], (70, 12), |e| {
         init_git(&e.cwd);
         std::fs::write(e.cwd.join("a.rs"), "changed\n").unwrap();
         let config = std::fs::read_to_string(e.cwd.join(".git/config")).unwrap();
-        std::fs::write(e.cwd.join(".git/config"), config + "[filter \"x\"]\n\tclean = cat\n")
-            .unwrap();
+        std::fs::write(e.cwd.join(".git/config"), config + "[core]\n\tsshCommand = cat\n").unwrap();
     });
     assert_eq!(r.status(), skip);
     assert_eq!(changed(&r), Vec::<String>::new(), "git said nothing: no marks");

@@ -410,6 +410,8 @@ impl W {
                     | SimEffect::Spin(_)
                     | SimEffect::Pause(_)
                     | SimEffect::TabUses(_)
+                    | SimEffect::Changes(_)
+                    | SimEffect::Show(_)
                     | SimEffect::Flash(_) => {}
                     SimEffect::Files => self.files_req = true,
                     SimEffect::Status => self.status_req = true,

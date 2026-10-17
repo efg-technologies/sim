@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod bar;
+pub mod changes;
 pub mod color;
 pub mod diff;
 pub mod find;

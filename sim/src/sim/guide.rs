@@ -74,6 +74,8 @@ impl Sim {
         match (self.leader.take().as_deref(), c) {
             (None, ' ') => self.leader = Some(String::new()),
             (Some(""), 'b') => self.leader = Some("b".into()),
+            (Some(""), 'g') => self.leader = Some("g".into()),
+            (Some("g"), 'e') => self.changes_key(out),
             (Some("b"), 'p' | 'c') => self.tab_pick(c == 'c', out),
             _ => {}
         }

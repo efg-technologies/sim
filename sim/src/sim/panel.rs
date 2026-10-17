@@ -1,9 +1,10 @@
-//! TREE-2, TREE-4, TREE-5, FIND-1, FIND-2, MARK-3
+//! TREE-2, TREE-4, TREE-5, FIND-1, FIND-2, MARK-3, DIFF-1, DIFF-3, DIFF-5
 //! The panel's side of sim's state (pure): its keys, the directories it reveals as their listings
 //! arrive, the search that lights up matches, and the narrowed tree.
 use super::{Sim, SimEffect};
 use crate::find::{Found, Query};
 use crate::layout;
+use crate::marks::Git;
 use crate::tree::{self, Entry, Row as TreeRow, Tree};
 use sim_core::core::app::Key;
 use std::cmp::Ordering;
@@ -72,6 +73,22 @@ impl Sim {
         self.git(out);
     }
 
+    /// DIFF-1: `<Space>ge`: the panel in the changes view, or back to the normal tree. In plain mode
+    /// (no program, so no git) it is refused, and says so.
+    pub(super) fn changes_key(&mut self, out: Out) {
+        if self.plain {
+            return self.msg = Some("plain mode runs no program: no changes view".into());
+        }
+        if self.changes.is_some() {
+            return self.focus_toggle(out);
+        }
+        self.end_search();
+        (self.focus, self.changes, self.panel.cur) = (None, Some(Default::default()), 0);
+        self.show(out);
+        self.refocus();
+        self.ask_changes(out);
+    }
+
     /// TREE-2: Ctrl-n opens the panel and focuses it, or closes it when it has the focus.
     pub(super) fn toggle(&mut self, out: Out) {
         if self.panel.open && self.panel.focus {
@@ -115,6 +132,7 @@ impl Sim {
                 self.view_mut().collapse_all();
                 top.and_then(|p| self.view().row_of(&p)).unwrap_or(0)
             }
+            Key::Char('q') if self.changes.is_some() => return self.focus_toggle(out),
             Key::Char('q') => {
                 self.end_search();
                 return (self.panel.open, self.panel.focus) = (false, false);
@@ -131,6 +149,10 @@ impl Sim {
     pub(super) fn enter(&mut self, out: Out) {
         let Some(r) = self.row(self.panel.cur) else { return };
         let abs = self.root.join(&r.path);
+        if !r.is_dir && self.changes.is_some() && self.marks.git(&r.path) == Some(Git::Deleted) {
+            // DIFF-3: a deleted file is no file to open: HEAD's version of it is
+            return out.push(SimEffect::Show(r.path.to_string_lossy().into_owned()));
+        }
         if !r.is_dir {
             self.end_search_at(r.path, out);
             self.open(abs, out);
@@ -312,6 +334,7 @@ impl Sim {
         self.end_search();
         let at = self.row(self.panel.cur).map(|r| r.path).unwrap_or_default();
         if self.focus.take().is_some() {
+            self.changes = None; // (DIFF-1: the changes view is a narrowed tree too)
             (self.panel.cur, self.panel.reveal) = (0, Some(at));
             return self.reveal(out);
         }
@@ -324,15 +347,21 @@ impl Sim {
     /// changed: the marks, the open files, the history. It is a Tree like the other, made of
     /// listings that hold only these files and the directories above them, all open.
     pub(super) fn refocus(&mut self) {
-        if self.focus.is_none() {
+        if self.focus.is_none() && self.changes.is_none() {
             return;
         }
-        let open = self.bufs.iter().filter_map(|b| b.app.path.as_ref()).map(|p| self.cwd.join(p));
-        let open = open.filter_map(|p| p.strip_prefix(&self.root).ok().map(Path::to_path_buf));
-        let recent = self.history.top(&self.root.to_string_lossy(), 1000, self.now);
-        let recent = recent.into_iter().filter(|r| r.1 >= RECENT).map(|r| PathBuf::from(r.0));
+        let files: Vec<PathBuf> = if self.changes.is_some() {
+            self.marks.differing().cloned().collect() // DIFF-1: the files that differ from HEAD
+        } else {
+            let open = self.bufs.iter().filter_map(|b| b.app.path.as_ref());
+            let open = open.map(|p| self.cwd.join(p));
+            let open = open.filter_map(|p| p.strip_prefix(&self.root).ok().map(Path::to_path_buf));
+            let recent = self.history.top(&self.root.to_string_lossy(), 1000, self.now);
+            let recent = recent.into_iter().filter(|r| r.1 >= RECENT).map(|r| PathBuf::from(r.0));
+            self.marks.files().cloned().chain(open).chain(recent).collect()
+        };
         let (mut kids, mut seen) = (HashMap::<PathBuf, Vec<Entry>>::new(), HashSet::new());
-        for file in self.marks.files().cloned().chain(open).chain(recent) {
+        for file in files {
             let above = file.ancestors().enumerate().take_while(|(_, p)| !p.as_os_str().is_empty());
             for (i, p) in above.filter(|(_, p)| seen.insert(p.to_path_buf())) {
                 let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();

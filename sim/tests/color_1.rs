@@ -355,7 +355,7 @@ fn color_1_on_the_screen_a_hue_is_only_where_its_meaning_is() {
 fn color_1_a_git_that_was_not_run_for_safety_says_so_in_the_alert_s_color() {
     let mut r = rig_env("budget-skip", &["a.rs"], &["a.rs"], (100, 12), |e| {
         git(&e.cwd, &["init", "-q"]);
-        git(&e.cwd, &["config", "filter.x.clean", "touch witness"]);
+        git(&e.cwd, &["config", "core.sshCommand", "touch witness"]);
         e.skin = Skin::Flat;
         e.syn = Syntax::new(true);
         e.chrome = true;

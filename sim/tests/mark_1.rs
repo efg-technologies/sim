@@ -159,42 +159,55 @@ fn mark_1_a_bare_repository_and_a_git_directory_have_no_work_tree_and_so_no_mark
 // The config is read by git itself (`git config --list --show-scope -z`), so the cases below are
 // texts that git and a parser of sim's own could read differently.
 
-/// Configs that define a command git would run, or could bring one in.
-const RUNS: [&str; 35] = [
-    "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n",
-    "[FILTER \"x\"]\n\tSmudge = cat\n",
-    "[filter.x]\n\tprocess = cat\n",
-    "[filter.x]\n\tclean = cat\n", // git's older way to write [filter "x"]
-    "[Filter.X]\n\tClean = cat\n",
-    "[filter \"a b\\\"c\\\\d ;# ]\"]\n\tclean = cat\n", // a subsection with odd characters
-    "[filter]\n\tclean = cat\n",
-    "[core]\n\tfsmonitor = /tmp/monitor\n",
-    "[core]\n\tFsMonitor=true\n",
-    "[Core] FsMonitor = /tmp/monitor\n",
-    "[core] fsmonitor = true\n",
-    "[core] ; a comment\n\tfsmonitor = true\n",
-    "[core]\n\tbare = false\n\tfsmonitor = false\n",
-    "[core]\n\tfsmonitor = \"true\" ; [user]\n",
-    "[core]\n\tx = 1 \\\n[user]\n\tfsmonitor = true\n", // the header is the end of a continued value
-    "[user]\n\tname = \"a\\\n[core]\"\n[core]\n\tfsmonitor = true\n",
+/// Configs that define a command git would run, or could bring one in, that the command line does
+/// not stop (GIT-2): the forms are the ones a parser of sim's own could read differently from git.
+const RUNS: [&str; 26] = [
+    "[filter]\n\tclean = cat\n", // a filter with no name is none that git can turn off
+    "[core]\n\tsshCommand = /tmp/ssh\n",
+    "[Core] SshCommand = /tmp/ssh\n",
+    "[core] sshcommand = true\n",
+    "[core] ; a comment\n\tsshCommand = true\n",
+    "[core]\n\tbare = false\n\tsshCommand = false\n",
+    "[core]\n\tsshCommand = \"true\" ; [user]\n",
+    "[core]\n\tx = 1 \\\n[user]\n\tsshCommand = true\n", // the header is the end of a continued value
+    "[user]\n\tname = \"a\\\n[core]\"\n[core]\n\tsshCommand = true\n",
     "[remote \"origin\"]\n\tpromisor = true\n\tuploadpack = /tmp/up\n", // run for a fetch from a path
     "[remote \"origin\"]\n\treceivepack = /tmp/rp\n",
     "[remote \"o\"]\n\tVCS = x\n",            // runs `git-remote-x`
     "[protocol \"ext\"]\n\tallow = always\n", // lets a remote's url be a command (`ext::sh -c ...`)
     "[Protocol]\n\tallow = always\n",
     "[core]\n\talternateRefsCommand = /tmp/refs\n",
-    "[core]\n\tsshCommand = /tmp/ssh\n",
     "[core]\n\teditor = /tmp/ed\n\tpager = /tmp/pg\n",
     "[credential]\n\thelper = /tmp/cred\n",
     "[gpg]\n\tprogram = /tmp/gpg\n",
-    "[diff \"x\"]\n\ttextconv = /tmp/conv\n",
     "[difftool \"x\"]\n\tCmd = /tmp/d\n",
     "[merge \"x\"]\n\tdriver = /tmp/m\n",
     "[future]\n\trunHook = /tmp/h\n", // a setting git does not have yet
     "[include]\n\tpath = ../other\n",
     "[includeIf \"gitdir:~/work/\"]\n\tpath = work\n",
     "[includeIf \"hasconfig:remote.*.url:*github.com*/**\"]\n\tpath = work\n",
-    "\u{feff}[core]\n\tfsmonitor = true\n",
+    "\u{feff}[core]\n\tsshCommand = true\n",
+    "[user]\r\n\tname = a\r\n[core]\r\n\tsshCommand = true\r\n",
+];
+
+/// Configs of the repository that the command line neutralizes (GIT-2), in the forms of RUNS: git
+/// is run, and what they name is not.
+const NEUTRALIZED: [&str; 16] = [
+    "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n",
+    "[FILTER \"x\"]\n\tSmudge = cat\n",
+    "[filter.x]\n\tprocess = cat\n",
+    "[filter.x]\n\tclean = cat\n", // git's older way to write [filter "x"]
+    "[Filter.X]\n\tClean = cat\n",
+    "[filter \"a b\\\"c\\\\d ;# ]\"]\n\tclean = cat\n", // a subsection with odd characters
+    "[core]\n\tfsmonitor = /tmp/monitor\n",
+    "[core]\n\tFsMonitor=true\n",
+    "[Core] FsMonitor = /tmp/monitor\n",
+    "[core] fsmonitor = true\n",
+    "[core]\n\tbare = false\n\tfsmonitor = false\n",
+    "[core]\n\tx = 1 \\\n[user]\n\tfsmonitor = true\n",
+    "[diff \"x\"]\n\ttextconv = /tmp/conv\n",
+    "[diff \"x\"]\n\tcommand = /tmp/ext\n",
+    "[diff]\n\texternal = /tmp/ext\n",
     "[user]\r\n\tname = a\r\n[core]\r\n\tfsmonitor = true\r\n",
 ];
 
@@ -260,7 +273,7 @@ fn mark_1_git_is_not_run_in_a_repository_whose_config_could_run_commands() {
         assert!(files.contains(&"target/x.o".to_string()), "{config:?}: {files:?}");
         assert!(!files.iter().any(|f| f.starts_with(".git/")), "{files:?}");
     }
-    for (i, config) in SAFE.iter().enumerate() {
+    for (i, config) in SAFE.iter().chain(&NEUTRALIZED).enumerate() {
         let d = temp_dir(&format!("mark1-safe-{i}"));
         ignoring_repo(&d.0);
         append(&d.0.join(".git/config"), config);
@@ -273,8 +286,8 @@ fn mark_1_git_is_not_run_in_a_repository_whose_config_could_run_commands() {
 fn mark_1_an_included_file_counts_as_the_repository_s_own() {
     let d = temp_dir("mark1-include");
     ignoring_repo(&d.0);
-    // `inc` defines a filter; the config that includes it says nothing else of its own.
-    std::fs::write(d.0.join(".git/inc"), "[filter \"x\"]\n\tclean = cat\n").unwrap();
+    // `inc` defines a command; the config that includes it says nothing else of its own.
+    std::fs::write(d.0.join(".git/inc"), "[core]\n\tsshCommand = cat\n").unwrap();
     let dir = format!("{}/.git/", d.0.display());
     for include in
         ["[include]\n\tpath = inc\n", &format!("[includeIf \"gitdir:{dir}\"]\n\tpath = inc\n")]
@@ -293,7 +306,7 @@ fn mark_1_the_config_worktree_file_counts_once_git_reads_it() {
     let d = temp_dir("mark1-config-worktree");
     ignoring_repo(&d.0);
     let worktree = d.0.join(".git/config.worktree");
-    std::fs::write(&worktree, "[core]\n\tfsmonitor = true\n").unwrap();
+    std::fs::write(&worktree, "[core]\n\tsshCommand = true\n").unwrap();
     assert_eq!(io::git_status(&d.0), Ok(vec![]), "git does not read it yet");
     git(&d.0, &["config", "extensions.worktreeConfig", "true"]);
     skipped(&d.0);
@@ -303,7 +316,7 @@ fn mark_1_the_config_worktree_file_counts_once_git_reads_it() {
     git(&d.0, &["worktree", "add", "-q", &d.0.join("wt").display().to_string()]);
     let wt = d.0.join("wt");
     assert_eq!(io::git_prefix(&wt), Ok(String::new()));
-    std::fs::write(d.0.join(".git/worktrees/wt/config.worktree"), "[core]\n\tfsmonitor = x\n")
+    std::fs::write(d.0.join(".git/worktrees/wt/config.worktree"), "[core]\n\tsshCommand = x\n")
         .unwrap();
     skipped(&wt);
     assert_eq!(io::git_prefix(&d.0), Ok(String::new()), "the main worktree has its own file");
@@ -349,17 +362,17 @@ fn mark_1_the_user_s_own_config_is_trusted_and_the_repository_s_is_not() {
     assert!(has(&own, inc.as_bytes()), "an included file has its includer's scope");
     assert!(has(&own, b"command\0command line:\0core.fsmonitor\nfalse\0"));
     assert!(!runs(&own));
-    append(&d.0.join(".git/config"), "[filter \"mine\"]\n\tclean = cat\n");
+    append(&d.0.join(".git/config"), "[merge \"mine\"]\n\tdriver = cat\n");
     let mixed = list(&d.0);
-    assert!(has(&mixed, b"local\0file:.git/config\0filter.mine.clean\ncat\0"));
+    assert!(has(&mixed, b"local\0file:.git/config\0merge.mine.driver\ncat\0"));
     assert!(runs(&mixed));
     // The same by hand, for the scopes a test cannot make: system, and what does not parse.
     assert!(!runs(
-        b"system\0file:/etc/gitconfig\0core.fsmonitor\ntrue\0global\0file:/g\0include.path\nx\0"
+        b"system\0file:/etc/gitconfig\0core.sshcommand\ntrue\0global\0file:/g\0include.path\nx\0"
     ));
-    assert!(runs(b"worktree\0file:.git/config.worktree\0core.fsmonitor\0"));
+    assert!(runs(b"worktree\0file:.git/config.worktree\0core.sshcommand\0"));
     assert!(
-        runs(b"submodule\0file:.gitmodules\0filter.x.clean\ncat\0"),
+        runs(b"submodule\0file:.gitmodules\0core.sshcommand\ncat\0"),
         "an unknown scope is not the user's"
     );
     assert!(!runs(b"") && !runs(b"local\0file:.git/config\0user.name\nx\0"));
@@ -401,6 +414,9 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
     ];
     for name in names {
         for key in [format!("core.{name}"), format!("x.sub.{name}"), format!("x.a.b.c.{name}")] {
+            if key == "core.fsmonitor" {
+                continue; // the command line turns it off (GIT-2)
+            }
             assert!(runs(&listing("local", &[&key])), "{key}");
             assert!(runs(&listing("worktree", &[&key])), "{key}");
             let bare = format!("local\0file:.git/config\0{key}\0");
@@ -412,15 +428,17 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
     }
     // Whatever the variable: the section decides.
     for key in [
-        "filter.lfs.required",
         "filter.x.anything",
         "filter.y",
         "include.path",
         "includeif.gitdir:/a.b/.path",
         "includeif.hasconfig:remote.*.url:*.example/**.path",
-        "core.fsmonitor",
     ] {
         assert!(runs(&listing("local", &[key])), "{key}");
+    }
+    // What the command line turns off is no reason to skip git.
+    for key in ["filter.lfs.required", "filter.x.clean", "core.fsmonitor", "diff.x.textconv"] {
+        assert!(!runs(&listing("local", &[key])), "{key}");
     }
     // What git writes and uses in every repository, and what tools keep there.
     let ordinary = [
@@ -557,12 +575,12 @@ fn mark_1_core_hookspath_does_not_stop_git_and_no_hook_runs() {
         git(&work, &["status", "--porcelain"]);
         assert_eq!(ran(&witness), ["post-index-change"], "relative {relative}: the control");
     }
-    // A hooks path with no value is no skip: git stops by itself and says so.
+    // A hooks path with no value is no skip, and git does not stop at it either: the command line's
+    // own `core.hooksPath` wins over the repository's (GIT-1).
     let d = temp_dir("mark1-hooks-no-value");
     repo(&d.0, &["a.rs"]);
     append(&d.0.join(".git/config"), "[Core]\n\thookspath\n");
-    let err = io::git_status(&d.0).unwrap_err();
-    assert!(err.contains("missing value for 'core.hookspath'"), "{err}");
+    assert_eq!(io::git_status(&d.0), Ok(vec![]));
 }
 
 /// A repository with `.gitattributes` that sends every file through the filter `canary`, a
@@ -653,10 +671,11 @@ fn mark_1_a_remote_that_names_a_program_is_never_run_by_a_status() {
 }
 
 #[test]
-fn mark_1_a_filter_or_a_monitor_of_the_repository_never_runs() {
+fn mark_1_a_filter_or_a_monitor_of_the_repository_never_runs_and_git_is_not_skipped_for_them() {
     // Two ways to define them: by `git config`, and by hand in forms that a parser of sim's own
     // read differently from git: a monitor after a header that is the end of a continued value,
-    // and a filter in a dotted section of the `config.worktree` file.
+    // and a filter in a dotted section of the `config.worktree` file. (GIT-2 has the witnesses of
+    // each kind; these are the forms.)
     for by_hand in [false, true] {
         let d = temp_dir(&format!("mark1-witness-{by_hand}"));
         let hook = canary_repo(&d.0);
@@ -682,7 +701,10 @@ fn mark_1_a_filter_or_a_monitor_of_the_repository_never_runs() {
             );
             std::fs::remove_file(w).unwrap();
         }
-        skipped(&d.0);
+        // sim's git is not skipped, and neither runs
+        let (status, files, prefix) =
+            (io::git_status(&d.0), io::git_files(&d.0), io::git_prefix(&d.0));
+        assert!(status.is_ok() && files.is_ok() && prefix.is_ok(), "{status:?}");
         assert!(!d.0.join("witness-filter").exists() && !d.0.join("witness-monitor").exists());
     }
 }
@@ -734,7 +756,7 @@ fn mark_1_a_submodule_s_own_filter_or_monitor_never_runs() {
 
 /// The shell side of an unsafe config in a worktree's repository or a separate git directory.
 fn unsafe_config(dir: &Path) {
-    append(&dir.join("config"), "[filter \"x\"]\n\tclean = cat\n");
+    append(&dir.join("config"), "[core]\n\tsshCommand = cat\n");
 }
 
 #[test]
@@ -802,12 +824,13 @@ fn mark_1_the_refusal_names_the_key_and_the_file_it_is_in() {
     };
     let say = |key: &str, file: &str| format!("git skipped: {key} in {file} could run a command");
     // From the top, and from a directory below it: the file is named from the top.
-    let monitor = "[core]\n\tfsmonitor = true\n";
-    assert_eq!(with(monitor, &d.0), say("core.fsmonitor", ".git/config"));
-    assert_eq!(with(monitor, &d.0.join("target")), say("core.fsmonitor", ".git/config"));
-    // The first of the repository's keys that can hold a command is the one named.
-    let both = "[filter \"canary\"]\n\tclean = cat\n[core]\n\tfsmonitor = true\n";
-    assert_eq!(with(both, &d.0), say("filter.canary.clean", ".git/config"));
+    let monitor = "[core]\n\tsshCommand = true\n";
+    assert_eq!(with(monitor, &d.0), say("core.sshcommand", ".git/config"));
+    assert_eq!(with(monitor, &d.0.join("target")), say("core.sshcommand", ".git/config"));
+    // The first of the repository's keys that can hold a command is the one named, and what the
+    // command line turns off (a filter, the monitor) is passed by.
+    let both = "[filter \"canary\"]\n\tclean = cat\n[merge \"canary\"]\n\tdriver = cat\n[core]\n\tsshCommand = true\n";
+    assert_eq!(with(both, &d.0), say("merge.canary.driver", ".git/config"));
     // An include is named itself (it comes first), not what it brings in.
     std::fs::write(d.0.join(".git/inc"), monitor).unwrap();
     assert_eq!(with("[include]\n\tpath = inc\n", &d.0), say("include.path", ".git/config"));
@@ -816,16 +839,16 @@ fn mark_1_the_refusal_names_the_key_and_the_file_it_is_in() {
     // The worktree's own file.
     std::fs::write(&config, format!("{safe}[extensions]\n\tworktreeConfig = true\n")).unwrap();
     std::fs::write(d.0.join(".git/config.worktree"), monitor).unwrap();
-    assert_eq!(skipped(&d.0), say("core.fsmonitor", ".git/config.worktree"));
+    assert_eq!(skipped(&d.0), say("core.sshcommand", ".git/config.worktree"));
     std::fs::remove_file(d.0.join(".git/config.worktree")).unwrap();
     // In a linked worktree the file is an absolute path, cut the way si cuts a path.
     git(&d.0, &["worktree", "add", "-q", &d.0.join("wt").display().to_string()]);
-    assert_eq!(with(monitor, &d.0.join("wt")), say("core.fsmonitor", "…/.git/config"));
+    assert_eq!(with(monitor, &d.0.join("wt")), say("core.sshcommand", "…/.git/config"));
     // A key of a hundred chars is cut from the left, so that its end (the variable) and the file
     // stay on the line, and a char that a terminal must not get is replaced.
-    let long = format!("[filter \"{}\u{1b}[31m\"]\n\tclean = cat\n", "x".repeat(100));
+    let long = format!("[merge \"{}\u{1b}[31m\"]\n\tdriver = cat\n", "x".repeat(100));
     let reason = with(&long, &d.0);
-    assert!(reason.ends_with("\u{fffd}[31m.clean in .git/config could run a command"), "{reason}");
+    assert!(reason.ends_with("\u{fffd}[31m.driver in .git/config could run a command"), "{reason}");
     let key = reason.strip_prefix("git skipped: ").unwrap().split(" in ").next().unwrap();
     assert!(key.starts_with("…xx") && key.chars().count() <= 30, "{key:?}");
     assert!(!reason.chars().any(char::is_control), "{reason:?}");
@@ -846,7 +869,7 @@ fn mark_1_a_config_that_cannot_be_read_counts_as_one_that_could_run_commands() {
     std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
     assert!(io::git_status(&d.0).is_ok());
     let text = std::fs::read_to_string(&config).unwrap();
-    std::fs::write(&config, "[core\n\tfsmonitor = true\n").unwrap(); // git cannot read it
+    std::fs::write(&config, "[core\n\tsshCommand = true\n").unwrap(); // git cannot read it
     assert_eq!(skipped(&d.0), "git skipped: this repository's config cannot be read");
     std::fs::write(&config, text).unwrap();
     std::fs::remove_file(&config).unwrap(); // no config at all: nothing to run

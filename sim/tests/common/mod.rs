@@ -59,6 +59,28 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
+/// A git command as the user would run it, for the control of a witness test (the command that does
+/// run the script, to show that the test can tell): `git` without the environment that chooses an
+/// editor, a prompt, a transport, a pager or an external diff, and with no input. The caller runs it
+/// (`.status()`); its answer does not matter, the witness it leaves does.
+pub fn plain(dir: &Path, args: &[&str]) -> Command {
+    let mut c = Command::new("git");
+    c.args(["-c", "user.name=sim", "-c", "user.email=sim@example.com"])
+        .args(["-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"])
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("XDG_CONFIG_HOME", "/nonexistent")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    for var in ["GIT_EDITOR", "VISUAL", "EDITOR", "GIT_ASKPASS", "GIT_ALLOW_PROTOCOL"] {
+        c.env_remove(var);
+    }
+    c
+}
+
 /// A repository in `dir` with these files committed.
 pub fn repo(dir: &Path, files: &[&str]) {
     git(dir, &["init", "-q"]);
@@ -285,6 +307,16 @@ impl Rig {
                     SimEffect::Status => {
                         self.jobs.push("status");
                         self.queue.push_back(SimEvent::Status(io::status(&self.sim.root)));
+                    }
+                    SimEffect::Changes(untracked) => {
+                        self.jobs.push("changes");
+                        self.queue
+                            .push_back(SimEvent::Changes(io::changes(&self.sim.root, &untracked)));
+                    }
+                    SimEffect::Show(path) => {
+                        self.jobs.push("show");
+                        let blob = io::show_head(&self.sim.root, &path);
+                        self.queue.push_back(SimEvent::Shown(path, blob));
                     }
                     SimEffect::History(h) => (self.jobs.push("history"), self.history = Some(h)).0,
                     SimEffect::Highlight(req) if self.hold_spans => self.held.push(req),

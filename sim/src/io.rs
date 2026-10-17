@@ -1,7 +1,8 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the history file in sim's state directory, and the
 //! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
+use crate::changes::{self, Counts};
 use crate::grep::{Batch, Group, HEAD, Line, MAX_LINES, Query, Request, is_binary, parse_rg};
 use crate::layout::{self, Skin};
 use crate::rank::History;
@@ -22,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
@@ -311,6 +312,29 @@ fn holds_command(key: &[u8]) -> bool {
         || [&b"command"[..], b"cmd", b"program", b"hook"].iter().any(|end| var.ends_with(end))
 }
 
+/// GIT-2: the name of the filter a key is one of the four of (`filter.<name>.clean`, `smudge`,
+/// `process`, `required`), if the command line can turn it off: a name that holds an `=` cannot be
+/// given to `-c` (git cuts a key there), and one that is not UTF-8 cannot be spelled.
+fn filter_name(key: &[u8]) -> Option<&str> {
+    let rest = key.strip_prefix(b"filter.")?;
+    let at = rest.iter().rposition(|&b| b == b'.')?;
+    let (name, var) = (&rest[..at], &rest[at + 1..]);
+    let four = [&b"clean"[..], b"smudge", b"process", b"required"];
+    let name = std::str::from_utf8(name).ok()?;
+    (!name.is_empty() && !name.contains('=') && four.contains(&var)).then_some(name)
+}
+
+/// GIT-2: whether the command line turns this key off (GIT-1): the monitor, the hooks, an external
+/// diff and a diff's text conversion, and the four keys of a filter that `-c` can name.
+fn neutralized(key: &[u8]) -> bool {
+    let (section, var) = (key.split(|&b| b == b'.').next(), key.rsplit(|&b| b == b'.').next());
+    let (section, var) = (section.unwrap_or_default(), var.unwrap_or_default());
+    let named = section.len() + var.len() + 1 < key.len(); // (a subsection between them)
+    filter_name(key).is_some()
+        || matches!(key, b"core.fsmonitor" | b"core.hookspath" | b"diff.external")
+        || (section == b"diff" && named && matches!(var, b"textconv" | b"command"))
+}
+
 /// MARK-1: why not to run git, if the config that git lists for a repository (`git config --list
 /// --show-scope --show-origin -z`: `scope NUL origin NUL key [NL value] NUL` for each entry) has
 /// an entry of the repository's own whose key can hold a command (`holds_command`): the first
@@ -325,7 +349,8 @@ pub fn runs_commands(listing: &[u8]) -> Option<String> {
             return (!scope.is_empty()).then(|| UNREADABLE.into());
         };
         let key = entry.split(|&b| b == b'\n').next().unwrap_or_default();
-        if holds_command(key) && !matches!(scope, b"system" | b"global" | b"command") {
+        let trusted = matches!(scope, b"system" | b"global" | b"command");
+        if holds_command(key) && !neutralized(key) && !trusted {
             let (key, origin) = (String::from_utf8_lossy(key), String::from_utf8_lossy(origin));
             let file = layout::short(origin.strip_prefix("file:").unwrap_or(&origin), 30);
             return Some(format!("{} in {file} could run a command", layout::tail(&key, 30)));
@@ -334,17 +359,40 @@ pub fn runs_commands(listing: &[u8]) -> Option<String> {
     None
 }
 
-/// The command line of every git of sim's, built here and nowhere else: no shell; no monitor; no
-/// optional lock; `diff.submodule=short`, since a repository's own `diff.submodule = diff` makes git
-/// start a child `git diff` in a submodule, under the submodule's own config, which the guard never
-/// read (flags like `--no-ext-diff` do not reach that child, and config does); the names after `--`
-/// are paths, never patterns or magic (`GIT_LITERAL_PATHSPECS`: a file named `*` or `:(top)` would
-/// match the whole repository, the submodules too); in English, so that "not a git repository" can
-/// be told from other failures; and nothing fetched.
-pub fn command(dir: &Path, args: &[&str]) -> Command {
+/// GIT-1: where `core.hooksPath` points: `no-hooks` in the state directory, set by the shell at the
+/// start (`use_no_hooks`); `/dev/null`, which can hold no hook either, where there is none.
+static NO_HOOKS: OnceLock<PathBuf> = OnceLock::new();
+
+/// GIT-1: the empty private directory for `core.hooksPath` in `state`: made again at every start
+/// (so that nothing is in it), mode 700, inside a state directory that is ours (STATE-1).
+pub fn no_hooks_dir(state: &Path) -> io::Result<PathBuf> {
+    DirBuilder::new().recursive(true).mode(0o700).create(state)?;
+    file::private(state)?;
+    let dir = state.join("no-hooks");
+    let _ = fs::remove_dir_all(&dir);
+    DirBuilder::new().mode(0o700).create(&dir)?;
+    Ok(dir)
+}
+
+/// GIT-1: the shell makes the directory once, before any git command is built.
+pub fn use_no_hooks(state: &Path) {
+    drop(no_hooks_dir(state).map(|d| NO_HOOKS.set(d)));
+}
+
+/// GIT-1: the start of every git command line of sim's: no shell; the monitor and the hooks off;
+/// no optional lock (a status that does not write the index); `diff.submodule=short`, since a
+/// repository's own `diff.submodule = diff` makes git start a child `git diff` in a submodule, under
+/// the submodule's own config, which the guard never read (flags like `--no-ext-diff` do not reach
+/// that child, and config does); the names after `--` are paths, never patterns or magic
+/// (`GIT_LITERAL_PATHSPECS`: a file named `*` or `:(top)` would match the whole repository, the
+/// submodules too); in English, so that "not a git repository" can be told from other failures; and
+/// nothing fetched.
+fn command(dir: &Path) -> Command {
+    let hooks = NO_HOOKS.get().map_or(Path::new("/dev/null"), PathBuf::as_path);
     let mut c = Command::new("git");
-    c.args(["-c", "core.fsmonitor=false", "-c", "diff.submodule=short", "--no-optional-locks"])
-        .args(args)
+    c.args(["-c", "core.fsmonitor=false", "-c", "diff.submodule=short", "-c"])
+        .arg(format!("core.hooksPath={}", hooks.display()))
+        .arg("--no-optional-locks")
         .current_dir(dir)
         .env("LC_ALL", "C")
         .env("GIT_LITERAL_PATHSPECS", "1")
@@ -357,42 +405,108 @@ pub fn command(dir: &Path, args: &[&str]) -> Command {
     c
 }
 
-/// Runs git in `dir` as `command` builds it.
-fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+/// GIT-1: the flags a subcommand gets: no external diff and no text conversion where it diffs (a
+/// repository can name both); no child git in a submodule (GIT-4): none of a diff's looks at one
+/// (`all`: its patch would start a child git, and a file is never a submodule), and a status sees
+/// a submodule's commit and not its work tree (`dirty`).
+fn flags(cmd: &str) -> &'static [&'static str] {
+    match cmd {
+        "diff" | "show" | "log" => &["--no-ext-diff", "--no-textconv", "--ignore-submodules=all"],
+        "status" => &["--ignore-submodules=dirty"],
+        _ => &[],
+    }
+}
+
+/// GIT-2: the `-c` arguments that turn off every filter that the repository's own scopes name (the
+/// four keys of each: an empty `clean`, `smudge` and `process`, and `required=false`), in git's
+/// listing; except git-lfs's own, if every entry of `filter.lfs` is exactly what `git lfs install`
+/// writes (git then runs `git-lfs`, the user's program). The user's scopes are trusted: they are
+/// no business of the command line's.
+pub fn neutralizing(listing: &[u8]) -> Vec<String> {
+    const LFS: [(&str, &str); 4] = [
+        ("required", "true"),
+        ("clean", "git-lfs clean -- %f"),
+        ("smudge", "git-lfs smudge -- %f"),
+        ("process", "git-lfs filter-process"),
+    ];
+    let mut names: Vec<(&str, bool)> = vec![]; // (name, every entry so far is git-lfs's own)
+    let mut fields = listing.split(|&b| b == 0);
+    while let (Some(scope), Some(_), Some(entry)) = (fields.next(), fields.next(), fields.next()) {
+        let nl = entry.iter().position(|&b| b == b'\n').unwrap_or(entry.len());
+        let (key, value) = (&entry[..nl], entry.get(nl + 1..).unwrap_or_default());
+        let Some(name) =
+            filter_name(key).filter(|_| !matches!(scope, b"system" | b"global" | b"command"))
+        else {
+            continue;
+        };
+        let var = key.rsplit(|&b| b == b'.').next().unwrap_or_default();
+        let own =
+            name == "lfs" && LFS.iter().any(|(k, v)| k.as_bytes() == var && v.as_bytes() == value);
+        match names.iter_mut().find(|n| n.0 == name) {
+            Some(n) => n.1 &= own,
+            None => names.push((name, own)),
+        }
+    }
+    let off = |name: &str| {
+        ["clean=", "smudge=", "process=", "required=false"].map(|v| format!("filter.{name}.{v}"))
+    };
+    names
+        .iter()
+        .filter(|n| !n.1)
+        .flat_map(|n| off(n.0))
+        .flat_map(|k| ["-c".to_string(), k])
+        .collect()
+}
+
+/// What git said when it failed, as sim says it: "not a git repository" is told from the rest.
+fn failed(dir: &Path, cmd: &str, err: &[u8]) -> String {
+    let err = String::from_utf8_lossy(err);
+    let err = err.lines().next().unwrap_or_default();
+    // (a bare repository, or inside `.git`, has no marks to give: it is no repository to this)
+    if err.contains("not a git repository") || err.contains("must be run in a work tree") {
+        format!("not a git repository: {}", dir.display())
+    } else {
+        format!("git {cmd}: {err}")
+    }
+}
+
+/// Runs a git command and gives what it printed, or why it failed.
+fn output(mut c: Command, dir: &Path, cmd: &str) -> Result<Vec<u8>, String> {
+    let shown = layout::short(&dir.to_string_lossy(), 30); // (the reason is what matters: it is last)
+    let out = c.output().map_err(|e| format!("cannot run git in {shown}: {}", why(&e)))?;
+    if out.status.success() { Ok(out.stdout) } else { Err(failed(dir, cmd, &out.stderr)) }
+}
+
+/// GIT-1: the one place that builds the command line of a git command, from `args` (a subcommand
+/// first): `command`, the neutralized filters of the repository (GIT-2) and the flags of the
+/// subcommand. It is not built where the repository's config could make git run a command that
+/// none of these stops (GIT-3; MARK-1's message names the key). The config is read by git itself, so
+/// that sim cannot read it differently from git. Listing config runs nothing: `builtin/config.c`
+/// only parses it and prints (the one command it can start is `config --edit`'s editor); hooks,
+/// filters and the monitor belong to commands that use the index or the work tree. In a directory
+/// that is no repository the list is the user's own and git then says so itself. An unreadable or
+/// invalid config makes `config` fail, which counts as unsafe.
+pub fn git_command(dir: &Path, args: &[&str]) -> Result<Command, String> {
     if !filter::programs_allowed() {
         return Err(PLAIN_RUNS_NOTHING.into());
     }
-    let out = command(dir, args).output();
-    let shown = layout::short(&dir.to_string_lossy(), 30); // (the reason is what matters: it is last)
-    let out = out.map_err(|e| format!("cannot run git in {shown}: {}", why(&e)))?;
-    if out.status.success() {
-        return Ok(out.stdout);
-    }
-    let err = String::from_utf8_lossy(&out.stderr);
-    let err = err.lines().next().unwrap_or_default();
-    // (a bare repository, or inside `.git`, has no marks to give: it is no repository to this)
-    Err(if err.contains("not a git repository") || err.contains("must be run in a work tree") {
-        format!("not a git repository: {}", dir.display())
-    } else {
-        format!("git {}: {err}", args[0])
-    })
-}
-
-/// Runs git in `dir`, unless the repository's config could make it run a command (MARK-1). The
-/// config is read by git itself, so that sim cannot read it differently from git. Listing config
-/// runs nothing: `builtin/config.c` only parses it and prints (the one command it can start is
-/// `config --edit`'s editor); hooks, filters and the monitor belong to commands that use the index
-/// or the work tree. In a directory that is no repository the list is the user's own and git then
-/// says so itself. An unreadable or invalid config makes `config` fail, which counts as unsafe.
-fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let list = run(dir, &["config", "--list", "--show-scope", "--show-origin", "-z"]);
-    let list = list.map_err(|e| {
+    let mut list = command(dir);
+    list.args(["config", "--list", "--show-scope", "--show-origin", "-z"]);
+    let list = output(list, dir, "config").map_err(|e| {
         if e.starts_with("git config:") { format!("{GIT_SKIPPED}{UNREADABLE}") } else { e }
     })?;
-    match runs_commands(&list) {
-        Some(why) => Err(format!("{GIT_SKIPPED}{why}")),
-        None => run(dir, args),
+    if let Some(why) = runs_commands(&list) {
+        return Err(format!("{GIT_SKIPPED}{why}"));
     }
+    let (cmd, rest) = args.split_first().ok_or("no git command")?;
+    let mut c = command(dir);
+    c.args(neutralizing(&list)).arg(cmd).args(flags(cmd)).args(rest);
+    Ok(c)
+}
+
+/// Runs git in `dir` as `git_command` builds it.
+fn git(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    output(git_command(dir, args)?, dir, args[0])
 }
 
 /// FIND-3: the files of the repository, NUL-separated and relative to `dir`: tracked ones and
@@ -406,10 +520,7 @@ pub fn git_files(dir: &Path) -> Result<Vec<u8>, String> {
 /// ignored: git would run a child git in each, which reads the submodule's own config (and runs
 /// its filters), and the guard looked at the repository's alone.
 pub fn git_status(dir: &Path) -> Result<Vec<u8>, String> {
-    git(
-        dir,
-        &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=all"],
-    )
+    git(dir, &["status", "--porcelain=v1", "-z", "--untracked-files=all"])
 }
 
 /// Where `dir` lies below the top of its repository: empty at the top, else `sub/dir/`.
@@ -503,11 +614,11 @@ pub fn git_diff(dir: &Path, name: &str) -> Result<Vec<u8>, String> {
     git(dir, &git_diff_args(name))
 }
 
-/// UI-5: the arguments of that diff. A file is never a submodule, so none is looked at
-/// (`--ignore-submodules=all`: no child git, and none to read a submodule's own config).
-pub fn git_diff_args(name: &str) -> Vec<&str> {
-    let flags = ["--no-ext-diff", "--no-textconv", "--no-color", "--ignore-submodules=all"];
-    [&["diff"][..], &flags, &["-U0", "HEAD", "--", name]].concat()
+/// UI-5: the arguments of that diff; `git_command` adds the flags of every diff of sim's (GIT-1: no
+/// external diff, no text conversion, and no submodule looked at: a file is never one, and no child
+/// git runs, nor reads a submodule's own config).
+pub fn git_diff_args(name: &str) -> [&str; 6] {
+    ["diff", "--no-color", "-U0", "HEAD", "--", name]
 }
 
 /// UI-5: the diff of the file a request names (its path is relative to `cwd`, as its App has it).
@@ -539,18 +650,32 @@ pub fn diff_thread(tx: Sender<SimEvent>, cwd: PathBuf) -> Sender<DiffReq> {
     jobs
 }
 
+/// DIFF-2: the thread that asks git for the numbers of the changes view, off the main thread (P4): of
+/// the requests waiting only the newest is run (the newest has the newest list of untracked files).
+pub fn changes_thread(tx: Sender<SimEvent>, root: PathBuf) -> Sender<Vec<PathBuf>> {
+    let (jobs, rx) = mpsc::channel::<Vec<PathBuf>>();
+    thread::spawn(move || {
+        while let Ok(first) = rx.recv() {
+            let newest = rx.try_iter().last().unwrap_or(first);
+            if tx.send(SimEvent::Changes(changes(&root, &newest))).is_err() {
+                return;
+            }
+        }
+    });
+    jobs
+}
+
+/// DIFF-3: HEAD's version of `path`, asked of git in a thread of its own (a blob can be big).
+pub fn show_thread(tx: Sender<SimEvent>, root: PathBuf, path: String) {
+    thread::spawn(move || drop(tx.send(SimEvent::Shown(path.clone(), show_head(&root, &path)))));
+}
+
 /// UI-3: the entries git ignores, as `!! path` lines of `git status --porcelain=v1 -z`: with
 /// `--untracked-files=normal`, so that an ignored directory is one entry and its files are not
 /// listed (with `-uall` git lists them all). Only those lines are kept.
 pub fn git_ignored(dir: &Path) -> Result<Vec<u8>, String> {
-    let args = [
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--ignored=traditional",
-        "--untracked-files=normal",
-        "--ignore-submodules=all",
-    ];
+    let args =
+        ["status", "--porcelain=v1", "-z", "--ignored=traditional", "--untracked-files=normal"];
     let out = git(dir, &args)?;
     let mut kept = vec![];
     for field in out.split(|&b| b == 0).filter(|f| f.starts_with(b"!! ")) {
@@ -558,6 +683,38 @@ pub fn git_ignored(dir: &Path) -> Result<Vec<u8>, String> {
         kept.push(0);
     }
     Ok(kept)
+}
+
+/// DIFF-2: the git tree that every tree is compared with when there is no HEAD yet (no commit).
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/// DIFF-2: at most this many untracked files have their lines counted, none over `COUNT_MAX` bytes.
+const COUNTED: usize = 1_000;
+const COUNT_MAX: u64 = 1 << 20;
+
+/// DIFF-3: a blob over this many bytes is not shown.
+const SHOW_MAX: usize = 20 << 20;
+
+/// DIFF-2: the numbers of the changes view: git's `--numstat` of the work tree and the index
+/// against HEAD (against the empty tree before the first commit), without submodules (GIT-4: a
+/// letter and no counts), and the lines of the `untracked` files (relative to `root`).
+pub fn changes(root: &Path, untracked: &[PathBuf]) -> Result<Counts, String> {
+    let args = |base: &'static str| ["diff", "--numstat", "-z", base];
+    let numstat = git(root, &args("HEAD"))
+        .or_else(|e| if e.contains("'HEAD'") { git(root, &args(EMPTY_TREE)) } else { Err(e) })?;
+    let count = |p: &PathBuf| {
+        let at = root.join(p);
+        let small = fs::metadata(&at).is_ok_and(|m| m.is_file() && m.len() <= COUNT_MAX);
+        (p.clone(), small.then(|| fs::read(&at).ok().and_then(|b| changes::lines(&b))).flatten())
+    };
+    Ok(Counts { numstat, lines: untracked.iter().take(COUNTED).map(count).collect() })
+}
+
+/// DIFF-3: HEAD's version of a file (`path` relative to `root`): `git show HEAD:./path` through the
+/// guard, so that no text conversion runs and the repository's filters are off.
+pub fn show_head(root: &Path, path: &str) -> Result<Vec<u8>, String> {
+    let blob = git(root, &["show", &format!("HEAD:./{path}")])?;
+    if blob.len() > SHOW_MAX { Err(format!("HEAD:{path} is over 20 MiB")) } else { Ok(blob) }
 }
 
 /// MARK-1: git's status and where `root` lies below the top of the repository, the branch (UI-10, a

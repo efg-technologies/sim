@@ -1,7 +1,8 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
+use crate::changes::Stat;
 use crate::color::{Chg, Tones};
 use crate::diff::Sign;
 use crate::icons;
@@ -91,17 +92,25 @@ pub struct Mark {
     pub dot: Option<Git>,
     pub ignored: bool,
     pub open: bool,
+    /// DIFF-2: in the changes view, the numbers of a file or the sums of a folder.
+    pub stat: Option<Stat>,
+    pub changes: bool,
 }
 
 /// How a row of the tree is written: indent 2 per depth, `▸ name/` or `▾ name/` (then ` ~` if
 /// something below changed), `• name` for a likely file, `  name` for any other.
-pub fn label(r: &tree::Row, m: &Mark) -> String {
+pub fn label(r: &tree::Row, m: &Mark) -> (String, String) {
     let indent = "  ".repeat(r.depth);
+    // DIFF-2: the changes view has the letter and the numbers after the name, two blanks away
+    let letter = m.git.filter(|_| m.changes).map(|g| g.letter().to_string());
+    let words: Vec<String> = [letter, m.stat.map(|s| s.show())].into_iter().flatten().collect();
+    let words = words.join(" ");
+    let tail = if words.trim().is_empty() { String::new() } else { format!("  {}", words.trim()) };
     if r.is_dir {
         let (mark, below) = (if r.open { "▾ " } else { "▸ " }, if m.below { " ~" } else { "" });
-        format!("{indent}{mark}{}/{below}", r.name)
+        (format!("{indent}{mark}{}/{below}", r.name), tail)
     } else {
-        format!("{indent}{}{}", if m.likely { "• " } else { "  " }, r.name)
+        (format!("{indent}{}{}", if m.likely { "• " } else { "  " }, r.name), tail)
     }
 }
 
@@ -505,8 +514,12 @@ fn ink_of(t: &Tones, red: bool) -> Paint {
 fn panel_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: Option<&Tones>) -> Line {
     let mut line = Line::default();
     if let Some((r, m)) = at {
-        let (text, used) = fit(&label(r, m), usize::from(pw));
-        line.put(&text, Paint::default());
+        // (a name too long for the panel is cut, and the numbers after it are not)
+        let (head, tail) = label(r, m);
+        let room = usize::from(pw).saturating_sub(fit(&tail, usize::MAX).1);
+        let (text, used) = fit(&head, room);
+        line.put(&(text + &tail), Paint::default());
+        let used = used + fit(&tail, usize::MAX).1;
         let start = (2 * r.depth + 2).min(used);
         let end = (start + fit(&r.name, usize::MAX).1 + usize::from(r.is_dir)).min(used);
         if m.change {
@@ -535,7 +548,10 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
         return line;
     };
     let ink = |c: Rgb| Paint { fg: Some(c), ..Paint::default() };
-    let room = usize::from(pw.saturating_sub(2)); // a blank and the letter are the edge's
+    // DIFF-2: the numbers of the changes view go before the letter, a blank between
+    let stat = m.stat.map(|s| s.show()).filter(|s| !s.is_empty());
+    let sw = stat.as_deref().map_or(0, |s| fit(s, usize::MAX).1);
+    let room = usize::from(pw.saturating_sub(2)).saturating_sub(sw + usize::from(sw > 0));
     let put = |line: &mut Line, s: &str, p: Paint| {
         let (s, _) = fit(s, room.saturating_sub(usize::from(line.cols)));
         line.put(&s, p);
@@ -581,7 +597,17 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
         None => {}
     }
     line.row.underline.extend(sel.then_some(0..used));
-    line.pad(pw.saturating_sub(2));
+    line.pad(pw.saturating_sub(2 + sw as u16));
+    for (i, word) in stat.iter().flat_map(|s| s.split(' ')).enumerate() {
+        let (add, del) = (t.change_fg(Chg::Add), t.change_fg(Chg::Del));
+        let paint = match word.chars().next() {
+            Some('+') => ink(add),
+            Some('−') => ink(del),
+            _ => Paint::default(),
+        };
+        line.put(if i > 0 { " " } else { "" }, Paint::default());
+        line.put(word, paint);
+    }
     line.put(" ", Paint::default());
     match (m.git, m.dot) {
         (Some(g), _) => {

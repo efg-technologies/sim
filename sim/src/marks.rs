@@ -1,4 +1,4 @@
-//! MARK-1, UI-3, UI-10
+//! MARK-1, UI-3, UI-10, DIFF-1, DIFF-4
 //! Which files get the change color and which directories get `~` (pure), from the output of
 //! `git status --porcelain=v1 -z` and the paths seen changing on disk; and, for the interface,
 //! each path's git status (`M A U D R !`), the strongest status below each directory, and which
@@ -62,6 +62,8 @@ pub struct Marks {
     below: HashMap<PathBuf, Git>,
     ignored: HashSet<PathBuf>,
     branch: Option<String>,
+    /// DIFF-4: the renames git has in the index, new name to old.
+    renamed: HashMap<PathBuf, PathBuf>,
 }
 
 impl Marks {
@@ -99,6 +101,9 @@ impl Marks {
                 let old = fields.next().filter(|_| xy.contains(&b'R')).and_then(rel);
                 m.add(old.clone());
                 old.iter().for_each(|o| m.up(o, Git::Renamed));
+                if let (Some(o), Some(n)) = (old, &new) {
+                    m.renamed.insert(n.clone(), o);
+                }
             }
         }
         for p in disk {
@@ -127,6 +132,30 @@ impl Marks {
     /// Every file that changed (MARK-3 narrows the tree to these, the open ones and the recent).
     pub fn files(&self) -> impl Iterator<Item = &PathBuf> {
         self.files.iter()
+    }
+
+    /// DIFF-1: every file that differs from HEAD, as the changes view lists them: a rename is its new
+    /// name only (the old one is no row of its own).
+    pub fn differing(&self) -> impl Iterator<Item = &PathBuf> {
+        let old = |p: &PathBuf| self.renamed.values().any(|o| o == p);
+        self.files.iter().filter(move |p| !old(p))
+    }
+
+    /// DIFF-2: the files git has no entry for: the untracked ones, whose lines the view counts.
+    pub fn untracked(&self) -> Vec<PathBuf> {
+        let mut all: Vec<PathBuf> = self
+            .git
+            .iter()
+            .filter(|(_, g)| **g == Git::Untracked)
+            .map(|(p, _)| p.clone())
+            .collect();
+        all.sort_unstable();
+        all
+    }
+
+    /// DIFF-4: the name a renamed file had.
+    pub fn renamed_from(&self, new: &Path) -> Option<&Path> {
+        self.renamed.get(new).map(PathBuf::as_path)
     }
 
     /// Whether the name of this path gets the change color.

@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -9,6 +9,7 @@ mod panel;
 mod ptr;
 
 use crate::bar::{self, Bar, Block as BarBlock};
+use crate::changes::{Changes, Counts};
 use crate::color::{Syntax, Tones};
 use crate::diff::{Diff, Sign};
 use crate::grep;
@@ -112,6 +113,10 @@ pub enum SimEvent {
     Pause(u64),
     /// KEY-4: F1, which the core's `Key` does not have.
     Help,
+    /// DIFF-2: the numbers of the changes view, or why there are none.
+    Changes(Result<Counts, String>),
+    /// DIFF-3: HEAD's version of a file (named as it was asked for), or why there is none.
+    Shown(String, Result<Vec<u8>, String>),
 }
 
 /// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
@@ -176,6 +181,12 @@ pub enum SimEffect {
     Pause(u64),
     /// KEY-6: how many times Tab and Shift-Tab were used, to remember.
     TabUses(u8),
+    /// DIFF-2: ask git for the numbers of the changes view (the untracked files, relative to the root,
+    /// are the ones whose lines are counted) and answer with `SimEvent::Changes`.
+    Changes(Vec<PathBuf>),
+    /// DIFF-3: ask git for HEAD's version of this file (relative to the root) and answer with
+    /// `SimEvent::Shown`.
+    Show(String),
     Quit(i32),
 }
 
@@ -325,6 +336,8 @@ pub struct Sim {
     t0: u64,
     /// MARK-3: the rows of the narrowed tree, when it is narrowed.
     focus: Option<Tree>,
+    /// DIFF-1: the changes view is on (its narrowed tree is `focus`), with the numbers git gave.
+    changes: Option<Changes>,
     /// VIS-4: the core's palette, made of the terminal's background (it paints the four styles).
     /// SYN-1, SYN-2, SYN-5: the syntax colors, whether they are on, and a `z` just typed.
     pal: Option<Palette>,
@@ -548,6 +561,20 @@ impl Sim {
             }
             SimEvent::Pause(n) => self.paused(n),
             SimEvent::Help => self.help(String::new(), &mut out),
+            SimEvent::Changes(r) => match r {
+                Ok(counts) if self.changes.is_some() => {
+                    self.changes = Some(Changes::new(&counts, &self.status.1));
+                    if self.marks.differing().next().is_none() {
+                        self.msg = Some("no changes from HEAD".into());
+                    }
+                }
+                Ok(_) => {}
+                // (the status says why there is no view: git skipped, or no repository)
+                Err(_) if self.changes.is_none() => {}
+                Err(e) if e.starts_with(GIT_SKIPPED) => {}
+                Err(e) => self.msg = Some(e),
+            },
+            SimEvent::Shown(path, r) => self.shown(path, r, &mut out),
             SimEvent::Term(Event::Paste(s)) if !self.panel.focus && self.panel.live.is_none() => {
                 self.to(self.id(), Event::Paste(s), &mut out)
             }
@@ -594,16 +621,22 @@ impl Sim {
                     self.status = status;
                     self.remark();
                     self.diff(self.id(), &mut out); // (a commit moves HEAD)
+                    self.ask_changes(&mut out); // DIFF-1: and the view's numbers with it
                 }
-                Err(e) if e.starts_with("not a git repository") => self.no_repo = true,
-                Err(e) if e.starts_with(GIT_SKIPPED) => {
-                    // Told once (MARK-1), not again at every opening of the panel.
-                    self.no_repo = true;
-                    if !replace(&mut self.skipped, true) {
+                Err(e) => {
+                    let (norepo, skip) =
+                        (e.starts_with("not a git repository"), e.starts_with(GIT_SKIPPED));
+                    self.no_repo |= norepo || skip;
+                    // Told once (MARK-1), not again at every opening of the panel
+                    let told = skip && replace(&mut self.skipped, true);
+                    if self.changes.take().is_some() {
+                        // DIFF-1: there is no view to make: it is left, and says why
+                        self.focus = None;
+                        self.msg = Some(e);
+                    } else if (skip && !told) || !(norepo || skip) {
                         self.msg = Some(e);
                     }
                 }
-                Err(e) => self.msg = Some(e),
             },
             SimEvent::Osc(s) => {
                 self.syn.reply(&s);
@@ -829,7 +862,7 @@ impl Sim {
 
     /// UI-5: asks for the diff of a file against HEAD (not where git said there is no repository).
     fn diff(&self, id: Id, out: &mut Vec<SimEffect>) {
-        let req = self.bufs.iter().find(|b| b.id == id).and_then(|b| {
+        let req = self.bufs.iter().find(|b| b.id == id && !is_head(b)).and_then(|b| {
             let path = b.app.path.clone()?;
             Some(DiffReq { id, path, lines: b.app.buf.lines() })
         });
@@ -1265,7 +1298,8 @@ impl Sim {
             }
         }
         if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
-            status = layout::stated(&tree, &format!("{slash}  TREE"), room);
+            let mode = if self.changes.is_some() { "CHANGES" } else { "TREE" };
+            status = layout::stated(&tree, &format!("{slash}  {mode}"), room);
         }
         if let (true, Some(s)) = (focus, &self.panel.search) {
             let n = s.found.hits.len();
@@ -1397,7 +1431,7 @@ impl Sim {
             let (path, pos) = (format!("{path}{slash}"), format!("{n}/{all}"));
             let bar = Bar {
                 icons,
-                mode: "TREE",
+                mode: if self.changes.is_some() { "CHANGES" } else { "TREE" },
                 block: BarBlock::Accent,
                 branch,
                 counts: None,
@@ -1477,6 +1511,28 @@ impl Sim {
     /// A row of the panel with what it shows besides its name (see `layout::Mark`). In the
     /// interface (`ui`) the change color is for the files that changed on disk while sim ran, git's
     /// own changes show by their letter (UI-3), and there is no `~`.
+    /// DIFF-2: asks for the numbers of the changes view, when it is on.
+    fn ask_changes(&self, out: &mut Vec<SimEffect>) {
+        out.extend(self.changes.as_ref().map(|_| SimEffect::Changes(self.marks.untracked())));
+    }
+
+    /// DIFF-3: HEAD's version of a deleted file came: a read-only buffer named `HEAD:path`, and the
+    /// message line says so.
+    fn shown(&mut self, path: String, r: Result<Vec<u8>, String>, out: &mut Vec<SimEffect>) {
+        let bytes = match r {
+            Ok(bytes) => bytes,
+            Err(e) => return self.msg = Some(e),
+        };
+        let (name, id) = (format!("HEAD:{path}"), self.next);
+        self.next += 1;
+        let (path, key) = (name.clone(), name.clone());
+        self.opened(Opened { id, path, key, file: Ok(Some(bytes)), found: None, place: None }, out);
+        if let Some(b) = self.bufs.iter_mut().find(|b| b.key == name) {
+            b.app.buf.readonly.get_or_insert_with(|| "read-only".into());
+        }
+        self.msg = Some(format!("{name} (read-only)"));
+    }
+
     fn mark(
         &self,
         r: TreeRow,
@@ -1493,18 +1549,46 @@ impl Sim {
         });
         let file = !r.is_dir;
         let m = &self.marks;
+        // DIFF-1, DIFF-2, DIFF-4: in the changes view a row has its numbers, its letter (a rename's is
+        // `R`, though git says `RM` of one that is changed too) and a rename its old name
+        let view = self.changes.as_ref();
+        let old = view.and_then(|_| m.renamed_from(p));
+        let shown = old.map(|o| moved(o, &r));
         let mark = Mark {
-            change: file && if ui { m.on_disk(p) } else { m.changed(p) },
-            below: r.is_dir && !ui && m.changed_below(p),
+            change: file && if ui { m.on_disk(p) } else { m.changed(p) && view.is_none() },
+            below: r.is_dir && !ui && view.is_none() && m.changed_below(p),
             likely: file && likely.iter().any(|l| Path::new(&l.0) == p),
             hit,
-            git: m.git(p).filter(|_| ui && file),
+            git: old.map(|_| Git::Renamed).or(m.git(p)).filter(|_| (ui || view.is_some()) && file),
+            stat: view.and_then(|c| c.get(p)),
+            changes: view.is_some(),
             dot: m.below(p).filter(|_| ui && r.is_dir),
             ignored: ui && m.ignored(p),
             open: ui && file && open == Some(p),
         };
+        let r = match shown {
+            Some(name) => TreeRow { name, ..r },
+            None => r,
+        };
         (r, mark)
     }
+}
+
+/// DIFF-3: whether a buffer is HEAD's version of a file: its key is `HEAD:path`, where a file's is an
+/// absolute path.
+fn is_head(b: &Buf) -> bool {
+    b.key.starts_with("HEAD:")
+}
+
+/// DIFF-4: how a renamed file's row is written: `old → new`, the old name as a path from the new
+/// name's folder (`../a.rs → b.rs`).
+fn moved(old: &Path, r: &TreeRow) -> String {
+    let dir: Vec<_> = r.path.parent().map(|d| d.components().collect()).unwrap_or_default();
+    let from: Vec<_> = old.components().collect();
+    let same = dir.iter().zip(&from).take_while(|(a, b)| a == b).count();
+    let same = same.min(from.len().saturating_sub(1));
+    let rest: PathBuf = from[same..].iter().collect();
+    format!("{}{} → {}", "../".repeat(dir.len() - same), rest.display(), r.name)
 }
 
 /// UI-13: the chars a yank has taken, in the buffer as it is after it: the App says so by its

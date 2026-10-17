@@ -1,4 +1,4 @@
-//! KEY-1, KEY-3, KEY-4
+//! KEY-1, KEY-3, KEY-4, DIFF-6
 //! The key table (`keys.tsv`, pure): every key sim has, by mode, with a one-line description and a
 //! longer text, read once; the next keys after a prefix, which which-key lists; the rows of the help;
 //! and the small window which-key is.

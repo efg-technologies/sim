@@ -156,7 +156,7 @@ fn ui_5_the_diff_is_run_by_the_guarded_git_with_the_flags_of_the_spec() {
     let hunks: Vec<&str> = text.lines().filter(|l| l.starts_with("@@")).collect();
     assert_eq!(hunks, ["@@ -2 +2 @@ l1", "@@ -5,0 +6 @@ l5", "@@ -8 +8,0 @@ l7"]);
     // A repository whose config names a command is not run (MARK-1's guard): nothing is asked.
-    git(&r.cwd, &["config", "filter.x.clean", "touch witness"]);
+    git(&r.cwd, &["config", "core.sshCommand", "touch witness"]);
     let skipped = sim::io::git_diff(&r.cwd, "a.rs").unwrap_err();
     assert!(skipped.starts_with(sim::io::GIT_SKIPPED), "{skipped}");
     assert!(!r.cwd.join("witness").exists());

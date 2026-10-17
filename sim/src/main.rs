@@ -134,6 +134,8 @@ fn main() -> ExitCode {
     let (mut sim, mut fx) = Sim::new(s, env);
     if sim.plain {
         filter::forbid_programs(); // PLAIN-1: before anything asks for git, rg or a program
+    } else {
+        state.as_deref().iter().for_each(|d| sio::use_no_hooks(d)); // GIT-1: before git is run
     }
     if let Some(e) = moved {
         drop(tx.send(SimEvent::Notice(format!("cannot copy the old state directory (si): {e}"))));
@@ -191,6 +193,7 @@ fn main() -> ExitCode {
     let (r1, r2) = (sim.root.clone(), sim.root.clone());
     let files = sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1)));
     let git = sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2)));
+    let numbers = sio::changes_thread(tx.clone(), sim.root.clone()); // DIFF-2
     let reads = sio::Reads::default();
     let (mut painter, tmux) = (Painter::new(io::stdout()), env::var_os("TMUX").is_some());
     let (mut watchers, mut local, mut first) = (HashMap::<Id, Held>::new(), vec![], true);
@@ -230,6 +233,8 @@ fn main() -> ExitCode {
                     }
                     SimEffect::Diff(req) => drop(diffs.send(req)),
                     SimEffect::Status => drop(git.send(())),
+                    SimEffect::Changes(untracked) => drop(numbers.send(untracked)),
+                    SimEffect::Show(path) => sio::show_thread(tx.clone(), sim.root.clone(), path),
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
                     SimEffect::Look(k) => drop(jobs.send(Job::Look(k))),
                     SimEffect::Icons(on) => drop(jobs.send(Job::Icons(on))),

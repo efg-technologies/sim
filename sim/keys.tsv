@@ -102,6 +102,8 @@ z i	n	icons on/off	Turns the icons of the tree, the tabs and the status line on 
 <Space> b	nt	buffers	The files that are open, as tabs: pick one by its letter, or pick one to close.
 <Space> b p	nt	pick a tab by letter	Puts a letter on each tab (bufferline's: the first letter of the file's name when it is free, else the next one of its alphabet), and the letter you type shows that file. Esc or any other key cancels. Without a tab bar the letters are on the status line.
 <Space> b c	nt	pick a tab to close	Puts a letter on each tab as <Space>bp does, and the letter you type closes that file as :q would: a file with changes is not closed, it says so and its tab is shown. sim never closes a file with unsaved work.
+<Space> g	nt	git	What git has to say: <Space>ge shows what differs from HEAD. In sim --plain, which runs no program, there is none.
+<Space> g e	nt	changes from HEAD	Opens the panel in the changes view: only the files that differ from HEAD (staged and unstaged together, untracked ones too) in their folders, each with its letter (M changed, A added, D deleted, R renamed, U untracked) and +n −n from git diff --numstat HEAD, a folder with the sums. Enter on a deleted file opens HEAD's version, read-only; a rename is one row, old → new. <Space>ge again, or q, goes back to the tree. In sim --plain it is refused: plain mode runs no program.
 j|<Down>	t	down	Moves the cursor one row down the tree.
 k|<Up>	t	up	Moves the cursor one row up the tree.
 l|<Right>|<CR>	t	open	Opens the directory under the cursor, or opens the file and gives it the focus; on an open directory it does nothing.
@@ -116,7 +118,7 @@ G	t	bottom	Moves to the last row.
 n|N	t	next/previous match	After a find in the tree, goes to the next or the previous match.
 .	t	changed and recent files	Narrows the tree to the files that changed, are open, or were opened recently; again to widen it.
 -	t	collapse all	Closes every directory; the cursor stays on the top-level entry that held it.
-q	t	close the tree	Closes the panel; the text has the focus.
+q	t	close the tree	Closes the panel; the text has the focus. In the changes view (<Space>ge) it goes back to the tree instead.
 <Esc>	t	back to the text	Gives the focus back to the text and leaves the panel open.
 <Down>|<C-n>|<C-j>	p	next result	Moves the selection down the list; the preview follows.
 <Up>|<C-p>|<C-k>	p	previous result	Moves the selection up the list; the preview follows.
