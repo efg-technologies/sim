@@ -1208,6 +1208,7 @@ pub fn colors<'a>(
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, Band::None);
     let (mut lui, mut trail, mut badge, mut hk) = (LineUi::default(), 0, 0..0, 0);
+    let (mut delim, mut framed, mut pipes) = (false, false, (0, 0));
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         let starts = number(row, digits).and_then(|n| n.checked_sub(1));
@@ -1224,6 +1225,17 @@ pub fn colors<'a>(
             };
             let lang = sp.and_then(|s| s.iter().find(|s| s.1 == Look::Lang));
             md[i].lang = lang.map(|s| cs[s.0.clone()].iter().collect());
+            // UI-8: a table's row starts with a pipe (a `|` in prose is a pipe); its delimiter row has
+            // only `|`, `-`, `:` and blanks, with a `|` and a `-`, and its first and last pipe are
+            // drawn as `├` and `┤`.
+            framed = cs.iter().find(|&&c| c != ' ') == Some(&'|');
+            delim = cs.contains(&'|')
+                && cs.contains(&'-')
+                && cs.iter().all(|c| matches!(c, '|' | '-' | ':' | ' '));
+            pipes = (
+                cs.iter().position(|&c| c == '|').unwrap_or(0),
+                cs.iter().rposition(|&c| c == '|').unwrap_or(0),
+            );
             (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
@@ -1250,6 +1262,25 @@ pub fn colors<'a>(
                     Some(b) if b.end == cols.start => b.end = cols.end,
                     _ => md[i].flash.push(cols),
                 }
+            }
+            // UI-8: a table's pipe is a bar, and its delimiter row a grid, over the char: the same
+            // width, the marker's look (secondary).
+            if look == Some(Look::Mark) && n == 1 && framed {
+                let bar = match (cs[ci], delim, ci) {
+                    ('|', false, _) => Some('│'),
+                    ('|', true, k) if k == pipes.0 => Some('├'),
+                    ('|', true, k) if k == pipes.1 => Some('┤'),
+                    ('|', true, _) => Some('┼'),
+                    ('-', true, _) => Some('─'),
+                    _ => None,
+                };
+                let at = (gutter + used, (gutter + col) as u16);
+                md[i].glyph.extend(bar.map(|ch| Glyph {
+                    idx: at.0,
+                    ch,
+                    col: at.1,
+                    tone: Tone::Plain,
+                }));
             }
             // UI-14: the cells of a match of a search, the current one apart, merged where they touch.
             while lui.hits.get(hk).is_some_and(|h| h.end <= ci) {

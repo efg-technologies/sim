@@ -450,3 +450,66 @@ fn ui_8_a_link_or_code_in_a_heading_keeps_its_own_color() {
         assert_eq!(bg_at(&r, y, code), Some(t.code), "{skin:?}: on its surface, over the band");
     }
 }
+
+// ---- tables ----
+
+const TABLE: &str = "| a | b |\n|---|:--:|\n| 1 | 2 |\n| 日本 | x |\n\ntext | not a table\n";
+
+#[test]
+fn ui_8_the_delimiter_row_of_a_table_is_a_marker_from_end_to_end() {
+    let all = spans_of(TABLE);
+    // `|---|:--:|`: the pipes, the dashes and the colons are all dim markers
+    let delim: Vec<char> = "|---|:--:|".chars().collect();
+    let mut marked = vec![false; delim.len()];
+    for (r, l) in &all[1] {
+        assert_eq!(*l, Look::Mark, "{:?}", all[1]);
+        marked[r.clone()].fill(true);
+    }
+    assert!(marked.iter().all(|m| *m), "{:?}", all[1]);
+    // a cell's text is not
+    assert!(
+        all[2].iter().all(|(r, _)| r.len() == 1),
+        "only the pipes of a row of cells: {:?}",
+        all[2]
+    );
+}
+
+#[test]
+fn ui_8_a_table_has_bars_for_its_pipes_and_a_grid_for_its_delimiter_row() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let r = shown("md-table", skin, TABLE);
+        let (head, delim, cells, wide) = (
+            row_of(&r, "│ a │ b │"),
+            row_of(&r, "├───┼:──:┤"),
+            row_of(&r, "│ 1 │ 2 │"),
+            row_of(&r, "│ 日本 │ x │"),
+        );
+        assert_eq!((delim, cells, wide), (head + 1, head + 2, head + 3), "{skin:?}: in order");
+        // the glyphs stand in the cells of the chars they stand for: the file's chars are the file's
+        assert_eq!(r.text(), TABLE.trim_end_matches('\n'));
+        // in the secondary gray: the markers' look, which the Painter draws dim
+        let x = col(&r.shot.frame.rows[delim].text, "├");
+        for dx in 0..10 {
+            assert_eq!(look_at(&r, delim, x + dx), Some(Look::Mark), "{skin:?}: cell {dx}");
+            assert_eq!(fg_at(&r, delim, x + dx), None, "{skin:?}: a gray, no hue of its own");
+        }
+        // a pipe in prose is a pipe
+        assert!(r.shot.frame.rows[row_of(&r, "text |")].text.contains("text | not"));
+    }
+}
+
+#[test]
+fn ui_8_calm_and_code_keep_their_pipes() {
+    let r = shown("md-table-calm", Skin::Calm, TABLE);
+    assert!(r.shot.frame.rows.iter().any(|x| x.text.contains("|---|:--:|")), "calm draws no glyph");
+    // a pipe at the start of a line of code is not a table's: nothing is a marker there
+    let file = "x.sh=cat a \\\n  | grep b\n";
+    let mut r = rig_env("md-pipe", &[file], &["x.sh"], (60, 10), |e| {
+        e.skin = Skin::Flat;
+        e.syn = Syntax::new(true);
+    });
+    r.send(SimEvent::Term(Event::Bg(BG)));
+    r.keys("l");
+    assert!(r.screen.rows.iter().any(|x| x.text.contains("| grep b")), "{:?}", r.screen.rows);
+    assert!(!r.screen.rows.iter().any(|x| x.text.contains('│')));
+}

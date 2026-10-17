@@ -91,6 +91,7 @@ const RULES: &[(&str, Option<Look>)] = &[
     ("markup.list.unnumbered.bullet", Some(Look::Bullet)),
     ("markup.list.numbered.bullet", Some(Look::Bullet)),
     ("punctuation.definition.blockquote", Some(Look::Quote)),
+    ("meta.table.header-separator", Some(Look::Mark)), // `|---|:--:|`, end to end: layout draws it as a grid
     ("punctuation.separator.table-cell", Some(Look::Mark)),
     ("punctuation.section.table-header", Some(Look::Mark)),
 ];
