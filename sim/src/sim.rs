@@ -234,6 +234,10 @@ pub struct Hl {
     pub spans: Vec<Spans>,
 }
 
+/// UI-18: what a section was found for: the text's version, the cursor's line, and whether the
+/// highlighter calls that line and the one above it fenced.
+type CrumbKey = (u64, usize, bool, bool);
+
 pub struct Buf {
     pub id: Id,
     pub key: String,
@@ -273,8 +277,8 @@ pub struct Buf {
     /// version of the text, to say which one the cursor is at.
     count: Option<Count>,
     /// UI-18: the section the cursor's line is in, for a version of the text, a line and whether
-    /// the highlighter calls the line a fenced one.
-    crumb: Option<((u64, usize, bool), Option<String>)>,
+    /// the highlighter calls it and the line above it fenced ones.
+    crumb: Option<(CrumbKey, Option<String>)>,
 }
 
 /// UI-14: the pattern (and whether it was asked to be case-sensitive) a matcher was made for; none
@@ -459,6 +463,9 @@ fn key_of(path: &Path) -> String {
 fn digits(buf: &Buffer) -> usize {
     buf.lines().to_string().len().max(3)
 }
+
+/// What the core says of a file that is not valid UTF-8 (`read-only: ` and this).
+const NOT_UTF8: &str = "not valid UTF-8";
 
 /// MD-1: whether a file is Markdown: by its extension, as the core does for prose (`view::render`).
 fn is_markdown(path: Option<&str>) -> bool {
@@ -912,16 +919,17 @@ impl Sim {
         };
         let (buf, v) = (&b.app.buf, b.app.buf.version());
         let l = buf.line_of(buf.cursor);
-        // the highlighter's word on the line: a fenced one starts with a zero-width band
-        let fenced =
-            b.hl.as_ref()
-                .and_then(|h| h.spans.get(l.checked_sub(h.from)?))
-                .is_some_and(|s| s.first().is_some_and(|s| s.1 == Look::Band));
-        let key = (v, l, fenced);
+        // the highlighter's word on a line: a fenced one starts with a zero-width band
+        let band = |l: Option<usize>| {
+            let (h, l) = (b.hl.as_ref()?, l?);
+            h.spans.get(l.checked_sub(h.from)?)?.first().map(|s| s.1 == Look::Band)
+        };
+        let (fenced, above) = (band(Some(l)) == Some(true), band(l.checked_sub(1)) == Some(true));
+        let key = (v, l, fenced, above);
         let section = match &b.crumb {
             Some((k, s)) if *k == key => s.clone(),
             _ => {
-                let s = crumb::section(&path, l, &buf.text, fenced);
+                let s = crumb::section(&path, l, &buf.text, fenced, above);
                 b.crumb = Some((key, s.clone()));
                 s
             }
@@ -1589,6 +1597,11 @@ impl Sim {
             Mode::Normal => ("NORMAL".into(), BarBlock::Gray),
         };
         let mut notes = state_words(si_status, line + 1, col + 1);
+        // UI-10: the format is said once, at the right: the middle says only that the file is read-only
+        let not_utf8 = buf.readonly.as_deref().is_some_and(|r| r.contains(NOT_UTF8));
+        if not_utf8 {
+            notes = notes.replace(&format!("read-only: {NOT_UTF8}"), "read-only");
+        }
         if let Some(c) = self.searchcount() {
             notes = format!("{notes}  {c}").trim_start().to_string(); // UI-17
         }
@@ -1632,11 +1645,7 @@ impl Sim {
             modified: buf.dirty(),
             notes: &notes,
             slot: slot.as_ref().map(|(s, c)| (s.as_str(), *c)),
-            encoding: buf
-                .readonly
-                .as_deref()
-                .filter(|r| r.contains("not valid UTF-8"))
-                .map(|_| "not utf-8"),
+            encoding: not_utf8.then_some("not utf-8"),
             eol: buf.format().1.then_some("CRLF"),
             bom: buf.format().0.then_some("BOM"),
             ftype: first

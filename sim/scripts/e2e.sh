@@ -2544,4 +2544,51 @@ color_3_with_no_color_the_breadcrumb_the_table_and_the_bar_are_told_by_shapes() 
   fi
 }
 
+# UI-18, SAFE-8: a directory's name and a heading can hold an escape sequence: the breadcrumb draws U+FFFD
+# for it, in flat and in depth, and the terminal's title (which `OSC 0` would set) and screen are untouched.
+ui_18_the_breadcrumb_never_sends_an_escape_sequence_of_a_name_or_a_heading_to_the_terminal() {
+  dir=$(printf 'd\033]0;PWNED\007\033[2Jx')
+  mkdir -p "$W/$dir"
+  printf '# T\033]0;PWNED2\007\n\ntext\n' > "$W/$dir/a.md"
+  for l in flat depth; do
+    look $l
+    CT=truecolor
+    start "$dir/a.md"
+    reply '11;rgb:1e1e/1e1e/1e1e'
+    wait_for "NORMAL"
+    typed j
+    tries=100
+    while ! screen | grep -F -q '�' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+    screen | grep -F -q '�' # the breadcrumb shows U+FFFD where the control chars were
+    title=$(tm display-message -p -t "$SESSION" '#{pane_title}')
+    case $title in *PWNED*) fail "$l: the terminal's title was set: $title" ;; esac
+    screen | grep -F -q 'a.md' # and the screen was not cleared
+    typed ":q"
+    keys Enter
+    wait_exit
+    restart
+  done
+}
+
+# UI-10: a file that is not valid UTF-8 says its state (read-only) in the middle of the bar and its format
+# (not utf-8) at the right, each once; sim --plain, which has no right side, keeps the core's whole reason.
+ui_10_a_file_that_is_not_utf_8_says_read_only_and_not_utf_8_each_once() {
+  printf 'caf\351\n' > "$W/latin.txt"
+  look flat
+  CT=truecolor
+  start latin.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "not utf-8"
+  last=$(screen | grep -v '^$' | tail -1)
+  printf '%s\n' "$last" | grep -q 'read-only'
+  ! printf '%s\n' "$last" | grep -q 'not valid UTF-8'
+  [ "$(printf '%s\n' "$last" | grep -o -i 'utf' | wc -l)" -eq 1 ]
+  typed ":q"
+  keys Enter
+  wait_exit
+  restart
+  start --plain latin.txt
+  wait_for "read-only: not valid UTF-8"
+}
+
 main "$@"

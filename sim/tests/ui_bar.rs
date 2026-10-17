@@ -348,8 +348,29 @@ fn ui_10_what_is_not_as_usual_is_said_at_the_right_and_nothing_else() {
     // the core's own words for them are not said twice
     assert_eq!(both.matches("CRLF").count(), 1, "{both}");
     assert_eq!(both.matches("BOM").count(), 1, "{both}");
+    // a file that is not UTF-8: the middle says the state (read-only), the right the format (not
+    // utf-8), and neither says the other's
     let latin = bar_of("a.zzz", b"caf\xe9\n");
-    assert!(latin.contains("not utf-8"), "{latin}");
+    assert!(latin.contains("not utf-8") && latin.contains("read-only"), "{latin}");
+    assert!(!latin.contains("not valid UTF-8") && !latin.contains("read-only:"), "{latin}");
+    assert_eq!(latin.matches("read-only").count(), 1, "{latin}");
+    assert_eq!(
+        latin.to_lowercase().matches("utf").count(),
+        1,
+        "the encoding is said once: {latin}"
+    );
+    // no word of the middle is said again at the right
+    for (name, bytes, word) in [
+        ("a.zzz", &b"one\r\n"[..], "CRLF"),
+        ("a.zzz", b"\xEF\xBB\xBFone\n", "BOM"),
+        ("run", b"#!/bin/sh\necho\n", "sh"),
+    ] {
+        let bar = bar_of(name, bytes);
+        assert_eq!(bar.matches(word).count(), 1, "{word} is said once: {bar}");
+    }
+    // a binary file says why it is read-only and nothing about an encoding
+    let binary = bar_of("a.zzz", b"a\0b\n");
+    assert!(binary.contains("read-only: binary file") && !binary.contains("not utf-8"), "{binary}");
 }
 
 #[test]
@@ -404,4 +425,20 @@ fn ui_10_the_file_type_is_what_neovim_calls_it_and_chezmoi_s_names_are_read_as_w
     }
     assert_eq!(filetype("a.zzz"), None);
     assert_eq!(filetype("noextension"), None);
+}
+
+#[test]
+fn ui_10_the_core_s_own_line_keeps_its_whole_reason_where_there_is_no_right_side() {
+    // calm has no bar: the core's words, the reason of the read-only included
+    let mut r = rig_env("ui10-calm-latin", &["a.zzz"], &["a.zzz"], (100, 12), |e| {
+        std::fs::write(e.cwd.join("a.zzz"), b"caf\xe9\n").unwrap();
+        e.skin = Skin::Calm;
+        e.syn = Syntax::new(true);
+    });
+    r.send(SimEvent::Term(Event::Bg(BG)));
+    assert!(last(&r).contains("read-only: not valid UTF-8"), "{}", last(&r));
+    let plain = rig_env("ui10-plain-latin", &["a.zzz"], &["--plain", "a.zzz"], (100, 12), |e| {
+        std::fs::write(e.cwd.join("a.zzz"), b"caf\xe9\n").unwrap();
+    });
+    assert!(plain.status().contains("read-only: not valid UTF-8"), "{}", plain.status());
 }

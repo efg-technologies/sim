@@ -682,9 +682,10 @@ fn tabs_line(ew: u16, c: &Chrome, t: &Tones, crumb: Option<&(Vec<String>, usize)
         text += &" ".repeat(from - cols);
         let mut at = from as u16;
         for (s, p) in segs {
-            let w = fit(&s, usize::MAX).1 as u16;
-            line.paints.insert(0, (at..at + w, p));
-            (text, at) = (text + &s, at + w);
+            // (what is drawn is `fit`'s: no segment can bring a char that must not reach the terminal)
+            let (s, w) = fit(&s, usize::MAX);
+            line.paints.insert(0, (at..at + w as u16, p));
+            (text, at) = (text + &s, at + w as u16);
         }
         line.row.text = text;
         line.cols = ew;

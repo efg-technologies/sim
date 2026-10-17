@@ -59,9 +59,11 @@ fn head(line: RopeSlice) -> String {
 }
 
 /// The section line `cur` of the file `path` is in, if it has one. `fenced` is whether the cursor's
-/// line is in a fenced block of a Markdown file. A line is copied only when its indentation or its
-/// first char says it may start a definition or a heading: the lines of a body are not.
-pub fn section(path: &str, cur: usize, text: &Rope, fenced: bool) -> Option<String> {
+/// line is in a fenced block of a Markdown file, and `above` whether the line above it is (what
+/// tells the closing fence from the opening one when the cursor is on a fence). A line is copied
+/// only when its indentation or its first char says it may start a definition or a heading: the
+/// lines of a body are not. The name is as the file has it: `parts` makes it fit to be drawn.
+pub fn section(path: &str, cur: usize, text: &Rope, fenced: bool, above: bool) -> Option<String> {
     let first = cur.saturating_sub(SCAN);
     let get = |l: usize| (l < text.len_lines()).then(|| text.line(l));
     match kind(path)? {
@@ -75,7 +77,8 @@ pub fn section(path: &str, cur: usize, text: &Rope, fenced: bool) -> Option<Stri
                 let t = head(line);
                 let t = t.trim_start();
                 if t.starts_with("```") || t.starts_with("~~~") {
-                    inside ^= l != cur;
+                    // (the cursor's own fence line is a closing one if the line above is in the block)
+                    inside = if l == cur { above } else { !inside };
                 } else if let Some(h) = heading(t).filter(|_| !inside) {
                     return Some(h);
                 }
@@ -264,9 +267,11 @@ fn skip_angle(s: &str) -> &str {
 }
 
 /// The parts of the breadcrumb: the components of the path, and the section.
+/// A part is made fit to be drawn, as `fit` does it (SAFE-8): a directory's name, a heading and a
+/// definition's name can hold anything, a control char that a terminal would obey included.
 pub fn parts(path: &str, section: Option<&str>) -> Vec<String> {
     let dirs = path.split('/').filter(|p| !p.is_empty() && *p != ".");
-    dirs.map(str::to_string).chain(section.map(str::to_string)).collect()
+    dirs.chain(section).map(|p| fit(p, usize::MAX).0).collect()
 }
 
 /// The parts that fit `max` columns when joined by `SEP`: whole components are dropped from the

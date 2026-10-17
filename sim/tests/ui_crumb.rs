@@ -13,7 +13,7 @@ use sim_core::core::color::Rgb;
 
 /// The section at line `cur` (0-based) of `text`, a file called `name`.
 fn at(name: &str, text: &str, cur: usize) -> Option<String> {
-    section(name, cur, &Rope::from_str(text), false)
+    section(name, cur, &Rope::from_str(text), false, false)
 }
 
 #[test]
@@ -32,10 +32,13 @@ fn ui_18_a_markdown_section_is_the_nearest_heading_at_or_above_the_cursor() {
 fn ui_18_a_hash_in_a_fenced_block_is_not_a_heading() {
     let md = "## Real\n\n```sh\n# a comment\necho hi\n```\n\nafter\n";
     let rope = Rope::from_str(md);
-    let on = |cur: usize, fenced: bool| section("a.md", cur, &rope, fenced);
-    assert_eq!(on(4, true).as_deref(), Some("Real"), "inside the block");
-    assert_eq!(on(7, false).as_deref(), Some("Real"), "after the block: its # was not one");
-    assert_eq!(on(3, true).as_deref(), Some("Real"), "on the comment");
+    let on = |cur: usize, fenced: bool, above: bool| section("a.md", cur, &rope, fenced, above);
+    assert_eq!(on(4, true, true).as_deref(), Some("Real"), "inside the block");
+    assert_eq!(on(7, false, true).as_deref(), Some("Real"), "after the block: its # was not one");
+    assert_eq!(on(3, true, true).as_deref(), Some("Real"), "on the comment");
+    // the cursor on a fence: the opening one has nothing fenced above it, the closing one has
+    assert_eq!(on(2, true, false).as_deref(), Some("Real"), "on the opening fence");
+    assert_eq!(on(5, true, true).as_deref(), Some("Real"), "on the closing fence");
 }
 
 #[test]
@@ -199,4 +202,88 @@ fn ui_18_a_markdown_file_names_its_heading_and_a_fence_does_not_make_one() {
     let r = shown("crumb-md", Skin::Depth, (100, 20), &[&file], "docs/guide.md", "6j");
     let top = r.screen.rows[0].text.clone();
     assert!(top.contains("docs › guide.md › Install"), "{top}");
+}
+
+// ---- SAFE-8: what the breadcrumb is made of can hold anything ----
+
+/// Whether a char must not reach the terminal as it is (SAFE-8): a control (C0, C1, DEL), a
+/// bidirectional one, a zero-width one.
+fn hostile(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{61c}' | '\u{200b}' | '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+}
+
+const EVIL: &str = "d\u{1b}[2J\u{9b}\u{202e}x\n\u{7f}";
+const HEAD: &str = "T\u{1b}]0;x\u{7}\u{200b}";
+
+fn clean(rows: &[String]) {
+    for (y, r) in rows.iter().enumerate() {
+        let bad: Vec<char> = r.chars().filter(|&c| hostile(c)).collect();
+        assert!(bad.is_empty(), "row {y} holds {bad:?}: {r:?}");
+    }
+}
+
+#[test]
+fn ui_18_the_parts_of_a_breadcrumb_hold_no_char_that_must_not_reach_the_terminal() {
+    let p = parts(&format!("{EVIL}/sub/a.md"), Some(HEAD));
+    assert_eq!(p.len(), 4, "{p:?}");
+    assert!(p.iter().all(|x| !x.chars().any(hostile)), "{p:?}");
+    assert!(p[0].contains('\u{fffd}') && p[3].contains('\u{fffd}'), "{p:?}");
+    assert!(p[0].starts_with("d\u{fffd}[2J"), "the rest of the name is as it is: {p:?}");
+    // what is measured is what is drawn
+    let width = |v: &[String]| -> usize { v.join(" › ").chars().count() };
+    let cut = cut(&p, 20);
+    assert!(width(&cut) <= 20 && !cut.iter().any(|x| x.chars().any(hostile)), "{cut:?}");
+}
+
+/// A frame of the editor in `skin` that is given a breadcrumb whose parts are not cleaned: the
+/// drawing of the title (depth) and of the tab bar (flat) must not trust them.
+fn raw_deck(skin: Skin) -> Vec<String> {
+    use sim::color::Tones;
+    use sim::layout::{Chrome, Deck, Fade, Geo, body};
+    use sim::tabs::Tab;
+    use sim_core::core::color::palette;
+    let t = Tones::new(&palette(BG));
+    let geo = Geo::with_head((80, 12), skin, false, true);
+    let tab = Tab { name: "a.md".into(), ..Tab::default() };
+    let chrome = Chrome { icons: false, root: "~", tabs: vec![tab], cur: 0 };
+    let parts: Vec<String> = [EVIL, "ok", "a.md", HEAD].iter().map(ToString::to_string).collect();
+    // (the box's title is drawn for the file an App has)
+    let app =
+        sim_core::core::app::App::new(Some("a.md".into()), Ok(Some(b"x\n".to_vec())), (70, 10));
+    let deck = Deck {
+        geo,
+        tones: Some(&t),
+        fade: Fade::None,
+        gray: false,
+        app: Some(&app),
+        win: None,
+        focus: false,
+        chrome: Some(chrome),
+        scroll: vec![],
+        crumb: (parts, 2),
+    };
+    body(&deck, &[], None, None).0.into_iter().map(|r| r.text).collect()
+}
+
+#[test]
+fn ui_18_the_drawing_of_the_breadcrumb_cannot_leak_what_it_is_given_in_flat_or_in_depth() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let rows = raw_deck(skin);
+        clean(&rows);
+        let title = rows.iter().find(|r| r.contains('\u{fffd}')).unwrap_or_else(|| &rows[0]);
+        assert!(title.contains('\u{fffd}'), "{skin:?}: {rows:?}");
+    }
+}
+
+#[test]
+fn ui_18_a_directory_and_a_heading_with_control_chars_never_reach_a_row() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let name = format!("{}/a.md", EVIL.replace('\n', "_"));
+        let file = format!("{name}=# {HEAD}\n\ntext\n");
+        let r = shown("crumb-evil", skin, (100, 20), &[&file], &name, "j");
+        clean(&r.screen.rows.iter().map(|x| x.text.clone()).collect::<Vec<_>>());
+        let top = r.screen.rows.iter().find(|x| x.text.contains('\u{fffd}'));
+        assert!(top.is_some(), "{skin:?}: {}", dump(&r.screen));
+    }
 }
