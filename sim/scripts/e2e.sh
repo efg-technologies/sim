@@ -1716,4 +1716,20 @@ ui_11_the_scrollbar_has_a_marker_for_the_cursor_and_follows_it() {
   [ "$(screen | grep -n '[⎺⎻⎼⎽]' | head -1 | cut -d: -f1)" -ge 18 ] # and near the bottom for the last
 }
 
+ui_13_a_yank_is_lit_for_a_moment() {
+  printf 'alpha beta\nsecond\n' > "$W/a.txt"
+  look flat
+  CT=truecolor
+  start a.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "alpha beta"
+  typed yw
+  wait_for "chars yanked"
+  # Lit: a background on `alpha `, in the accent's block, which is gone 150 ms later.
+  lit() { screen_esc | grep -a 'alpha' | grep -q '48;2;[^a]*alpha'; } # (the scrollbar's handle is after the text)
+  tries=40
+  while lit && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  ! lit
+}
+
 main "$@"

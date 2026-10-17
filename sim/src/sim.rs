@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -43,6 +43,17 @@ use std::sync::Arc;
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
+/// UI-13: how long a yank is lit, as the author's `on_yank({ timeout = 150 })`.
+pub const FLASH_MS: u64 = 150;
+
+/// The text a yank took, lit (UI-13).
+struct Flash {
+    id: Id,
+    chars: std::ops::Range<usize>,
+    ver: u64,
+    n: u64,
+}
+
 /// A file open in sim. Ids are never reused, so a late answer for a closed file is dropped.
 pub type Id = usize;
 
@@ -84,6 +95,8 @@ pub enum SimEvent {
     /// UI-5: git's diff of a file against HEAD (or why there is none), and how many lines the file
     /// had when it was asked for.
     Diff(Id, Result<Vec<u8>, String>, usize),
+    /// UI-13: the flash of a yank, the one with this number, is over.
+    Unflash(u64),
 }
 
 /// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
@@ -136,6 +149,8 @@ pub enum SimEffect {
     /// Ask for the diff of a file against HEAD and answer with `SimEvent::Diff` (UI-5). Requests
     /// for one file that wait are one: the newest.
     Diff(DiffReq),
+    /// UI-13: answer with `SimEvent::Unflash(n)` after `FLASH_MS` milliseconds.
+    Flash(u64),
     /// LOOK-1: the look that was chosen, to remember.
     Look(Skin),
     /// UI-2: whether the icons are on, to remember.
@@ -281,6 +296,10 @@ pub struct Sim {
     /// UI-10: whether the root is trusted (the language servers' `:trust`), which the status line
     /// shows in the security slot; none while nobody has said. Sim never writes it.
     pub trust: Option<bool>,
+    /// UI-13: the text a yank has just taken, lit for `FLASH_MS`: the file, the chars, the version
+    /// of the text they are of, and which flash it is.
+    flash: Option<Flash>,
+    flash_gen: u64,
     /// UI-1, UI-2: whether the interface is drawn in flat and depth, `$HOME`, and the icons.
     chrome: bool,
     home: Option<PathBuf>,
@@ -497,6 +516,11 @@ impl Sim {
             }
             SimEvent::Grep(b) => self.live_batch(b, &mut out),
             SimEvent::Preview(pv) => self.live_preview(pv),
+            SimEvent::Unflash(n) => {
+                if self.flash.as_ref().is_some_and(|f| f.n == n) {
+                    self.flash = None;
+                }
+            }
             SimEvent::Diff(id, r, lines) => {
                 if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
                     b.diff = r.ok().map(|out| Diff::parse(&out, lines));
@@ -665,7 +689,14 @@ impl Sim {
         let changed = matches!(ev, Event::Disk { .. } | Event::Saved(Ok(_), _));
         let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) else { return };
         let (fx, path) = (b.app.update(ev), b.app.path.clone());
+        let (yank, ver) = (yanked(&b.app, &fx), b.app.buf.version());
         self.run(id, fx, out);
+        if let Some(chars) = yank {
+            // UI-13: the text a yank took is lit for a moment, as the author's `on_yank` does.
+            self.flash_gen += 1;
+            self.flash = Some(Flash { id, chars, ver, n: self.flash_gen });
+            out.push(SimEffect::Flash(self.flash_gen));
+        }
         if let (true, Some(path)) = (changed, path) {
             if let Ok(rel) = self.cwd.join(path).strip_prefix(&self.root) {
                 self.disk.insert(rel.into());
@@ -923,7 +954,9 @@ impl Sim {
             };
             h.spans.get(old.checked_sub(h.from)?)
         };
-        let guides = self.ui().then(|| guides_of(b)).filter(|_| !review);
+        let lit = self.flash.as_ref().filter(|f| f.id == b.id && f.ver == buf.version());
+        let guides =
+            self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone()))).filter(|_| !review);
         let line_ui = guides.as_ref().map(|g| move |l: usize| g.of(buf, l));
         let mut colored = layout::colors(
             f,
@@ -1322,6 +1355,17 @@ impl Sim {
     }
 }
 
+/// UI-13: the chars a yank has taken, in the buffer as it is after it: the App says so by its
+/// message (`3 lines yanked`) and by putting the text on the clipboard, and leaves the cursor at the
+/// start of what it took (at the start of the cursor's line, for whole lines).
+fn yanked(app: &App, fx: &[Effect]) -> Option<std::ops::Range<usize>> {
+    let text = fx.iter().find_map(|e| if let Effect::Clipboard(t) = e { Some(t) } else { None })?;
+    let msg = app.msg.as_deref().filter(|m| m.ends_with("yanked"))?;
+    let b = &app.buf;
+    let from = if msg.contains("line") { b.start(b.line_of(b.cursor)) } else { b.cursor };
+    Some(from..(from + text.chars().count()).min(b.text.len_chars()))
+}
+
 /// UI-11: how many lines a file may have for the scrollbar to mark the matches of a search.
 const HIT_LINES: usize = 5_000;
 
@@ -1356,6 +1400,8 @@ fn lead_of(buf: &Buffer, l: usize) -> Lead {
 /// UI-6: what is known of the cursor's scope for the frame being made: the lines around the cursor
 /// whose indent is at least its line's, and the column of the innermost guide of the cursor's line.
 struct Guides {
+    /// UI-13: the chars of the buffer that a yank has just taken.
+    flash: Option<std::ops::Range<usize>>,
     width: u16,
     /// The width of the pane: no guide is made further right.
     limit: u16,
@@ -1366,7 +1412,7 @@ struct Guides {
 const NEAR: usize = 50;
 const SCOPE: usize = 300;
 
-fn guides_of(b: &Buf) -> Guides {
+fn guides_of(b: &Buf, flash: Option<std::ops::Range<usize>>) -> Guides {
     let (buf, width, limit) = (&b.app.buf, b.indent.width.max(1), b.app.size.0);
     let cur = buf.line_of(buf.cursor);
     let nonblank = |from: usize, up: bool| -> Option<Lead> {
@@ -1377,7 +1423,7 @@ fn guides_of(b: &Buf) -> Guides {
     let own = lead_of(buf, cur);
     let lead = if own.blank { nonblank(cur, true).unwrap_or(own) } else { own };
     if lead.cols == 0 || lead.tab {
-        return Guides { width, limit, scope: None };
+        return Guides { flash, width, limit, scope: None };
     }
     let col = (lead.cols - 1) / width * width;
     let inside = |l: usize| {
@@ -1397,7 +1443,7 @@ fn guides_of(b: &Buf) -> Guides {
     while hi > cur && lead_of(buf, hi).blank {
         hi -= 1;
     }
-    Guides { width, limit, scope: Some((lo..=hi, col)) }
+    Guides { flash, width, limit, scope: Some((lo..=hi, col)) }
 }
 
 impl Guides {
@@ -1424,7 +1470,12 @@ impl Guides {
             .as_ref()
             .filter(|(run, c)| run.contains(&l) && guides.contains(c))
             .map(|s| s.1);
-        LineUi { guides, scope }
+        let (from, len) = (buf.start(l), buf.line_len(l));
+        let flash = self.flash.as_ref().and_then(|r| {
+            let (lo, hi) = (r.start.max(from), r.end.min(from + len));
+            (lo < hi).then(|| lo - from..hi - from)
+        });
+        LineUi { guides, scope, flash }
     }
 }
 

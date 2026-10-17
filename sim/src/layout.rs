@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -680,6 +680,10 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     // UI-7: one style for every keyword: bold primary on the card's surface.
     let badge = Paint { bg: Some(t.card), fg: Some(t.primary), bold: true, ..Paint::default() };
     paints.extend(m.badge.iter().map(|r| (r.clone(), badge)));
+    // UI-13: the yank, lit in the accent's block, over everything else of the cell.
+    let (back, text) = t.accent_block();
+    let flash = Paint { bg: Some(back), fg: Some(text), ..Paint::default() };
+    paints.splice(0..0, m.flash.iter().map(|r| (r.clone(), flash)));
     if !m.glyph.is_empty() {
         let mut cs: Vec<char> = line.row.text.chars().collect();
         for g in &m.glyph {
@@ -1115,6 +1119,8 @@ pub struct Extra {
     pub lang: Option<String>,
     /// UI-7: the columns of a TODO badge in this row.
     pub badge: Vec<std::ops::Range<u16>>,
+    /// UI-13: the columns of the text a yank has just taken, in this row.
+    pub flash: Vec<std::ops::Range<u16>>,
 }
 
 /// UI-6: what the interface wants drawn on a line of the buffer: the columns of its indent guides
@@ -1123,6 +1129,8 @@ pub struct Extra {
 pub struct LineUi {
     pub guides: Vec<u16>,
     pub scope: Option<u16>,
+    /// UI-13: the chars of the line a yank has just taken.
+    pub flash: Option<std::ops::Range<usize>>,
 }
 
 /// SYN-1: what `colors` finds in an editor frame: the looks of its rows, the first and the last
@@ -1214,6 +1222,14 @@ pub fn colors<'a>(
                 md[i]
                     .glyph
                     .push(Glyph { idx: gutter + used, ch: '▌', col: 0, tone: Tone::Plain });
+            }
+            // UI-13: the cells of the text a yank has just taken, merged where they touch.
+            if lui.flash.as_ref().is_some_and(|f| f.contains(&ci)) {
+                let cols = (gutter + col) as u16..(gutter + col + w) as u16;
+                match md[i].flash.last_mut() {
+                    Some(b) if b.end == cols.start => b.end = cols.end,
+                    _ => md[i].flash.push(cols),
+                }
             }
             // UI-7: the cells of a TODO badge, merged where they touch.
             if badge.contains(&ci) {

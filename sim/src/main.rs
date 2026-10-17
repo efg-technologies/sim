@@ -1,4 +1,4 @@
-//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5
+//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13
 //! The event loop: several si Apps, the panel, the threads, running Effects. It is si's main.rs
 //! for many files: one save thread and one journal thread for all of them, a watcher and a
 //! filter for each, and every job and answer tagged with the id of its file. The file list, git's
@@ -180,6 +180,14 @@ fn main() -> ExitCode {
                         });
                     }
                     SimEffect::Files => drop(files.send(())),
+                    SimEffect::Flash(n) => {
+                        // UI-13: a yank is lit for a moment: the thread's only job is to say when it is over.
+                        let t = tx.clone();
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(sim::sim::FLASH_MS));
+                            drop(t.send(SimEvent::Unflash(n)));
+                        });
+                    }
                     SimEffect::Diff(req) => drop(diffs.send(req)),
                     SimEffect::Status => drop(git.send(())),
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
