@@ -46,9 +46,10 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 
 - Un forçage de droite à gauche, une espace de largeur nulle ou un caractère de contrôle est dessiné sous la forme `<U+202E>` ou `^[` sur un bloc magenta, dans tous les états où une cellule peut se trouver, et n’est jamais envoyé tel quel au terminal. Le texte littéral `<U+202E>` dans un fichier ne reçoit aucun bloc.
 - Les espaces en fin de ligne s’affichent en `·`, une espace insécable en `⍽`, une tabulation en `»`.
-- Quand un autre processus réécrit le fichier ouvert, les lignes modifiées sont signalées dans le texte, l’encadré indique combien de modifications sont sur le disque, l’onglet affiche `↯` et l’arborescence marque le fichier. `]c` et `[c` mènent à la marque suivante et à la précédente.
+- Quand un autre processus réécrit le fichier ouvert, les lignes modifiées clignotent un instant puis sont signalées dans le texte, l’encadré indique combien de modifications sont sur le disque, l’onglet affiche `↯` et l’arborescence marque le fichier. `]c` et `[c` mènent à la marque suivante et à la précédente.
 - Les écarts avec git HEAD apparaissent sous forme de signes dans la marge, d’une lettre d’état pour chaque fichier de l’arborescence (un dossier affiche la lettre de l’état le plus fort en dessous de lui) et de `+n ~n -n` dans la ligne d’état.
-- git n’est pas exécuté là où la configuration du dépôt lui-même pourrait lancer une commande (`core.fsmonitor`, un pilote de filtre, et d’autres). La ligne d’état indique la clé et le fichier.
+- git n’est pas exécuté là où la configuration du dépôt lui-même pourrait lancer une commande (`core.fsmonitor`, un pilote de filtre, et d’autres) : l’encadré affiche `git not run` sur le bloc d’alerte, et la ligne d’état indique la clé et le fichier. Là où git s’exécute avec des réglages du dépôt désactivés (`core.fsmonitor`, le chemin des hooks, des filtres ou un diff externe), l’encadré en donne le nombre (`2 git settings off`).
+- Un lien Markdown dont le texte ressemble à une adresse que sa cible n’est pas (`[https://good.example](https://evil.example)`) a sa cible sur le bloc magenta, y compris dans la vue de lecture, qui ne cache jamais les crochets ni l’URL d’un lien.
 
 **Refuse ce qu’il doit refuser, conserve votre texte**
 
@@ -64,7 +65,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 - Dans le benchmark du projet lui-même, une touche prend moins de 1 ms au p99 (fichier de 100 000 lignes, build de release) ; la première image dans un dépôt de 100 000 fichiers a été mesurée entre 1,8 et 8,7 ms.
 - Des couleurs de syntaxe tirées de la palette de votre terminal, un Markdown lu sur place (marques masquées, tableaux alignés, et la ligne où vous êtes toujours le texte du fichier), trois apparences (`zl`), le retour à la ligne japonais selon les règles kinsoku et les touches pleine chasse.
 - Le titre de l’éditeur est un fil d’Ariane, `src › sim.rs › leader_key` : le chemin et le titre ou la fonction où se trouve le curseur. Chaque fait est à un seul endroit : la ligne d’état a le mode, la branche, les compteurs et la position, et ne dit `CRLF`, `BOM` ou un fichier qui n’est pas en UTF-8 que lorsque c’est le cas ; l’onglet a le fichier et `●`, la barre de défilement la position, et l’arborescence n’est pas dans le brouillard.
-- `NO_COLOR` et les terminaux de moins de 8 couleurs dessinent uniquement avec l’épaisseur, le soulignement et la vidéo inverse, et le sens ne dépend jamais de la couleur seule : une ligne modifiée est `┆`, les dossiers affichent des lettres d’état, un onglet affiche `↯` pour un fichier modifié sur le disque.
+- `NO_COLOR` et les terminaux de moins de 8 couleurs dessinent uniquement avec l’épaisseur, le soulignement et la vidéo inverse, et le sens ne dépend jamais de la couleur seule : une ligne modifiée est `┆`, les dossiers affichent des lettres d’état, un onglet affiche `↯` pour un fichier modifié sur le disque, et la poignée de la barre de défilement est un rail `║`, non un bloc inversé.
 
 **Des touches faciles à trouver**
 

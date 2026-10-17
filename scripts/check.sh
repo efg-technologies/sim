@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 # of dependencies. The editor (sim/src) and the window (gui/src) have a cap each; the reasons for all
 # three are in CONCEPT.md.
 MAX_CORE_LINES=3200
-MAX_SIM_LINES=9415
+MAX_SIM_LINES=9660
 MAX_GUI_LINES=5100
 CORE_DEPS="crossterm notify regex-lite ropey rustix similar unicode-width"
 # The editor's own direct dependencies (the core included), as they were before the window: the window

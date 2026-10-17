@@ -1,4 +1,4 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the history file in sim's state directory, and the
 //! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
@@ -473,6 +473,34 @@ pub fn neutralizing(listing: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// GIT-5: the settings of the repository's own scopes that the guard turns off (GIT-1, GIT-2), as the
+/// keys git lists them, a filter once by its name (`filter.name`) however many of its keys there are,
+/// and none twice. The user's scopes are not counted, and neither is git-lfs's own filter where GIT-2
+/// lets it run: nothing is turned off there.
+pub fn turned_off(listing: &[u8]) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    let mut fields = listing.split(|&b| b == 0);
+    while let (Some(scope), Some(_), Some(entry)) = (fields.next(), fields.next(), fields.next()) {
+        let key = entry.split(|&b| b == b'\n').next().unwrap_or_default();
+        if matches!(scope, b"system" | b"global" | b"command") || !neutralized(key) {
+            continue;
+        }
+        let label = filter_name(key).map_or_else(
+            || String::from_utf8_lossy(key).into_owned(),
+            |name| format!("filter.{name}"),
+        );
+        if !out.contains(&label) {
+            out.push(label);
+        }
+    }
+    let off = neutralizing(listing);
+    out.retain(|k| {
+        k.strip_prefix("filter.")
+            .is_none_or(|n| off.iter().any(|a| a.starts_with(&format!("filter.{n}."))))
+    });
+    out
+}
+
 /// GIT-2: whether a key can stay in the repository's own config without taking away the exception for
 /// git-lfs's filter: every key that is not one of git-lfs's (`lfs.*`), and of those the ones that cannot
 /// make git-lfs write or run anything outside the repository: what git-lfs lets a `.lfsconfig` set
@@ -530,11 +558,7 @@ pub fn git_command(dir: &Path, args: &[&str]) -> Result<Command, String> {
     if !filter::programs_allowed() {
         return Err(PLAIN_RUNS_NOTHING.into());
     }
-    let mut list = command(dir);
-    list.args(["config", "--list", "--show-scope", "--show-origin", "-z"]);
-    let list = output(list, dir, "config").map_err(|e| {
-        if e.starts_with("git config:") { format!("{GIT_SKIPPED}{UNREADABLE}") } else { e }
-    })?;
+    let list = listing(dir)?;
     if let Some(why) = runs_commands(&list) {
         return Err(format!("{GIT_SKIPPED}{why}"));
     }
@@ -542,6 +566,15 @@ pub fn git_command(dir: &Path, args: &[&str]) -> Result<Command, String> {
     let mut c = command(dir);
     c.args(neutralizing(&list)).arg(cmd).args(flags(cmd)).args(rest);
     Ok(c)
+}
+
+/// The config that git lists for the repository of `dir` (MARK-1): what `git_command` and `status` read.
+fn listing(dir: &Path) -> Result<Vec<u8>, String> {
+    let mut list = command(dir);
+    list.args(["config", "--list", "--show-scope", "--show-origin", "-z"]);
+    output(list, dir, "config").map_err(|e| {
+        if e.starts_with("git config:") { format!("{GIT_SKIPPED}{UNREADABLE}") } else { e }
+    })
 }
 
 /// Runs git in `dir` as `git_command` builds it.
@@ -757,9 +790,14 @@ pub fn show_head(root: &Path, path: &str) -> Result<Vec<u8>, String> {
     if blob.len() > SHOW_MAX { Err(format!("HEAD:{path} is over 20 MiB")) } else { Ok(blob) }
 }
 
+/// MARK-1: what an answer of the status has: git's status, where the root lies below the top of the
+/// repository, and (GIT-5) the settings of the repository's that the guard turned off.
+pub type GitState = (Vec<u8>, String, Vec<String>);
+
 /// MARK-1: git's status and where `root` lies below the top of the repository, the branch (UI-10, a
-/// `## branch` entry first) and (UI-3) what it ignores, appended as `!! path` entries (a failure of that alone leaves the status as it is).
-pub fn status(root: &Path) -> Result<(Vec<u8>, String), String> {
+/// `## branch` entry first) and (UI-3) what it ignores, appended as `!! path` entries (a failure of that
+/// alone leaves the status as it is).
+pub fn status(root: &Path) -> Result<GitState, String> {
     let mut status = git_status(root)?;
     // UI-10: the branch, as the `## branch` entry `git status --branch` would have put first; a
     // detached HEAD is `HEAD`. (`git_status` itself is as it was.)
@@ -770,7 +808,8 @@ pub fn status(root: &Path) -> Result<(Vec<u8>, String), String> {
         status.push(0);
     }
     status.extend(git_ignored(root).unwrap_or_default());
-    Ok((status, git_prefix(root)?))
+    let off = turned_off(&listing(root)?);
+    Ok((status, git_prefix(root)?, off))
 }
 
 /// The history saved in `dir`; empty if there is none, or it cannot be read.

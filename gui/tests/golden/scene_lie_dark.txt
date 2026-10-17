@@ -1,0 +1,69 @@
+scene 1032x632 floor #15171c page #282c34
+layer 0
+  Box [16 16 1000 580] r10 #282c34 shadow(dy 4 blur 16 #000000/0.60) rim(#ffffff/0.22 1)
+  Strip [16 597 1000 18] r6 #353840 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Strip [26 36 130 20] r0 #353840
+  Chip [156 38 90 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Strip [246 36 760 20] r0 #353840
+  Heading [88 58 916 16] r6 #32424b shadow(dy 1 blur 4 #000000/0.40)
+  Chip [16 598 80 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [96 598 60 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [966 598 50 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Shape [158 37 2 18] r1 #c6e1ff
+  Shape [96 113 10 1] r0 #c6e1ff
+  Shape [106 113 10 1] r0 #c6e1ff
+  Shape [116 113 10 1] r0 #c6e1ff
+  Shape [126 113 10 1] r0 #c6e1ff
+  Shape [136 113 10 1] r0 #c6e1ff
+  Shape [146 113 10 1] r0 #c6e1ff
+  Shape [156 113 10 1] r0 #c6e1ff
+  Shape [166 113 10 1] r0 #c6e1ff
+  Shape [176 113 10 1] r0 #c6e1ff
+  Shape [186 113 10 1] r0 #c6e1ff
+  Shape [196 113 10 1] r0 #c6e1ff
+  Shape [206 113 10 1] r0 #c6e1ff
+  Shape [216 113 10 1] r0 #c6e1ff
+  Shape [226 113 10 1] r0 #c6e1ff
+  Shape [236 113 10 1] r0 #c6e1ff
+  Shape [246 113 10 1] r0 #c6e1ff
+  Shape [256 113 10 1] r0 #c6e1ff
+  Shape [266 113 10 1] r0 #c6e1ff
+  Shape [276 113 10 1] r0 #c6e1ff
+  Shape [286 113 10 1] r0 #c6e1ff
+  Shape [296 113 10 1] r0 #c6e1ff
+  Shape [306 113 10 1] r0 #c6e1ff
+  Shape [316 113 10 1] r0 #c6e1ff
+  Shape [326 113 10 1] r0 #c6e1ff
+  Shape [336 113 10 1] r0 #c6e1ff
+  Pill [364 98 264 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Shape [696 113 10 1] r0 #c6e1ff
+  Shape [706 113 10 1] r0 #c6e1ff
+  Shape [716 113 10 1] r0 #c6e1ff
+  Shape [726 113 10 1] r0 #c6e1ff
+  Shape [1008 58 6 516] r3 #b8b8b8/0.07
+  Thumb [1008 57 6 358] r3 #4c4f56 shadow(dy 1 blur 4 #000000/0.40)
+  Shape [1007 58 8 2] r1 #b8b8b8
+  text [46 16] "lie.md" #eaeaea bold
+  text [116 16] "›" #828387
+  text [136 16] "Links" #eaeaea
+  text [46 36] "README.md" #eaeaea
+  text [146 36] "▏" #64676c
+  text [176 36] "lie.md" #eaeaea bold
+  text [46 56] "1" #eaeaea bold
+  text [86 56] "#" #b8b8b8
+  text [106 56] "Links" #8feefa bold
+  text [66 76] "1" #b8b8b8
+  text [66 96] "2" #b8b8b8
+  text [86 96] "[" #b8b8b8
+  text [96 96] "https://good.example/docs" #c6e1ff
+  text [346 96] "](" #b8b8b8
+  text [366 96] "https://evil.example/login" #f1f1f1
+  text [626 96] ")" #b8b8b8
+  text [646 96] "and" #eaeaea
+  text [686 96] "[" #b8b8b8
+  text [696 96] "docs" #c6e1ff
+  text [736 96] "](https://good.example)" #b8b8b8
+  text [26 596] "NORMAL" #eaeaea bold
+  text [106 596] "main" #eaeaea
+  text [976 596] "1:1" #eaeaea bold
+cursor Block [86 56 10 20] #eaeaea

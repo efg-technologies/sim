@@ -1,4 +1,4 @@
-//! MD-1, MD-2, MD-3, MD-4, MD-7, MD-8
+//! MD-1, MD-2, MD-3, MD-4, MD-7, MD-8, MD-10
 //! The read view of a Markdown file (pure): which chars of a line are not drawn and what is put
 //! in their place (`Plan`), made from the line's chars and the highlighter's spans; the tables of
 //! a screen, found once per frame (`Read`); and the map from the columns of a row as the core made
@@ -463,4 +463,133 @@ impl Remap {
         }
         end + x.saturating_sub(at)
     }
+}
+
+/// MD-10: the top-level domains that make a dotted name a host (a file or a product has a dot too).
+const TLDS: &[&str] = &[
+    "com", "org", "net", "edu", "gov", "io", "dev", "app", "ai", "co", "jp", "uk", "de", "fr",
+    "info", "xyz", "me", "us", "eu", "ru", "cn", "in", "br", "ca", "au", "nl", "se", "ch",
+    "example",
+];
+
+/// MD-10: what a link's text names: a host (lower case, no `www.`) or a path (and whether it is absolute).
+enum Names {
+    Host(String),
+    Path(String, bool),
+}
+
+/// MD-10: the host of an authority (`user@host:port`), as it is compared.
+fn host_of(authority: &str) -> String {
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    let host = host
+        .rsplit_once(':')
+        .filter(|p| p.1.bytes().all(|b| b.is_ascii_digit()))
+        .map_or(host, |p| p.0);
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host.strip_prefix("www.").map_or(host.clone(), str::to_string)
+}
+
+/// MD-10: the part of `s` before a `?` or a `#`, without its leading `./`, `../`, `/` and `~/` and its
+/// trailing `/`, as paths are compared.
+fn trimmed(s: &str) -> &str {
+    let s = s.split(['?', '#']).next().unwrap_or_default();
+    s.trim_start_matches(['.', '/', '~']).trim_end_matches('/')
+}
+
+/// MD-10: what the text of a link names, if it looks like an address: it has no blank and is a URL, a
+/// `www.` name, a host of a common top-level domain, or a path.
+fn names(text: &str) -> Option<Names> {
+    let t = text.trim_matches(|c: char| c.is_whitespace() || matches!(c, '*' | '_' | '`'));
+    if t.is_empty() || t.contains(char::is_whitespace) {
+        return None;
+    }
+    let scheme = t.split_once("://").filter(|(s, _)| {
+        s.starts_with(|c: char| c.is_ascii_alphabetic())
+            && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+    });
+    if let Some((_, rest)) = scheme {
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        return Some(Names::Host(host_of(authority)));
+    }
+    let host = t.split(['/', '?', '#']).next().unwrap_or_default();
+    let labels: Vec<&str> = host.split('.').collect();
+    let label =
+        |l: &&str| !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    let last = labels.last().map(|l| l.to_ascii_lowercase()).unwrap_or_default();
+    let www = host.len() > 4 && host[..4].eq_ignore_ascii_case("www.");
+    if labels.len() > 1 && labels.iter().all(label) && (www || TLDS.contains(&last.as_str())) {
+        return Some(Names::Host(host_of(host)));
+    }
+    let file = t.rsplit('/').next().unwrap_or_default();
+    let ext = file.rsplit_once('.').map_or("", |p| p.1);
+    let abs = t.starts_with(['/', '~']);
+    let rooted = abs || t.starts_with("./") || t.starts_with("../");
+    let named = t.contains('/')
+        && (1..=8).contains(&ext.len())
+        && ext.bytes().all(|b| b.is_ascii_alphanumeric());
+    ((rooted || named) && !trimmed(t).is_empty()).then(|| Names::Path(trimmed(t).to_string(), abs))
+}
+
+/// MD-10: whether a link of `text` to `target` says one place and goes to another: the text looks like
+/// an address that the target is not (another host; no host where the text has one; an absolute path
+/// and a target with a host; a path that the target's does not end with, or neither ends with the other
+/// where the target has no host), or the target runs code or carries data (`javascript:`, `data:`, `vbscript:`).
+pub fn deceptive(text: &str, target: &str) -> bool {
+    let target = target.trim().trim_matches(['<', '>']);
+    let lower = target.trim_start_matches(|c: char| c.is_control()).to_ascii_lowercase();
+    if ["javascript:", "data:", "vbscript:"].iter().any(|s| lower.starts_with(s)) {
+        return true;
+    }
+    let Some(said) = names(text).filter(|_| !target.is_empty()) else { return false };
+    let rest = target.split_once("://").map(|p| p.1).or_else(|| target.strip_prefix("//"));
+    let (host, path) =
+        rest.map_or(("", target), |r| r.split_at(r.find(['/', '?', '#']).unwrap_or(r.len())));
+    match said {
+        Names::Host(h) => host.is_empty() || host_of(host) != h,
+        Names::Path(p, abs) => {
+            let q = trimmed(path);
+            // (a path the text says is on this machine goes nowhere by a host; a relative one may be a
+            // repository's: the target's path then ends with it)
+            q.is_empty()
+                || if host.is_empty() {
+                    !(p.ends_with(q) || q.ends_with(&p))
+                } else {
+                    abs || !q.ends_with(&p)
+                }
+        }
+    }
+}
+
+/// MD-10: the chars of the line `cs` that are the target of an inline link whose text is deceptive:
+/// what follows a `](` up to the blank or the `)` that ends it (a title is not a target, and a `<…>` is
+/// trimmed by the judgment; an image's
+/// `![` opens no link's text; a reference or an autolink has no `](`). Found by the chars, since the
+/// highlighter does not take a URL in strong text for a link's, and only in a line that the
+/// highlighter calls Markdown (it has a link or a URL) and outside inline code.
+pub fn deceptive_targets(cs: &[char], sp: &Spans) -> Vec<Range<usize>> {
+    let md = sp.iter().any(|s| matches!(s.1, Look::Link | Look::Url));
+    let code =
+        |i: usize| sp.iter().any(|(r, l)| matches!(l, Look::Code | Look::Band) && r.contains(&i));
+    let mut out: Vec<Range<usize>> = vec![];
+    for i in (0..cs.len().saturating_sub(1)).filter(|&i| md && cs[i] == ']' && cs[i + 1] == '(') {
+        let from = out.last().map_or(0, |r| r.end);
+        let Some(open) = cs[from..i].iter().rposition(|&c| c == '[').map(|j| from + j) else {
+            continue;
+        };
+        let (start, mut end, mut parens) = (i + 2, i + 2, 0);
+        while let Some(&c) = cs.get(end) {
+            if c.is_whitespace() || (c == ')' && parens == 0) {
+                break;
+            }
+            parens += i32::from(c == '(') - i32::from(c == ')');
+            end += 1;
+        }
+        let image = open > 0 && cs[open - 1] == '!';
+        let (text, target): (String, String) =
+            (cs[open + 1..i].iter().collect(), cs[start..end].iter().collect());
+        if start < end && !image && !code(i) && deceptive(&text, &target) {
+            out.push(start..end);
+        }
+    }
+    out
 }

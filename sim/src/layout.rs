@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -7,7 +7,7 @@ use crate::color::{Chg, Tones};
 use crate::diff::Sign;
 use crate::icons;
 use crate::marks::Git;
-use crate::md::{Plan, Read, Remap};
+use crate::md::{Plan, Read, Remap, deceptive_targets};
 use crate::paint::{Cue, Look, Looks, Paint, Paints, Role};
 use crate::syn::Spans;
 use crate::tabs::Tab;
@@ -377,7 +377,8 @@ pub fn scrollbar(
 
 /// UI-11: a cell of the scrollbar, `plain` where it shows nothing: a mark is `┃` in its color (a
 /// change's, the accent's for a match), the cursor `⎺⎻⎼⎽` in the secondary gray or the mark's
-/// color, the thumb a surface behind them.
+/// color, the thumb a surface behind them (where there is no color a rail `║`: a shape at the weight of
+/// the text, and not the inverse block that the brightest thing on the screen would be).
 fn scroll_cell(c: ScrollCell, t: &Tones, plain: Line) -> Line {
     let ink = match c.mark {
         Tick::Gain => Some(t.change_fg(Chg::Add)),
@@ -389,6 +390,7 @@ fn scroll_cell(c: ScrollCell, t: &Tones, plain: Line) -> Line {
     let glyph = match (c.cursor, ink) {
         (Some(q), _) => ["⎺", "⎻", "⎼", "⎽"][q.min(3)],
         (None, Some(_)) => "┃",
+        (None, None) if c.thumb && t.mono => "║", // (COLOR-3: a rail, not an inverse block)
         (None, None) if c.thumb => " ",
         _ => return plain,
     };
@@ -487,6 +489,43 @@ impl<'a> Ed<'a> {
     }
 }
 
+/// GIT-5: what the guard did to the repository, for the frame to say: nothing, `n` settings of its own
+/// turned off (git runs), or git not run at all.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Guard {
+    #[default]
+    None,
+    Off(usize),
+    Refused,
+}
+
+/// GIT-5: the words the frame says of the guard, in the first form that fits `room` columns.
+fn guard_words(g: Guard, room: usize) -> Option<String> {
+    let forms = match g {
+        Guard::None => return None,
+        Guard::Refused => vec![" git not run ".to_string(), " no git ".into()],
+        Guard::Off(n) => {
+            let s = if n == 1 { "" } else { "s" };
+            vec![
+                format!(" {n} git setting{s} off "),
+                format!(" git: {n} off "),
+                format!(" {n} off "),
+            ]
+        }
+    };
+    forms.into_iter().find(|w| w.len() <= room)
+}
+
+/// The color of a box's lines (LOOK-3): the focused one's, the other's, or (GIT-5) the alert's for both
+/// where git was not run.
+fn box_ink(t: &Tones, guard: Guard, focused: bool) -> Rgb {
+    match (guard == Guard::Refused, focused) {
+        (true, _) => t.alert_fg(),
+        (_, true) => t.focus,
+        _ => t.line,
+    }
+}
+
 /// What `body` needs to know about the look: the geometry, the tones (none when no tint, fog or
 /// color of a box can be drawn: calm, or no palette or truecolor), the fade of the panel, whether
 /// the Visual selection is a gray background (SYN-5), and for the borders of depth the App that has the file shown, the lines of it
@@ -505,6 +544,8 @@ pub struct Deck<'a> {
     /// UI-18: the parts of the breadcrumb (the path's components and the section) and the index of the
     /// file's, none where the interface does not draw it.
     pub crumb: (Vec<String>, usize),
+    /// GIT-5: what the guard did to the repository.
+    pub guard: Guard,
 }
 
 /// UI-2, UI-4: what the interface adds to a screen: whether the icons are drawn, the root as the
@@ -653,15 +694,22 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
 }
 
 /// UI-2: the first row of the panel: the root, home-relative, in bold, with the open folder.
-fn header_line(pw: u16, root: &str, icons: bool, t: &Tones) -> Line {
+fn header_line(pw: u16, root: &str, icons: bool, guard: Guard, t: &Tones) -> Line {
     let mut line = Line::default();
     let bar = Paint { bg: Some(t.bar), role: Role::Bar, ..Paint::default() };
     line.put(" ", bar);
     if icons {
         line.put(&format!("{} ", icons::OPEN), Paint { fg: Some(t.focus), ..bar });
     }
-    let room = usize::from(pw).saturating_sub(usize::from(line.cols) + 1);
+    // GIT-5: the words for the guard at the right end, if the root keeps room for six columns
+    let left = usize::from(pw).saturating_sub(usize::from(line.cols) + 1);
+    let words = guard_words(guard, left.saturating_sub(6));
+    let room = left - words.as_ref().map_or(0, |w| w.len() + 1);
     line.put(&tail(root, room), Paint { bold: true, ..bar });
+    if let Some(w) = words {
+        line.pad(pw - w.len() as u16 - 1);
+        line.put(&w, alert_block(t));
+    }
     line.pad(pw);
     line.paints.push((0..pw, bar));
     line
@@ -746,9 +794,18 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     let flash = Paint { bg: Some(back), fg: Some(text), cue: Cue::Solid, ..patch };
     let now = Paint { bg: Some(solid), fg: Some(ink), cue: Cue::Solid, ..patch };
     let hit = Paint { bg: Some(back), cue: Cue::Under, ..patch };
-    let lit = m.flash.iter().map(|r| (r.clone(), flash));
-    let lit = lit.chain(m.now.iter().map(|r| (r.clone(), now)));
-    paints.splice(0..0, lit.chain(m.hit.iter().map(|r| (r.clone(), hit))).collect::<Vec<_>>());
+    // UI-19: the lines another process wrote are the change's solid green, bold, under the yank's accent
+    // (brighter than the block of the words that came, which an added line has whole: else it would not show)
+    let (green, green_on) = t.add_solid();
+    let came = Paint { bg: Some(green), fg: Some(green_on), bold: true, cue: Cue::Solid, ..patch };
+    // MD-10 first (the alert), then these, all before every paint the row has: a changed row has its
+    // words and its tint already, and the first paint of a cell wins
+    let mut front: Paints = m.lie.iter().map(|r| (r.clone(), alert_block(t))).collect();
+    front.extend(m.flash.iter().map(|r| (r.clone(), flash)));
+    front.extend(m.wrote.iter().map(|r| (r.clone(), came)));
+    front.extend(m.now.iter().map(|r| (r.clone(), now)));
+    front.extend(m.hit.iter().map(|r| (r.clone(), hit)));
+    line.paints.splice(0..0, front);
     if !m.glyph.is_empty() {
         let mut cs: Vec<char> = line.row.text.chars().collect();
         for g in &m.glyph {
@@ -1026,12 +1083,16 @@ fn borders(d: &Deck) -> [Line; 2] {
     let (g, t) = (&d.geo, d.tones);
     let paint = |fg: Option<Rgb>, bold| Paint { fg, bold, ..Paint::default() };
     let own = |panel: bool| panel == d.focus; // whether that box has the focus
-    let line = |panel| paint(t.map(|t| if own(panel) { t.focus } else { t.line }), false);
+    let line = |panel| paint(t.map(|t| box_ink(t, d.guard, own(panel))), false);
     let title = |panel| paint(t.filter(|_| !own(panel)).map(|t| t.dim), true);
+    let words = |room: usize| t.and_then(|t| Some((guard_words(d.guard, room)?, alert_block(t))));
     let s = |text: &str, p| (text.to_string(), p);
     let (pw, ew) = (g.pw + 2, g.ew + g.sign + 2);
     let (mut top, mut bottom) = (Line::default(), Line::default());
-    let files = [s("files", title(true))];
+    let mut files = vec![s("files", title(true))];
+    if let Some((w, p)) = words(usize::from(pw).saturating_sub(4 + 5 + 1)).filter(|_| g.pw > 0) {
+        files.extend([s("─", line(true)), (w, p)]); // (GIT-5, where the tree is)
+    }
     if g.pw > 0 {
         top.add(border(pw, ['╭', '╮'], line(true), &files, &[]));
         bottom.add(border(pw, ['╰', '╯'], line(true), &[], &[]));
@@ -1059,11 +1120,13 @@ fn borders(d: &Deck) -> [Line; 2] {
                 surface,
             ),
         ];
-        let notes: Vec<(String, Paint)> = notes
+        let mut notes: Vec<(String, Paint)> = notes
             .into_iter()
             .filter(|n| n.0 > 0)
             .map(|(n, w, p)| (badge(n, w[0], w[1]), p.unwrap_or(paint(None, true))))
             .collect();
+        // GIT-5: with no tree to say it on, the editor's box does
+        notes.extend(words(usize::from(ew).saturating_sub(20)).filter(|_| g.pw == 0));
         // UI-16, UI-18: the title is the breadcrumb, and then the badges, a rule between them.
         let badges: usize = notes.iter().map(|n| fit(&n.0, usize::MAX).1 + 1).sum();
         left = notes.into_iter().flat_map(|n| [s("─", line(false)), n]).skip(1).collect();
@@ -1104,7 +1167,7 @@ pub fn body(
         l.put(s, Paint { fg, ..Paint::default() });
         l
     };
-    let edge = |panel: bool| cell("│", t.map(|t| if panel == d.focus { t.focus } else { t.line }));
+    let edge = |panel: bool| cell("│", t.map(|t| box_ink(t, d.guard, panel == d.focus)));
     let (mut lines, ticks) = (vec![], if g.boxed { ticks(d) } else { vec![] });
     let [top, bottom] = if g.boxed { borders(d).map(Some) } else { [None, None] };
     lines.extend(top);
@@ -1128,7 +1191,9 @@ pub fn body(
         line
     };
     if let (Some(c), Some(t), true) = (&d.chrome, t, g.head > 0) {
-        let p = (g.pw > 0).then(|| header_line(g.pw, c.root, c.icons, t));
+        let p = (g.pw > 0).then(|| {
+            header_line(g.pw, c.root, c.icons, if g.boxed { Guard::None } else { d.guard }, t)
+        });
         let end = if g.boxed {
             edge(false)
         } else {
@@ -1213,20 +1278,27 @@ pub struct Glyph {
     pub tone: Tone,
 }
 
-/// UI-15: takes the spans of `Style::Hidden` (a char shown in another form, SAFE-8) out of a row and
-/// paints their columns as the alert's block (its surface and its own text), sealed: no selection,
-/// match, surface, change, band or fog may change it, so the signal holds in every state of a cell.
-/// Where it is not called (calm) the Painter draws the style inverse, also sealed.
-pub fn alerted(row: &mut Row, paints: &mut Paints, t: &Tones) {
+/// UI-15: the alert's block: its surface and its own text, sealed (a char shown in another form, and, for
+/// the same reason of being what the reader must not miss, the frame's word for the guard, GIT-5, and
+/// the target of a link that lies, MD-10).
+pub fn alert_block(t: &Tones) -> Paint {
     let (back, text) = t.alert_block();
-    let block = Paint {
+    Paint {
         bg: Some(back),
         fg: Some(text),
         sealed: true,
         cue: Cue::Solid,
         role: Role::Alert,
         ..Paint::default()
-    };
+    }
+}
+
+/// UI-15: takes the spans of `Style::Hidden` (a char shown in another form, SAFE-8) out of a row and
+/// paints their columns as the alert's block (its surface and its own text), sealed: no selection,
+/// match, surface, change, band or fog may change it, so the signal holds in every state of a cell.
+/// Where it is not called (calm) the Painter draws the style inverse, also sealed.
+pub fn alerted(row: &mut Row, paints: &mut Paints, t: &Tones) {
+    let block = alert_block(t);
     let hidden: Vec<_> =
         row.spans.iter().filter(|s| s.1 == Style::Hidden).map(|s| (s.0.clone(), block)).collect();
     row.spans.retain(|s| s.1 != Style::Hidden);
@@ -1256,9 +1328,13 @@ pub struct Extra {
     pub badge: Vec<std::ops::Range<u16>>,
     /// UI-13: the columns of the text a yank has just taken, in this row.
     pub flash: Vec<std::ops::Range<u16>>,
+    /// UI-19: the columns of the text of a line another process has just written, in this row.
+    pub wrote: Vec<std::ops::Range<u16>>,
     /// UI-14: the columns of the matches of a search in this row, and of the current one.
     pub hit: Vec<std::ops::Range<u16>>,
     pub now: Vec<std::ops::Range<u16>>,
+    /// MD-10: the columns of the target of a link that lies, in this row.
+    pub lie: Vec<std::ops::Range<u16>>,
     /// MD-1: the row of a line of the read view, as it is drawn from the row the core made.
     pub map: Option<Remap>,
 }
@@ -1278,8 +1354,10 @@ impl Extra {
             glyph: glyph.collect(),
             badge: ranges(&self.badge),
             flash: ranges(&self.flash),
+            wrote: ranges(&self.wrote),
             hit: ranges(&self.hit),
             now: ranges(&self.now),
+            lie: ranges(&self.lie),
             ..self.clone()
         }
     }
@@ -1293,6 +1371,8 @@ pub struct LineUi {
     pub scope: Option<u16>,
     /// UI-13: the chars of the line a yank has just taken.
     pub flash: Option<std::ops::Range<usize>>,
+    /// UI-19: whether another process has just written the line.
+    pub wrote: bool,
     /// UI-14: the chars of the line that a search matches, and which of them is the current one.
     pub hits: Vec<std::ops::Range<usize>>,
     pub now: Option<usize>,
@@ -1367,6 +1447,7 @@ pub fn colors<'a>(
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, Band::None);
     let (mut lui, mut trail, mut badge, mut hk) = (LineUi::default(), 0, 0..0, 0);
+    let mut lie = Vec::<Range<usize>>::new();
     let (mut delim, mut framed, mut pipes, mut rule) = (false, false, (0, 0), false);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
@@ -1398,6 +1479,8 @@ pub fn colors<'a>(
             );
             plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s));
             (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
+            // MD-10: the targets of the links of this line that say another place
+            lie = sp.filter(|_| ui.is_some()).map_or(vec![], |s| deceptive_targets(&cs, s));
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
                 .filter(|_| ui.is_some())
@@ -1426,6 +1509,18 @@ pub fn colors<'a>(
                 match md[i].flash.last_mut() {
                     Some(b) if b.end == cols.start => b.end = cols.end,
                     _ => md[i].flash.push(cols),
+                }
+            }
+            if lie.iter().any(|r| r.contains(&ci)) {
+                match md[i].lie.last_mut() {
+                    Some(b) if b.end == cols.start => b.end = cols.end,
+                    _ => md[i].lie.push(cols.clone()),
+                }
+            }
+            if lui.wrote {
+                match md[i].wrote.last_mut() {
+                    Some(b) if b.end == cols.start => b.end = cols.end,
+                    _ => md[i].wrote.push(cols.clone()),
                 }
             }
             // UI-8: a table's pipe is a bar, and its delimiter row a grid, over the char: the same

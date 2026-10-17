@@ -46,9 +46,10 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 
 - Una anulación de derecha a izquierda, un espacio de ancho cero o un carácter de control se dibuja como `<U+202E>` o `^[` sobre un bloque magenta, en cualquier estado en que pueda estar una celda, y nunca se envía en bruto a la terminal. El texto literal `<U+202E>` de un archivo no recibe bloque.
 - Los espacios finales se ven como `·`, un espacio de no separación como `⍽` y un tabulador como `»`.
-- Cuando otro proceso reescribe el archivo abierto, las líneas cambiadas se marcan en el texto, el recuadro indica cuántos cambios hay en disco, la pestaña muestra `↯` y el árbol marca el archivo. `]c` y `[c` van a la marca siguiente y a la anterior.
+- Cuando otro proceso reescribe el archivo abierto, las líneas cambiadas destellan un instante y luego se marcan en el texto, el recuadro indica cuántos cambios hay en disco, la pestaña muestra `↯` y el árbol marca el archivo. `]c` y `[c` van a la marca siguiente y a la anterior.
 - Los cambios frente a git HEAD aparecen como signos en el margen, una letra de estado para cada archivo del árbol (una carpeta muestra la letra del estado más fuerte que hay debajo) y `+n ~n -n` en la línea de estado.
-- No se ejecuta git donde la propia configuración del repositorio podría ejecutar un comando (`core.fsmonitor`, un controlador de filtro y más). La línea de estado indica la clave y el archivo.
+- No se ejecuta git donde la propia configuración del repositorio podría ejecutar un comando (`core.fsmonitor`, un controlador de filtro y más): el recuadro dice `git not run` sobre el bloque de alerta y la línea de estado indica la clave y el archivo. Donde git sí se ejecuta con ajustes del propio repositorio desactivados (`core.fsmonitor`, la ruta de hooks, filtros o diff externo), el recuadro dice cuántos (`2 git settings off`).
+- Un enlace de Markdown cuyo texto parece una dirección que su destino no es (`[https://good.example](https://evil.example)`) tiene su destino sobre el bloque magenta, también en la vista de lectura, que nunca oculta los corchetes ni la URL de un enlace.
 
 **Rechaza lo que debe y conserva el texto**
 
@@ -64,7 +65,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 - En el benchmark del propio proyecto, una tecla tarda menos de 1 ms en el percentil 99 (archivo de 100 000 líneas, compilación release); el primer fotograma en un repositorio de 100 000 archivos se midió en 1,8 a 8,7 ms.
 - Colores de sintaxis a partir de la paleta de la terminal, Markdown que se lee en su sitio (marcas ocultas, tablas alineadas y la línea donde estás siempre es el texto del archivo), tres apariencias (`zl`), ajuste de línea japonés con kinsoku y teclas de ancho completo.
 - El título del editor es una ruta de migas, `src › sim.rs › leader_key`: la ruta y el encabezado o la función donde está el cursor. Cada dato está en un solo lugar: la línea de estado tiene el modo, la rama, los contadores y la posición, y dice `CRLF`, `BOM` o que el archivo no es UTF-8 solo cuando es así; la pestaña tiene el archivo y `●`, la barra de desplazamiento la posición, y el árbol no está en niebla.
-- Con `NO_COLOR` y en las terminales con menos de 8 colores se dibuja solo con grosor, subrayado y vídeo inverso, y el significado nunca depende solo del color: una línea cambiada es `┆`, las carpetas muestran letras de estado y una pestaña muestra `↯` cuando un archivo cambió en disco.
+- Con `NO_COLOR` y en las terminales con menos de 8 colores se dibuja solo con grosor, subrayado y vídeo inverso, y el significado nunca depende solo del color: una línea cambiada es `┆`, las carpetas muestran letras de estado y una pestaña muestra `↯` cuando un archivo cambió en disco, y el tirador de la barra de desplazamiento es un raíl `║`, no un bloque invertido.
 
 **Teclas que se pueden encontrar**
 

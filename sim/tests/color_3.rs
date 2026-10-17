@@ -11,7 +11,7 @@ use common::*;
 use sim::color::Syntax;
 use sim::layout::Skin;
 use sim::paint::Painter;
-use sim::sim::SimEvent;
+use sim::sim::{SimEffect, SimEvent};
 use sim_core::core::app::Event;
 
 const BOLD: u8 = 1;
@@ -197,12 +197,43 @@ fn color_3_a_tab_says_unsaved_with_a_bold_dot_and_changed_on_disk_with_an_arrow(
     golden("color_3_tabs", &shot);
 }
 
+/// The number of the last flash the Sim asked the shell for.
+fn flash_of(r: &Rig) -> u64 {
+    r.log
+        .iter()
+        .rev()
+        .find_map(|e| if let SimEffect::Flash(n, _) = e { Some(*n) } else { None })
+        .unwrap()
+}
+
+#[test]
+fn color_3_the_lines_another_process_wrote_are_bold_on_inverse_while_they_flash_and_then_are_not() {
+    let mut r = scene("color-3-flash");
+    let id = r.sim.bufs[0].id;
+    let theirs = "l1\nL2\nl3\nl4 edited\nl5\nnew\nl6\nl7\nl9\nl10 from the disk\n";
+    r.send(SimEvent::App(id, disk(theirs.as_bytes())));
+    let (shot, grid) = stripped(&r);
+    let (y, x) = find(&grid, "from the disk");
+    assert_eq!(grid[y][x].1, INVERSE | BOLD, "lit\n{shot}");
+    assert_eq!(grid[y][x - 2].1, INVERSE | BOLD, "the whole line, not only the word\n{shot}");
+    let (e, xe) = find(&grid, "l4 edited");
+    assert_eq!(grid[e][xe].1, INVERSE | BOLD, "a changed line, its first char\n{shot}");
+    let (l3, x3) = find(&grid, " l3");
+    assert_eq!(grid[l3][x3 + 1].1 & (INVERSE | BOLD), 0, "a line that was not written\n{shot}");
+    golden("color_3_flash", &shot);
+    r.send(SimEvent::Unflash(flash_of(&r)));
+    let (shot, grid) = stripped(&r);
+    assert_eq!(grid[y][x - 2].1 & (INVERSE | BOLD), 0, "put out\n{shot}");
+}
+
 #[test]
 fn color_3_a_word_from_the_disk_is_inverse_a_hidden_char_is_inverse_and_bold_and_the_mode_a_word() {
     let mut r = scene("color-3-words");
     let id = r.sim.bufs[0].id;
     let theirs = "l1\nL2\nl3\nl4\nl5\nnew\nl6\nl7\nl9\nl10 from the disk\n";
     r.send(SimEvent::App(id, disk(theirs.as_bytes())));
+    // (the flash of UI-19 is over: this is the state the marks leave, and the flash has its own case)
+    r.send(SimEvent::Unflash(flash_of(&r)));
     let (shot, grid) = stripped(&r);
     let (y, x) = find(&grid, "from the disk");
     assert_eq!(grid[y][x].1, INVERSE, "a word that came from the disk\n{shot}");

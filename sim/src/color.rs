@@ -249,6 +249,8 @@ pub struct Tones {
     pub thumb: Rgb,
     /// UI-14, PICK-4: the text on the accent's solid color (found once: it is asked for in every row).
     solid_on: Rgb,
+    /// UI-19: the text on the change's solid green (its text color as a background).
+    add_on: Rgb,
     /// UI-8: a heading's text (the hue SYN-1 gives functions, |Lc| >= 75.5 against the stronger band)
     /// and the bands of the first and the second level: the page mixed 18% and 9% toward that hue, less
     /// where that would be farther from the page in lightness than the card.
@@ -307,6 +309,7 @@ impl Tones {
             gray: by(p.secondary, 0.30),
             gray_on: text_on(p.primary, by(p.secondary, 0.30)),
             solid_on: text_on(p.primary, fg[Accent::Blue as usize]),
+            add_on: text_on(p.primary, fg[Accent::Green as usize]),
             head: text_on(cyan, head1),
             head1,
             head2,
@@ -338,6 +341,13 @@ impl Tones {
     /// matched chars of a preview: its text color (|Lc| >= 75.5 against the card) and the text on it.
     pub fn accent_solid(&self) -> (Rgb, Rgb) {
         (self.fg(Accent::Blue), self.solid_on)
+    }
+
+    /// UI-19: the change's green as a solid background, brighter than the block of a word that came
+    /// (`add`), so that a flash on a line whose words are on that block can be seen: its text color
+    /// (|Lc| >= 75.5 against the card) and the text on it.
+    pub fn add_solid(&self) -> (Rgb, Rgb) {
+        (self.fg(Accent::Green), self.add_on)
     }
 
     /// The Alert: magenta, likewise.
@@ -384,6 +394,7 @@ impl Tones {
             ("accent block text", A, ao),
             ("accent solid", A, sb),
             ("accent solid text", A, so),
+            ("add solid text", Change, self.add_on),
             ("heading text", Kind, self.head),
             ("heading band", Kind, self.head1),
             ("fainter heading band", Kind, self.head2),

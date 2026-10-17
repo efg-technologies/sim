@@ -1,0 +1,196 @@
+scene 1032x632 floor #15171c page #282c34
+layer 0
+  Box [16 16 1000 580] r10 #282c34 shadow(dy 4 blur 16 #000000/0.60) rim(#ffffff/0.22 1)
+  Strip [16 597 1000 18] r6 #353840 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [26 38 120 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Strip [146 36 860 20] r0 #353840
+  Heading [88 58 916 16] r6 #32424b shadow(dy 1 blur 4 #000000/0.40)
+  Heading [88 138 916 16] r6 #2d373f shadow(dy 1 blur 4 #000000/0.40)
+  Patch [126 178 130 16] r4 #3a3d45
+  Patch [536 178 130 16] r4 #3a3d45
+  Heading [88 298 916 16] r6 #2d373f shadow(dy 1 blur 4 #000000/0.40)
+  Band [88 478 916 96] r6 #33373f shadow(dy 1 blur 4 #000000/0.40)
+  Pill [254 18 134 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Shape [28 37 2 18] r1 #c6e1ff
+  Shape [31 177 1 5] r0 #feda99
+  Shape [31 184 1 5] r0 #feda99
+  Shape [31 190 1 5] r0 #feda99
+  Shape [27 273 8 2] r1 #fed6d7
+  Shape [91 336 1 20] r0 #b8b8b8
+  Shape [241 336 1 20] r0 #b8b8b8
+  Shape [431 336 1 20] r0 #b8b8b8
+  Shape [91 356 1 20] r0 #b8b8b8
+  Shape [91 366 5 1] r0 #b8b8b8
+  Shape [96 366 10 1] r0 #b8b8b8
+  Shape [106 366 10 1] r0 #b8b8b8
+  Shape [116 366 10 1] r0 #b8b8b8
+  Shape [126 366 10 1] r0 #b8b8b8
+  Shape [136 366 10 1] r0 #b8b8b8
+  Shape [146 366 10 1] r0 #b8b8b8
+  Shape [156 366 10 1] r0 #b8b8b8
+  Shape [166 366 10 1] r0 #b8b8b8
+  Shape [176 366 10 1] r0 #b8b8b8
+  Shape [186 366 10 1] r0 #b8b8b8
+  Shape [196 366 10 1] r0 #b8b8b8
+  Shape [206 366 10 1] r0 #b8b8b8
+  Shape [216 366 10 1] r0 #b8b8b8
+  Shape [226 366 10 1] r0 #b8b8b8
+  Shape [236 366 10 1] r0 #b8b8b8
+  Shape [241 356 1 20] r0 #b8b8b8
+  Shape [246 366 10 1] r0 #b8b8b8
+  Shape [256 366 10 1] r0 #b8b8b8
+  Shape [266 366 10 1] r0 #b8b8b8
+  Shape [276 366 10 1] r0 #b8b8b8
+  Shape [286 366 10 1] r0 #b8b8b8
+  Shape [296 366 10 1] r0 #b8b8b8
+  Shape [306 366 10 1] r0 #b8b8b8
+  Shape [316 366 10 1] r0 #b8b8b8
+  Shape [326 366 10 1] r0 #b8b8b8
+  Shape [336 366 10 1] r0 #b8b8b8
+  Shape [346 366 10 1] r0 #b8b8b8
+  Shape [356 366 10 1] r0 #b8b8b8
+  Shape [366 366 10 1] r0 #b8b8b8
+  Shape [376 366 10 1] r0 #b8b8b8
+  Shape [386 366 10 1] r0 #b8b8b8
+  Shape [396 366 10 1] r0 #b8b8b8
+  Shape [406 366 10 1] r0 #b8b8b8
+  Shape [416 366 10 1] r0 #b8b8b8
+  Shape [431 356 1 20] r0 #b8b8b8
+  Shape [426 366 5 1] r0 #b8b8b8
+  Shape [91 376 1 20] r0 #b8b8b8
+  Shape [241 376 1 20] r0 #b8b8b8
+  Shape [431 376 1 20] r0 #b8b8b8
+  Shape [91 396 1 20] r0 #b8b8b8
+  Shape [241 396 1 20] r0 #b8b8b8
+  Shape [431 396 1 20] r0 #b8b8b8
+  Shape [89 436 1 20] r1 #b8b8b8
+  Shape [91 516 1 20] r0 #64676c
+  Shape [1008 58 6 516] r3 #b8b8b8/0.07
+  Thumb [1008 57 6 478] r3 #4c4f56 shadow(dy 1 blur 4 #000000/0.40)
+  Shape [1007 58 8 2] r1 #b8b8b8
+  Shape [1012 157 3 18] r2 #feda99
+  Shape [1012 237 3 18] r2 #fed6d7
+  text [46 16] "README.md" #eaeaea bold
+  text [146 16] "›" #828387
+  text [166 16] "Lantern" #eaeaea
+  text [266 16] "git" #f1f1f1
+  text [306 16] "not" #f1f1f1
+  text [346 16] "run" #f1f1f1
+  text [46 36] "README.md" #eaeaea bold
+  text [46 56] "1" #eaeaea bold
+  text [86 56] "#" #b8b8b8
+  text [106 56] "Lantern" #8feefa bold
+  text [66 76] "1" #b8b8b8
+  text [66 96] "2" #b8b8b8
+  text [86 96] "A" #eaeaea
+  text [106 96] "tiny" #eaeaea
+  text [156 96] "made-up" #eaeaea
+  text [236 96] "project" #eaeaea
+  text [316 96] "that" #eaeaea
+  text [366 96] "sim" #eaeaea bold
+  text [406 96] "opens" #eaeaea
+  text [466 96] "in" #eaeaea
+  text [496 96] "a" #eaeaea
+  text [516 96] "window," #eaeaea
+  text [596 96] "to" #eaeaea
+  text [626 96] "show" #eaeaea
+  text [676 96] "what" #eaeaea
+  text [726 96] "is" #eaeaea
+  text [756 96] "hidden." #eaeaea
+  text [66 116] "3" #b8b8b8
+  text [66 136] "4" #b5b5b5
+  text [86 136] "##" #b8b8b8
+  text [116 136] "Usage" #8deaf6 bold
+  text [66 156] "5" #b2b2b2
+  text [66 176] "6" #aeafaf
+  text [86 176] "Run" #ddddde
+  text [126 176] "lantern" #ddddde
+  text [206 176] "build" #ddddde
+  text [266 176] "to" #ddddde
+  text [296 176] "compile" #ddddde
+  text [376 176] "the" #ddddde
+  text [416 176] "notes," #ddddde
+  text [486 176] "then" #ddddde
+  text [536 176] "lantern" #ddddde
+  text [616 176] "serve." #ddddde
+  text [66 196] "7" #abacad
+  text [66 216] "8" #aaaaab
+  text [86 216] "-" #b8b8b8
+  text [106 216] "[x]" #d7d7d8
+  text [146 216] "read" #b8b8b8
+  text [196 216] "the" #b8b8b8
+  text [236 216] "notes" #b8b8b8
+  text [66 236] "9" #a7a7a8
+  text [86 236] "-" #b8b8b8
+  text [106 236] "[" #d2d3d4
+  text [126 236] "]" #d2d3d4
+  text [146 236] "write" #d2d3d4
+  text [206 236] "the" #d2d3d4
+  text [246 236] "tests" #d2d3d4
+  text [56 256] "10" #a3a4a5
+  text [86 256] "-" #b8b8b8
+  text [106 256] "[" #d2d3d4
+  text [126 256] "]" #d2d3d4
+  text [146 256] "ship" #d2d3d4
+  text [196 256] "it" #d2d3d4
+  text [56 276] "11" #a0a1a3
+  text [56 296] "12" #9d9ea0
+  text [86 296] "##" #b8b8b8
+  text [116 296] "Layout" #88e0ec bold
+  text [56 316] "13" #9a9b9d
+  text [56 336] "14" #97989a
+  text [106 336] "path" #d2d3d4
+  text [256 336] "what" #d2d3d4
+  text [306 336] "it" #d2d3d4
+  text [336 336] "is" #d2d3d4
+  text [56 356] "15" #949597
+  text [56 376] "16" #939497
+  text [106 376] "src/main.rs" #d2d3d4
+  text [256 376] "the" #d2d3d4
+  text [296 376] "entry" #d2d3d4
+  text [356 376] "point" #d2d3d4
+  text [56 396] "17" #939497
+  text [106 396] "src/notes.rs" #d2d3d4
+  text [256 396] "the" #d2d3d4
+  text [296 396] "notes" #d2d3d4
+  text [356 396] "parser" #d2d3d4
+  text [56 416] "18" #939497
+  text [56 436] "19" #939497
+  text [106 436] "Depth" #d2d3d4
+  text [166 436] "is" #d2d3d4
+  text [196 436] "not" #d2d3d4
+  text [236 436] "decoration:" #d2d3d4
+  text [356 436] "it" #d2d3d4
+  text [386 436] "shows" #d2d3d4
+  text [446 436] "what" #d2d3d4
+  text [496 436] "is" #d2d3d4
+  text [526 436] "hidden." #d2d3d4
+  text [56 456] "20" #939497
+  text [56 476] "21" #939497
+  text [86 476] "```rust" #b8b8b8
+  text [956 476] "rust" #b8b8b8
+  text [56 496] "22" #939497
+  text [86 496] "fn" #fdc8c9 bold
+  text [116 496] "main" #84e1ed
+  text [156 496] "()" #d2d3d4
+  text [186 496] "{" #d2d3d4
+  text [56 516] "23" #939497
+  text [126 516] "println!" #84e1ed
+  text [206 516] "(" #d2d3d4
+  text [216 516] "\"hello," #b4e095
+  text [296 516] "lantern\"" #b4e095
+  text [376 516] ");" #d2d3d4
+  text [56 536] "24" #939497
+  text [86 536] "}" #d2d3d4
+  text [56 556] "25" #939497
+  text [86 556] "```" #b8b8b8
+  text [16 596] "git" #f5d6ff
+  text [56 596] "skipped:" #f5d6ff
+  text [146 596] "core.sshcommand" #f5d6ff
+  text [306 596] "in" #f5d6ff
+  text [336 596] ".git/config" #f5d6ff
+  text [456 596] "could" #f5d6ff
+  text [516 596] "run" #f5d6ff
+  text [556 596] "a" #f5d6ff
+  text [576 596] "command" #f5d6ff
+cursor Block [86 56 10 20] #eaeaea

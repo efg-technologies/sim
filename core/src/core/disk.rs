@@ -160,6 +160,7 @@ impl App {
                 words: words.clone(),
             }));
         }
+        self.wrote = marks.iter().filter(|m| m.kind != '-').map(|m| m.line).collect();
         // Where a line of mine went (`end`: where the range that ends with it ends), and whether a
         // change of the file replaced it.
         let first = |l: usize| regs.partition_point(|r| r.0 + r.1 <= l);

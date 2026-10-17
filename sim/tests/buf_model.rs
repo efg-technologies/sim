@@ -413,7 +413,7 @@ impl W {
                     | SimEffect::TabUses(_)
                     | SimEffect::Changes(_)
                     | SimEffect::Show(_)
-                    | SimEffect::Flash(_) => {}
+                    | SimEffect::Flash(..) => {}
                     SimEffect::Files => self.files_req = true,
                     SimEffect::Status => self.status_req = true,
                     SimEffect::History(h) => {
@@ -788,7 +788,11 @@ impl W {
                     let ev = if self.n % 2 == 0 {
                         SimEvent::Status(Err("not a git repository: x".into()))
                     } else {
-                        SimEvent::Status(Ok((b" M f0\0?? sub/f3\0".to_vec(), String::new())))
+                        SimEvent::Status(Ok((
+                            b" M f0\0?? sub/f3\0".to_vec(),
+                            String::new(),
+                            vec![],
+                        )))
                     };
                     self.chan.push_back(ev);
                 }

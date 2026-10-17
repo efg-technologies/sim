@@ -126,7 +126,10 @@ fn ui_13_n_in_insert_mode_and_after_an_operator_keep_their_meaning_and_the_text_
 // ---- the flash ----
 
 fn flashes(r: &Rig) -> Vec<u64> {
-    r.log.iter().filter_map(|e| if let SimEffect::Flash(n) = e { Some(*n) } else { None }).collect()
+    r.log
+        .iter()
+        .filter_map(|e| if let SimEffect::Flash(n, _) = e { Some(*n) } else { None })
+        .collect()
 }
 
 /// The merged background of a cell.

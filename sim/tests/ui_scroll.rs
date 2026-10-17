@@ -6,6 +6,7 @@ mod common;
 use common::*;
 use sim::color::{Chg, Syntax, Tones};
 use sim::layout::{ScrollCell, Skin, Tick, scrollbar};
+use sim::paint::Painter;
 use sim::sim::SimEvent;
 use sim_core::core::app::Event;
 use sim_core::core::color::{Rgb, palette};
@@ -218,4 +219,64 @@ fn ui_11_a_click_on_the_scrollbar_changes_nothing() {
     r.click(g.tx() + g.ew, g.y0 + 5);
     assert_eq!((r.app().buf.cursor, r.app().top), before);
     assert_eq!(g.rule, 1, "the column is reserved in flat");
+}
+
+/// `r` as the Painter writes it, without color when `mono`.
+fn written(r: &Rig) -> String {
+    let mut p = Painter::new(Vec::new());
+    p.draw(r.shot.clone()).unwrap();
+    String::from_utf8(p.out).unwrap()
+}
+
+fn mono_body(name: &str, skin: Skin, text: &str) -> Rig {
+    let mut r = rig_env(name, &[&format!("a.rs={text}")], &["a.rs"], (80, 24), |e| {
+        e.skin = skin;
+        e.syn = Syntax::mono();
+        e.chrome = true;
+    });
+    r.send(SimEvent::Term(Event::Bg(BG)));
+    r
+}
+
+#[test]
+fn ui_11_without_color_the_handle_is_a_rail_at_the_weight_of_the_text_and_not_an_inverse_block() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        // a long file (the handle is a part of the bar) and a short one (it is most of it)
+        for (name, text) in [("long", lines(300)), ("fits", lines(5))] {
+            let r = mono_body(&format!("ui11-mono-{name}"), skin, &text);
+            let cells = bar(&r);
+            assert!(cells.iter().any(|c| c.0 == '║'), "{skin:?} {name}: a handle: {cells:?}");
+            // the rows of the handle are the rows of the lines on screen, from the first on (the
+            // cursor's marker is in the first)
+            let rail: Vec<bool> = cells.iter().map(|c| "║⎺⎻⎼⎽".contains(c.0)).collect();
+            assert!(rail[0], "{skin:?} {name}");
+            assert!(!rail[rail.len() - 1] || name == "fits", "{skin:?} {name}: not the whole bar");
+            let out = written(&r);
+            let at = out.find('║').unwrap();
+            let sgr = format!("\x1b[{}", out[..at].rsplit("\x1b[").next().unwrap());
+            assert!(!sgr.contains(";7") && !sgr.contains(";1"), "{skin:?} {name}: {sgr:?}");
+            // nothing in the column is inverse: the cursor's marker and the border do not need to be
+            assert!(!out.contains("\x1b[0;7m║"), "{skin:?} {name}");
+        }
+    }
+}
+
+#[test]
+fn ui_11_with_color_the_handle_is_the_surface_it_was_and_has_no_rail() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let r = body("ui11-color", skin, &lines(300), (80, 24), |_| {});
+        let (t, cells) = (Tones::new(&palette(BG)), bar(&r));
+        assert!(cells.iter().any(|c| c.2 == Some(t.thumb)), "{skin:?}");
+        assert!(cells.iter().all(|c| c.0 != '║'), "{skin:?}: {cells:?}");
+        let out = written(&r);
+        assert!(!out.contains('║'), "{skin:?}: the colors are not changed by the rail");
+    }
+}
+
+#[test]
+fn ui_11_a_mark_and_the_cursor_in_the_handle_stay_what_they_are_without_color() {
+    let r = mono_body("ui11-mono-cursor", Skin::Flat, &lines(300));
+    let cells = bar(&r);
+    assert!(['⎺', '⎻', '⎼', '⎽'].contains(&cells[0].0), "the cursor's marker: {cells:?}");
+    assert_eq!(cells.iter().filter(|c| ['⎺', '⎻', '⎼', '⎽'].contains(&c.0)).count(), 1);
 }

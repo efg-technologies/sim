@@ -184,6 +184,9 @@ pub struct App {
     /// While a search is typed (VI-14): where its first match is. The screen is drawn around it as if
     /// the cursor were there; the cursor itself stays where it is until Enter.
     pub pv: Option<usize>,
+    /// The lines of the text that the last merge of the file from disk marked as written (`+` or `~`,
+    /// a conflict's too), for the host to light (UI-19); the host clears it.
+    pub wrote: Vec<usize>,
 }
 
 impl App {

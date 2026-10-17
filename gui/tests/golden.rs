@@ -17,7 +17,8 @@
     clippy::panic,
     clippy::chunks_exact_to_as_chunks
 )] // helpers; the tests themselves may unwrap
-use sim_gui::api::{Chg, Resolver, Rgb, apca};
+use sim_gui::api::sio::GIT_SKIPPED;
+use sim_gui::api::{Chg, Resolver, Rgb, SimEvent, apca};
 use sim_gui::font::FontConfig;
 use sim_gui::frame::Snapshot;
 use sim_gui::headless::Headless;
@@ -103,7 +104,20 @@ fn table_row(h: &mut Headless) {
     h.keys("<C-n><Esc>17G");
 }
 
-const CASES: [Case; 7] = [
+/// GIT-5: git was not run for the repository's config: the alert's words in the tree's top border.
+fn guard(h: &mut Headless) {
+    let why = "core.sshcommand in .git/config could run a command";
+    h.session.send(SimEvent::Status(Err(format!("{GIT_SKIPPED}{why}"))));
+}
+
+/// MD-10: a link whose text is an address that its target is not: the target is the alert's block.
+fn lie(h: &mut Headless) {
+    let text = "# Links\n\n[https://good.example/docs](https://evil.example/login) and [docs](https://good.example)\n";
+    std::fs::write(h.dir.join("lie.md"), text).unwrap();
+    h.keys(":e lie.md\n");
+}
+
+const CASES: [Case; 9] = [
     Case { name: "tree_markdown_dark", file: "README.md", theme: DARK, drive: tree_markdown },
     Case { name: "tree_markdown_light", file: "README.md", theme: LIGHT, drive: tree_markdown },
     Case { name: "picker_dark", file: "README.md", theme: DARK, drive: picker },
@@ -111,6 +125,8 @@ const CASES: [Case; 7] = [
     Case { name: "which_key_dark", file: "README.md", theme: DARK, drive: which_key },
     Case { name: "changes_dark", file: "README.md", theme: DARK, drive: changes },
     Case { name: "table_row_dark", file: "README.md", theme: DARK, drive: table_row },
+    Case { name: "guard_dark", file: "README.md", theme: DARK, drive: guard },
+    Case { name: "lie_dark", file: "README.md", theme: DARK, drive: lie },
 ];
 
 fn headless(c: &Case, size: (u16, u16)) -> Headless {

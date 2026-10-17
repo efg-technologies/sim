@@ -2591,4 +2591,135 @@ ui_10_a_file_that_is_not_utf_8_says_read_only_and_not_utf_8_each_once() {
   wait_for "read-only: not valid UTF-8"
 }
 
+# GIT-5: the frame says what the guard did to the repository: in depth the top border of the tree's box,
+# in flat the tree's header, in the alert's block (inverse and bold with no color), and the lines of the
+# boxes the alert's where git was not run. Calm has no frame to say it on; the status line always does.
+git_5_the_frame_says_where_git_is_not_run_and_how_many_settings_are_turned_off() {
+  gitproject
+  git -C "$W" config core.sshCommand cat
+  look depth
+  CT=truecolor
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "git not run"
+  screen | head -1 | grep -F -q "╭─files"
+  screen | head -1 | grep -F -q " git not run "
+  screen_esc | head -1 | grep -a -q '48;2;[0-9;]*m git not run ' # the alert's block
+  refused=$(screen_esc | head -1 | grep -a -o '\[[0-9;]*m╭' | head -1)
+  restart
+  # settings turned off: the words alone (git runs), and the lines are as they were
+  git -C "$W" config --unset core.sshCommand
+  git -C "$W" config core.fsmonitor /bin/false
+  git -C "$W" config filter.canary.clean cat
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "git: 2 off" # (the box is too narrow at 80 columns for the long form)
+  screen | head -1 | grep -F -q " git: 2 off "
+  screen_esc | head -1 | grep -a -q '48;2;[0-9;]*m git: 2 off '
+  off=$(screen_esc | head -1 | grep -a -o '\[[0-9;]*m╭' | head -1)
+  [ "$off" != "$refused" ] # (the corner of the box is the alert's only where git was not run)
+  restart
+  # flat: at the right end of the tree's header; the words are in the first row
+  look flat
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "git: 2 off"
+  screen | head -1 | grep -F -q "git: 2 off"
+  restart
+  # calm: nothing on the frame, the status line said it once
+  look calm
+  start
+  wait_for "turned off the repository's core.fsmonitor and 1 other"
+  gone "git: 2 off"
+}
+
+# GIT-5, COLOR-2: with no color the words are inverse and bold.
+git_5_with_no_color_the_words_on_the_frame_are_inverse_and_bold() {
+  gitproject
+  git -C "$W" config core.sshCommand cat
+  look depth
+  CT=truecolor
+  NOCOLOR=1
+  start
+  wait_for "git not run"
+  before=$(screen_esc | head -1 | grep -a -o '.\{0,30\} git not run ' | sed 's/ git not run //')
+  case $before in *'[7m'* | *';7m'* | *';7;'* | *'[0;7'*) ;; *) { echo "not inverse: $(printf '%s' "$before" | cat -v)"; false; } ;; esac
+  case $before in *'[1m'* | *';1m'* | *';1;'* | *'[0;1'* | *';1;7'*) ;; *) { echo "not bold: $(printf '%s' "$before" | cat -v)"; false; } ;; esac
+}
+
+# UI-19: the lines another process wrote are lit for a moment (bold on the change's green) and then are
+# marked as they always were; they are the lines that were written and no other.
+ui_19_the_lines_another_process_wrote_are_lit_for_a_moment_and_then_marked() {
+  printf 'one\ntwo\nthree\n' > "$W/a.txt"
+  look flat
+  CT=truecolor
+  start a.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "three"
+  printf 'one\ntwo\nthree\nfour written\n' > "$W/a.txt.new" && mv "$W/a.txt.new" "$W/a.txt"
+  lit() { screen_esc | grep -a 'four written' | grep -aq '\[1m'; } # (the text is bold: tmux says it apart)
+  tries=100
+  while ! lit && [ "$tries" -gt 0 ]; do sleep 0.02; tries=$((tries - 1)); done
+  lit
+  ! screen_esc | grep -a 'three' | grep -aq '\[1m' # a line that was not written is not
+  tries=60
+  while lit && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  ! lit
+  wait_for "1 change on disk" # and the mark stays
+}
+
+# MD-10: a link whose text is an address that its target is not has its target in the alert's block, in
+# a raw line and in a line of the read view; one that says what it is does not; and the read view hides
+# none of it.
+md_10_a_link_that_says_one_place_and_goes_to_another_has_its_target_marked() {
+  printf '[https://good.example/docs](https://evil.example/login) raw\n\n[https://good.example/docs](https://evil.example/login) **read**\n[docs](https://fine.example/docs)\n' > "$W/a.md"
+  markdown on
+  look depth
+  CT=truecolor
+  start a.md
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "evil.example/login"
+  wait_for "https://good.example/docs](https://evil.example/login) read" # the read view: `**` gone, the link whole
+  [ "$(screen_esc | grep -a -c '48;2;[0-9;]*mhttps://evil.example/login')" -eq 2 ] # both lines
+  ! screen_esc | grep -a 'fine.example' | grep -aq '48;2;[0-9;]*mhttps://fine.example' # the honest one is not
+}
+
+# MD-10, COLOR-2: with no color the target is inverse and bold, and every char of it is on the screen.
+md_10_with_no_color_the_target_of_a_link_that_lies_is_inverse_and_bold() {
+  printf '[https://good.example/docs](https://evil.example/login) x\n' > "$W/a.md"
+  markdown on
+  look depth
+  CT=truecolor
+  NOCOLOR=1
+  start a.md
+  wait_for "https://evil.example/login"
+  # (the highlighter's answer comes after the first frame: the link is marked when it has)
+  before() { screen_esc | grep -a 'evil.example' | grep -a -o '.\{0,40\}https://evil.example/login' | sed 's/https:.*//'; }
+  tries=100
+  while ! before | grep -aq '7' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  seqs=$(before)
+  case $seqs in *'[7m'* | *';7m'* | *';7;'* | *'[0;7'*) ;; *) { echo "not inverse: $(printf '%s' "$seqs" | cat -v)"; false; } ;; esac
+  case $seqs in *'[1m'* | *';1m'* | *';1;'* | *'[0;1'* | *';1;7'*) ;; *) { echo "not bold: $(printf '%s' "$seqs" | cat -v)"; false; } ;; esac
+}
+
+# UI-11, COLOR-3: with no color the scrollbar's handle is a rail of `║` at the weight of the text, and
+# not an inverse block (the brightest thing on the screen, whether the file fits or not).
+ui_11_with_no_color_the_scrollbar_s_handle_is_a_rail_and_not_an_inverse_block() {
+  seq 1 100 | sed 's/^/line /' > "$W/long.txt"
+  look flat
+  CT=truecolor
+  NOCOLOR=1
+  start long.txt
+  wait_for "line 20"
+  screen | grep -F -q "║" # the handle
+  rail=$(screen_esc | grep -a -o '.\{0,12\}║' | head -3)
+  case $rail in *'[7m'* | *';7m'* | *';7;'* | *'[0;7'* | *'[1m'*) { echo "the rail is inverse or bold: $(printf '%s' "$rail" | cat -v)"; false; } ;; esac
+  # a file that fits has the rail too, at the same weight
+  printf 'a\nb\n' > "$W/short.txt"
+  typed ":e short.txt"
+  keys Enter
+  wait_for "short.txt"
+  screen | grep -F -q "║"
+}
+
 main "$@"

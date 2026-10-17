@@ -14,9 +14,7 @@ use crate::color::Syntax;
 use crate::io::{self as sio, HlJob, Job, MERGE};
 use crate::layout::Skin;
 use crate::rank::History;
-use crate::sim::{
-    DiffReq, Env, FLASH_MS, Id, PAUSE_MS, SPIN_MS, Sim, SimEffect, SimEvent, Start, start,
-};
+use crate::sim::{DiffReq, Env, Id, PAUSE_MS, SPIN_MS, Sim, SimEffect, SimEvent, Start, start};
 use sim_core::core::app::{Effect, Event};
 use sim_core::core::buffer::hash;
 use sim_core::io::file::{self, read};
@@ -383,8 +381,8 @@ impl Shell {
                 let blob = sio::show_head(&root, &path);
                 self.local.push(SimEvent::Shown(path, blob));
             }
-            (SimEffect::Flash(n), _) => {
-                self.later(Duration::from_millis(FLASH_MS), SimEvent::Unflash(n))
+            (SimEffect::Flash(n, ms), _) => {
+                self.later(Duration::from_millis(ms), SimEvent::Unflash(n))
             }
             // PICK-5: a frame of the spinner; the state asks again while the search runs.
             (SimEffect::Spin(n), _) => {

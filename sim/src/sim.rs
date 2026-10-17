@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -49,6 +49,8 @@ use unicode_width::UnicodeWidthStr;
 
 /// UI-13: how long a yank is lit, as the author's `on_yank({ timeout = 150 })`.
 pub const FLASH_MS: u64 = 150;
+/// UI-19: how long the lines another process wrote are lit: a glance is a few hundred milliseconds long.
+pub const WROTE_MS: u64 = 400;
 /// PICK-5: how long a frame of the spinner lasts.
 pub const SPIN_MS: u64 = 80;
 /// KEY-3: how long a pause on a prefix lasts before which-key opens: which-key's own default for a
@@ -62,6 +64,15 @@ struct Flash {
     id: Id,
     chars: std::ops::Range<usize>,
     ver: u64,
+    n: u64,
+}
+
+/// UI-19: the lines (0-based, ascending) of the file `id` that another process wrote, lit while the
+/// text is the version `ver`.
+struct Wrote {
+    id: Id,
+    ver: u64,
+    lines: Vec<usize>,
     n: u64,
 }
 
@@ -94,7 +105,7 @@ pub enum SimEvent {
     /// FIND-3: the files under the root, sorted, relative to it.
     Files(Vec<String>),
     /// MARK-1: git's status, and where the root lies below the top of the repository.
-    Status(Result<(Vec<u8>, String), String>),
+    Status(Result<crate::io::GitState, String>),
     /// SYN-1: the payload of a reply of the terminal to OSC 4.
     Osc(String),
     /// SYN-3: the spans of a window of a file.
@@ -173,8 +184,8 @@ pub enum SimEffect {
     /// Ask for the diff of a file against HEAD and answer with `SimEvent::Diff` (UI-5). Requests
     /// for one file that wait are one: the newest.
     Diff(DiffReq),
-    /// UI-13: answer with `SimEvent::Unflash(n)` after `FLASH_MS` milliseconds.
-    Flash(u64),
+    /// UI-13, UI-19: answer with `SimEvent::Unflash(n)` after this many milliseconds (`FLASH_MS`, `WROTE_MS`).
+    Flash(u64, u64),
     /// PICK-5: answer with `SimEvent::Spin(n)` after `SPIN_MS` milliseconds.
     Spin(u64),
     /// LOOK-1: the look that was chosen, to remember.
@@ -338,6 +349,8 @@ pub struct Sim {
     live_gen: u64,
     /// MARK-1: git's status (and the prefix), the paths seen changing on disk, and the marks.
     status: (Vec<u8>, String),
+    /// GIT-5: the settings of the repository's that the guard turned off (git runs without them).
+    off: Vec<String>,
     disk: HashSet<PathBuf>,
     marks: Marks,
     no_repo: bool,
@@ -366,6 +379,8 @@ pub struct Sim {
     /// UI-13: the text a yank has just taken, lit for `FLASH_MS`: the file, the chars, the version
     /// of the text they are of, and which flash it is.
     flash: Option<Flash>,
+    /// UI-19: and the lines another process has just written (the numbers of flashes are one count).
+    wrote: Option<Wrote>,
     flash_gen: u64,
     /// UI-1, UI-2: whether the interface is drawn in flat and depth, `$HOME`, and the icons.
     chrome: bool,
@@ -649,8 +664,21 @@ impl Sim {
                 }
             }
             SimEvent::Status(r) => match r {
-                Ok(status) => {
-                    self.status = status;
+                Ok((status, prefix, off)) => {
+                    self.status = (status, prefix);
+                    // GIT-5: told once, when the repository first has settings that are turned off
+                    if let (true, Some(first)) = (self.off.is_empty(), off.first()) {
+                        let and = match off.len() - 1 {
+                            0 => String::new(),
+                            1 => " and 1 other".into(),
+                            n => format!(" and {n} others"),
+                        };
+                        self.msg = Some(format!(
+                            "git: turned off the repository's {}{and}",
+                            layout::tail(first, 30)
+                        ));
+                    }
+                    self.off = off;
                     self.remark();
                     self.diff(self.id(), &mut out); // (a commit moves HEAD)
                     self.ask_changes(&mut out); // DIFF-1: and the view's numbers with it
@@ -688,9 +716,8 @@ impl Sim {
             SimEvent::Preview(pv) => self.live_preview(pv, &mut out),
             SimEvent::Spin(n) => self.live_spin(n, &mut out),
             SimEvent::Unflash(n) => {
-                if self.flash.as_ref().is_some_and(|f| f.n == n) {
-                    self.flash = None;
-                }
+                self.flash.take_if(|f| f.n == n);
+                self.wrote.take_if(|w| w.n == n);
             }
             SimEvent::Diff(id, r, lines) => {
                 if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
@@ -959,7 +986,10 @@ impl Sim {
     /// Gives an event to one file's App, and runs what it asks for. A change on disk or a save
     /// is a change for MARK-1 (it works without git too), and git is asked again.
     fn to(&mut self, id: Id, ev: Event, out: &mut Vec<SimEffect>) {
-        let changed = matches!(ev, Event::Disk { .. } | Event::Saved(Ok(_), _));
+        let (disk, changed) = (
+            matches!(ev, Event::Disk { .. }),
+            matches!(ev, Event::Disk { .. } | Event::Saved(Ok(_), _)),
+        );
         let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) else { return };
         // UI-14: what a key may light or put out is decided from the state before and after it.
         let pre = match &ev {
@@ -968,6 +998,7 @@ impl Sim {
         };
         let slash = b.app.vi.line.starts_with(['/', '?']);
         let (fx, path) = (b.app.update(ev), b.app.path.clone());
+        let mut wrote = take(&mut b.app.wrote); // (UI-19: the core's list is read, and cleared, every time)
         if let Some((k, mode, idle, was)) = pre {
             b.lit = lit_after(b.lit, (k, mode, idle, slash), &was, &b.app.search);
         }
@@ -977,7 +1008,14 @@ impl Sim {
             // UI-13: the text a yank took is lit for a moment, as the author's `on_yank` does.
             self.flash_gen += 1;
             self.flash = Some(Flash { id, chars, ver, n: self.flash_gen });
-            out.push(SimEffect::Flash(self.flash_gen));
+            out.push(SimEffect::Flash(self.flash_gen, FLASH_MS));
+        }
+        if disk && !wrote.is_empty() {
+            // UI-19: what another process has just written is lit for a moment, as a yank's text is.
+            wrote.sort_unstable();
+            self.flash_gen += 1;
+            self.wrote = Some(Wrote { id, ver, lines: wrote, n: self.flash_gen });
+            out.push(SimEffect::Flash(self.flash_gen, WROTE_MS));
         }
         if let (true, Some(path)) = (changed, path) {
             if let Ok(rel) = self.cwd.join(path).strip_prefix(&self.root) {
@@ -1256,7 +1294,8 @@ impl Sim {
             h.spans.get(old.checked_sub(h.from)?)
         };
         let lit = self.flash.as_ref().filter(|f| f.id == b.id && f.ver == buf.version());
-        let guides = self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone())));
+        let wrote = self.wrote.as_ref().filter(|w| w.id == b.id && w.ver == buf.version());
+        let guides = self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone()), wrote));
         let line_ui = guides.as_ref().map(|g| move |l: usize| g.of(buf, l));
         // MD-1: the lines the read view leaves as they are: the cursor's, and the selected ones
         let read = (self.md && is_markdown(b.app.path.as_deref())).then(|| {
@@ -1440,6 +1479,11 @@ impl Sim {
             chrome: ui.then(|| Chrome { icons: self.icons, root: &home_root, tabs, cur: self.cur }),
             scroll: scroll.unwrap_or_default(),
             crumb,
+            guard: match (self.skipped, self.off.len()) {
+                (true, _) => layout::Guard::Refused,
+                (_, 0) => layout::Guard::None,
+                (_, n) => layout::Guard::Off(n),
+            },
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
         let editor = match cur {
@@ -1811,6 +1855,8 @@ fn lead_of(buf: &Buffer, l: usize) -> Lead {
 struct Guides<'a> {
     /// UI-13: the chars of the buffer that a yank has just taken.
     flash: Option<std::ops::Range<usize>>,
+    /// UI-19: the lines another process has just written.
+    wrote: &'a [usize],
     /// UI-14: the matcher of the search being lit, and the line and the char the cursor is at.
     finder: Option<&'a Matcher>,
     at: (usize, usize),
@@ -1824,7 +1870,12 @@ struct Guides<'a> {
 const NEAR: usize = 50;
 const SCOPE: usize = 300;
 
-fn guides_of(b: &Buf, flash: Option<std::ops::Range<usize>>) -> Guides<'_> {
+fn guides_of<'a>(
+    b: &'a Buf,
+    flash: Option<std::ops::Range<usize>>,
+    wrote: Option<&'a Wrote>,
+) -> Guides<'a> {
+    let wrote = wrote.map_or(&[][..], |w| &w.lines[..]);
     let (buf, width, limit) = (&b.app.buf, b.indent.width.max(1), b.app.size.0);
     let cur = buf.line_of(buf.cursor);
     let finder = b.finder.as_ref().and_then(|f| f.m.as_ref());
@@ -1837,7 +1888,7 @@ fn guides_of(b: &Buf, flash: Option<std::ops::Range<usize>>) -> Guides<'_> {
     let own = lead_of(buf, cur);
     let lead = if own.blank { nonblank(cur, true).unwrap_or(own) } else { own };
     if lead.cols == 0 || lead.tab {
-        return Guides { flash, finder, at, width, limit, scope: None };
+        return Guides { flash, wrote, finder, at, width, limit, scope: None };
     }
     let col = (lead.cols - 1) / width * width;
     let inside = |l: usize| {
@@ -1857,7 +1908,7 @@ fn guides_of(b: &Buf, flash: Option<std::ops::Range<usize>>) -> Guides<'_> {
     while hi > cur && lead_of(buf, hi).blank {
         hi -= 1;
     }
-    Guides { flash, finder, at, width, limit, scope: Some((lo..=hi, col)) }
+    Guides { flash, wrote, finder, at, width, limit, scope: Some((lo..=hi, col)) }
 }
 
 impl Guides<'_> {
@@ -1893,7 +1944,7 @@ impl Guides<'_> {
         let hits = self.finder.and_then(|m| Some(m.ranges(&text_of(buf, l)?))).unwrap_or_default();
         let now =
             (self.at.0 == l).then(|| hits.iter().position(|r| r.contains(&self.at.1))).flatten();
-        LineUi { guides, scope, flash, hits, now }
+        LineUi { guides, scope, flash, wrote: self.wrote.binary_search(&l).is_ok(), hits, now }
     }
 }
 

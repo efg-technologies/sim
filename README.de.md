@@ -46,9 +46,10 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 
 - Ein Rechts-nach-links-Override, ein Leerzeichen mit Breite null oder ein Steuerzeichen wird als `<U+202E>` oder `^[` auf einem magentafarbenen Block gezeichnet, in jedem Zustand, in dem sich eine Zelle befinden kann, und nie roh an das Terminal gesendet. Der wörtliche Text `<U+202E>` in einer Datei bekommt keinen Block.
 - Leerzeichen am Zeilenende erscheinen als `·`, ein geschütztes Leerzeichen als `⍽`, ein Tabulator als `»`.
-- Schreibt ein anderer Prozess die geöffnete Datei neu, werden die geänderten Zeilen im Text markiert, der Rahmen nennt die Zahl der Änderungen auf dem Datenträger, der Tab zeigt `↯`, und der Dateibaum markiert die Datei. `]c` und `[c` springen zur nächsten und zur vorherigen Markierung.
+- Schreibt ein anderer Prozess die geöffnete Datei neu, blinken die geänderten Zeilen kurz auf und werden dann im Text markiert, der Rahmen nennt die Zahl der Änderungen auf dem Datenträger, der Tab zeigt `↯`, und der Dateibaum markiert die Datei. `]c` und `[c` springen zur nächsten und zur vorherigen Markierung.
 - Änderungen gegenüber git HEAD erscheinen als Markierungen in der Randspalte, als Statusbuchstabe für jede Datei im Dateibaum (ein Ordner zeigt den Buchstaben des stärksten Status darunter) und als `+n ~n -n` in der Statuszeile.
-- git wird nicht ausgeführt, wo die eigene Konfiguration des Repositorys einen Befehl ausführen könnte (`core.fsmonitor`, ein Filtertreiber und mehr). Die Statuszeile nennt den Schlüssel und die Datei.
+- git wird nicht ausgeführt, wo die eigene Konfiguration des Repositorys einen Befehl ausführen könnte (`core.fsmonitor`, ein Filtertreiber und mehr): Der Rahmen sagt `git not run` auf dem Warnblock, und die Statuszeile nennt den Schlüssel und die Datei. Läuft git, nachdem eigene Einstellungen des Repositorys (`core.fsmonitor`, Hooks-Pfad, Filter, externes Diff) abgeschaltet wurden, nennt der Rahmen die Zahl (`2 git settings off`).
+- Ein Markdown-Link, dessen Text wie eine Adresse aussieht, die sein Ziel nicht ist (`[https://good.example](https://evil.example)`), zeigt sein Ziel auf dem magentafarbenen Block, auch in der Leseansicht, die von einem Link nie Klammern oder URL versteckt.
 
 **Lehnt ab, was abzulehnen ist, und bewahrt Ihren Text**
 
@@ -64,7 +65,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 - Im eigenen Benchmark des Projekts braucht eine Taste bei p99 weniger als 1 ms (Datei mit 100 000 Zeilen, Release-Build); der erste Frame in einem Repository mit 100 000 Dateien wurde mit 1,8 bis 8,7 ms gemessen.
 - Syntaxfarben aus der Palette Ihres Terminals, Markdown direkt lesbar (Auszeichnungen ausgeblendet, Tabellen ausgerichtet, und die Zeile, in der Sie stehen, immer der Text der Datei), drei Looks (`zl`), japanischer Kinsoku-Umbruch und vollbreite Tasten.
 - Der Titel des Editors ist ein Breadcrumb, `src › sim.rs › leader_key`: der Pfad und die Überschrift oder Funktion, in der der Cursor steht. Jede Angabe steht an einer Stelle: Die Statuszeile hat den Modus, den Branch, die Zähler und die Position und nennt `CRLF`, `BOM` oder eine Datei, die kein UTF-8 ist, nur wenn es zutrifft; der Tab hat die Datei und `●`, die Bildlaufleiste die Position, und der Baum liegt nicht im Nebel.
-- `NO_COLOR` und Terminals mit weniger als 8 Farben zeichnen nur mit Schriftstärke, Unterstreichung und inverser Darstellung, und Bedeutung hängt nie allein von der Farbe ab: Eine geänderte Zeile ist `┆`, Ordner zeigen Statusbuchstaben, ein Tab zeigt `↯` für eine auf dem Datenträger geänderte Datei.
+- `NO_COLOR` und Terminals mit weniger als 8 Farben zeichnen nur mit Schriftstärke, Unterstreichung und inverser Darstellung, und Bedeutung hängt nie allein von der Farbe ab: Eine geänderte Zeile ist `┆`, Ordner zeigen Statusbuchstaben, ein Tab zeigt `↯` für eine auf dem Datenträger geänderte Datei, und der Griff der Bildlaufleiste ist eine `║`-Schiene statt eines inversen Blocks.
 
 **Tasten, die sich finden lassen**
 

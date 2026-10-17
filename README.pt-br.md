@@ -46,9 +46,10 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 
 - Uma substituição da direita para a esquerda, um espaço de largura zero ou um caractere de controle é desenhado como `<U+202E>` ou `^[` sobre um bloco magenta, em qualquer estado em que uma célula possa estar, e nunca é enviado cru ao terminal. O texto literal `<U+202E>` em um arquivo não recebe bloco.
 - Espaços no fim da linha aparecem como `·`, um espaço não separável como `⍽` e uma tabulação como `»`.
-- Quando outro processo reescreve o arquivo aberto, as linhas alteradas são marcadas no texto, a caixa indica quantas mudanças estão no disco, a aba mostra `↯` e a árvore marca o arquivo. `]c` e `[c` vão para a marca seguinte e para a anterior.
+- Quando outro processo reescreve o arquivo aberto, as linhas alteradas piscam por um instante e depois são marcadas no texto, a caixa indica quantas mudanças estão no disco, a aba mostra `↯` e a árvore marca o arquivo. `]c` e `[c` vão para a marca seguinte e para a anterior.
 - As mudanças em relação ao git HEAD aparecem como sinais na margem, uma letra de status para cada arquivo na árvore (uma pasta mostra a letra do status mais forte abaixo dela) e `+n ~n -n` na linha de status.
-- O git não é executado onde a configuração do próprio repositório poderia executar um comando (`core.fsmonitor`, um driver de filtro e mais). A linha de status indica a chave e o arquivo.
+- O git não é executado onde a configuração do próprio repositório poderia executar um comando (`core.fsmonitor`, um driver de filtro e mais): a caixa diz `git not run` sobre o bloco de alerta, e a linha de status indica a chave e o arquivo. Onde o git roda com configurações do próprio repositório desligadas (`core.fsmonitor`, o caminho dos hooks, filtros ou diff externo), a caixa diz quantas (`2 git settings off`).
+- Um link de Markdown cujo texto parece um endereço que o destino não é (`[https://good.example](https://evil.example)`) tem o destino sobre o bloco magenta, também na visão de leitura, que nunca esconde os colchetes nem a URL de um link.
 
 **Recusa o que deve recusar e preserva o seu texto**
 
@@ -64,7 +65,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 - No benchmark do próprio projeto, uma tecla leva menos de 1 ms no p99 (arquivo de 100 mil linhas, build de release); o primeiro quadro em um repositório com 100 mil arquivos foi medido em 1,8 a 8,7 ms.
 - Cores de sintaxe tiradas da paleta do seu terminal, Markdown lido no próprio lugar (marcas ocultas, tabelas alinhadas e a linha em que você está sempre é o texto do arquivo), três aparências (`zl`), quebra de linha com regras kinsoku do japonês e teclas de largura total.
 - O título do editor é uma trilha de navegação, `src › sim.rs › leader_key`: o caminho e o título ou a função em que o cursor está. Cada fato fica em um só lugar: a linha de status tem o modo, o branch, as contagens e a posição, e só diz `CRLF`, `BOM` ou arquivo que não é UTF-8 quando for o caso; a aba tem o arquivo e `●`, a barra de rolagem tem a posição, e a árvore não fica em neblina.
-- `NO_COLOR` e terminais com menos de 8 cores desenham só com peso, sublinhado e vídeo inverso, e o significado nunca depende só da cor: uma linha alterada é `┆`, as pastas mostram letras de status, uma aba mostra `↯` para um arquivo alterado no disco.
+- `NO_COLOR` e terminais com menos de 8 cores desenham só com peso, sublinhado e vídeo inverso, e o significado nunca depende só da cor: uma linha alterada é `┆`, as pastas mostram letras de status, uma aba mostra `↯` para um arquivo alterado no disco, e a alça da barra de rolagem é um trilho `║`, não um bloco invertido.
 
 **Teclas fáceis de encontrar**
 

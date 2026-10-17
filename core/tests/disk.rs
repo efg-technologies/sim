@@ -576,6 +576,24 @@ fn disk_6_a_mark_stays_until_the_cursor_enters_its_line() {
 }
 
 #[test]
+fn disk_6_the_lines_a_merge_marked_as_written_are_listed_for_the_host() {
+    let mut a = named("alpha\nbeta gamma\ndelta\nepsilon\nzeta\n");
+    assert_eq!(a.wrote, Vec::<usize>::new());
+    disk(&mut a, "alpha\nbeta GAMMA\ndelta\nzeta\neta\n");
+    assert_eq!(marks(&a), [(1, '~'), (3, '-'), (4, '+')]);
+    assert_eq!(a.wrote, [1, 4], "the changed line and the added one; a deletion point has no text");
+    // the host reads and clears the list; a write of the same text lists nothing new
+    a.wrote.clear();
+    disk(&mut a, "alpha\nbeta GAMMA\ndelta\nzeta\neta\n");
+    assert_eq!(a.wrote, Vec::<usize>::new());
+    // a line of a conflict is listed: the disk wrote it too, though mine stays
+    let mut a = named("a\nb\nc\nd\ne\nf\n");
+    feed(&mut a, "jrXjjjrY");
+    disk(&mut a, "a\nB\nc\nd\nE\nf\n");
+    assert_eq!((marks(&a), a.wrote.clone()), (vec![(1, '~'), (4, '~')], vec![1, 4]));
+}
+
+#[test]
 fn disk_6_a_search_a_jump_and_a_count_enter_lines_too() {
     for keys in ["/E\n", ":5\n", "4j", "5G"] {
         let mut a = six();
