@@ -1041,7 +1041,7 @@ pub fn colors<'a>(
     let (mut out, mut md) =
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, false);
-    let mut lui = LineUi::default();
+    let (mut lui, mut trail) = (LineUi::default(), 0);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         let starts = number(row, digits).and_then(|n| n.checked_sub(1));
@@ -1052,6 +1052,7 @@ pub fn colors<'a>(
             let lang = sp.and_then(|s| s.iter().find(|s| s.1 == Look::Lang));
             md[i].lang = lang.map(|s| cs[s.0.clone()].iter().collect());
             lui = ui.map_or_else(LineUi::default, |f| f(l));
+            trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
         }
         // (a row with no text and no number is past the end of the file, not the rest of a line)
         md[i].band = band && (starts.is_some() || len > 0);
@@ -1064,6 +1065,25 @@ pub fn colors<'a>(
                 md[i]
                     .glyph
                     .push(Glyph { idx: gutter + used, ch: '▌', col: 0, tone: Tone::Plain });
+            }
+            // UI-6: the whitespace marks of `listchars`: a tab as `»-` to its width, a trailing blank
+            // as `-`, a no-break space as `%`, all dim; an indent guide, drawn after, wins a blank.
+            if ui.is_some() {
+                let at = (gutter + used, (gutter + col) as u16);
+                let mark = |k: usize, ch: char| Glyph {
+                    idx: at.0 + k,
+                    ch,
+                    col: at.1 + k as u16,
+                    tone: Tone::Dim,
+                };
+                match cs[ci] {
+                    '\t' => {
+                        md[i].glyph.extend((0..n).map(|k| mark(k, if k == 0 { '»' } else { '-' })))
+                    }
+                    '\u{a0}' => md[i].glyph.push(mark(0, '%')),
+                    ' ' if ci >= trail => md[i].glyph.push(mark(0, '-')),
+                    _ => {}
+                }
             }
             // UI-6: an indent guide where a blank is at a guide's column.
             if starts.is_some() && cs[ci] == ' ' && lui.guides.contains(&(col as u16)) {
@@ -1081,6 +1101,16 @@ pub fn colors<'a>(
                 _ => {}
             }
             (used, col, ci) = (used + n, col + w, ci + 1);
+        }
+        // UI-6: `↲` after the last char of a line, where the row has a cell left for it.
+        let room = gutter + col < usize::from(f.width);
+        if let (Some(_), true, true) = (ui, room, ci == cs.len() && (starts.is_some() || len > 0)) {
+            md[i].glyph.push(Glyph {
+                idx: gutter + used,
+                ch: '↲',
+                col: (gutter + col) as u16,
+                tone: Tone::Dim,
+            });
         }
         // UI-6: a blank line has its guides past the end of its own blanks.
         if starts.is_some() && ci == cs.len() {

@@ -31,8 +31,8 @@ pub fn lead(line: &str) -> Lead {
     let (mut cols, mut tab, mut chars) = (0u16, false, 0usize);
     for c in line.chars() {
         match c {
-            ' ' => cols += 1,
-            '\t' => (cols, tab) = (cols + 4 - cols % 4, true),
+            ' ' => cols = cols.saturating_add(1),
+            '\t' => (cols, tab) = (cols.saturating_add(4 - cols % 4), true),
             _ => break,
         }
         chars += 1;
@@ -67,8 +67,11 @@ pub fn detect<'a>(lines: impl Iterator<Item = &'a str>) -> Indent {
 }
 
 /// The columns of the guides of a line whose blanks cover `cols`: 0, `width`, 2 `width` and so on
-/// while they are before where the text starts; from level `from` (a blank line has none at 0).
-pub fn guides(cols: u16, width: u16, from: u16) -> Vec<u16> {
+/// while they are before where the text starts and before `limit` (the width of the pane: a guide
+/// further right is never seen, and a line of 70,000 blanks must not make 70,000 of them); from
+/// level `from` (a blank line has none at 0). Nothing here can overflow, whatever the width is.
+pub fn guides(cols: u16, width: u16, from: u16, limit: u16) -> Vec<u16> {
     let w = width.max(1);
-    (from..).map(|k| k * w).take_while(|&c| c < cols).collect()
+    let end = cols.min(limit);
+    (from..).map_while(|k| k.checked_mul(w)).take_while(|&c| c < end).collect()
 }

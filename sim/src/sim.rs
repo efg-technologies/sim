@@ -1245,8 +1245,8 @@ fn lead_of(buf: &Buffer, l: usize) -> Lead {
     let (mut cols, mut tab, mut n) = (0u16, false, 0);
     for c in line.chars().take_while(|c| *c != '\n') {
         match c {
-            ' ' => cols += 1,
-            '\t' => (cols, tab) = (cols + 4 - cols % 4, true),
+            ' ' => cols = cols.saturating_add(1),
+            '\t' => (cols, tab) = (cols.saturating_add(4 - cols % 4), true),
             _ => return Lead { cols, tab, blank: false },
         }
         n += 1;
@@ -1258,6 +1258,8 @@ fn lead_of(buf: &Buffer, l: usize) -> Lead {
 /// whose indent is at least its line's, and the column of the innermost guide of the cursor's line.
 struct Guides {
     width: u16,
+    /// The width of the pane: no guide is made further right.
+    limit: u16,
     scope: Option<(std::ops::RangeInclusive<usize>, u16)>,
 }
 
@@ -1266,7 +1268,7 @@ const NEAR: usize = 50;
 const SCOPE: usize = 300;
 
 fn guides_of(b: &Buf) -> Guides {
-    let (buf, width) = (&b.app.buf, b.indent.width.max(1));
+    let (buf, width, limit) = (&b.app.buf, b.indent.width.max(1), b.app.size.0);
     let cur = buf.line_of(buf.cursor);
     let nonblank = |from: usize, up: bool| -> Option<Lead> {
         let ls: Box<dyn Iterator<Item = usize>> =
@@ -1276,7 +1278,7 @@ fn guides_of(b: &Buf) -> Guides {
     let own = lead_of(buf, cur);
     let lead = if own.blank { nonblank(cur, true).unwrap_or(own) } else { own };
     if lead.cols == 0 || lead.tab {
-        return Guides { width, scope: None };
+        return Guides { width, limit, scope: None };
     }
     let col = (lead.cols - 1) / width * width;
     let inside = |l: usize| {
@@ -1296,7 +1298,7 @@ fn guides_of(b: &Buf) -> Guides {
     while hi > cur && lead_of(buf, hi).blank {
         hi -= 1;
     }
-    Guides { width, scope: Some((lo..=hi, col)) }
+    Guides { width, limit, scope: Some((lo..=hi, col)) }
 }
 
 impl Guides {
@@ -1314,9 +1316,9 @@ impl Guides {
                 (Some(a), Some(b)) if !a.tab && !b.tab => a.cols.min(b.cols),
                 _ => 0,
             };
-            indent::guides(cols, self.width, 1)
+            indent::guides(cols, self.width, 1, self.limit)
         } else {
-            indent::guides(d.cols, self.width, 0)
+            indent::guides(d.cols, self.width, 0, self.limit)
         };
         let scope = self
             .scope

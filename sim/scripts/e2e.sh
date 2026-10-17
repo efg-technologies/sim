@@ -1664,4 +1664,21 @@ ui_6_indent_guides_are_drawn_over_the_blanks_and_the_file_is_untouched() {
   [ "$(sed -n 3p "$W/a.rs")" = "    }" ]
 }
 
+ui_6_listchars_show_tabs_trailing_blanks_and_the_end_of_every_line() {
+  printf 'a  \n\tb\n\n' > "$W/a.txt"
+  look flat
+  CT=truecolor
+  start a.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  tries=100
+  while ! screen | grep -q 'a--↲' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  screen | grep -q 'a--↲' # trailing blanks and the end of the line
+  screen | grep -q '»---b↲' # a tab
+  screen | grep -q '^ *2  *↲' # an empty line (the number is its distance)
+  typed ':w'
+  keys Enter
+  wait_for "saved a.txt"
+  [ "$(sed -n 1p "$W/a.txt")" = "a  " ] # the file is as it was
+}
+
 main "$@"

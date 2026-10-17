@@ -52,13 +52,14 @@ fn ui_6_a_file_is_indented_by_tabs_two_or_four_as_its_first_lines_show() {
 
 #[test]
 fn ui_6_the_guides_of_a_line_are_at_every_level_its_blanks_cover() {
-    assert_eq!(guides(0, 4, 0), Vec::<u16>::new());
-    assert_eq!(guides(4, 4, 0), [0]);
-    assert_eq!(guides(8, 4, 0), [0, 4]);
-    assert_eq!(guides(6, 4, 0), [0, 4], "a level the blanks start");
-    assert_eq!(guides(6, 2, 0), [0, 2, 4]);
-    assert_eq!(guides(8, 4, 1), [4], "a blank line has none at 0");
-    assert_eq!(guides(4, 4, 1), Vec::<u16>::new());
+    let g = |c, w, f| guides(c, w, f, 200);
+    assert_eq!(g(0, 4, 0), Vec::<u16>::new());
+    assert_eq!(g(4, 4, 0), [0]);
+    assert_eq!(g(8, 4, 0), [0, 4]);
+    assert_eq!(g(6, 4, 0), [0, 4], "a level the blanks start");
+    assert_eq!(g(6, 2, 0), [0, 2, 4]);
+    assert_eq!(g(8, 4, 1), [4], "a blank line has none at 0");
+    assert_eq!(g(4, 4, 1), Vec::<u16>::new());
 }
 
 // ---- on the screen ----
@@ -86,7 +87,7 @@ fn row(r: &Rig, what: &str) -> String {
     let text: String =
         r.shot.frame.rows[y].text.chars().skip(usize::from(g.tx()) + digits).collect();
     // (in depth the box's border follows the blanks that fill the row)
-    text.trim_end_matches(['┃', '│', ' ']).to_string()
+    text.trim_end_matches(['┃', '│', ' ', '↲']).to_string()
 }
 
 fn y_of(r: &Rig, what: &str) -> usize {
@@ -129,10 +130,10 @@ fn ui_6_a_blank_line_has_the_guides_of_the_fewer_of_the_lines_around_it_from_the
     };
     // Lines 3, 5 around the blank line 4: indent 8 and 8, so the guide at column 4 shows.
     let blank = y_of(&r, "y();") + 1;
-    assert_eq!(guides_at(blank).trim_end(), "    │", "{:?}", guides_at(blank));
+    assert_eq!(guides_at(blank).trim_end(), "↲   │", "{:?}", guides_at(blank));
     // Lines 6 (indent 4) and 8 (none) around the blank line 7: fewer is 0: none.
     let blank2 = y_of(&r, "│   }") + 1;
-    assert_eq!(guides_at(blank2).trim_end(), "");
+    assert_eq!(guides_at(blank2).trim_end(), "↲");
 }
 
 #[test]
@@ -214,4 +215,38 @@ fn ui_6_a_wrapped_line_has_its_guides_on_its_first_row_only() {
     };
     assert!(has(rows[0]));
     assert!(rows[1..].iter().all(|&y| !has(y)));
+}
+
+#[test]
+fn ui_6_a_huge_indent_or_a_huge_width_overflows_nothing_and_makes_few_guides() {
+    // 70,000 blanks: the columns saturate, they never wrap or panic.
+    let line = " ".repeat(70_000) + "x";
+    assert_eq!(lead(&line).cols, u16::MAX);
+    assert_eq!(lead(&("\t".repeat(30_000) + "x")).cols, u16::MAX);
+    // A width near u16::MAX: the product of the level and the width does not overflow.
+    for w in [u16::MAX, u16::MAX - 1, 40_000, 32_768, 1] {
+        for from in [0, 1] {
+            let gs = guides(u16::MAX, w, from, 200);
+            assert!(gs.len() <= 200, "w {w}: {} guides", gs.len());
+            assert!(gs.iter().all(|&c| c < 200), "w {w}");
+        }
+    }
+    assert_eq!(
+        guides(u16::MAX, u16::MAX, 0, u16::MAX),
+        [0],
+        "one level and the next is out of the line"
+    );
+    assert_eq!(guides(u16::MAX, 1, 0, 80).len(), 80, "no more than the pane has columns");
+    assert_eq!(guides(u16::MAX, 0, 0, 10).len(), 10, "a width of 0 is read as 1");
+    // The same through sim: a line of 70,000 blanks is drawn, with the guides the pane can show.
+    let long = format!("{line}\nshort\n");
+    for skin in [Skin::Flat, Skin::Depth] {
+        let r = body("ui6-huge", skin, &long, (60, 12));
+        assert_eq!(r.text(), long.trim_end_matches('\n'));
+        let g = r.sim.geo();
+        let y = usize::from(g.y0);
+        let row = &r.shot.frame.rows[y];
+        assert!(row.text.chars().filter(|&c| c == '│').count() <= 60, "{skin:?}");
+        assert!(row.text.chars().count() <= 70, "{skin:?}: the row is a pane wide");
+    }
 }
