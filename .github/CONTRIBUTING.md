@@ -1,7 +1,7 @@
 # CI and retries
 
 Keep the full Linux and macOS gates on pull requests and pushes to `main`.
-Both platforms run si's and sim's checks and terminal E2E suites; platform
+Both platforms run the checks (the core's and the editor's together) and both terminal E2E suites; platform
 failures need investigation even when the other platform passes. The existing
 per-ref concurrency cancels superseded runs when a newer commit arrives.
 
