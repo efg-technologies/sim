@@ -574,6 +574,7 @@ fn dump_rows(f: &Frame, looks: &[Looks], paints: &[Paints], t: Option<&Tones>) -
                     (_, Style::Secondary) => '-',
                     (_, Style::Change) => '#',
                     (_, Style::Deleted) => 'x',
+                    (_, Style::Hidden) => 'h',
                 });
             }
         }

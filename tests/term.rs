@@ -167,3 +167,22 @@ fn vi_8_inside_tmux_the_sequence_is_also_sent_through_its_passthrough() {
     t.clipboard("hello").unwrap();
     assert_eq!(String::from_utf8(t.out).unwrap(), plain);
 }
+
+#[test]
+fn safe_8_a_hidden_char_is_drawn_in_reverse_video_with_and_without_a_palette() {
+    use si::core::color::palette;
+    use si::core::view::Style;
+    assert_eq!(
+        term::sgr(Style::Hidden, None),
+        ";1;7",
+        "bold and reversed: not the change's reverse"
+    );
+    let p = palette((0x1e, 0x1e, 0x1e));
+    let with = term::sgr(Style::Hidden, Some(p));
+    assert!(
+        with.ends_with(";7")
+            && with.contains(&format!("38;2;{};{};{}", p.primary.0, p.primary.1, p.primary.2)),
+        "{with}"
+    );
+    assert_ne!(with, term::sgr(Style::Change, Some(p)));
+}

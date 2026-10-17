@@ -139,6 +139,7 @@ pub fn dump(f: &Frame) -> String {
                     (_, Style::Secondary) => '-',
                     (_, Style::Change) => '#',
                     (_, Style::Deleted) => 'x',
+                    (_, Style::Hidden) => 'h',
                 });
             }
         }

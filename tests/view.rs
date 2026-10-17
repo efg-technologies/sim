@@ -295,6 +295,29 @@ fn safe_8_the_arabic_letter_mark_is_shown_like_the_other_bidi_controls() {
     assert!(f.rows.iter().all(|r| !r.text.contains('\u{61c}')));
 }
 
+#[test]
+fn safe_8_a_char_shown_in_another_form_has_its_own_style_and_the_literal_text_does_not() {
+    // a control char, a bidirectional one, and the literal text of each, so that the two cannot be
+    // told apart by their text: only by the style
+    let f = show(Some("a.txt"), "a\x1bb \u{202e}c <U+202E> ^[ \u{85}\n", (60, 4));
+    let text = &f.rows[0].text;
+    let hidden: Vec<std::ops::Range<u16>> =
+        f.rows[0].spans.iter().filter(|s| s.1 == Style::Hidden).map(|s| s.0.clone()).collect();
+    let at = |s: &str| text.find(s).unwrap() as u16;
+    let (esc, bidi) = (at("^[b"), at("<U+202E>c"));
+    let c1 = at("<U+0085>");
+    assert_eq!(hidden, [esc..esc + 2, bidi..bidi + 8, c1..c1 + 8], "{text:?}");
+    // the same chars as plain text later on the line: eight and two ordinary chars
+    let literal = text.rfind("<U+202E>").unwrap() as u16;
+    assert!(literal > bidi && hidden.iter().all(|r| !r.contains(&literal)), "{text:?}");
+    let caret = text.rfind("^[").unwrap() as u16;
+    assert!(hidden.iter().all(|r| !r.contains(&caret)), "{text:?}");
+    // a line with nothing hidden has none, and the status line has none (it is not a file's char)
+    assert!(f.rows.iter().skip(1).all(|r| r.spans.iter().all(|s| s.1 != Style::Hidden)));
+    let f = show(Some("a.txt"), "plain\n", (40, 4));
+    assert!(f.rows.iter().all(|r| r.spans.iter().all(|s| s.1 != Style::Hidden)));
+}
+
 /// No row is ever wider than the screen, even where the gutter, a tab, a wide char or a
 /// `<U+202E>` token is wider than the text area.
 #[test]

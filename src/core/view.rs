@@ -12,7 +12,7 @@ use unicode_width::UnicodeWidthChar;
 
 #[rustfmt::skip]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Style { Primary, Secondary, Change, Deleted }
+pub enum Style { Primary, Secondary, Change, Deleted, Hidden }
 
 /// The cursor shapes, as the numbers of DECSCUSR (steady block, underline, bar).
 #[rustfmt::skip]
@@ -381,11 +381,14 @@ pub fn render(a: &mut App) -> Frame {
             if i == 0 && d.sym != ' ' {
                 spans.push((0..1, Style::Change));
             }
+            // A char shown in another form is Hidden (SAFE-8), unless it has a style already.
+            #[rustfmt::skip]
+            let sty = |z: usize| if d.sty[z] == Style::Primary && show(d.cs[z]).is_some() { Style::Hidden } else { d.sty[z] };
             let mut x = s;
             while x < e {
-                let end = (x..e).find(|&z| d.sty[z] != d.sty[x]).unwrap_or(e);
-                if d.sty[x] != Style::Primary {
-                    spans.push((col(x)..col(end), d.sty[x]));
+                let end = (x..e).find(|&z| sty(z) != sty(x)).unwrap_or(e);
+                if sty(x) != Style::Primary {
+                    spans.push((col(x)..col(end), sty(x)));
                 }
                 x = end;
             }

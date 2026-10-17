@@ -142,11 +142,12 @@ pub fn wait_bg(rx: &Receiver<Event>, by: Instant) -> (Option<Rgb>, Vec<Event>) {
 pub fn sgr(style: Style, pal: Option<Palette>) -> String {
     let c = |k: u8, (r, g, b): Rgb| format!(";{k}8;2;{r};{g};{b}");
     match (pal, style) {
-        (None, _) => ["", ";2", ";7", ";2;9"][style as usize].into(),
+        (None, _) => ["", ";2", ";7", ";2;9", ";1;7"][style as usize].into(),
         (Some(p), Style::Primary) => c(3, p.primary),
         (Some(p), Style::Secondary) => c(3, p.secondary),
         (Some(p), Style::Change) => c(4, p.change) + &c(3, p.change_text),
         (Some(p), Style::Deleted) => c(3, p.secondary) + ";9",
+        (Some(p), Style::Hidden) => c(3, p.primary) + ";7",
     }
 }
 
