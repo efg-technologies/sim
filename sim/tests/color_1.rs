@@ -148,10 +148,14 @@ fn color_1_only_the_looks_of_code_have_a_hue_of_their_own_and_markdown_is_weight
 // ---- the screens, cell by cell ----
 
 fn rig(skin: Skin) -> Rig {
+    rig_named("budget", skin)
+}
+
+fn rig_named(name: &str, skin: Skin) -> Rig {
     let md = "# Title\n\n## Second\n\n- item one\n> quote\n\n[a link](https://x.y) and `code` and **bold**\n\n```bash\nls -l # c\n```\n";
     let code = "fn a() {\n    // TODO: later\n    if x {\n        y(); \n\t}\n}\n";
     let mut r = rig_env(
-        "budget",
+        name,
         &[&format!("README.md={md}"), &format!("a.rs={code}"), "b.rs", "src/c.rs", "old/gone.rs"],
         &["README.md"],
         (120, 30),
@@ -185,7 +189,15 @@ fn cell(r: &Rig, y: usize, x: u16) -> (Option<Rgb>, Option<Rgb>) {
 /// the mode is Normal (the mode's block is gray, so the accent has no place in the status line);
 /// `alert`: the security slot says something that is an alert.
 fn check(r: &Rig, what: &str, normal: bool, alert: bool) {
+    walk(r, what, normal, alert, false);
+}
+
+/// `check`, and with `lit`: the matches of a search are lit in the text (UI-14), so the accent is
+/// there too. With a picker open (PICK-1) the paints of the cells of its window may be the accent's
+/// and no other hue's (the syntax colors of its preview are looks, SYN-1, and not paints).
+fn walk(r: &Rig, what: &str, normal: bool, alert: bool, lit: bool) {
     let g = r.sim.geo();
+    let win = r.win();
     let rows = &r.shot.frame.rows;
     let (last, head) = (rows.len() - 1, usize::from(g.y0) - 1);
     let mut seen = std::collections::BTreeSet::new();
@@ -205,6 +217,16 @@ fn check(r: &Rig, what: &str, normal: bool, alert: bool) {
                 );
                 let Some(h) = hue.unwrap() else { continue };
                 seen.insert(h as u8);
+                let in_window = win.is_some_and(|w| {
+                    x >= w.x && x < w.x + w.w && y >= usize::from(w.y) && y < usize::from(w.y + w.h)
+                });
+                if in_window {
+                    assert!(
+                        role_of(h) == Role::Accent,
+                        "{what}: {c:?} {h:?} on {ch:?} at ({x},{y}) is in the picker's window, where only the accent has a hue"
+                    );
+                    continue;
+                }
                 let body = y >= usize::from(g.y0) && y < last;
                 let in_panel = body && x >= g.px && x < g.px + g.pw;
                 let in_sign = body && x >= g.ex && x < g.tx();
@@ -226,7 +248,10 @@ fn check(r: &Rig, what: &str, normal: bool, alert: bool) {
                             || (y == head && x >= g.ex && ch == '●')
                     }
                     Role::Accent => {
-                        (y == last && !normal && (x < 12 || usize::from(x) + 12 > chars.len()))
+                        (lit && in_text && c == bg.unwrap_or((1, 2, 3)))
+                            || (y == last
+                                && !normal
+                                && (x < 12 || usize::from(x) + 12 > chars.len()))
                             || (y == head && x >= g.ex && ch == '▎')
                             || (in_text && link)
                             || ruler
@@ -305,4 +330,33 @@ fn color_1_a_git_that_was_not_run_for_safety_says_so_in_the_alert_s_color() {
         Some(t.alert_fg()),
         "gone with the message: the bar after it has no alert"
     );
+}
+
+#[test]
+fn color_1_the_picker_and_a_lit_search_use_only_neutral_surfaces_and_the_accent() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        // the search of contents: a markdown file and a file of code in the preview
+        let mut r = rig_named(&format!("budget-pick-{skin:?}"), skin);
+        r.keys("<C-f>item");
+        assert!(r.win().is_some());
+        walk(&r, &format!("{skin:?} grep, markdown"), true, false, false);
+        r.keys("<C-u>fn");
+        r.keys("<C-n>");
+        walk(&r, &format!("{skin:?} grep, code"), true, false, false);
+        // the file finder, with the selection moved
+        r.keys("<Esc><C-p>rs");
+        r.keys("<C-n>");
+        walk(&r, &format!("{skin:?} finder"), true, false, false);
+        r.keys("<C-u>");
+        walk(&r, &format!("{skin:?} finder, no query"), true, false, false);
+        r.keys("zzzz");
+        walk(&r, &format!("{skin:?} finder, no match"), true, false, false);
+        // a search lit in the text, the current match and the others, and put out again
+        r.keys("<Esc>/item\n");
+        walk(&r, &format!("{skin:?} lit"), true, false, true);
+        r.keys("n");
+        walk(&r, &format!("{skin:?} lit, next"), true, false, true);
+        r.keys(":noh\n");
+        walk(&r, &format!("{skin:?} put out"), true, false, false);
+    }
 }
