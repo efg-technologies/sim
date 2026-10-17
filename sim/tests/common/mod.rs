@@ -1,5 +1,5 @@
 //! Helpers shared by the integration tests.
-#![allow(dead_code, clippy::unwrap_used)]
+#![allow(dead_code, clippy::unwrap_used, clippy::panic)]
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -12,13 +12,21 @@ impl Drop for TempDir {
     }
 }
 
+/// Made here and never before: `mkdir` (not `create_dir_all`) fails on a name that exists, a link
+/// planted at a guessable name too, and the next name is tried. Private (0700), as a state directory
+/// is (SAFE-6, STATE-1): sim keeps its choices only in such a directory.
 pub fn temp_dir(name: &str) -> TempDir {
-    let d = std::env::temp_dir().join(format!("sim-it-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    // private, as a state directory is (SAFE-6, STATE-1): sim keeps its choices only in such a directory
-    std::fs::set_permissions(&d, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
-    TempDir(d)
+    use std::os::unix::fs::DirBuilderExt;
+    static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    loop {
+        let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let d = std::env::temp_dir().join(format!("sim-it-{}-{n}-{name}", std::process::id()));
+        match std::fs::DirBuilder::new().mode(0o700).create(&d) {
+            Ok(()) => return TempDir(d),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => panic!("{}: {e}", d.display()),
+        }
+    }
 }
 
 /// Writes `files` (relative paths; a trailing `/` makes a directory) under `dir`.

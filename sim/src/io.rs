@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
@@ -218,26 +218,19 @@ pub fn hook(sim: Option<String>, si: Option<String>) -> Option<String> {
 }
 
 /// PLAIN-1: whether this is a privileged context, where plain mode is the default: the effective
-/// uid is 0 (`status` is `/proc/self/status`), or the parent process is `sudo` (what runs the
-/// editor of `sudoedit`; `parent` is its name in `/proc/{ppid}/comm`).
-pub fn privileged(status: &str, parent: Option<&str>) -> bool {
-    let field = |k: &str| status.lines().find_map(|l| l.strip_prefix(k));
-    let euid = field("Uid:").and_then(|r| r.split_whitespace().nth(1)).and_then(|n| n.parse().ok());
-    euid == Some(0u32) || parent.is_some_and(|p| matches!(p.trim(), "sudo" | "sudoedit"))
+/// uid is 0, or the parent process is `sudo` (what runs the editor of `sudoedit`; `parent` is its
+/// name in `/proc/{ppid}/comm`).
+pub fn privileged(euid: u32, parent: Option<&str>) -> bool {
+    euid == 0 || parent.is_some_and(|p| matches!(p.trim(), "sudo" | "sudoedit"))
 }
 
-/// The same for this process: Linux reads /proc; elsewhere (macOS) the owner of a file made in the
-/// temporary directory is the effective uid, and the parent is not looked at.
+/// The same for this process. The uid and the parent come from the system (`geteuid`, `getppid`),
+/// never from a file made to see who owns it (a name in a shared directory is somebody else's to
+/// plant); the parent's name is read from /proc, so on macOS only the uid tells.
 pub fn plain_by_default() -> bool {
-    if let Ok(status) = fs::read_to_string("/proc/self/status") {
-        let ppid = status.lines().find_map(|l| l.strip_prefix("PPid:")).map(str::trim);
-        let parent = ppid.and_then(|p| fs::read_to_string(format!("/proc/{p}/comm")).ok());
-        return privileged(&status, parent.as_deref());
-    }
-    let probe = std::env::temp_dir().join(format!(".sim-uid-{}", std::process::id()));
-    let uid = fs::File::create(&probe).and_then(|f| f.metadata()).map(|m| m.uid());
-    drop(fs::remove_file(&probe));
-    uid.is_ok_and(|u| u == 0)
+    let ppid = rustix::process::getppid().map(|p| p.as_raw_nonzero().get());
+    let parent = ppid.and_then(|p| fs::read_to_string(format!("/proc/{p}/comm")).ok());
+    privileged(file::euid(), parent.as_deref())
 }
 
 /// COLOR-2: whether to draw with no color at all: `NO_COLOR` is set and not empty (no-color.org), or

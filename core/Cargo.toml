@@ -28,6 +28,10 @@ notify = "8.2"
 similar = "3.2"
 unicode-width = { version = "0.2", default-features = false }
 regex-lite = "0.1"
+# SAFE-1, SAFE-6: our effective uid, read from the system (`geteuid`, safe and with no libc of our
+# own) instead of guessed from the owner of a file made somewhere. crossterm depends on it already
+# (the same version), so the build gains no code: only its `process` feature.
+rustix = { version = "1.1", default-features = false, features = ["process"] }
 
 [dev-dependencies]
 proptest = "1"

@@ -88,7 +88,7 @@ sim/scripts/e2e.sh  the editor's cases
 
 ### Dependencies
 
-The core depends only on ropey, crossterm, notify, similar, unicode-width and regex-lite (see SAFE-9; `scripts/check.sh` and `core/tests/safe_9.rs` hold the list). The editor adds syntect and two-face (bat's syntaxes; pure-Rust regex backend) and signal-hook. The only dev dependency is proptest.
+The core depends only on ropey, crossterm, notify, rustix (for `geteuid`, its `process` feature only), similar, unicode-width and regex-lite (see SAFE-9; `scripts/check.sh` and `core/tests/safe_9.rs` hold the list). The editor adds syntect and two-face (bat's syntaxes; pure-Rust regex backend) and signal-hook, and uses rustix too (`geteuid`, `getppid`). The only dev dependency is proptest.
 If another one is needed, first write the reason into SPEC.
 
 ### Rules

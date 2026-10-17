@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 # of dependencies. The editor (sim/src) has a cap of its own; the reasons for both are in CONCEPT.md.
 MAX_CORE_LINES=3200
 MAX_SIM_LINES=7050
-CORE_DEPS="crossterm notify regex-lite ropey similar unicode-width"
+CORE_DEPS="crossterm notify regex-lite ropey rustix similar unicode-width"
 MAX_BYTES=$((5 * 1024 * 1024))
 
 N=8

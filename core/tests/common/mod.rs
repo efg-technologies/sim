@@ -1,5 +1,5 @@
 //! Helpers shared by the integration tests.
-#![allow(dead_code, clippy::unwrap_used)]
+#![allow(dead_code, clippy::unwrap_used, clippy::panic)]
 use sim_core::core::app::{App, Effect, Event, Key};
 use sim_core::core::buffer::Mark;
 use sim_core::core::view::{Frame, Style};
@@ -96,12 +96,22 @@ impl Drop for TempDir {
 
 /// Canonical, so that no link of the system's lies on the way to it: macOS's `$TMPDIR` is under
 /// `/var`, a link to `/private/var`, which would be in front of every link a test looks at.
+///
+/// Made here and never before: `mkdir` (not `create_dir_all`) fails on a name that exists, a link
+/// planted at a guessable name too, and the next name is tried. Private (0700).
 pub fn temp_dir(name: &str) -> TempDir {
+    use std::os::unix::fs::DirBuilderExt;
+    static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let base = std::fs::canonicalize(std::env::temp_dir()).unwrap();
-    let d = base.join(format!("sim-it-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    TempDir(d)
+    loop {
+        let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let d = base.join(format!("sim-it-{}-{n}-{name}", std::process::id()));
+        match std::fs::DirBuilder::new().mode(0o700).create(&d) {
+            Ok(()) => return TempDir(d),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => panic!("{}: {e}", d.display()),
+        }
+    }
 }
 
 /// Runs `f` on a thread and gives up after `secs`: a command that spins must fail, not hang.

@@ -671,6 +671,7 @@ dependencies = [
  "proptest",
  "regex-lite",
  "ropey",
+ "rustix",
  "signal-hook",
  "sim-editor-core",
  "syntect",
@@ -687,6 +688,7 @@ dependencies = [
  "proptest",
  "regex-lite",
  "ropey",
+ "rustix",
  "similar",
  "unicode-width",
 ]

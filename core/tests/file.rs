@@ -4,7 +4,9 @@
 mod common;
 use common::{TempDir, temp_dir, within};
 use sim_core::core::buffer::{ABSENT, hash};
-use sim_core::io::file::{Saved, foreign_link, open_same, read, save, symlinks};
+use sim_core::io::file::{
+    Saved, euid, foreign_link, open_same, private, read, save, save_by, symlinks,
+};
 use std::fs::{self, DirBuilder, File, OpenOptions, Permissions};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
@@ -633,4 +635,71 @@ fn safe_2_a_file_swapped_for_a_link_during_an_in_place_save_is_not_written_throu
         }
     }
     assert!(refused, "the swap never came before the open: the window was too narrow");
+}
+
+/// SAFE-1: the user a save is judged for is our effective uid, from the system: not the owner of the
+/// directory (another user's may be written to by us, and a link planted there is theirs), and not
+/// the owner of a file made in it (that is the filesystem's choice on a mount that maps owners).
+#[test]
+fn safe_1_a_save_is_judged_for_the_effective_uid_and_nobody_else() {
+    let (d, f, state) = setup("euid");
+    let me = euid();
+    assert_eq!(me, self::me(&d), "what the system says is who owns what we make here");
+    assert_eq!(private(&state).ok(), Some(me), "a private directory is ours by that uid");
+    // a link of the user's own is followed for the user, and refused for anybody else
+    let link = d.0.join("link");
+    symlink(&f, &link).unwrap();
+    let p = link.to_str().unwrap();
+    assert!(matches!(save_by(me, p, NEW, None, Some(&state)), Ok(Saved::Done(..))));
+    fs::write(&f, OLD).unwrap();
+    let r = save_by(me.wrapping_add(1).max(1), p, NEW, None, Some(&state));
+    assert_eq!(r.err(), Some(format!("not saved: {p} is a symlink owned by someone else")));
+    assert_eq!(fs::read(&f).unwrap(), OLD, "nothing was written");
+    assert_eq!(temps(&f), 0);
+    // `save` is `save_by` for the effective uid
+    assert!(matches!(save(p, NEW, None, Some(&state)), Ok(Saved::Done(..))));
+    // A directory that another user owns, with that user's link in it: only root can make one.
+    if me != 0 {
+        return eprintln!("skipped: a directory and a link of another user's need root (chown)");
+    }
+    let (theirs, inside) = (d.0.join("theirs"), d.0.join("theirs/link"));
+    fs::create_dir(&theirs).unwrap();
+    symlink(&f, &inside).unwrap();
+    std::os::unix::fs::lchown(&inside, Some(12345), None).unwrap();
+    std::os::unix::fs::chown(&theirs, Some(12345), None).unwrap();
+    fs::write(&f, OLD).unwrap();
+    let r = save(inside.to_str().unwrap(), NEW, None, Some(&state));
+    assert_eq!(
+        r.err(),
+        Some(format!("not saved: {} is a symlink owned by someone else", inside.display()))
+    );
+    assert_eq!(fs::read(&f).unwrap(), OLD);
+}
+
+/// SAFE-1: nothing but a test makes a file or a directory in the shared temporary directory, where a
+/// name that can be guessed can be planted as a link by somebody else. Outside `#[cfg(test)]` the
+/// sources do not even name it. (The state is private, and a probe of who we are is `geteuid`.)
+#[test]
+fn safe_1_no_source_makes_anything_in_the_shared_temporary_directory() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut seen = 0;
+    for dir in [root.join("src"), root.join("../sim/src")] {
+        let mut todo = vec![dir];
+        while let Some(d) = todo.pop() {
+            for e in fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    todo.push(p);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    let text = fs::read_to_string(&p).unwrap();
+                    let shipped = text.split("#[cfg(test)]").next().unwrap();
+                    seen += 1;
+                    for bad in ["temp_dir()", "/tmp/", "TMPDIR", ".sim-uid"] {
+                        assert!(!shipped.contains(bad), "{} names {bad}", p.display());
+                    }
+                }
+            }
+        }
+    }
+    assert!(seen > 20, "the sources were found");
 }

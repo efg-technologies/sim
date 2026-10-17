@@ -313,7 +313,7 @@ fn ui_2_the_first_row_of_the_panel_is_the_root_below_home_in_bold_with_the_open_
             usize::from(skin == Skin::Depth),
             "{skin:?}: the first row inside the box"
         );
-        let root = format!("~/sim-it-{}-ui2-head", std::process::id());
+        let root = format!("~/{}", r.cwd.file_name().unwrap().to_string_lossy());
         let text = &r.shot.frame.rows[head].text;
         assert!(text.contains(&root), "{skin:?}: {text}");
         let x = col(&r, head, "~/");

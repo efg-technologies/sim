@@ -66,18 +66,45 @@ fn plain_1_without_a_file_it_is_the_unnamed_buffer_with_the_intro() {
 fn plain_1_root_and_sudoedit_are_plain_without_the_flag() {
     let r = rig_env("p1-default", &["a.txt=x\n"], &["a.txt"], (80, 24), |e| e.plain = true);
     assert!(r.sim.plain && r.sim.skin == Skin::Calm && r.status().ends_with("plain"));
-    let root = "Name:\tsim\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n";
-    let user = "Name:\tsim\nUid:\t1000\t1000\t1000\t1000\n";
-    assert!(io::privileged(root, None), "root");
-    assert!(
-        io::privileged("Uid:\t1000\t0\t0\t0\n", None),
-        "the effective uid counts, not the real one"
-    );
-    assert!(!io::privileged(user, Some("zsh\n")), "a user's own shell");
+    assert!(io::privileged(0, None), "root");
+    assert!(!io::privileged(1000, Some("zsh\n")), "a user's own shell");
     for parent in ["sudo\n", "sudoedit\n"] {
-        assert!(io::privileged(user, Some(parent)), "the editor that sudoedit runs: {parent:?}");
+        assert!(io::privileged(1000, Some(parent)), "the editor that sudoedit runs: {parent:?}");
     }
-    assert!(!io::privileged(user, None) && !io::privileged("", None));
+    assert!(!io::privileged(1000, None) && io::privileged(0, Some("zsh")));
+    // this process: plain by default exactly when the effective uid is root's or sudo started it
+    let root = sim_core::io::file::euid() == 0;
+    assert_eq!(io::plain_by_default(), root || parent_is_sudo());
+}
+
+/// The parent of this process is `sudo` (a test run through it).
+fn parent_is_sudo() -> bool {
+    let ppid = rustix::process::getppid().map(|p| p.as_raw_nonzero().get());
+    let comm = ppid.and_then(|p| std::fs::read_to_string(format!("/proc/{p}/comm")).ok());
+    comm.is_some_and(|c| matches!(c.trim(), "sudo" | "sudoedit"))
+}
+
+/// The shell used to learn its uid on a system without /proc by making `$TMPDIR/.sim-uid-{pid}`: a
+/// name anyone can guess, and `File::create` follows a link and truncates. Under `sudo` on macOS
+/// (which resets TMPDIR to /tmp) that was a way to truncate a file of root's. It makes nothing now:
+/// a link planted at that name, to a file, is left as it was, with the file as it was.
+#[test]
+fn plain_1_the_detection_makes_no_file_in_the_shared_temporary_directory() {
+    let t = temp_dir("p1-planted");
+    let victim = t.0.join("root-owned-file");
+    std::fs::write(&victim, "keep me\n").unwrap();
+    let planted = std::env::temp_dir().join(format!(".sim-uid-{}", std::process::id()));
+    let _ = std::fs::remove_file(&planted);
+    std::os::unix::fs::symlink(&victim, &planted).unwrap();
+    let before = std::fs::metadata(&victim).unwrap().modified().unwrap();
+    let _ = io::plain_by_default();
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me\n", "not truncated");
+    assert_eq!(std::fs::metadata(&victim).unwrap().modified().unwrap(), before, "not touched");
+    assert!(std::fs::symlink_metadata(&planted).unwrap().is_symlink(), "the link is as it was");
+    std::fs::remove_file(&planted).unwrap();
+    // and nothing else of this name was made, with no link in the way either
+    let _ = io::plain_by_default();
+    assert!(std::fs::symlink_metadata(&planted).is_err(), "no probe file");
 }
 
 #[test]

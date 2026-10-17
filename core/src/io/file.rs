@@ -138,20 +138,16 @@ pub fn read(path: &str) -> Read {
     }
 }
 
-/// Our uid: libc is not needed for it, it is the owner of a file we create in `dir`.
-fn owner(dir: &Path) -> io::Result<u32> {
-    let probe = dir.join(format!(".owner-{}", uniq()));
-    let mine = OpenOptions::new().write(true).create_new(true).mode(0o600).open(&probe);
-    let mine = mine.and_then(|f| f.metadata());
-    drop(fs::remove_file(&probe));
-    Ok(mine?.uid())
+/// Our effective uid, from the system: who runs sim, not who owns a directory or a file made in it.
+pub fn euid() -> u32 {
+    rustix::process::geteuid().as_raw()
 }
 
 /// SAFE-6: `dir` must be private to us, a real directory (not a symlink) that group and others
 /// cannot enter. Returns our uid.
 pub fn private(dir: &Path) -> io::Result<u32> {
     let m = fs::symlink_metadata(dir)?;
-    let uid = owner(dir)?;
+    let uid = euid();
     if m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0 {
         return Ok(uid);
     }
@@ -192,14 +188,16 @@ fn changed(t: &Path, expect: Option<u64>) -> io::Result<Option<Option<Vec<u8>>>>
 /// is where in-place saves keep their recovery copy (`None`: there is no state directory).
 #[rustfmt::skip]
 pub fn save(path: &str, bytes: &[u8], expect: Option<u64>, state: Option<&Path>) -> Result<Saved, String> {
+    save_by(euid(), path, bytes, expect, state)
+}
+
+/// `save`, for the user `me`: the symlinks it follows are its own or root's (SAFE-1).
+#[rustfmt::skip]
+pub fn save_by(me: u32, path: &str, bytes: &[u8], expect: Option<u64>, state: Option<&Path>) -> Result<Saved, String> {
     let t = resolve(path);
     let fail = |e: io::Error| format!("cannot save {path}: {}", why(&e));
-    if !symlinks(path).is_empty() {
-        let dir = Path::new(path).parent().unwrap_or(Path::new(""));
-        let me = owner(dir).or_else(|_| owner(&std::env::temp_dir())).map_err(fail)?;
-        if let Some(link) = foreign_link(path, me) {
-            return Err(format!("not saved: {link} is a symlink owned by someone else"));
-        }
+    if let Some(link) = foreign_link(path, me) {
+        return Err(format!("not saved: {link} is a symlink owned by someone else"));
     }
     let meta = opt(fs::metadata(&t)).map_err(fail)?;
     // The compare reads the file: a FIFO would wait for a writer for ever, a device may never end.
@@ -333,9 +331,11 @@ mod tests {
     /// Saves NEW over a fresh `f` (holding OLD if `exists`; `other` is a second hard link to it if
     /// `linked`), with a private `state` directory, while step `fault` fails.
     fn put_failing(exists: bool, linked: bool, expect: Option<u64>, fault: usize) -> Out {
+        // made here and never before (a name that exists, a planted link too, fails), private
         let d = std::env::temp_dir().join(format!("sim-fault-{}", uniq()));
         let (f, state) = (d.join("f"), d.join("state"));
-        DirBuilder::new().recursive(true).mode(0o700).create(&state).unwrap();
+        DirBuilder::new().mode(0o700).create(&d).unwrap();
+        DirBuilder::new().mode(0o700).create(&state).unwrap();
         if exists {
             fs::write(&f, OLD).unwrap();
         }

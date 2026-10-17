@@ -35,7 +35,10 @@ fn safe_9_dependencies_are_exactly_the_allowlist() {
         .filter_map(|l| Some(l.split_once('=')?.0.trim()))
         .collect();
     deps.sort_unstable();
-    assert_eq!(deps, ["crossterm", "notify", "regex-lite", "ropey", "similar", "unicode-width"]);
+    assert_eq!(
+        deps,
+        ["crossterm", "notify", "regex-lite", "ropey", "rustix", "similar", "unicode-width"]
+    );
 }
 
 #[test]
