@@ -1853,4 +1853,40 @@ ui_14_the_matches_of_a_search_are_lit_until_noh_or_esc() {
   [ "$(cat "$W/a.txt")" = "$(printf 'alpha beta alpha\nsecond')" ]
 }
 
+ui_8_a_table_a_done_task_and_a_break_are_drawn_as_they_are_ruled_and_in_the_secondary_gray() {
+  printf '| a | b |\n|---|:--:|\n| 1 | 2 |\n\n- [x] finished\n- [ ] open\n\n---\n' > "$W/a.md"
+  look flat
+  CT=truecolor
+  start a.md
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "│ a │ b │" # the pipes are bars
+  screen | grep -F -q "├───┼:──:┤" # the delimiter row is a grid, the colons kept
+  screen | grep -F -q "│ 1 │ 2 │"
+  screen | grep -q '─────────────────────' # a break goes across the pane
+  screen | grep -F -q -- "- [x] finished" # the file's chars are all there
+  # a done task is the secondary gray (180), an open one is not
+  wait_esc '38;2;180;180;180mfinished'
+  ! screen_esc | grep -a 'open' | grep -q '38;2;180;180;180mopen'
+  [ "$(sed -n 1p "$W/a.md")" = "| a | b |" ] # nothing was written
+}
+
+ui_15_a_hidden_char_is_the_alert_s_and_the_same_text_typed_is_not() {
+  printf 'a\033b <U+202E> end\n' > "$W/h.txt"
+  look flat
+  CT=truecolor
+  start h.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "^[b <U+202E> end"
+  line=$(screen_esc | grep -a 'end')
+  printf '%s' "$line" | grep -aq '38;2;[0-9;]*m^\[' # the control char: in a color of its own
+  ! printf '%s' "$line" | grep -aq '38;2;230;230;230m^\[' # not the primary gray
+  printf '%s' "$line" | grep -aq '38;2;230;230;230mb <U+202E> end' # the same text typed is plain, with the chars after the control one
+  # calm: reverse video, no hue
+  typed zl
+  wait_for "look: depth"
+  typed zl
+  wait_for "look: calm"
+  screen_esc | grep -a 'end' | grep -aq '[;[]7[;m][^m]*m*^\['
+}
+
 main "$@"
