@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -873,11 +873,10 @@ fn borders(d: &Deck) -> [Line; 2] {
     let own = |panel: bool| panel == d.focus; // whether that box has the focus
     let line = |panel| paint(t.map(|t| if own(panel) { t.focus } else { t.line }), false);
     let title = |panel| paint(t.filter(|_| !own(panel)).map(|t| t.dim), true);
-    let num = |panel| paint(t.map(|t| if own(panel) { t.focus } else { t.dim }), false);
     let s = |text: &str, p| (text.to_string(), p);
     let (pw, ew) = (g.pw + 2, g.ew + g.sign + 2);
     let (mut top, mut bottom) = (Line::default(), Line::default());
-    let files = [s("¹", num(true)), s("files", title(true))];
+    let files = [s("files", title(true))];
     if g.pw > 0 {
         top.add(border(pw, ['╭', '╮'], line(true), &files, &[]));
         bottom.add(border(pw, ['╰', '╯'], line(true), &[], &[]));
@@ -909,16 +908,8 @@ fn borders(d: &Deck) -> [Line; 2] {
             .filter(|n| n.0 > 0)
             .map(|(n, w, p)| (badge(n, w[0], w[1]), p.unwrap_or(paint(None, true))))
             .collect();
-        // The title keeps what the number and the badges leave (10 columns at least).
-        let taken: usize = notes.iter().map(|n| fit(&n.0, usize::MAX).1 + 1).sum();
-        let path = a.path.as_deref().unwrap_or("[no name]");
-        left = vec![
-            s("²", num(false)),
-            (short(path, usize::from(ew).saturating_sub(5 + taken).max(10)), title(false)),
-        ];
-        for n in notes {
-            left.extend([s("─", line(false)), n]);
-        }
+        // UI-16: no title (the tab says which file it is), only the badges, a rule between them.
+        left = notes.into_iter().flat_map(|n| [s("─", line(false)), n]).skip(1).collect();
     }
     top.add(border(ew, ['╭', '╮'], line(false), &left, &[]));
     bottom.add(border(ew, ['╰', '╯'], line(false), &[], &[]));

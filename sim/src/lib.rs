@@ -9,6 +9,7 @@ pub mod grep;
 pub mod icons;
 pub mod indent;
 pub mod io;
+pub mod keys;
 pub mod layout;
 pub mod marks;
 pub mod paint;

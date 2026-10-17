@@ -40,7 +40,7 @@ pub struct Found {
 fn bonus(prev: char, c: char) -> i32 {
     match prev {
         '/' => 9,
-        ' ' | '_' | '-' | '.' => 8,
+        ' ' | '_' | '-' | '.' | '<' => 8,
         p if p.is_lowercase() && c.is_uppercase() => 7,
         _ => 0,
     }

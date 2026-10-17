@@ -1,0 +1,18 @@
+sim {version}: the next-generation Vim.
+
+usage: sim [--plain] [+cmd] [dir | file]
+       sim [--plain] [+cmd] -- file
+       sim --version | --help
+
+  dir | file   open the tree of dir (the current directory by default), or the file;
+               file:line[:col] and +cmd say where to go (+q quits at once)
+  --plain      the core alone: calm, one file, no panel, no program run (the default as root)
+  --version    print the version and exit
+  --help       print this and exit
+
+environment:
+  NO_COLOR        set and not empty: no color at all (weight, underline and inverse stand in)
+  SIM_ON_NORMAL   a command run each time Normal mode is entered (fcitx5-remote -c)
+  XDG_STATE_HOME  where sim keeps snapshots, places and choices (a directory sim/ below it)
+
+inside sim: :help or F1

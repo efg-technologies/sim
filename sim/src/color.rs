@@ -563,6 +563,9 @@ impl Input {
         if code == KeyCode::BackTab {
             return vec![SimEvent::BackTab];
         }
+        if code == KeyCode::F(1) {
+            return vec![SimEvent::Help]; // KEY-4: the core's `Key` has no F1
+        }
         let (plain, on) = (!mods.intersects(alt | ctrl), self.due > 0);
         let end = matches!(code, KeyCode::Char('\\' | 'g')) && !plain;
         match (self.osc.take(), self.held.take(), code) {

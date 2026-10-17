@@ -1,7 +1,7 @@
 64x14 cursor 29,1 Block
-|╭─¹files──────────────╮╭─²a.rs─ 2 changes on disk ─────────────╮|
+|╭─files───────────────╮╭─ 2 changes on disk ───────────────────╮|
 |................................................................|
-|llddddddlllllllllllllllfff????fAAAAAAAAAAAAAAAAAAAffffffffffffff|
+|lldddddllllllllllllllllffAAAAAAAAAAAAAAAAAAAffffffffffffffffffff|
 |│• a.rs               ││   1 fn one() {}                       ┃|
 |...####.........................................................|
 |.............................KK.FFF.............................|

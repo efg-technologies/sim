@@ -75,6 +75,8 @@ pub enum Job {
     Look(Skin),
     /// Whether the icons are on, to save (UI-2).
     Icons(bool),
+    /// How many times Tab and Shift-Tab were used, to save (KEY-6).
+    TabUses(u8),
     /// A snapshot that a dead session left for this file, to delete when ours replaces it.
     Hold(Id, String, u32),
     /// What this file's App asked of the journal: a `Snapshot`, an `Unsnapshot` (SAFE-6), a
@@ -114,6 +116,9 @@ pub fn journal_thread(
                 }
                 Job::Icons(on) => {
                     hist.iter().filter_map(|d| save_icons(d, on).err()).for_each(|e| say(1, e))
+                }
+                Job::TabUses(n) => {
+                    hist.iter().filter_map(|d| save_tab_uses(d, n).err()).for_each(|e| say(1, e))
                 }
                 Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
                 Job::App(_, Effect::Remember { path, line, col }) => {
@@ -628,6 +633,16 @@ pub fn start_icons(dir: Option<&Path>, var: impl Fn(&str) -> Option<String>) -> 
 
 pub fn save_icons(dir: &Path, on: bool) -> Result<(), String> {
     save_state(dir, "icons", if on { "on\n" } else { "off\n" })
+}
+
+/// KEY-6: how many times Tab and Shift-Tab were used, as saved in `dir` (`tab-uses`): a number, at most 3.
+pub fn load_tab_uses(dir: &Path) -> u8 {
+    let text = fs::read_to_string(dir.join("tab-uses")).unwrap_or_default();
+    text.trim().parse::<u8>().map_or(0, |n| n.min(3))
+}
+
+pub fn save_tab_uses(dir: &Path, n: u8) -> Result<(), String> {
+    save_state(dir, "tab-uses", &format!("{n}\n"))
 }
 
 pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {

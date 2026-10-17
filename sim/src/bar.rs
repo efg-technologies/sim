@@ -1,4 +1,4 @@
-//! UI-10, COLOR-1, COLOR-2
+//! UI-10, COLOR-1, COLOR-2, UI-17
 //! The status line of the interface (pure): one bar across the width, lualine's sections with
 //! powerline separators when icons are on: the mode in a block of its color, the branch and the
 //! changes against HEAD, the file with its icon and a dot when modified, and on the right the

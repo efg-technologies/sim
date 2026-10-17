@@ -1,4 +1,4 @@
-//! UI-4, COLOR-1, COLOR-3
+//! UI-4, COLOR-1, COLOR-3, KEY-5
 //! The tab bar (pure), as the author's bufferline draws it: one tab for each open file, its icon
 //! and name (with the directory above it when two open files have the same name), a dot for a
 //! file that is modified and a green one for a file that changed on disk, the counts of a language
@@ -7,7 +7,7 @@
 use crate::color::{Chg, Tones};
 use crate::icons;
 use crate::layout::{Line, fit};
-use crate::paint::Paint;
+use crate::paint::{Cue, Paint};
 use std::ops::Range;
 
 /// What a tab says about its file.
@@ -20,6 +20,25 @@ pub struct Tab {
     /// The language server's errors and warnings for the file (the server's own code sets them).
     pub errors: usize,
     pub warns: usize,
+    /// KEY-5: the letter that shows this file while the tabs are being picked from.
+    pub letter: Option<char>,
+}
+
+/// KEY-5: the alphabet of bufferline's `pick.alphabet`.
+pub const ALPHABET: &str = "abcdefghijklmopqrstuvwxyzABCDEFGHIJKLMOPQRSTUVWXYZ1234567890";
+
+/// KEY-5: the letter of each tab, as bufferline's `pick.get` gives them in order: the first letter of
+/// the file's name when it is in the alphabet and not taken, else the first letter of the alphabet that
+/// is not (a blank for a tab beyond the alphabet).
+pub fn letters(names: &[String]) -> Vec<char> {
+    let mut taken: Vec<char> = vec![];
+    let mut pick = |name: &String| {
+        let first = name.chars().next().filter(|c| ALPHABET.contains(*c) && !taken.contains(c));
+        let l = first.or_else(|| ALPHABET.chars().find(|c| !taken.contains(c))).unwrap_or(' ');
+        taken.push(l);
+        l
+    };
+    names.iter().map(&mut pick).collect()
 }
 
 /// What a click on the bar lands on.
@@ -103,11 +122,17 @@ fn tab(tb: &Tab, icons_on: bool, raised: bool, max: usize, t: Option<&Tones>) ->
         line.put(" ", base);
     }
     line.put(" ", base);
-    if icons_on {
+    if let Some(l) = tb.letter {
+        // KEY-5: the letter is where the icon is, on the accent's block (inverse without color)
+        let (back, text) = t.map(|t| t.accent_block()).unzip();
+        let p = Paint { bg: back, fg: text, bold: true, cue: Cue::Solid, ..base };
+        line.put(&format!(" {l} "), p);
+        line.put(" ", base);
+    } else if icons_on {
         let glyph = icons::of(&tb.name, false, false);
         line.put(&format!("{glyph} "), Paint { fg: t.map(|t| t.focus), ..base }); // (monochrome)
     }
-    let extra = 4 + 2 * usize::from(icons_on);
+    let extra = 4 + 2 * usize::from(icons_on || tb.letter.is_some());
     line.put(&fit(&tb.name, max.saturating_sub(extra).max(1)).0, base);
     // The counts are told by their shapes, in the text's own gray: a color is for what changed.
     for (n, shape) in [(tb.errors, ERROR), (tb.warns, WARN)] {

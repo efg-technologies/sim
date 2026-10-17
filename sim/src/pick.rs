@@ -116,6 +116,8 @@ pub struct Pane<'a> {
 /// there are no matches, the count, the spinner and the preview.
 pub struct View<'a> {
     pub title: &'a str,
+    /// What Enter does, in the border's keys: `open`, or `close` for the help.
+    pub enter: &'a str,
     /// The root the picker searches, as the panel's header writes it (UI-2).
     pub scope: &'a str,
     pub query: &'a str,
@@ -126,9 +128,9 @@ pub struct View<'a> {
     pub pane: Option<Pane<'a>>,
 }
 
-/// PICK-5: the keys of the bottom border, in the order they are written; `KEEP` is the order they
-/// are kept in when the border is short: moving goes first, closing next, opening last.
-const KEYS: [&str; 3] = ["↵ open", "^n/^p move", "esc close"];
+/// PICK-5: the keys of the bottom border, in the order they are written (`↵ open`, or `↵ close` in the
+/// help; `^n/^p move`, `esc close`); `KEEP` is the order they are kept in when the border is short:
+/// moving goes first, closing next, opening last.
 const KEEP: [&[usize]; 3] = [&[0, 1, 2], &[0, 2], &[0]];
 
 /// A glyph in a paint.
@@ -261,9 +263,11 @@ pub fn compose(w: &Win, v: &View, t: Option<&Tones>) -> (Vec<Line>, usize) {
     }
     let pane = |k: usize| pane_line(v.pane.as_ref(), k, w.pane.w, t);
     // the keys, in the border's right end where they fit next to what is at its left
+    let enter = format!("↵ {}", v.enter);
     let hint = |room: u16| -> Vec<(String, Paint)> {
         for keep in KEEP {
-            let keys: Vec<&str> = keep.iter().map(|&k| KEYS[k]).collect();
+            let keys: Vec<&str> =
+                keep.iter().map(|&k| [&enter[..], "^n/^p move", "esc close"][k]).collect();
             let text = format!(" {} ", keys.join("  "));
             if usize::from(room) >= text.chars().count() + 6 {
                 return vec![(text, faint)];

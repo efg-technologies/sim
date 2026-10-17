@@ -361,11 +361,13 @@ fn look_3_depth_puts_a_box_around_the_panel_and_one_around_the_editor() {
 }
 
 #[test]
-fn look_3_the_borders_carry_the_numbers_the_titles_and_the_badge() {
+fn look_3_the_top_border_carries_the_panel_s_title_and_the_editor_s_badge() {
     let mut r = marked("l3-title", Skin::Depth, (80, 24));
     let top = text(&r, 0).to_string();
-    assert!(top.starts_with("╭─¹files─"), "{top}");
-    assert!(top.contains("²a.rs─ 2 changes on disk ─"), "{top}");
+    // UI-16: no numbers, and the editor's border does not repeat what its tab says
+    assert!(top.starts_with("╭─files─"), "{top}");
+    assert!(top.contains("─ 2 changes on disk ─"), "{top}");
+    assert!(!top.contains('¹') && !top.contains('²') && !top.contains("a.rs"), "{top}");
     let g = r.sim.geo();
     // The badge, blanks included, is on green with its text gray (with a palette, there is no
     // style of change under it: that is for a screen without one).
@@ -384,15 +386,14 @@ fn look_3_the_borders_carry_the_numbers_the_titles_and_the_badge() {
     assert_eq!(paint_at(&r.shot.paints[0], g.ex - 1).fg, Some(t.focus));
     assert_eq!(paint_at(&r.shot.paints[5], g.ex - 1).fg, Some(t.focus));
     assert_eq!(paint_at(&r.shot.paints[5], 0).fg, Some(t.line));
-    // The number is the secondary gray in the focused box and dimmed in the other; the title is bold.
-    assert_eq!(paint_at(&r.shot.paints[0], g.ex + 1).fg, Some(t.focus));
+    // The panel's title is bold, and dimmed while the editor has the focus.
     assert_eq!(paint_at(&r.shot.paints[0], 2).fg, Some(t.dim));
-    assert!(paint_at(&r.shot.paints[0], g.ex + 2).bold && paint_at(&r.shot.paints[0], 3).bold);
-    assert!(!paint_at(&r.shot.paints[0], g.ex + 1).bold, "the number is not");
+    assert!(paint_at(&r.shot.paints[0], 2).bold);
     // The panel has the focus: the other way round.
     r.keys("<C-n>");
     assert_eq!(paint_at(&r.shot.paints[0], 0).fg, Some(t.focus));
     assert_eq!(paint_at(&r.shot.paints[0], g.ex - 1).fg, Some(t.line));
+    assert_eq!(paint_at(&r.shot.paints[0], 2).fg, None, "the focused box's title is not dimmed");
     // No badge when nothing changed, one run of marks is one change, and proposals are counted.
     let src = format!("a.rs={SRC}");
     let mut q = looked("l3-badge", Skin::Depth, &[&src], (80, 24));
@@ -413,15 +414,24 @@ fn look_3_the_borders_carry_the_numbers_the_titles_and_the_badge() {
 }
 
 #[test]
-fn look_3_the_title_is_cut_to_what_the_border_has_left_by_si_s_rule() {
+fn ui_16_the_editor_s_border_has_no_title_whatever_the_path_and_the_panel_s_is_files() {
     let path = "deep/dir/with/a/long/path/to/some/other/place/name.rs";
     let src = format!("{path}=fn x() {{}}\n");
     let r = looked_with("l3-short", Skin::Depth, &[&src], &[path], (40, 12));
     assert_eq!(r.open_files(), [path]);
     let top = text(&r, 0);
     assert_eq!(width(top), 40);
-    assert!(top.starts_with("╭─²…/") && top.contains("name.rs─"), "{top}");
-    assert!(!top.contains("deep"), "{top}");
+    assert!(top.chars().all(|c| "╭╮─".contains(c)), "a plain rule: {top}");
+    // with the panel open: its `files` and nothing else
+    let mut r = looked_with("l3-files", Skin::Depth, &[&src], &[path], (80, 12));
+    r.keys("<C-n>");
+    let top = text(&r, 0);
+    assert!(top.starts_with("╭─files─"), "{top}");
+    let editor = &top[top.find("╮╭").unwrap() + 3..];
+    assert!(editor.chars().all(|c| "╭╮─".contains(c)), "{top}");
+    // a conflict's badge is still there, and no title is made of the path or its hostile chars
+    let r = conflicted("l3-badge-only", Skin::Depth, (100, 24));
+    assert!(text(&r, 0).contains("─ 1 conflict with the disk ─"), "{}", text(&r, 0));
 }
 
 #[test]
@@ -836,7 +846,7 @@ fn look_8_without_a_palette_or_truecolor_depth_is_its_boxes_in_the_default_color
         let id = r.sim.bufs[0].id;
         r.send(SimEvent::App(id, disk(DISK.as_bytes())));
         assert!(
-            text(&r, 0).starts_with("╭─¹files─") && text(&r, 0).contains("²a.rs"),
+            text(&r, 0).starts_with("╭─files─") && text(&r, 0).contains("changes on disk"),
             "{name}: {}",
             text(&r, 0)
         );

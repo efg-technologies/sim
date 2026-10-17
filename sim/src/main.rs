@@ -1,4 +1,4 @@
-//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13, PICK-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, VIS-4, PERF-1, PERF-5
+//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13, PICK-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, VIS-4, PERF-1, PERF-5, CLI-7
 //! The event loop: several core Apps, the panel, the threads, running Effects: one save thread and
 //! one journal thread for all of them, a watcher and a filter for each, and every job and answer
 //! tagged with the id of its file. The file list, git's
@@ -32,7 +32,11 @@ use std::{env, fs, thread};
 const DRAIN: Duration = Duration::from_millis(100);
 /// Set by a quit that is waiting for the terminal: the input thread then asks it and reports.
 static QUITTING: AtomicBool = AtomicBool::new(false);
-const USAGE: &str = "usage: sim [+cmd] [dir | file]\n       sim [+cmd] -- file";
+/// CLI-7: what `--help` prints, and an argument sim cannot use (to stderr, exit 2): `help.txt`, prose
+/// like the key table, with the version in it.
+fn usage() -> String {
+    include_str!("../help.txt").replace("{version}", env!("CARGO_PKG_VERSION"))
+}
 
 /// A watcher, kept alive by holding it, and the switch that silences it (DISK-1).
 type Held = (Box<dyn Any>, Arc<AtomicBool>);
@@ -74,14 +78,24 @@ fn main() -> ExitCode {
     // (`env::args` panics on an argument that is not UTF-8; every path in sim is text)
     let args: Option<Vec<String>> = env::args_os().skip(1).map(|a| a.into_string().ok()).collect();
     let Some(args) = args else {
-        eprintln!("sim: a file name that is not valid UTF-8 cannot be opened\n{USAGE}");
+        eprint!("sim: a file name that is not valid UTF-8 cannot be opened\n\n{}", usage());
         return ExitCode::from(2);
     };
+    // CLI-7: these two never touch the terminal (no raw mode, no query)
+    let flag = |f: &str| args.iter().take_while(|a| *a != "--").any(|a| a == f);
+    if flag("--version") {
+        println!("sim {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
+    if flag("--help") {
+        print!("{}", usage());
+        return ExitCode::SUCCESS;
+    }
     let cwd = env::current_dir().unwrap_or_default();
     let here = cwd.clone();
     let Some(mut s) = start(&args, &cwd, |f| std::path::Path::new(f).exists(), |d| d.is_dir())
     else {
-        eprintln!("{USAGE}");
+        eprint!("{}", usage());
         return ExitCode::from(2);
     };
     s.root = fs::canonicalize(&s.root).unwrap_or(s.root);
@@ -114,6 +128,7 @@ fn main() -> ExitCode {
         home: env::var_os("HOME").map(std::path::PathBuf::from),
         icons,
         hint,
+        tab_uses: history.as_deref().map_or(0, sio::load_tab_uses),
         chrome: true,
     };
     let (mut sim, mut fx) = Sim::new(s, env);
@@ -218,6 +233,15 @@ fn main() -> ExitCode {
                     SimEffect::History(h) => drop(jobs.send(Job::History(h))),
                     SimEffect::Look(k) => drop(jobs.send(Job::Look(k))),
                     SimEffect::Icons(on) => drop(jobs.send(Job::Icons(on))),
+                    SimEffect::TabUses(n) => drop(jobs.send(Job::TabUses(n))),
+                    SimEffect::Pause(n) => {
+                        // KEY-3: a pause on a prefix: the thread's only job is to say when it is over.
+                        let t = tx.clone();
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(sim::sim::PAUSE_MS));
+                            drop(t.send(SimEvent::Pause(n)));
+                        });
+                    }
                     SimEffect::Highlight(req) => drop(highlights.send(HlJob::Run(req))),
                     SimEffect::Grep(req) => greps.ask(req),
                     SimEffect::Preview(path) => {

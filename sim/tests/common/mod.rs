@@ -119,6 +119,7 @@ pub fn keys(s: &str) -> Vec<Key> {
                     "CR" => Key::Enter,
                     "BS" => Key::Backspace,
                     "Tab" => Key::Tab,
+                    "Space" => Key::Char(' '),
                     "Del" => Key::Delete,
                     "Up" => Key::Up,
                     "Down" => Key::Down,
@@ -219,7 +220,8 @@ pub fn rig_env(
     let (cwd, state_dir) = (dir.0.clone(), state.0.clone());
     let args: Vec<String> = args.iter().map(ToString::to_string).collect();
     let s = start(&args, &cwd, |f| cwd.join(f).exists(), |d| d.is_dir()).unwrap();
-    let mut env = Env { cwd: cwd.clone(), size, now: NOW, ..Env::default() };
+    // (the tests start with Tab learned: the hint of KEY-6 has its own tests)
+    let mut env = Env { cwd: cwd.clone(), size, now: NOW, tab_uses: 3, ..Env::default() };
     tweak(&mut env);
     let (sim, fx) = Sim::new(s, env);
     let blank = Frame {
@@ -375,9 +377,36 @@ impl Rig {
 
     /// Types keys (si's notation).
     pub fn keys(&mut self, s: &str) -> &mut Rig {
-        for k in keys(s) {
-            self.send(SimEvent::Term(Event::Key(k)));
+        // `<S-Tab>` and `<F1>` are events of sim's own: the core's `Key` has neither
+        let mut rest = s;
+        while !rest.is_empty() {
+            let cut =
+                ["<S-Tab>", "<F1>"].iter().filter_map(|t| rest.find(t).map(|i| (i, *t))).min();
+            let (now, special, tail) = match cut {
+                Some((i, t)) => (&rest[..i], Some(t), &rest[i + t.len()..]),
+                None => (rest, None, ""),
+            };
+            for k in keys(now) {
+                self.send(SimEvent::Term(Event::Key(k)));
+            }
+            match special {
+                Some("<S-Tab>") => self.send(SimEvent::BackTab),
+                Some(_) => self.send(SimEvent::Help),
+                None => {}
+            }
+            rest = tail;
         }
+        self
+    }
+
+    /// The pause (KEY-3) that the last key asked for is over: which-key opens if its prefix is still typed.
+    pub fn pause(&mut self) -> &mut Rig {
+        let n = self
+            .log
+            .iter()
+            .rev()
+            .find_map(|e| if let SimEffect::Pause(n) = e { Some(*n) } else { None });
+        self.send(SimEvent::Pause(n.unwrap_or(0)));
         self
     }
 

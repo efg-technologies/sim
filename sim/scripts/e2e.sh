@@ -37,6 +37,7 @@
 #   $NOCOLOR           set it before `start` to run sim with NO_COLOR=$NOCOLOR (COLOR-2); otherwise it is unset
 #   $TP                set it before `start` to run sim with TERM_PROGRAM=$TP (ghostty brings Nerd Font symbols,
 #                      ICON-1); otherwise the terminal is not known to bring any, whatever the user's is
+#   $HINT_TAB          set it before `start` to see the hint of KEY-6 (otherwise Tab counts as learned)
 #   $HINTED            set it before `start` to see the hint of ICON-1; otherwise the hint counts as given
 #   $ICONS_ON          set it in a case that draws icons: no other screen may have a private-use code point
 #   $SIM_PATH          set it before `start` to run sim with that PATH (for a fake or a missing rg)
@@ -73,6 +74,8 @@ start() {
   # ICON-1: the icons start off in tmux (no Nerd Font is known), once with a hint on the status line;
   # the cases are written without that hint, so it is taken as given unless a case wants to see it.
   [ -n "${HINTED:-}" ] || [ -e "$XDG_STATE_HOME/sim/icons-hint" ] || { mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"; }
+  # KEY-6: Tab is learned (three uses) unless a case wants the hint for a second file
+  [ -n "${HINT_TAB:-}" ] || [ -e "$XDG_STATE_HOME/sim/tab-uses" ] || { mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo 3 > "$XDG_STATE_HOME/sim/tab-uses"; }
   cmd="cd $(shq "$W") && env -u COLORTERM -u NO_COLOR -u TERM_PROGRAM -u GHOSTTY_RESOURCES_DIR -u KITTY_PID -u WEZTERM_PANE HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") ${CT:+COLORTERM=$CT} ${NOCOLOR:+NO_COLOR=$NOCOLOR} ${TP:+TERM_PROGRAM=$TP} ${SIM_PATH:+PATH=$(shq "$SIM_PATH")} $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
@@ -321,7 +324,7 @@ gone() { ! screen | grep -F -q -- "$1"; }
 # What is left in si's state directory but the places where files were closed (CLI-6, which stay).
 # What the journal left in the state directory: not the places, and not the choices sim keeps beside it
 # (`look`, `history`, `icons`, and the marker of the hint, STATE-1).
-journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|\.migrated)$' || true; }
+journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|tab-uses|\.migrated)$' || true; }
 
 # After sim is gone: the normal screen is back and the tty is in cooked mode again.
 terminal_restored() {
@@ -918,7 +921,7 @@ grep_4_the_pane_previews_the_result_enter_opens_it_there_and_esc_puts_the_tree_b
   gone "line 57"
   keys Up
   wait_for " 57 line 57"
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(look|icons-hint)$')" ] # not an open: no history yet (`look` is the seeded look)
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(look|icons-hint|tab-uses)$')" ] # not an open: no history yet (`look` is the seeded look)
   keys Enter
   wait_for "big.txt  60:5  NORMAL" # the line, and the column of the match
   screen | grep -F -q "▸ src/" # the tree is as it was
@@ -1291,7 +1294,7 @@ buf_1_snapshots_are_off_when_the_state_directory_is_not_private() {
   typed ":w"
   keys Enter
   wait_content "$W/src/lib.rs" "n lib() {}" # saving works all the same
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(look|icons-hint)$')" ] # and nothing was written there (the case's own files aside)
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(look|icons-hint|tab-uses)$')" ] # and nothing was written there (the case's own files aside)
 }
 
 # ---- S4: the mouse ----
@@ -1410,7 +1413,7 @@ look_1_zl_cycles_the_looks_and_the_choice_is_the_next_runs() {
   gone "╭"
   typed zl
   wait_for "look: depth"
-  wait_for "²a.txt" # the boxes, in the terminal's own colors: nothing answered for a palette
+  wait_for "╭─" # the boxes, in the terminal's own colors: nothing answered for a palette
   screen | grep -F -q "╰"
   screen | grep -F -q "   1 one"
   typed zl
@@ -1434,11 +1437,11 @@ look_1_zl_cycles_the_looks_and_the_choice_is_the_next_runs() {
   restart
   look none
   start a.txt
-  wait_for "²a.txt"
+  wait_for "╭─"
   restart
   look nonsense
   start a.txt
-  wait_for "²a.txt"
+  wait_for "╭─"
 }
 
 look_3_the_border_badges_a_conflict_with_the_disk() {
@@ -2017,6 +2020,141 @@ icon_1_the_icons_start_off_with_a_hint_once_and_the_remembered_choice_wins() {
   reply '11;rgb:1e1e/1e1e/1e1e'
   wait_for "src/" # (and wait_for sees no icon: the remembered off wins over ghostty)
   if screen | grep -F 'src' | grep -q "$closed"; then fail "ghostty beat what zi chose"; fi
+}
+
+# CLI-7: `sim --version` and `sim --help` print and exit 0, an unknown flag prints the usage to stderr and
+# exits 2, and none of them writes an escape sequence (no raw mode, no query).
+cli_7_version_and_help_print_without_touching_the_terminal() {
+  out=$("$SIM_BIN" --version)
+  case $out in
+    "sim "[0-9]*) ;;
+    *) fail "--version printed: $out" ;;
+  esac
+  out=$("$SIM_BIN" --help)
+  case $out in
+    *"the next-generation Vim"*"--plain"*"NO_COLOR"*"SIM_ON_NORMAL"*":help or F1"*) ;;
+    *) fail "--help printed: $out" ;;
+  esac
+  if "$SIM_BIN" --version --help | grep -a -q "$(printf '\033')"; then fail "an escape sequence"; fi
+  rc=0
+  "$SIM_BIN" --bogus > "$CASE_DIR/stdout" 2> "$CASE_DIR/stderr" || rc=$?
+  [ "$rc" -eq 2 ]
+  [ ! -s "$CASE_DIR/stdout" ]
+  grep -F -q "usage: sim" "$CASE_DIR/stderr"
+}
+
+# KEY-3: a pause on a prefix shows which-key near the bottom, and Esc closes it.
+key_3_a_pause_on_a_prefix_shows_which_key_and_esc_closes_it() {
+  project
+  look depth
+  CT=truecolor
+  start src/lib.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "NORMAL"
+  typed " "
+  wait_for "buffers" # after 200 ms
+  screen | grep -F -q "╭─ <Space> "
+  keys Escape
+  wait_gone "buffers"
+  typed "d"
+  wait_for "delete lines"
+  typed "w" # typing on is what it is without the window: `dw` takes a word
+  wait_gone "delete lines"
+  wait_for "lib() {}"
+  gone "fn lib"
+}
+
+# KEY-4: `:help` and F1 open the key table as a picker; `tab` finds the keys that move between files.
+key_4_help_opens_the_key_table_and_typing_tab_finds_the_tab_keys() {
+  project
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed ":help"
+  keys Enter
+  wait_for "Help · keys and commands"
+  typed tab
+  wait_for "<S-Tab>"
+  screen | grep -F -q "<Space>bp"
+  screen | grep -F -q "Shows the next open file" # the longer text of the best entry
+  keys Escape
+  wait_gone "Help · keys and commands"
+  [ "$(cat "$W/src/lib.rs")" = "fn lib() {}" ] # it ran nothing
+  keys F1
+  wait_for "Help · keys and commands"
+  keys Escape
+}
+
+# KEY-5: where there is no tab bar the letters of `<Space>bp` are on the status line, and the letter shows its file.
+key_5_space_b_p_puts_a_letter_on_each_file_and_the_letter_shows_it() {
+  project
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed ":e src/main.rs"
+  keys Enter
+  wait_for "src/main.rs  1:1  NORMAL"
+  typed " bp"
+  wait_for "pick: l lib.rs · m main.rs"
+  typed l
+  wait_for "src/lib.rs  1:1  NORMAL"
+}
+
+# KEY-6: the first time a second file is open the message line says how to move between files, until Tab has
+# been used three times, and the uses are kept in the state directory.
+key_6_the_hint_for_tab_comes_with_the_second_file_until_it_is_used_three_times() {
+  project
+  HINT_TAB=1
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed ":e src/main.rs"
+  keys Enter
+  wait_for "Tab / S-Tab: next / previous file"
+  typed j
+  wait_gone "Tab / S-Tab"
+  keys Tab Tab Tab
+  wait_content "$XDG_STATE_HOME/sim/tab-uses" 3
+  typed ":qa"
+  keys Enter
+  wait_exit
+  restart
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed ":e src/main.rs"
+  keys Enter
+  wait_for "src/main.rs  1:1  NORMAL"
+  sleep 0.3
+  gone "Tab / S-Tab" # learned: never again
+}
+
+# UI-17: while the matches of a search are lit the status line says which one the cursor is at.
+ui_17_the_status_line_counts_the_matches_of_the_lit_search() {
+  printf 'foo bar foo\nbaz foo\n' > "$W/a.txt"
+  start a.txt
+  wait_for "a.txt  1:1  NORMAL"
+  typed "/foo"
+  keys Enter
+  wait_for "[2/3]"
+  typed n
+  wait_for "[3/3]"
+  keys Escape
+  wait_gone "[3/3]"
+}
+
+# UI-16: the boxes' titles have no numbers, and the editor's border no longer repeats the file's name.
+ui_16_the_boxes_have_no_numbers_and_the_editor_s_border_is_plain() {
+  project
+  look depth
+  CT=truecolor
+  start src/lib.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "NORMAL"
+  keys C-n
+  wait_for "files"
+  gone "¹"
+  gone "²"
+  top=$(screen | sed -n 1p)
+  case $top in
+    *"lib.rs"*) fail "the editor's border has the file's name: $top" ;;
+  esac
 }
 
 main "$@"

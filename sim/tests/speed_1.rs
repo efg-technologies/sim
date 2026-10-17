@@ -112,6 +112,8 @@ impl Bench {
                         SimEffect::Highlight(req) => {
                             todo.push((sim::io::Highlighter::default().run(req), label));
                         }
+                        // the pause that opens which-key (KEY-3): the timer is the shell's, the event is timed
+                        SimEffect::Pause(n) => todo.push((SimEvent::Pause(n), label)),
                         SimEffect::Grep(req) => {
                             let mut batches = vec![];
                             sim::io::grep(&req, None, &|| true, &mut |b| batches.push(b));
@@ -196,6 +198,31 @@ fn picker(b: &mut Bench) -> Times {
     out
 }
 
+/// KEY-3: which-key's window open over the big file: a pause after Space, after an operator (the
+/// longest list: motions and objects), `z`, `g` and `]`, the next key typed on with the window open
+/// (the window of the longer prefix opens at once) and Esc. The pause is played as an event, timed.
+fn whichkey(b: &mut Bench) -> Times {
+    let mut out = vec![];
+    for _ in 0..60 {
+        out.extend(b.picked("<Space>b<Esc>d<Esc>di<Esc>yj<Esc>zz<Esc>gj<Esc>]<Esc>[<Esc>"));
+        out.extend(b.picked("<Space>bp<Esc><Space>bc<Esc>zzzz"));
+    }
+    out
+}
+
+/// KEY-4: the help in the picker over the big file: `:help` and F1, typed into (the filter by
+/// fuzzy match over every key of the table), moved in, cleared and closed.
+fn help(b: &mut Bench) -> Times {
+    let mut out = vec![];
+    for _ in 0..40 {
+        out.extend(b.picked(":help\n"));
+        out.extend(b.picked("tab<C-n><C-n><C-p><BS><BS><BS>leader<C-n><C-u>dd<C-n><Esc>"));
+        out.push((b.one(SimEvent::Help), Key::Char('?'))); // F1 is an event of its own
+        out.extend(b.picked("<C-n><C-n><C-n>search<BS><C-p><Esc>"));
+    }
+    out
+}
+
 /// The mouse (PTR-1) on the big file with the panel open: clicks in the text, drags (a press, some
 /// moves, a release), the wheel in the text (three lines a notch, the cursor keeping its context)
 /// and over the panel. Each event is timed, as a key is.
@@ -250,13 +277,15 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     for skin in [Skin::Calm, Skin::Depth] {
         for size in [(80, 24), (240, 60)] {
             type Kind = fn(&mut Bench) -> Times;
-            let kinds: [(&str, Kind); 7] = [
+            let kinds: [(&str, Kind); 9] = [
                 ("motions", motions),
                 ("insert", inserts),
                 ("delete", deletes),
                 ("panel", panel),
                 ("mouse", mouse),
                 ("picker", picker),
+                ("whichkey", whichkey),
+                ("help", help),
                 ("lit", lit),
             ];
             for (name, run) in kinds {

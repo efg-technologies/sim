@@ -1,8 +1,9 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
 //! are in `panel.rs`, the search of file contents in `live.rs`.
+mod guide;
 mod live;
 mod panel;
 mod ptr;
@@ -14,6 +15,7 @@ use crate::grep;
 use crate::icons;
 use crate::indent::{self, Indent, Lead};
 use crate::io::GIT_SKIPPED;
+use crate::keys;
 use crate::layout::{
     self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin, Tick,
 };
@@ -47,6 +49,9 @@ use unicode_width::UnicodeWidthStr;
 pub const FLASH_MS: u64 = 150;
 /// PICK-5: how long a frame of the spinner lasts.
 pub const SPIN_MS: u64 = 80;
+/// KEY-3: how long a pause on a prefix lasts before which-key opens: which-key's own default for a
+/// mapping that is not a plugin's (`delay` in its `config.lua`).
+pub const PAUSE_MS: u64 = 200;
 /// COLOR-2: the page the interface is laid out on when nothing asks the terminal for its own.
 const MONO_BG: (u8, u8, u8) = (0x1e, 0x1e, 0x1e);
 
@@ -103,6 +108,10 @@ pub enum SimEvent {
     Unflash(u64),
     /// PICK-5: the spinner of the search of this generation is to show its next frame.
     Spin(u64),
+    /// KEY-3: the pause asked for after the key that made this number is over.
+    Pause(u64),
+    /// KEY-4: F1, which the core's `Key` does not have.
+    Help,
 }
 
 /// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
@@ -163,6 +172,10 @@ pub enum SimEffect {
     Look(Skin),
     /// UI-2: whether the icons are on, to remember.
     Icons(bool),
+    /// KEY-3: answer with `SimEvent::Pause(n)` after `PAUSE_MS` milliseconds.
+    Pause(u64),
+    /// KEY-6: how many times Tab and Shift-Tab were used, to remember.
+    TabUses(u8),
     Quit(i32),
 }
 
@@ -239,6 +252,9 @@ pub struct Buf {
     /// `:noh` and Esc in Normal mode put them out), and the matcher of the pattern.
     lit: bool,
     finder: Option<Finder>,
+    /// UI-17: where the matches are (the first 100, as chars of the text) for a pattern and a
+    /// version of the text, to say which one the cursor is at.
+    count: Option<Count>,
 }
 
 /// UI-14: the pattern (and whether it was asked to be case-sensitive) a matcher was made for; none
@@ -246,6 +262,12 @@ pub struct Buf {
 struct Finder {
     key: (String, bool),
     m: Option<Matcher>,
+}
+
+/// UI-17: the chars the first matches start at, and what they were found for (as `Hits`).
+struct Count {
+    key: (String, bool, u64),
+    at: Vec<usize>,
 }
 
 /// The lines a search matches, and what they were found for: the pattern, whether it was asked to be
@@ -329,6 +351,17 @@ pub struct Sim {
     pub plain: bool,
     /// PTR-1: the press in the text that a drag goes on from: the file, and whether it has begun.
     drag: Option<(Id, bool)>,
+    /// KEY-2: what was typed after a Space that makes no sequence yet: `Some("")` after the Space,
+    /// `Some("b")` after `<Space>b`.
+    leader: Option<String>,
+    /// KEY-5: the letters are on the tabs (`Some(false)` to show a file, `Some(true)` to close one).
+    tabpick: Option<bool>,
+    /// KEY-3: the number of the last pause asked for, and the prefix whose window is open.
+    pause: u64,
+    which: Option<Vec<String>>,
+    /// KEY-6: how many times Tab and Shift-Tab were used (at most 3), and whether the hint was told in this run.
+    pub tab_uses: u8,
+    hinted: bool,
 }
 
 /// What `sim` starts with besides what it was asked to open: the shell's side of the world.
@@ -349,6 +382,8 @@ pub struct Env {
     pub home: Option<PathBuf>,
     /// UI-2: whether the tree has icons (the saved choice; the tests start without).
     pub icons: bool,
+    /// KEY-6: how many times Tab and Shift-Tab were used (at most 3; the saved count).
+    pub tab_uses: u8,
     /// ICON-1: the first status line is the hint that `zi` turns the icons on.
     pub hint: bool,
     /// UI-1: whether flat and depth draw the interface (the binary does; the tests of the looks
@@ -421,6 +456,13 @@ fn after_range(s: &str) -> &str {
     rest.strip_prefix(',').and_then(after_address).unwrap_or(rest)
 }
 
+/// KEY-4: `:help`, `:h` and `:help words`: the words typed after it (none for the first two).
+fn help_words(line: &str) -> Option<String> {
+    let s = line.strip_prefix(':')?.trim();
+    let (name, words) = s.split_once(char::is_whitespace).unwrap_or((s, ""));
+    matches!(name, "help" | "h").then(|| words.trim().to_string())
+}
+
 /// The commands for all the files at once, which the core's App does not know (BUF-3), and `:e name`,
 /// which opens another file instead of replacing this one (BUF-1): name, `!`, argument. The core takes
 /// a range before `:e` and ignores it, and would replace this file by the other: `:%e name` is
@@ -451,6 +493,7 @@ impl Sim {
         // Plain mode is calm, with no hook, and (PLAIN-1) asks for no git and no highlighting colors.
         (sim.skin, sim.hook) = if plain { (Skin::Calm, None) } else { (env.skin, env.hook) };
         (sim.chrome, sim.home, sim.icons) = (env.chrome, env.home, env.icons);
+        sim.tab_uses = env.tab_uses;
         if sim.syn.mono {
             // COLOR-2: nothing asks the terminal, so the interface is laid out on a dark page, whose
             // colors the Painter does not write.
@@ -499,7 +542,12 @@ impl Sim {
         let mut out = vec![];
         self.fit();
         match ev {
-            SimEvent::Term(Event::Key(k)) => self.key(k, &mut out),
+            SimEvent::Term(Event::Key(k)) => {
+                self.key(k, &mut out);
+                self.arm(&mut out);
+            }
+            SimEvent::Pause(n) => self.paused(n),
+            SimEvent::Help => self.help(String::new(), &mut out),
             SimEvent::Term(Event::Paste(s)) if !self.panel.focus && self.panel.live.is_none() => {
                 self.to(self.id(), Event::Paste(s), &mut out)
             }
@@ -508,7 +556,7 @@ impl Sim {
             SimEvent::Term(_) => {}
             SimEvent::Mouse(m) if self.panel.live.is_none() => self.mouse(m, &mut out),
             SimEvent::Mouse(_) => {}
-            SimEvent::BackTab => self.step(self.bufs.len().saturating_sub(1)),
+            SimEvent::BackTab => self.step(self.bufs.len().saturating_sub(1), &mut out),
             SimEvent::App(id, e) => self.to(id, e, &mut out),
             SimEvent::Notice(m) => self.msg = Some(m),
             SimEvent::Tick(n) => {
@@ -625,9 +673,13 @@ impl Sim {
     }
 
     /// Shows the file `by` places on, wrapping round (Tab is 1, Shift-Tab one less than all).
-    fn step(&mut self, by: usize) {
+    fn step(&mut self, by: usize, out: &mut Vec<SimEffect>) {
+        let at = self.cur;
         if self.idle() {
             self.cur = (self.cur + by) % self.bufs.len();
+        }
+        if self.cur != at {
+            self.used_tab(out); // KEY-6
         }
     }
 
@@ -683,6 +735,47 @@ impl Sim {
         }
     }
 
+    /// UI-17: finds where the first matches of the lit search are in the current file (not in a file
+    /// of more than `HIT_LINES` lines, and not while the text is being typed), once for a pattern
+    /// and a version of the text.
+    fn refresh_count(&mut self) {
+        let Some(b) = self.bufs.get_mut(self.cur) else { return };
+        let (buf, mode) = (&b.app.buf, b.app.vi.mode);
+        if matches!(mode, Mode::Insert | Mode::Cmd) {
+            return; // the count of the text as it was stays while it is typed
+        }
+        let found = b.finder.as_ref().and_then(|f| Some((f.m.as_ref()?, &f.key)));
+        let Some((m, (pat, cs))) = found.filter(|_| buf.lines() <= HIT_LINES) else {
+            return b.count = None;
+        };
+        let key = (pat.clone(), *cs, buf.version());
+        if b.count.as_ref().is_some_and(|c| c.key == key) {
+            return;
+        }
+        let mut at: Vec<usize> = vec![];
+        for l in 0..buf.lines() {
+            if at.len() >= 100 {
+                break;
+            }
+            let start = buf.start(l);
+            at.extend(
+                m.ranges(&text_of(buf, l).unwrap_or_default()).iter().map(|r| start + r.start),
+            );
+        }
+        at.truncate(100);
+        b.count = Some(Count { key, at });
+    }
+
+    /// UI-17: `[3/12]`, for the match the cursor is at (the last one that starts at or before it): `[0/12]`
+    /// before the first, `>99` for more than 99. None when no search is lit or nothing matches.
+    fn searchcount(&self) -> Option<String> {
+        let b = self.bufs.get(self.cur)?;
+        let at = &b.count.as_ref().filter(|_| b.lit)?.at;
+        let (i, n) = (at.partition_point(|&p| p <= b.app.buf.cursor), at.len());
+        let say = |k: usize| if k > 99 { ">99".to_string() } else { k.to_string() };
+        (n > 0).then(|| format!("[{}/{}]", say(i), say(n)))
+    }
+
     /// UI-11: the scrollbar's rows for the current file: the marks of changes on disk, the git signs
     /// against HEAD (every line for a file git does not know) and the matches of a search, the
     /// thumb for the lines on screen and the cursor's place.
@@ -722,14 +815,16 @@ impl Sim {
         let paths: Vec<&str> =
             self.bufs.iter().map(|b| b.app.path.as_deref().unwrap_or("[no name]")).collect();
         let names = tabs::names(&paths);
-        let tab = |(b, name): (&Buf, String)| Tab {
+        let picking = self.tabpick.map(|_| self.tab_letters());
+        let tab = |(i, (b, name)): (usize, (&Buf, String))| Tab {
             name,
+            letter: picking.as_ref().and_then(|l| l.get(i).copied()),
             dirty: b.app.buf.dirty(),
             disk: !b.app.buf.marks.is_empty(),
             errors: b.diag.0,
             warns: b.diag.1,
         };
-        self.bufs.iter().zip(names).map(tab).collect()
+        self.bufs.iter().zip(names).enumerate().map(tab).collect()
     }
 
     /// UI-5: asks for the diff of a file against HEAD (not where git said there is no repository).
@@ -842,13 +937,21 @@ impl Sim {
 
     fn key(&mut self, k: Key, out: &mut Vec<SimEffect>) {
         self.msg = None;
+        // KEY-5, KEY-2: the letters of the tabs are waiting for a key; a leader's sequence is half typed
+        // or starts with this Space: the keys are the guide's until it is done
+        if let Some(close) = self.tabpick.take() {
+            return self.pick_tab(k, close, out);
+        }
+        if self.leader.is_some() || (k == Key::Char(' ') && self.leads()) {
+            return self.leader_key(k, out);
+        }
         match k {
             // PICK-2: while a picker is open every key is its own (Ctrl-n and Ctrl-p move in it)
             _ if self.panel.live.is_some() => return self.live_key(k, out),
             Key::Ctrl('n') => return self.toggle(out),
             Key::Ctrl('p') => return self.live_start(Pick::Files, out),
             Key::Ctrl('f') => return self.live_start(Pick::Grep, out),
-            Key::Tab if self.idle() => return self.step(1),
+            Key::Tab if self.idle() => return self.step(1, out),
             _ if self.panel.open && self.panel.focus => return self.panel_key(k, out),
             _ => {}
         }
@@ -864,6 +967,10 @@ impl Sim {
                 b.lit = false;
             }
             return;
+        }
+        if let Some(words) = help_words(&line) {
+            self.to(id, Event::Key(Key::Esc), out); // the command line is ours: close it
+            return self.help(words, out);
         }
         // (plain mode is the core alone: `:e name` replaces the file, there is no `:qa`)
         if let Some(cmd) = all(&line).filter(|_| !self.plain) {
@@ -999,6 +1106,7 @@ impl Sim {
             indent: Indent::default(),
             hits: None,
             lit: false,
+            count: None,
             finder: None,
         });
         if let Some(b) = self.bufs.last_mut() {
@@ -1007,6 +1115,7 @@ impl Sim {
         self.cur = self.bufs.len() - 1;
         self.refocus();
         self.run(o.id, fx, out);
+        self.tab_hint(); // KEY-6
         self.diff(o.id, out);
     }
 
@@ -1100,6 +1209,7 @@ impl Sim {
         self.scroll();
         self.live_prepare(out);
         self.refresh_finder();
+        self.refresh_count();
         let ((w, h), g) = (self.size, self.geo());
         let focus = self.panel.open && self.panel.focus;
         let rows =
@@ -1118,11 +1228,13 @@ impl Sim {
         // BUF-2: the position `2/5` follows the status, which is cut to what is left of the width;
         // on the command line, which has the whole width, there is none.
         let cmd = !focus && self.bufs.get(self.cur).is_some_and(|b| b.app.vi.mode == Mode::Cmd);
+        let found = self.searchcount().filter(|_| !cmd && !focus);
         let pos = if self.bufs.len() > 1 && !cmd {
             format!("  {}/{}", self.cur + 1, self.bufs.len())
         } else {
             String::new()
         };
+        let pos = found.map_or(String::new(), |c| format!("  {c}")) + &pos; // UI-17
         let room = usize::from(w).saturating_sub(pos.width());
         let (mut status, mut cursor, mut shape) =
             (layout::short(&root, room), (g.tx(), g.y0), Shape::Block);
@@ -1233,6 +1345,13 @@ impl Sim {
             let at = qcols.min(usize::from(win.prompt.w).saturating_sub(5));
             (cursor, shape) = ((win.prompt.x + 3 + at as u16, win.prompt.y), Shape::Bar);
         }
+        // KEY-3: which-key, laid over the text as the picker is, while a prefix has been typed for a pause
+        if let Some((title, next)) = self.which_rows()
+            && let Some((win, lines)) = keys::which(&title, &next, (w, h), tones.as_ref())
+        {
+            let shadow = tones.as_ref().filter(|_| g.boxed);
+            pick::lay(&mut rows, &mut looks, &mut paints, w, &win, lines, shadow);
+        }
         // UI-10: the bar, unless a message, the command line or a search has the row's text.
         let tree = focus.then(|| (at.as_ref().map(|r| r.path.display().to_string()), slash));
         let drawn =
@@ -1308,6 +1427,9 @@ impl Sim {
             Mode::Normal => ("NORMAL".into(), BarBlock::Gray),
         };
         let mut notes = state_words(si_status, line + 1, col + 1);
+        if let Some(c) = self.searchcount() {
+            notes = format!("{notes}  {c}").trim_start().to_string(); // UI-17
+        }
         if self.bufs.len() > 1 && self.geo().head == 0 {
             notes = format!("{}/{}  {notes}", self.cur + 1, self.bufs.len()).trim_end().to_string();
         }

@@ -1,0 +1,144 @@
+i	ov	inner object	Selects inside the delimiters of an object, after an operator or in Visual mode: iw a word, i" a quoted string, i( what is in the parentheses, i{ what is in the braces (diw, ci", yi(, vi[).
+a	ov	around object	Selects an object with its delimiters (and the blanks after a word), after an operator or in Visual mode: aw, a", a(, a{ (daw, ya", va().
+h|<Left>	nvo	left	Moves the cursor one character left; with a count, that many. It stops at the start of the line.
+l|<Right>	nvo	right	Moves the cursor one character right; with a count, that many. It stops at the end of the line.
+j|<Down>	nvo	down	Moves the cursor one line down, keeping the wanted column over shorter lines. After an operator it takes whole lines (dj deletes two lines).
+k|<Up>	nvo	up	Moves the cursor one line up, keeping the wanted column over shorter lines. After an operator it takes whole lines.
+w	nvo	next word	Moves to the start of the next word: a run of letters, digits and underscores, or a run of other symbols that are not blanks. A script change in Japanese text ends a word too.
+W	nvo	next WORD	Moves to the start of the next WORD: anything between blanks.
+b	nvo	word back	Moves to the start of this word, or of the one before it when the cursor is already there.
+B	nvo	WORD back	Like b, with WORDs: anything between blanks.
+e	nvo	end of word	Moves to the last character of this word, or of the next one when the cursor is already there. After an operator the character is included.
+E	nvo	end of WORD	Like e, with WORDs: anything between blanks.
+0|<Home>	nvo	start of line	Moves to the first column of the line.
+^	nvo	first non-blank	Moves to the first character of the line that is not a blank.
+$|<End>	nvo	end of line	Moves to the last character of the line; with a count, of the line that many lines down. After an operator the character is included.
+G	nvo	last line	Moves to the last line, or with a count to that line (5G is line 5). The cursor lands on the first non-blank. After an operator it takes whole lines.
+g g	nvo	first line	Moves to the first line, or with a count to that line (5gg is line 5). After an operator it takes whole lines.
+f {char}	nvo	find character	Moves to the next occurrence of the character you type in this line; with a count, the nth one. After an operator the character is included. ; and , repeat it.
+F {char}	nvo	find character backward	Like f, looking back along the line.
+t {char}	nvo	until character	Like f, but stops one character before the one found.
+T {char}	nvo	until character backward	Like F, but stops one character after the one found.
+;	nvo	repeat find	Repeats the last f, F, t or T in the same direction.
+,	nvo	repeat find backward	Repeats the last f, F, t or T in the opposite direction.
+%	nvo	matching bracket	Moves from a bracket ( ) [ ] { } at or after the cursor on this line to its partner, skipping nested pairs.
+n	nvo	next match	Moves to the next match of the last search, wrapping round the end of the file, and lights the matches. The status line says which one it is, [3/12].
+N	nvo	previous match	Moves to the previous match of the last search, wrapping round the start of the file.
+*	nvo	search word forward	Searches for the word under the cursor, as a whole word, and moves to its next occurrence.
+#	nvo	search word backward	Searches for the word under the cursor, as a whole word, and moves to its previous occurrence.
+<C-d>	nvo	half page down	Scrolls half a screen down and moves the cursor with it; the line is centered where it can be.
+<C-u>	nvo	half page up	Scrolls half a screen up and moves the cursor with it.
+<PageDown>	nvo	page down	Moves a screen down.
+<PageUp>	nvo	page up	Moves a screen up.
+1|2|3|4|5|6|7|8|9	nvo	count	A number before a command repeats it that many times: 3dd, 5j, 2w, 10x. A 0 typed after a number is part of it; alone, 0 is the start of the line.
+i w|W	ov	inner word	The word under the cursor, without the blanks around it (iw), or the WORD (iW): diw deletes it, ciw changes it, yiw yanks it, viw selects it.
+a w|W	ov	around word	The word under the cursor with the blanks after it, or before it when there are none (aw), or the WORD (aW).
+i "|'	ov	inner quotes	The text between the pair of quotes on this line that holds the cursor, without the quotes: ci" changes it.
+a "|'	ov	around quotes	The same with the quotes, and the blanks after the closing one.
+i (|)	ov	inner parentheses	The text between the parentheses that hold the cursor, nested pairs counted, without them: ci( changes it. A ( or a ) after i or a means the same.
+a (|)	ov	around parentheses	The same with the parentheses.
+i [|]	ov	inner brackets	The text between the square brackets that hold the cursor, without them.
+a [|]	ov	around brackets	The same with the square brackets.
+i {|}	ov	inner braces	The text between the braces that hold the cursor, without them. When the opening brace ends its line and the closing one starts its own, the lines between them as lines.
+a {|}	ov	around braces	The same with the braces.
+i <lt>|>	ov	inner angle brackets	The text between < and > that hold the cursor, without them.
+a <lt>|>	ov	around angle brackets	The same with the angle brackets.
+d	nv	delete	d{motion} deletes the text from the cursor to where the motion goes (dw, d$, dip, di"); dd deletes lines; in Visual mode d deletes the selection. What it deletes is the register p pastes from, and one yank reaches the system clipboard too (also through tmux).
+c	nv	change	c{motion} deletes like d and starts Insert mode; cc changes whole lines; cw changes to the end of the word, as ce does; in Visual mode c changes the selection.
+y	nv	yank	y{motion} copies the text to the register and to the system clipboard (also through tmux), and says what it took (3 lines yanked); yy yanks lines; in Visual mode y yanks the selection. The text lights up for a moment.
+<lt>	nv	outdent	<{motion} takes one level of indent off the lines the motion covers; << is the current line; in Visual mode < outdents the selection. A level is the file's own: 4 columns, 2, or a tab, as the first indented lines show.
+>	nv	indent	>{motion} puts one level of indent on the lines the motion covers; >> is the current line; in Visual mode > indents the selection.
+!	nv	filter	!{motion} opens the command line with the range of lines, ready for a command: !! is the current line, and :{range}!cmd runs the lines through cmd and replaces them with what it prints, as one undo step. Ctrl-c cancels a filter that runs. Not in plain mode.
+d d	n	delete lines	Deletes the current line, or that many lines with a count (3dd).
+c c	n	change lines	Deletes the current line's text, keeping its indent, and starts Insert mode.
+y y	n	yank lines	Yanks the current line, or that many lines with a count (3yy).
+<lt> <lt>	n	outdent line	Takes one level of indent off the current line.
+> >	n	indent line	Puts one level of indent on the current line.
+! !	n	filter line	Opens the command line with the current line as the range, ready for :{range}!cmd.
+D	n	delete to end of line	Deletes from the cursor to the end of the line, as d$.
+C	n	change to end of line	Deletes from the cursor to the end of the line and starts Insert mode, as c$.
+Y	n	yank to end of line	Yanks from the cursor to the end of the line, as y$. In vi Y yanks the whole line (yy does that here).
+x|<Del>	n	delete character	Deletes the character under the cursor; with a count, that many. In Visual mode x deletes the selection.
+i	n	insert	Starts Insert mode before the cursor. Esc leaves it.
+a	n	append	Starts Insert mode after the cursor.
+I	n	insert at line start	Starts Insert mode before the first non-blank of the line.
+A	n	append at line end	Starts Insert mode at the end of the line.
+o	n	open line below	Opens a new line under this one, with the same indent, and starts Insert mode.
+O	n	open line above	Opens a new line above this one, with the same indent, and starts Insert mode.
+p	n	paste after	Puts the register (what was last deleted or yanked) after the cursor, or under the current line when it holds whole lines; with a count, that many times.
+P	n	paste before	Like p, before the cursor or above the line.
+J	n	join lines	Joins the next line to this one with a single blank; with a count, that many lines.
+r {char}	n	replace character	Replaces the character under the cursor with the one you type; with a count, that many characters.
+u	n	undo	Undoes the last change, one step at a time. A change that came from the disk and was merged in is a step too.
+U	n	redo	Redoes what u undid. In vi U undoes a whole line; here it is the key beside u and does what Ctrl-r does.
+<C-r>	n	redo	Redoes what u undid.
+.	n	repeat last change	Repeats the last change: its keys, with a new count if you give one (3.). Undo is not a change, so . keeps repeating the last real one.
+v	nv	visual	Starts Visual mode on the character, or leaves it. Motions extend the selection, an operator works on it, o jumps to its other end, and i and a with an object select it. The selection is underlined, or gray where the terminal has truecolor.
+V	nv	visual line	Starts Visual mode on whole lines, or leaves it.
+o	v	other end of selection	Moves the cursor to the other end of the selection.
+<Esc>	nvi	back to Normal	Leaves Insert mode, Visual mode or a half-typed command. In Normal mode with nothing typed it puts the search highlight out (as :noh does).
+<C-c>	nv	cancel	Cancels a half-typed command or Visual mode; with a filter running it cancels the filter; with nothing to cancel it says q to quit.
+"	n	registers	There is only one register: what was last deleted or yanked, which p pastes. The key says so and does nothing else.
+:	nv	command line	Opens the command line: :w saves, :q quits, :s/old/new/ substitutes, :{n} goes to line n, :{range}!cmd filters, :help shows this table. In Visual mode it starts with the selection as the range, '<,'>.
+/	nv	search forward	Searches forward as you type (the screen follows the first match; Esc goes back), then Enter keeps the place and lights the matches. Smartcase: a capital makes the search exact. n and N go on.
+?	nv	search backward	Like /, looking back.
+<C-s>	nvi	save	Saves the file in every mode (Insert mode stays Insert mode), as :w does. It is refused, and says so, when the disk changed since the file was read and the changes conflict with yours: :w! keeps yours, :e! takes the disk's, and each copies the version it gives up.
+Z Z	n	save and quit	Saves if there are changes and closes the file, as :x does.
+Z Q	n	quit without saving	Closes the file and discards the changes, as :q! does.
+q	n	quit	Closes the file as :q does (less's q: sim has no macros). With changes it says no write since last change. The last file open ends sim.
+z z	n	center cursor line	Scrolls so that the cursor's line is in the middle of the screen.
+] c	n	next change from outside	Moves to the next change that came from the disk (another process, a build, an agent) and has not been looked at; the mark goes when the cursor reaches it. :seen clears all the marks.
+[ c	n	previous change from outside	Moves to the previous change that came from the disk and has not been looked at.
+<Tab>	n	next file	Shows the next open file, wrapping round. The status line (and the tabs) say which one of how many: 2/3. With the tree focused it works too.
+<S-Tab>	n	previous file	Shows the previous open file, wrapping round.
+<C-n>	ntp	toggle the tree	Opens the tree of the project and focuses it, or closes it when it already has the focus. In the picker it moves down the list.
+<C-p>	nip	find files	Opens the finder: type to find a file by any characters of its path, in order; Enter opens it. In the picker it moves up the list.
+<C-f>	nip	search file contents	Opens the search of the contents of the files (ripgrep if it is on the PATH): results grouped by file with a preview, the match bold; Enter opens the file at the match. Not in plain mode.
+<F1>	nitcp	help	Opens this table of keys and commands as a picker, filtered as you type; the longer text of the entry under the cursor is in the preview. Enter and Esc close it, and it runs nothing. :help does the same.
+z h	n	syntax colors on/off	Turns the syntax colors of the text on or off, for every file; the message says which.
+z l	n	next look	Goes round the looks (calm, flat, depth); the choice is remembered. In plain mode the look stays calm.
+z i	n	icons on/off	Turns the icons of the tree, the tabs and the status line on or off; the choice is remembered. They need a Nerd Font, which a terminal does not announce.
+<Space>	nt	leader	Space starts a sequence, as the leader of the author's Neovim does: <Space>bp and <Space>bc. Space followed by a key that has no sequence does nothing; where Space is text it is the character.
+<Space> b	nt	buffers	The files that are open, as tabs: pick one by its letter, or pick one to close.
+<Space> b p	nt	pick a tab by letter	Puts a letter on each tab (bufferline's: the first letter of the file's name when it is free, else the next one of its alphabet), and the letter you type shows that file. Esc or any other key cancels. Without a tab bar the letters are on the status line.
+<Space> b c	nt	pick a tab to close	Puts a letter on each tab as <Space>bp does, and the letter you type closes that file as :q would: a file with changes is not closed, it says so and its tab is shown. sim never closes a file with unsaved work.
+j|<Down>	t	down	Moves the cursor one row down the tree.
+k|<Up>	t	up	Moves the cursor one row up the tree.
+l|<Right>|<CR>	t	open	Opens the directory under the cursor, or opens the file and gives it the focus; on an open directory it does nothing.
+h|<Left>	t	close, or up	Closes the directory under the cursor, or moves to its parent.
+g g	t	top	Moves to the first row.
+G	t	bottom	Moves to the last row.
+<C-d>	t	half page down	Moves the cursor half the panel down.
+<C-u>	t	half page up	Moves the cursor half the panel up.
+<PageDown>	t	page down	Moves the cursor a panel down.
+<PageUp>	t	page up	Moves the cursor a panel up.
+/	t	find in the tree	Types a query: the paths that match, and the folders leading to them, light up in place and nothing moves; Enter opens the best match, Esc puts everything back. n and N go from match to match afterwards.
+n|N	t	next/previous match	After a find in the tree, goes to the next or the previous match.
+.	t	changed and recent files	Narrows the tree to the files that changed, are open, or were opened recently; again to widen it.
+-	t	collapse all	Closes every directory; the cursor stays on the top-level entry that held it.
+q	t	close the tree	Closes the panel; the text has the focus.
+<Esc>	t	back to the text	Gives the focus back to the text and leaves the panel open.
+<Down>|<C-n>|<C-j>	p	next result	Moves the selection down the list; the preview follows.
+<Up>|<C-p>|<C-k>	p	previous result	Moves the selection up the list; the preview follows.
+<PageDown>|<PageUp>	p	page of results	Moves the selection a list's height.
+<CR>	p	open	Opens the selected file at its match and closes the picker; in the help it only closes it.
+<Esc>	p	close	Closes the picker; everything is as it was.
+<C-u>	p	clear query	Clears the query.
+<C-w>	p	delete word	Deletes the last word of the query.
+<BS>	p	delete character	Deletes the last character of the query; at an empty query it closes the picker.
+<Tab>	i	indent	Inserts a tab, or the file's own indent.
+<BS>	i	delete before cursor	Deletes the character before the cursor, or joins the line to the one above.
+<CR>	i	new line	Breaks the line, keeping the indent.
+<Left>|<Right>|<Up>|<Down>|<Home>|<End>	i	move	The arrow keys, Home and End move the cursor without leaving Insert mode.
+:w	c	save	:w saves; :w {file} saves under another name (not over a file that exists); :w! writes anyway: over a file without write permission, and over a version on the disk that conflicts with yours after copying that version into the state directory.
+:wq|:x	c	save and quit	Saves, and closes the file when the save is done. :x saves only if there are changes.
+:q	c	quit	:q closes the file; with changes it says no write since last change (:q! to override). :q! discards them. The last file open ends sim.
+:cq	c	quit with failure	Quits with exit code 1, which makes git abort a commit whose message is being edited.
+:e	c	open a file	:e {file} opens another file in a tab, or shows it if it is open; :e! reloads this one from the disk, copying yours into the state directory first when they conflict. In plain mode :e replaces the file.
+:qa|:wa	c	quit or save all	:qa quits when no file has changes; :qa! discards them all; :wa saves every modified file and leaves out the ones that conflict with the disk, naming them. Not in plain mode.
+:s	c	substitute	:s/old/new/ replaces the first match in the line, with g every match; :%s/old/new/g does the whole file. A pattern is a regex; & in the replacement is what matched, \1 a group.
+:{n}	c	go to line	:42 moves to line 42; :$ to the last line; :'<,'> is the Visual selection.
+:{range}!cmd	c	filter	Runs the lines of the range through sh -c cmd and replaces them with its output, as one undo step; typing goes on meanwhile and Ctrl-c cancels. :%!sort sorts the file. Not in plain mode.
+:seen	c	clear change marks	Forgets the marks of the changes that came from the disk, as if they had all been looked at.
+:noh	c	put out the search highlight	Puts the lit matches of the search out and the count with them; n or a new search lights them again.
+:help	c	help	:help (or :h, or F1) opens this table; :help words opens it with the words typed.

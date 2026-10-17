@@ -78,6 +78,11 @@ impl Parser {
         self.pre.is_some()
     }
 
+    /// The keys of a command that is typed and not complete: its operator, then its prefix (`d`, `g`, `di`).
+    pub fn pending(&self) -> String {
+        self.op.into_iter().chain(self.pre).collect()
+    }
+
     /// The next key is text, not a command: typed in Insert mode or on the command line, or the char
     /// after `f F t T r` (VI-10).
     pub fn text(&self) -> bool {

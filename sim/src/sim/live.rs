@@ -1,4 +1,4 @@
-//! GREP-1, GREP-3, GREP-4, GREP-6, FIND-4, PICK-2, PICK-3, PICK-4, PICK-5
+//! GREP-1, GREP-3, GREP-4, GREP-6, FIND-4, PICK-2, PICK-3, PICK-4, PICK-5, KEY-4
 //! The picker in sim's state (pure): Ctrl-f's search of file contents and Ctrl-p's file finder,
 //! their keys, the results (the content search's arrive in batches), the selection, the preview of
 //! the selected file, and what the window shows. The panel and the files are not touched: Esc
@@ -8,12 +8,13 @@ use super::{Hl, Id, MAX_HL, Pv, Req, Sim, SimEffect, text_of};
 use crate::color::Tones;
 use crate::find::Query as Fuzzy;
 use crate::grep::{self, Batch, Group, Line, PRow, Query, Request};
+use crate::keys;
 use crate::layout::{self, Line as Cells};
 use crate::paint::{Look, Looks};
 use crate::pick::{self, Lit, Pane, SPIN, View, Win};
 use crate::syn::Spans;
 use sim_core::core::app::{App, Event, Key};
-use sim_core::core::view::{self, Frame};
+use sim_core::core::view::{self, Frame, Row, Shape, Style};
 use std::collections::HashMap;
 use std::mem::take;
 use std::path::PathBuf;
@@ -21,12 +22,13 @@ use std::path::PathBuf;
 /// FIND-4: the most files the finder lists.
 const MAX_FILES: usize = 1000;
 
-/// Which picker it is: Ctrl-f's search of contents, or Ctrl-p's finder of files.
+/// Which picker it is: Ctrl-f's search of contents, Ctrl-p's finder of files, or the help (KEY-4).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Pick {
     #[default]
     Grep,
     Files,
+    Help,
 }
 
 /// A picker. In the file finder a result is a file with one line, number 0, whose marks are the
@@ -53,6 +55,19 @@ pub(super) struct Live {
     preview: Option<Preview>,
     /// The file whose preview was asked for and has not come.
     asked: Option<String>,
+    /// KEY-4: the help's rows as they are written, the entries that match (the index of the row and
+    /// where the query matched in it), and the longer text of the entry under the selection.
+    rows: Vec<String>,
+    hits: Vec<(usize, Vec<usize>)>,
+    helped: Option<Helped>,
+}
+
+/// KEY-4: the entry shown in the preview, for a pane of that size: its title, rows and looks.
+struct Helped {
+    key: (usize, u16, u16),
+    title: String,
+    frame: Frame,
+    looks: Vec<Looks>,
 }
 
 /// The file under the selection, as an App that is rendered and never given a key (GREP-4), its
@@ -82,6 +97,9 @@ struct Shown {
 
 impl Live {
     fn lines(&self) -> usize {
+        if self.kind == Pick::Help {
+            return self.hits.len();
+        }
         self.groups.iter().map(|g| g.lines.len()).sum()
     }
 
@@ -110,12 +128,19 @@ impl Live {
 
     /// The rows of the list from result `from`, `n` of them, `max` columns wide (PICK-3).
     fn rows(&self, from: usize, n: usize, max: usize) -> Vec<PRow> {
+        if self.kind == Pick::Help {
+            let row = |(i, (at, marks)): (usize, &(usize, Vec<usize>))| PRow {
+                sel: i == self.cur,
+                ..help_row(&self.rows[*at], marks, max)
+            };
+            return self.hits.iter().enumerate().skip(from).take(n).map(row).collect();
+        }
         let all = self.groups.iter().flat_map(|g| g.lines.iter().map(move |l| (g, l)));
         let row = |(i, (g, l)): (usize, (&Group, &Line))| PRow {
             sel: i == self.cur,
             ..match self.kind {
                 Pick::Grep => grep::row(&g.path, l, max),
-                Pick::Files => grep::file_row(&g.path, &l.marks, max),
+                _ => grep::file_row(&g.path, &l.marks, max),
             }
         };
         all.enumerate().skip(from).take(n).map(row).collect()
@@ -153,6 +178,34 @@ impl Sim {
         self.live_run(out);
     }
 
+    /// KEY-4: `:help` and F1 open the help picker, with `query` typed; F1 while a picker is open
+    /// closes it.
+    pub(super) fn help(&mut self, query: String, out: Out) {
+        if self.panel.live.as_ref().is_some_and(|l| l.kind == Pick::Help) {
+            return self.live_end(out);
+        }
+        self.live_end(out);
+        let rows = keys::rows().iter().map(|r| r.1.clone()).collect();
+        self.panel.live =
+            Some(Live { kind: Pick::Help, query, done: true, rows, ..Live::default() });
+        self.help_run();
+    }
+
+    /// KEY-4: the entries that match the query, best first (the finder's score), or all of them in the
+    /// order of the table while it is empty.
+    fn help_run(&mut self) {
+        let Some(l) = self.panel.live.as_mut() else { return };
+        l.hits = if l.query.is_empty() {
+            (0..l.rows.len()).map(|i| (i, vec![])).collect()
+        } else {
+            let found = Fuzzy::new(&l.query).search(&l.rows);
+            let mut best = found.ranked(&l.rows, &[], l.rows.len());
+            best.sort_by(|a, b| b.score.cmp(&a.score).then(a.index.cmp(&b.index))); // (ties: the table's order)
+            best.iter().map(|h| (h.index, found.positions(h).to_vec())).collect()
+        };
+        (l.cur, l.moved, l.fresh, l.done) = (0, false, false, true);
+    }
+
     /// Closes the picker: the thread of a search is told to stop and the highlighter forgets the preview.
     pub(super) fn live_end(&mut self, out: Out) {
         let Some(l) = self.panel.live.take() else { return };
@@ -168,6 +221,7 @@ impl Sim {
         match self.panel.live.as_ref().map(|l| l.kind) {
             Some(Pick::Grep) => self.grep_run(out),
             Some(Pick::Files) => self.files_run(),
+            Some(Pick::Help) => self.help_run(),
             None => {}
         }
         self.live_sync(out);
@@ -331,6 +385,9 @@ impl Sim {
     /// GREP-4, FIND-4: Enter. The picker closes, the file is shown in the tree as the tree's Enter
     /// shows it, and opened as `file:line:col` does, at the line and the column of the match.
     fn live_open(&mut self, out: Out) {
+        if self.panel.live.as_ref().is_some_and(|l| l.kind == Pick::Help) {
+            return self.live_end(out); // (the help runs nothing)
+        }
         let Some(l) = self.panel.live.as_ref().filter(|l| !l.fresh) else { return };
         let Some((g, ln)) = l.pick() else { return };
         let (path, line, col) = (g.path.clone(), ln.no, ln.col);
@@ -365,6 +422,9 @@ impl Sim {
         let Some(win) = self.pick_win() else { return };
         let (off, rows) = (self.hl_off, usize::from(win.list.h).max(1));
         let Some(l) = self.panel.live.as_mut() else { return };
+        if l.kind == Pick::Help {
+            return help_prepare(l, &win, rows);
+        }
         let total = l.lines();
         l.cur = l.cur.min(total.saturating_sub(1));
         l.top =
@@ -427,17 +487,33 @@ impl Sim {
         let (n, plus) = match l.kind {
             Pick::Grep => (l.lines(), if l.capped { "+" } else { "" }),
             Pick::Files => (l.total, ""),
+            Pick::Help => (l.hits.len(), ""),
         };
         let shown = if n == 0 { 0 } else { l.cur + 1 };
-        let pane = l.preview.as_ref().and_then(|p| {
+        let help = l.helped.as_ref().filter(|_| l.kind == Pick::Help);
+        let pane = help.map(|h| Pane {
+            title: h.title.clone(),
+            frame: &h.frame,
+            looks: &h.looks,
+            lit: None,
+            note: None,
+        });
+        let pane = pane.or_else(|| {
+            let p = l.preview.as_ref()?;
             let s = p.shown.as_ref()?;
             let (frame, looks, lit) = (&s.frame, &s.looks[..], s.lit.as_ref());
             Some(Pane { title: s.title.clone(), frame, looks, lit, note: p.note.as_deref() })
         });
         let scope = super::tilde(&self.root, self.home.as_deref());
+        let (title, scope, enter) = match l.kind {
+            Pick::Grep => ("Live grep", scope.as_str(), "open"),
+            Pick::Files => ("Find files", scope.as_str(), "open"),
+            Pick::Help => ("Help", "keys and commands", "close"),
+        };
         let view = View {
-            title: if l.kind == Pick::Grep { "Live grep" } else { "Find files" },
-            scope: &scope,
+            title,
+            enter,
+            scope,
             query: &l.query,
             rows: &rows,
             none: l.done && !l.fresh && l.lines() == 0 && !l.query.is_empty(),
@@ -480,4 +556,74 @@ fn lit_of(
         row.iter().filter(|(_, l)| *l == Look::Bold).map(move |(r, _)| (i, r.clone()))
     });
     Some(Lit { rows: first..end, marks: marks.collect() })
+}
+
+/// KEY-4: a row of the help for `text` (`keys  description  mode`), `marks` the chars the query matched,
+/// in `max` columns: the mode goes first where the row is too long, then the end of the description.
+fn help_row(text: &str, marks: &[usize], max: usize) -> PRow {
+    let cs: Vec<char> = text.chars().collect();
+    let mode = text.rfind("  ").map_or(cs.len(), |b| text[..b].chars().count());
+    let end = if cs.len() <= max {
+        cs.len()
+    } else if mode <= max {
+        mode
+    } else {
+        max
+    };
+    let mut bold: Vec<std::ops::Range<u16>> = vec![];
+    for &m in marks.iter().filter(|&&m| m < end) {
+        match bold.last_mut() {
+            Some(b) if usize::from(b.end) == m => b.end += 1,
+            _ => bold.push(m as u16..m as u16 + 1),
+        }
+    }
+    let dim = (end > mode + 2).then(|| mode as u16 + 2..end as u16).into_iter().collect();
+    PRow {
+        text: cs[..end].iter().collect::<String>().trim_end().to_string(),
+        bold,
+        dim,
+        sel: false,
+    }
+}
+
+/// KEY-4: keeps the selected row in view and the preview made: the keys and the modes of the entry
+/// under the selection, then its longer text wrapped to the pane.
+fn help_prepare(l: &mut Live, win: &Win, rows: usize) {
+    l.cur = l.cur.min(l.hits.len().saturating_sub(1));
+    l.top =
+        l.top.min(l.hits.len().saturating_sub(rows)).clamp((l.cur + 1).saturating_sub(rows), l.cur);
+    let Some(&(i, _)) = l.hits.get(l.cur) else { return l.helped = None };
+    let (w, h) = (win.pane.w.max(1), win.pane.h);
+    if l.helped.as_ref().is_some_and(|x| x.key == (i, w, h)) {
+        return;
+    }
+    let e = &keys::table()[i];
+    let mut lines = vec![e.keys(), e.modes(), String::new()];
+    lines.extend(wrap(&e.long, usize::from(w).saturating_sub(2)));
+    let row = |text: &String| Row { text: format!(" {text}"), ..Row::default() };
+    let mut rows: Vec<Row> = lines.iter().map(row).collect();
+    let modes = rows[1].text.chars().count() as u16;
+    rows[1].spans.push((0..modes, Style::Secondary));
+    rows.push(Row::default()); // (the last row of a frame is its status line)
+    let mut looks = vec![vec![]; rows.len()];
+    looks[0].push((0..rows[0].text.chars().count() as u16, Look::Bold));
+    let frame =
+        Frame { width: w, height: h + 1, rows, cursor: (0, 0), shape: Shape::Block, pal: None };
+    l.helped = Some(Helped { key: (i, w, h), title: e.desc.clone(), frame, looks });
+}
+
+/// `text` broken into lines of at most `w` columns at its blanks.
+fn wrap(text: &str, w: usize) -> Vec<String> {
+    let (mut out, mut line) = (vec![], String::new());
+    for word in text.split_whitespace() {
+        if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > w {
+            out.push(take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    out.extend(Some(line).filter(|l| !l.is_empty()));
+    out
 }
