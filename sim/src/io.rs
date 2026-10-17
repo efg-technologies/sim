@@ -445,10 +445,15 @@ pub fn git_ignored(dir: &Path) -> Result<Vec<u8>, String> {
     Ok(kept)
 }
 
-/// MARK-1: git's status and where `root` lies below the top of the repository, and (UI-3) what it
-/// ignores, appended as `!! path` entries (a failure of that alone leaves the status as it is).
+/// MARK-1: git's status and where `root` lies below the top of the repository, the branch (UI-10, a
+/// `## branch` entry first) and (UI-3) what it ignores, appended as `!! path` entries (a failure of that alone leaves the status as it is).
 pub fn status(root: &Path) -> Result<(Vec<u8>, String), String> {
     let mut status = git_status(root)?;
+    // UI-10: the branch, as the `## branch` entry `git status --branch` would have put first; a
+    // detached HEAD is `HEAD`. (`git_status` itself is as it was.)
+    let branch = git(root, &["symbolic-ref", "--short", "-q", "HEAD"]);
+    let branch = branch.map_or("HEAD".into(), |b| String::from_utf8_lossy(&b).trim().to_string());
+    status.splice(0..0, format!("## {branch}\0").into_bytes());
     if !status.is_empty() && !status.ends_with(&[0]) {
         status.push(0);
     }

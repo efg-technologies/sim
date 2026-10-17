@@ -1,4 +1,4 @@
-//! MARK-1, UI-3
+//! MARK-1, UI-3, UI-10
 //! Which files get the change color and which directories get `~` (pure), from the output of
 //! `git status --porcelain=v1 -z` and the paths seen changing on disk; and, for the interface,
 //! each path's git status (`M A U D R !`), the strongest status below each directory, and which
@@ -40,6 +40,17 @@ impl Git {
     }
 }
 
+/// UI-10: the branch of the `## ...` entry that `git status --branch` starts with: `main` of `main...origin/main
+/// [ahead 1]`, the branch a repository with no commit yet is on, or `HEAD` when none is.
+fn branch(entry: &str) -> String {
+    let name =
+        ["No commits yet on ", "Initial commit on "].iter().find_map(|p| entry.strip_prefix(p));
+    let name = name.unwrap_or(entry);
+    let name = name.split("...").next().unwrap_or(name);
+    let name = name.split(" [").next().unwrap_or(name);
+    if name.starts_with("HEAD (") { "HEAD".into() } else { name.to_string() }
+}
+
 /// Paths are relative to the tree's root, as the tree's rows are.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Marks {
@@ -50,6 +61,7 @@ pub struct Marks {
     git: HashMap<PathBuf, Git>,
     below: HashMap<PathBuf, Git>,
     ignored: HashSet<PathBuf>,
+    branch: Option<String>,
 }
 
 impl Marks {
@@ -67,6 +79,10 @@ impl Marks {
                 continue;
             }
             let (xy, path) = (&field[..2], &field[3..]);
+            if xy == b"##" {
+                m.branch = Some(branch(&String::from_utf8_lossy(path)));
+                continue;
+            }
             if xy == b"!!" {
                 let dir = path.strip_suffix(b"/").unwrap_or(path);
                 m.ignored.extend(rel(dir));
@@ -136,6 +152,11 @@ impl Marks {
     /// UI-3: the strongest git status below a directory.
     pub fn below(&self, dir: &Path) -> Option<Git> {
         self.below.get(dir).copied()
+    }
+
+    /// UI-10: the branch git says the work tree is on.
+    pub fn branch(&self) -> Option<&str> {
+        self.branch.as_deref()
     }
 
     /// UI-3: whether git ignores this entry, or a directory above it.

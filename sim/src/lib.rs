@@ -1,6 +1,7 @@
 //! Exposes sim's modules to main.rs and tests/.
 #![forbid(unsafe_code)]
 
+pub mod bar;
 pub mod color;
 pub mod diff;
 pub mod find;

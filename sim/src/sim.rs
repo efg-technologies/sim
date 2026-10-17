@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -7,11 +7,13 @@ mod live;
 mod panel;
 mod ptr;
 
-use crate::color::{Syntax, Tones};
+use crate::bar::{self, Bar};
+use crate::color::{Accent, Syntax, Tones};
 use crate::diff::{Diff, Sign};
 use crate::grep;
+use crate::icons;
 use crate::io::GIT_SKIPPED;
-use crate::layout::{self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Mark, Md, Skin};
+use crate::layout::{self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, Mark, Md, Skin};
 use crate::marks::{Git, Marks};
 use crate::paint::{Looks, Screen};
 use crate::rank::History;
@@ -190,6 +192,9 @@ pub struct Buf {
     crow: usize,
     /// UI-5: the file's changes against HEAD, as the last answer of git said.
     diff: Option<Diff>,
+    /// UI-10: the language server's state for this file (` rust-analyzer · sandboxed`), which the
+    /// code of the server's own sets and the status line shows as it is; sim never writes it.
+    pub lsp: Option<String>,
 }
 
 #[derive(Default)]
@@ -249,6 +254,9 @@ pub struct Sim {
     /// LOOK-1: the look, and the colors it adds to the palette (none without a palette or truecolor, LOOK-8).
     pub skin: Skin,
     tones: Option<Tones>,
+    /// UI-10: whether the root is trusted (the language servers' `:trust`), which the status line
+    /// shows in the security slot; none while nobody has said. Sim never writes it.
+    pub trust: Option<bool>,
     /// UI-1, UI-2: whether the interface is drawn in flat and depth, `$HOME`, and the icons.
     chrome: bool,
     home: Option<PathBuf>,
@@ -767,6 +775,7 @@ impl Sim {
             wide: 0,
             crow: 0,
             diff: None,
+            lsp: None,
         });
         self.cur = self.bufs.len() - 1;
         self.refocus();
@@ -971,11 +980,12 @@ impl Sim {
                 );
             }
         }
+        let si_status = status.clone();
         status = layout::fit(&self.msg.clone().unwrap_or(status), room).0 + &pos;
         let sel = focus.then(|| self.panel.cur - self.panel.top).filter(|_| !live);
         let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
         if let (Some(i), false) = (sel, typing) {
-            let col = at.map_or(0, |r| layout::name_col(r.depth, ui));
+            let col = at.as_ref().map_or(0, |r| layout::name_col(r.depth, ui));
             let x = g.px + col.min(g.pw.saturating_sub(1));
             (cursor, shape) = ((x, g.y0 + i as u16), Shape::Block);
         }
@@ -1040,11 +1050,119 @@ impl Sim {
             _ => None,
         };
         let (mut rows, mut looks, mut paints) = layout::body(&deck, &marked, sel, editor.as_ref());
-        rows.push(Row { text: layout::fit(&status, usize::from(w)).0, ..Row::default() });
-        looks.push(vec![]);
-        paints.push(vec![]);
+        // UI-10: the bar, unless a message, the command line or a search has the row's text.
+        let tree = focus.then(|| (at.as_ref().map(|r| r.path.display().to_string()), slash));
+        let drawn =
+            self.bar(w, &si_status, tree.as_ref().map(|t| (t.0.as_deref().unwrap_or(&root), t.1)));
+        match drawn {
+            Some(l) => {
+                rows.push(l.row);
+                looks.push(l.looks);
+                paints.push(l.paints);
+            }
+            None => {
+                rows.push(Row { text: layout::fit(&status, usize::from(w)).0, ..Row::default() });
+                looks.push(vec![]);
+                paints.push(vec![]);
+            }
+        }
         let frame = Frame { width: w, height: h, rows, cursor, shape, pal: self.pal };
         Screen { frame, looks, paints, syn: self.syn }
+    }
+
+    /// UI-10: the status line of the interface, or none where the text of si, a message, the
+    /// command line or a search is to be on the row. `si_status` is si's own line for the current
+    /// file (its state words are taken from it, so that none is lost), `tree` the selected path
+    /// and its slash while the panel has the focus.
+    fn bar(&self, w: u16, si_status: &str, tree: Option<(&str, &str)>) -> Option<Line> {
+        let t = self.tones.as_ref().filter(|_| self.ui())?;
+        if self.msg.is_some() || self.panel.search.is_some() || self.panel.live.is_some() {
+            return None;
+        }
+        let marks = &self.marks;
+        let branch = marks.branch();
+        let icons = self.icons;
+        let b = self.bufs.get(self.cur);
+        if b.is_some_and(|b| b.app.msg.is_some()) {
+            return None;
+        }
+        if let Some((path, slash)) = tree {
+            let (n, all) = (self.panel.cur + 1, self.view().visible());
+            let (path, pos) = (format!("{path}{slash}"), format!("{n}/{all}"));
+            let bar = Bar {
+                icons,
+                mode: "TREE",
+                accent: Some(Accent::Blue),
+                branch,
+                counts: None,
+                icon: None,
+                path: &path,
+                modified: false,
+                notes: "",
+                slot: None,
+                encoding: None,
+                eol: None,
+                ftype: None,
+                progress: None,
+                pos: &pos,
+            };
+            return bar::render(w, &bar, t);
+        }
+        let b = b?;
+        let a = &b.app;
+        let (buf, name) = (&a.buf, a.path.as_deref().unwrap_or("[no name]"));
+        let (line, col) = (buf.line_of(buf.cursor), buf.col());
+        let (mode, accent) = match a.vi.mode {
+            Mode::Insert => ("INSERT".to_string(), Accent::Green),
+            Mode::Visual => ("VISUAL".into(), Accent::Purple),
+            Mode::VLine => ("V-LINE".into(), Accent::Purple),
+            Mode::Review => {
+                (format!("REVIEW {}/{}", a.current() + 1, buf.hunks.len()), Accent::Amber)
+            }
+            Mode::Cmd => return None,
+            Mode::Normal => ("NORMAL".into(), Accent::Blue),
+        };
+        let mut notes = state_words(si_status, line + 1, col + 1);
+        if self.bufs.len() > 1 {
+            notes = format!("{}/{}  {notes}", self.cur + 1, self.bufs.len()).trim_end().to_string();
+        }
+        let untracked = self.open_path().is_some_and(|p| marks.git(&p) == Some(Git::Untracked));
+        let all = Diff::all_added(buf.lines());
+        let diff = if untracked { Some(&all) } else { b.diff.as_ref() };
+        let counts = diff.map(|d| (d.added, d.changed, d.deleted));
+        let last = buf.lines().saturating_sub(1);
+        let progress = match line {
+            0 => "Top".to_string(),
+            l if l >= last => "Bot".into(),
+            l => format!("{}%", l * 100 / buf.lines().max(1)),
+        };
+        let pos = format!("{}:{}", line + 1, col + 1);
+        let file = Path::new(name).file_name().map_or(name.into(), |n| n.to_string_lossy());
+        let slot = match (&b.lsp, self.trust) {
+            (Some(l), _) => Some((l.trim().to_string(), Accent::Teal)),
+            (None, Some(true)) => Some(("trusted".to_string(), Accent::Green)),
+            (None, Some(false)) => Some(("untrusted".to_string(), Accent::Amber)),
+            _ => None,
+        };
+        let slot = slot.map(|(s, c)| (if icons { format!("\u{f132} {s}") } else { s }, c));
+        let bar = Bar {
+            icons,
+            mode: &mode,
+            accent: Some(accent),
+            branch,
+            counts,
+            icon: Some(icons::of(&file, false, false)),
+            path: name,
+            modified: buf.dirty(),
+            notes: &notes,
+            slot: slot.as_ref().map(|(s, c)| (s.as_str(), *c)),
+            encoding: Some("utf-8"),
+            eol: Some(if buf.format().1 { "CRLF" } else { "LF" }),
+            ftype: icons::filetype(&file),
+            progress: Some(&progress),
+            pos: &pos,
+        };
+        bar::render(w, &bar, t)
     }
 
     /// A row of the panel with what it shows besides its name (see `layout::Mark`). In the
@@ -1078,6 +1196,17 @@ impl Sim {
         };
         (r, mark)
     }
+}
+
+/// UI-10: the state words of si's status line, which follow the position and the mode
+/// (`  3:7  NORMAL  2 changes on disk · deleted on disk`): without `modified`, which the bar says by
+/// its dot. None is built again here, so none can be lost (P1).
+fn state_words(status: &str, line: usize, col: usize) -> String {
+    let at = format!("  {line}:{col}  ");
+    let Some(i) = status.find(&at) else { return String::new() };
+    let rest = &status[i + at.len()..];
+    let notes = rest.split_once("  ").map_or("", |(_, n)| n.trim());
+    notes.split(" · ").filter(|n| *n != "modified").collect::<Vec<_>>().join(" · ")
 }
 
 /// UI-2: `path` as the header shows it: `~/...` below `$HOME`, `~` for `$HOME`, else as it is.

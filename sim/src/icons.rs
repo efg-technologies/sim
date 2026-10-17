@@ -1,4 +1,4 @@
-//! UI-2, SYN-4
+//! UI-2, UI-10, SYN-4
 //! The Nerd Font icon of a tree row (pure): a closed or an open folder, and a file by its whole
 //! name or its extension, from a table of about forty entries, with the accent it is drawn in.
 use crate::color::Accent::{self, Amber, Blue, Green, Purple, Red, Teal};
@@ -87,4 +87,56 @@ pub fn of(name: &str, is_dir: bool, open: bool) -> (char, Option<Accent>) {
     let ext = n.rsplit_once('.').filter(|(stem, _)| !stem.is_empty()).map(|(_, e)| e);
     let by_ext = ext.and_then(|e| EXTS.iter().find(|x| x.0 == e));
     named.or(by_ext).map_or((FILE, None), |e| (e.1, e.2))
+}
+
+/// UI-10: the file type the status line names, as Neovim does (`rust`, `markdown`, `zsh`), from
+/// the whole name or the extension of what the file stands for (chezmoi's names are read as such).
+pub fn filetype(name: &str) -> Option<&'static str> {
+    const NAMES: &[(&str, &str)] = &[
+        ("dockerfile", "dockerfile"),
+        ("makefile", "make"),
+        (".zshrc", "zsh"),
+        (".zshenv", "zsh"),
+        (".bashrc", "bash"),
+        (".profile", "sh"),
+        (".gitignore", "gitignore"),
+        (".gitattributes", "gitattributes"),
+        (".gitconfig", "gitconfig"),
+        (".editorconfig", "editorconfig"),
+    ];
+    const EXTS: &[(&str, &str)] = &[
+        ("rs", "rust"),
+        ("md", "markdown"),
+        ("toml", "toml"),
+        ("json", "json"),
+        ("yaml", "yaml"),
+        ("yml", "yaml"),
+        ("sh", "sh"),
+        ("zsh", "zsh"),
+        ("bash", "bash"),
+        ("lua", "lua"),
+        ("py", "python"),
+        ("js", "javascript"),
+        ("ts", "typescript"),
+        ("tsx", "typescriptreact"),
+        ("jsx", "javascriptreact"),
+        ("go", "go"),
+        ("c", "c"),
+        ("h", "c"),
+        ("cpp", "cpp"),
+        ("hpp", "cpp"),
+        ("html", "html"),
+        ("css", "css"),
+        ("scss", "scss"),
+        ("sql", "sql"),
+        ("conf", "conf"),
+        ("lock", "lock"),
+        ("txt", "text"),
+    ];
+    let file = name.rsplit('/').next().unwrap_or(name);
+    let n = target(file);
+    let ext = n.rsplit_once('.').filter(|(stem, _)| !stem.is_empty()).map(|(_, e)| e);
+    let named = NAMES.iter().find(|e| e.0 == n);
+    let by_ext = ext.and_then(|e| EXTS.iter().find(|x| x.0 == e));
+    named.or(by_ext).map(|e| e.1)
 }

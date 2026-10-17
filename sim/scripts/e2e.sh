@@ -1419,7 +1419,7 @@ look_5_review_raises_the_hunk_being_decided_as_a_card() {
   typed jA
   typed "!"
   keys Escape
-  wait_for "modified"
+  wait_for "●" # modified: the status line of the interface says it by its dot
   printf 'one\nTWO\nthree\nfour\n' > "$W/a.new"
   mv "$W/a.new" "$W/a.txt" # the disk changes the line that is changed here too
   wait_for "1 proposal"
@@ -1581,6 +1581,38 @@ ui_5_the_git_signs_of_the_file_against_head_are_in_the_sign_column() {
   screen | grep -F 'changed ' | grep -q '^▎'
   screen | grep -F 'added line' | grep -q '^▎'
   screen_esc | grep -a 'added line' | grep -q '38;2;[0-9;]*m▎'
+}
+
+ui_10_the_status_line_is_a_bar_with_the_mode_the_branch_the_file_and_the_position() {
+  gitproject
+  sed -i '1s/^/changed /' "$W/src/lib.rs"
+  look depth
+  CT=truecolor
+  start src/lib.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  branch=$(git -C "$W" symbolic-ref --short HEAD)
+  sep=$(printf '\356\202\260') # U+E0B0, powerline's separator
+  tries=100
+  while ! screen | tail -1 | grep -q "$sep" && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  last() { screen | grep -v '^$' | tail -1; }
+  last | grep -q "NORMAL"
+  last | grep -q "$branch"
+  last | grep -q "~1" # one line changed against HEAD
+  last | grep -q "lib.rs"
+  last | grep -q "utf-8"
+  last | grep -q "LF"
+  last | grep -q "Top"
+  last | grep -q "1:1"
+  # The block of the mode is a background (blue in Normal mode); a message takes the row over.
+  screen_esc | tail -3 | grep -a -q '48;2;'
+  typed zi
+  wait_for "icons off"
+  ! last | grep -q "NORMAL"
+  typed j
+  wait_for "NORMAL"
+  typed i
+  wait_for "INSERT"
+  keys Escape
 }
 
 main "$@"

@@ -174,19 +174,19 @@ impl Geo {
     }
 }
 
-/// A row of the screen being put together: the row, the looks and the paints of its columns, and
+/// A row of the screen being put together (the status line's too): the row, the looks and the paints of its columns, and
 /// how many columns it takes.
 #[derive(Default)]
-struct Line {
-    row: Row,
-    looks: Looks,
-    paints: Paints,
-    cols: u16,
+pub struct Line {
+    pub row: Row,
+    pub looks: Looks,
+    pub paints: Paints,
+    pub cols: u16,
 }
 
 impl Line {
     /// Writes `s` after what is there, with the paint `p` over it.
-    fn put(&mut self, s: &str, p: Paint) {
+    pub fn put(&mut self, s: &str, p: Paint) {
         let (text, n) = fit(s, usize::MAX);
         let r = self.cols..self.cols + n as u16;
         self.row.text += &text;
@@ -197,7 +197,7 @@ impl Line {
     }
 
     /// Puts another line after this one: its columns move by the columns this one takes.
-    fn add(&mut self, o: Line) {
+    pub fn add(&mut self, o: Line) {
         let go = |r: Range<u16>| r.start + self.cols..r.end + self.cols;
         self.row.text += &o.row.text;
         self.row.spans.extend(o.row.spans.into_iter().map(|(r, s)| (go(r), s)));
@@ -208,7 +208,7 @@ impl Line {
     }
 
     /// Fills up to `to` columns with blanks.
-    fn pad(&mut self, to: u16) {
+    pub fn pad(&mut self, to: u16) {
         self.row.text += &" ".repeat(usize::from(to.saturating_sub(self.cols)));
         self.cols = self.cols.max(to);
     }
