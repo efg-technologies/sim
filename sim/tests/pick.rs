@@ -187,13 +187,13 @@ fn pick_1_ctrl_f_and_ctrl_p_open_a_window_with_a_rounded_border_and_a_title() {
     assert_eq!((w.x, w.y, w.w, w.h), (13, 4, 104, 31));
     let f = r.float();
     assert_eq!(f.len(), 31);
-    assert!(f[0].starts_with("╭─ Live grep ─") && f[0].ends_with("─╮"), "{}", f[0]);
+    assert!(f[0].starts_with("╭─ Live grep") && f[0].ends_with("─╮"), "{}", f[0]);
     assert!(f[0].contains('┬'), "the divider of the preview starts here");
     assert!(f[30].starts_with("╰─") && f[30].ends_with("─╯") && f[30].contains('┴'), "{}", f[30]);
     assert!(f[1].starts_with("│ ❯ "), "the prompt: {}", f[1]);
     assert!(f[2].starts_with('├') && f[2].contains('┤'), "the rule under it: {}", f[2]);
     r.keys("<Esc><C-p>");
-    assert!(r.float()[0].starts_with("╭─ Find files ─"), "{}", r.float()[0]);
+    assert!(r.float()[0].starts_with("╭─ Find files"), "{}", r.float()[0]);
     assert_eq!(r.screen.shape, Shape::Bar, "the cursor is at the end of the query");
     assert_eq!(r.screen.cursor, (13 + 1 + 3, 4 + 1));
     r.keys("ab");
@@ -740,4 +740,79 @@ fn pick_5_a_content_search_that_hits_the_cap_says_so() {
     let mut r = rig("p5-cap", &[&format!("big.txt={big}")], &[]);
     r.keys("<C-f>hit");
     assert_eq!(r.count(), "1 / 1,000+");
+}
+
+// ---- the scope in the title and the keys in the bottom border ----
+
+/// A picker over a root that is below the home directory, so that it is written `~/{name}`.
+fn homed(name: &str, size: (u16, u16)) -> (Rig, String) {
+    let mut r = rig_env(name, &FILES, &["a.txt"], size, |e| {
+        (e.skin, e.syn, e.chrome) = (Skin::Flat, Syntax::new(true), true);
+        e.home = e.cwd.parent().map(std::path::Path::to_path_buf);
+    });
+    r.send(SimEvent::Term(Event::Bg(BG)));
+    let root = format!("~/{}", r.cwd.file_name().unwrap().to_string_lossy());
+    (r, root)
+}
+
+#[test]
+fn pick_1_the_top_border_names_the_mode_and_the_root_home_relative() {
+    let (mut r, root) = homed("s", (130, 40));
+    r.keys("<C-f>");
+    let top = r.float()[0].clone();
+    assert!(top.starts_with(&format!("╭─ Live grep · {root} ─")), "{top}");
+    r.keys("<Esc><C-p>");
+    let top = r.float()[0].clone();
+    assert!(top.starts_with(&format!("╭─ Find files · {root} ─")), "{top}");
+    // the same root the panel's header shows (UI-2), not the path
+    assert_eq!(root, sim::sim::tilde(&r.sim.root, r.cwd.parent()));
+    // the name is bold and the root the secondary gray, in flat and depth
+    let (w, t) = (r.win().unwrap(), Tones::new(&palette(BG)));
+    assert!(cell(&r, w.y, w.x + 3).bold, "the mode's name");
+    assert_eq!(cell(&r, w.y, w.x + 3 + 12 + 3).fg, Some(t.focus), "the root: {top}");
+    // stacked, under 100 columns, it is the same
+    let (mut r, root) = homed("s", (80, 24));
+    r.keys("<C-f>");
+    assert!(r.float()[0].starts_with(&format!("╭─ Live grep · {root} ─")), "{}", r.float()[0]);
+}
+
+#[test]
+fn pick_1_a_short_border_cuts_the_root_from_the_left_and_the_mode_always_stays() {
+    let (mut r, root) = homed("s", (40, 24));
+    r.keys("<C-f>");
+    let top = r.float()[0].clone();
+    let tail: String = root.chars().skip(root.chars().count() - 13).collect();
+    assert!(top.starts_with(&format!("╭─ Live grep · …{tail} ─")), "{top}: ends of {root}");
+    assert_eq!(width(&top), usize::from(r.win().unwrap().w));
+    // a window as narrow as there is: two chars of the root, the last of it
+    let (mut r, root) = homed("s", (20, 24));
+    r.keys("<C-f>");
+    let top = r.float()[0].clone();
+    let last = root.chars().last().unwrap();
+    assert!(top.starts_with(&format!("╭─ Live grep · …{last} ")), "{top}");
+    // and where not even two chars fit the root is left out, and the name stays
+    r.keys("<Esc><C-p>");
+    let top = r.float()[0].clone();
+    assert!(top.starts_with("╭─ Find files ─") && !top.contains('·'), "{top}");
+    assert_eq!(width(&top), 20);
+}
+
+#[test]
+fn pick_5_the_keys_in_the_bottom_border_include_moving_and_drop_move_then_close_then_open() {
+    let full = "↵ open  ^n/^p move  esc close";
+    // (columns of the screen, what the border says): beside the preview and stacked, wide to narrow
+    for (cols, keys) in
+        [(130, full), (60, full), (50, "↵ open  esc close"), (30, "↵ open"), (20, "")]
+    {
+        let mut r = pick_rig("p5-keys", Skin::Flat, (cols, 24));
+        r.keys("<C-f>");
+        let last = r.float().pop().unwrap();
+        for part in ["↵ open", "^n/^p move", "esc close"] {
+            assert_eq!(last.contains(part), keys.contains(part), "{cols} columns: {last}");
+        }
+        if !keys.is_empty() {
+            assert!(last.contains(keys), "in order, two blanks apart: {last}");
+        }
+        assert_eq!(width(&last), usize::from(r.win().unwrap().w), "{last}");
+    }
 }

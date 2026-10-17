@@ -116,6 +116,8 @@ pub struct Pane<'a> {
 /// there are no matches, the count, the spinner and the preview.
 pub struct View<'a> {
     pub title: &'a str,
+    /// The root the picker searches, as the panel's header writes it (UI-2).
+    pub scope: &'a str,
     pub query: &'a str,
     pub rows: &'a [PRow],
     pub none: bool,
@@ -124,7 +126,10 @@ pub struct View<'a> {
     pub pane: Option<Pane<'a>>,
 }
 
-const HINT: &str = " ↵ open  esc close ";
+/// PICK-5: the keys of the bottom border, in the order they are written; `KEEP` is the order they
+/// are kept in when the border is short: moving goes first, closing next, opening last.
+const KEYS: [&str; 3] = ["↵ open", "^n/^p move", "esc close"];
+const KEEP: [&[usize]; 3] = [&[0, 1, 2], &[0, 2], &[0]];
 
 /// A glyph in a paint.
 fn glyph(s: &str, p: Paint) -> Line {
@@ -216,7 +221,15 @@ pub fn compose(w: &Win, v: &View, t: Option<&Tones>) -> (Vec<Line>, usize) {
     let (frame, rule, faint) =
         (ink(t.map(|t| t.focus)), ink(t.map(|t| t.line)), ink(t.map(|t| t.dim)));
     let bold = Paint { bold: t.is_some(), ..Paint::default() }; // (calm has no paints)
-    let title = [(format!(" {} ", v.title), bold)];
+    // The mode's name and the root after it, which is cut from the left to what the border has
+    // left (the border's corner, a rule, the name, ` · `, a blank and a rule, in the part of it that holds the title).
+    let seg = if w.stacked { w.w } else { w.list.w + 1 };
+    let room = usize::from(seg).saturating_sub(4 + 4 + fit(v.title, usize::MAX).1 + 1);
+    let scope = (room >= 2 && !v.scope.is_empty()).then(|| tail(v.scope, room));
+    let title = match scope {
+        Some(s) => vec![(format!(" {}", v.title), bold), (format!(" · {s} "), frame)],
+        None => vec![(format!(" {} ", v.title), bold)],
+    };
     let count_text = match v.spin {
         Some(c) => format!(" {} {c} ", v.count),
         None => format!(" {} ", v.count),
@@ -240,8 +253,14 @@ pub fn compose(w: &Win, v: &View, t: Option<&Tones>) -> (Vec<Line>, usize) {
     let pane = |k: usize| pane_line(v.pane.as_ref(), k, w.pane.w, t);
     // the keys, in the border's right end where they fit next to what is at its left
     let hint = |room: u16| -> Vec<(String, Paint)> {
-        let n = HINT.chars().count() as u16;
-        if room >= n + 6 { vec![(HINT.to_string(), faint)] } else { vec![] }
+        for keep in KEEP {
+            let keys: Vec<&str> = keep.iter().map(|&k| KEYS[k]).collect();
+            let text = format!(" {} ", keys.join("  "));
+            if usize::from(room) >= text.chars().count() + 6 {
+                return vec![(text, faint)];
+            }
+        }
+        vec![]
     };
     let wall = |p: Paint| glyph("│", p);
     let mut rows = vec![];

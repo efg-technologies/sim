@@ -434,8 +434,10 @@ impl Sim {
             let (frame, looks, lit) = (&s.frame, &s.looks[..], s.lit.as_ref());
             Some(Pane { title: s.title.clone(), frame, looks, lit, note: p.note.as_deref() })
         });
+        let scope = super::tilde(&self.root, self.home.as_deref());
         let view = View {
             title: if l.kind == Pick::Grep { "Live grep" } else { "Find files" },
+            scope: &scope,
             query: &l.query,
             rows: &rows,
             none: l.done && !l.fresh && l.lines() == 0 && !l.query.is_empty(),

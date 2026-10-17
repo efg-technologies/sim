@@ -1748,7 +1748,8 @@ pick_1_the_picker_floats_a_rounded_window_with_a_title_over_the_text() {
   wait_for "src/main.rs  1:1  NORMAL"
   keys C-f
   wait_for "Live grep"
-  screen | grep -F -q "╭─ Live grep ─" # a rounded border, titled
+  screen | grep -F -q "╭─ Live grep · " # a rounded border, titled with the mode and the root
+  screen | grep -F -q "^n/^p move" # and the keys in the border below
   screen | grep -F -q "╰─ 0 / 0 " # and the count in the border below
   screen | grep -F -q "❯" # the prompt
   screen | head -n 1 | grep -F -q "fn main() {}" # the text above the window is as it was
@@ -1758,7 +1759,7 @@ pick_1_the_picker_floats_a_rounded_window_with_a_title_over_the_text() {
   gone "Live grep"
   keys C-p
   wait_for "Find files"
-  screen | grep -F -q "╭─ Find files ─"
+  screen | grep -F -q "╭─ Find files · "
 }
 
 pick_2_the_keys_of_the_picker_move_clear_and_open() {
