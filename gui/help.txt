@@ -5,8 +5,9 @@ usage: sim-gui [+cmd] [dir | file]
 
 The window has no config file. What it can be told is in the environment:
   SIM_GUI_FONT           the font family, or several separated by commas (the first one installed is
-                         used). Unset, or none installed: the platform's monospace font (fontconfig's
-                         `monospace`, Menlo on macOS). The chars it lacks fall back by locale.
+                         used). Unset, or none installed: the platform's monospace font (the first family of
+                         fontconfig's `monospace` alias, Menlo on macOS). The chars it lacks fall back
+                         by locale.
   SIM_GUI_FONT_SIZE      the size of the text in dp (15 by default)
   SIM_GUI_LOCALE         the locale the fallback fonts for CJK are found by, e.g. ja-JP
   SIM_GUI_THEME          dark or light (unset: the system's, else dark)
