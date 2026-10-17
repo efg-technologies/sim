@@ -177,7 +177,7 @@ fn ui_4_every_open_file_has_a_tab_and_the_names_that_clash_have_their_directory(
     let col = text[..x].chars().count() as u16;
     let p = r.shot.paints[usize::from(g.y0 - 1)]
         .iter()
-        .find(|(c, _)| c.contains(&(col + g.ex - 3 + 0)))
+        .find(|(c, _)| c.contains(&(col + g.ex - 3)))
         .map(|p| p.1);
     assert!(p.is_some());
     let _ = t;
@@ -188,7 +188,7 @@ fn ui_4_a_click_on_a_tab_shows_that_file_and_the_arrows_go_one_file_back_or_on()
     let mut r = open3("ui4-click", (100, 24));
     let (y, text) = bar_row(&r);
     let g = r.sim.geo();
-    let at = |s: &str| g.ex + text[..text.find(s).unwrap()].chars().count() as u16 - 0;
+    let at = |s: &str| g.ex + text[..text.find(s).unwrap()].chars().count() as u16;
     assert_eq!(r.app().path.as_deref(), Some("sub/a.rs"));
     r.click(at("a.rs"), y);
     assert_eq!(r.app().path.as_deref(), Some("a.rs"), "the first tab");

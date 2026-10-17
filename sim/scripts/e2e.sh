@@ -1553,16 +1553,17 @@ ui_5_the_numbers_are_relative_the_cursors_line_is_lit_and_insert_mode_has_a_surf
   screen | grep -F -q "    1 line 3" # the others: the distance
   screen | grep -F -q "    3 line 1"
   wait_esc '1m4  ' # primary and bold
-  ! screen_esc | grep -a 'line' | grep -q '48;2;' # Normal mode: no surface on the line (the tab has one)
+  ! screen_esc | grep -a 'line' | sed 's/↲.*//' | grep -q '48;2;' # Normal mode: no surface on the line (the tab and the scrollbar's handle have one)
   typed i
   wait_for "INSERT"
   tries=60
-  while ! screen_esc | grep -a 'line 4' | grep -q '48;2;' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
-  screen_esc | grep -a 'line 4' | grep -q '48;2;' # Insert mode: the whole line has one
-  ! screen_esc | grep -a 'line 5' | grep -q '48;2;'
+  surfaced() { screen_esc | grep -a "$1" | sed 's/↲.*//' | grep -q '48;2;'; }
+  while ! surfaced 'line 4' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  surfaced 'line 4' # Insert mode: the whole line has one
+  ! surfaced 'line 5'
   keys Escape
   wait_for "NORMAL"
-  ! screen_esc | grep -a 'line' | grep -q '48;2;'
+  ! screen_esc | grep -a 'line' | sed 's/↲.*//' | grep -q '48;2;'
 }
 
 ui_5_the_git_signs_of_the_file_against_head_are_in_the_sign_column() {
@@ -1580,7 +1581,7 @@ ui_5_the_git_signs_of_the_file_against_head_are_in_the_sign_column() {
   while ! screen | grep -F 'changed ' | grep -q '^▎' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
   screen | grep -F 'changed ' | grep -q '^▎'
   screen | grep -F 'added line' | grep -q '^▎'
-  screen_esc | grep -a 'added line' | grep -q '38;2;[0-9;]*m▎'
+  screen_esc | grep -a 'added line' | sed 's/▎.*//' | grep -q '38;2;[0-9;]*m' # a color on the bar
 }
 
 ui_10_the_status_line_is_a_bar_with_the_mode_the_branch_the_file_and_the_position() {

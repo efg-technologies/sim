@@ -81,8 +81,9 @@ const CODE: &str = "fn a() {\n    if x {\n        y();\n\n        z();\n    }\n\
 fn row(r: &Rig, what: &str) -> String {
     let g = r.sim.geo();
     let y = (usize::from(g.y0)..r.shot.frame.rows.len())
-        .find(|&y| r.shot.frame.rows[y].text.contains(what))
-        .unwrap_or_else(|| panic!("no row with {what:?}:\n{}", dump(&r.shot.frame)));
+        .find(|&y| r.shot.frame.rows[y].text.contains(what));
+    assert!(y.is_some(), "no row with {what:?}:\n{}", dump(&r.shot.frame));
+    let y = y.unwrap();
     let digits = 5; // the gutter: the symbol, three digits, a blank
     let text: String =
         r.shot.frame.rows[y].text.chars().skip(usize::from(g.tx()) + digits).collect();

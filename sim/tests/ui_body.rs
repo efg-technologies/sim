@@ -274,7 +274,7 @@ fn ui_6_a_pale_band_is_at_the_hundredth_column_of_the_text_where_the_pane_has_it
         assert_eq!(paint(&r, y, col).bg, Some(t.cursor), "{skin:?}: the cursor's line wins");
     }
     // A narrower pane has no column 100; calm has no band.
-    let narrow = body("ui6-cc-narrow", Skin::Flat, &format!("{long}"), (100, 24));
+    let narrow = body("ui6-cc-narrow", Skin::Flat, &long, (100, 24));
     let g = narrow.sim.geo();
     assert!((0..narrow.shot.paints.len()).all(|y| paint(&narrow, y, g.tx() + 5 + 99).bg.is_none()));
     let calm = rig_env("ui6-cc-calm", &[&format!("a.rs={long}")], &["a.rs"], (140, 24), |_| {});

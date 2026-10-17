@@ -30,7 +30,6 @@ fn line(r: &Rig, n: usize) -> String {
     let y = usize::from(g.y0) + n - 1;
     let text: String = r.shot.frame.rows[y].text.chars().skip(usize::from(g.tx()) + 5).collect();
     text.trim_end_matches(['┃', '│', ' ', '⎺', '⎻', '⎼', '⎽']).to_string()
-        + if text.trim_end().ends_with(['┃', '│']) { "" } else { "" }
 }
 
 fn paint(r: &Rig, y: usize, x: u16) -> Paint {

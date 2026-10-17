@@ -197,11 +197,13 @@ fn check(r: &Rig, what: &str, normal: bool, alert: bool) {
             // (a color on the foreground of a blank is not seen)
             let colors = [fg.filter(|_| ch != ' '), bg];
             for c in colors.into_iter().flatten() {
-                let Some(h) = hue_of(c).unwrap_or_else(|h| {
-                    panic!("{what}: ({x},{y}) {c:?} has hue {h:.0}, none of the interface's")
-                }) else {
-                    continue;
-                };
+                let hue = hue_of(c);
+                assert!(
+                    hue.is_ok(),
+                    "{what}: ({x},{y}) {c:?} has hue {:.0}, none of the interface's",
+                    hue.unwrap_err()
+                );
+                let Some(h) = hue.unwrap() else { continue };
                 seen.insert(h as u8);
                 let body = y >= usize::from(g.y0) && y < last;
                 let in_panel = body && x >= g.px && x < g.px + g.pw;
