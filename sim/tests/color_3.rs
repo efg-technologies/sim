@@ -223,3 +223,77 @@ fn color_3_a_word_from_the_disk_is_inverse_a_hidden_char_is_inverse_and_bold_and
     }
     assert_eq!(words[..3], ["NORMAL", "INSERT", "VISUAL"], "{words:?}");
 }
+
+#[test]
+fn color_3_the_changes_view_says_what_a_file_is_by_its_letter_and_its_numbers() {
+    let mut r = scene("color-3-changes");
+    r.keys("<Space>ge");
+    assert!(r.status().contains("CHANGES"), "{}", r.status());
+    let (shot, grid) = stripped(&r);
+    let pw = usize::from(r.sim.geo().pw);
+    let row = |name: &str| -> String {
+        let (y, _) = find(&grid, name);
+        let row: String = grid[y].iter().take(pw + 1).map(|c| c.0).collect();
+        row.trim_end().trim_end_matches('│').trim_end().to_string()
+    };
+    // a letter and the numbers, in the cells of the row: a changed file M with what changed, an
+    // untracked one U, a deleted one D
+    assert!(
+        row("│   a.rs").contains(" M")
+            && row("│   a.rs").contains('+')
+            && row("│   a.rs").contains('−'),
+        "{shot}"
+    );
+    assert!(row("│   new.md").ends_with('U'), "{shot}");
+    assert!(row("│   gone.txt").ends_with('D'), "{shot}");
+    golden("color_3_changes", &shot);
+}
+
+/// `n.md` with a table, open with the read view on, drawn with no color in `skin`.
+fn table_scene(name: &str, skin: Skin) -> Rig {
+    let text = "# Notes\n\n| a | bb |\n|---|:-:|\n| 日本 | 2 |\n\nend\n";
+    let mut r = rig_env(name, &[&format!("n.md={text}")], &["n.md"], (60, 14), |e| {
+        e.skin = skin;
+        e.chrome = true;
+        e.md = true;
+        e.syn = Syntax::mono();
+    });
+    r.send(SimEvent::Term(Event::Bg((0x1e, 0x1e, 0x1e))));
+    r.hold_spans = true;
+    r.keys("l");
+    r.deliver_spans();
+    r
+}
+
+#[test]
+fn color_3_the_read_view_s_table_is_told_by_its_bars_and_rules_and_not_by_a_color() {
+    for (skin, rows) in [
+        (Skin::Depth, ["│ a    │ bb │", "├──────┼────┤", "│ 日本 │ 2  │"]),
+        (Skin::Flat, ["│ a    │ bb │", "├──────┼────┤", "│ 日本 │ 2  │"]),
+        (Skin::Calm, ["| a    | bb |", "|------|----|", "| 日本 | 2  |"]),
+    ] {
+        let r = table_scene("color-3-table", skin);
+        let (shot, grid) = stripped(&r);
+        // (a wide char is followed by the blank cell that its second column is)
+        let text: Vec<String> = grid
+            .iter()
+            .map(|row| {
+                let mut out = String::new();
+                let mut skip = false;
+                for c in row.iter().map(|c| c.0) {
+                    let wide = unicode_width::UnicodeWidthChar::width(c) == Some(2);
+                    if !std::mem::replace(&mut skip, wide) {
+                        out.push(c);
+                    }
+                }
+                out
+            })
+            .collect();
+        for want in rows {
+            assert!(text.iter().any(|t| t.contains(want)), "{skin:?}: {want:?}\n{shot}");
+        }
+        if skin == Skin::Depth {
+            golden("color_3_table", &shot);
+        }
+    }
+}

@@ -33,13 +33,14 @@ fn bar(icons: bool) -> Bar<'static> {
         branch: Some("main"),
         counts: Some((18, 3, 2)),
         icon: Some('\u{e7a8}'),
-        path: "src/layout.rs",
+        path: Some("src/layout.rs"),
         modified: true,
         notes: "2 changes on disk",
         slot: Some(("rust-analyzer · sandboxed", false)),
-        encoding: Some("utf-8"),
-        eol: Some("LF"),
-        ftype: Some("rust"),
+        encoding: Some("not utf-8"),
+        eol: Some("CRLF"),
+        bom: Some("BOM"),
+        ftype: Some("python"),
         progress: Some("42%"),
         pos: "12:3",
     }
@@ -61,9 +62,10 @@ fn ui_10_the_bar_has_lualine_s_sections_with_powerline_separators_when_icons_are
         "●",
         "2 changes on disk",
         "rust-analyzer · sandboxed",
-        "utf-8",
-        "LF",
-        "rust",
+        "not utf-8",
+        "CRLF",
+        "BOM",
+        "python",
         "42%",
         " 12:3 ",
     ] {
@@ -72,11 +74,14 @@ fn ui_10_the_bar_has_lualine_s_sections_with_powerline_separators_when_icons_are
     // The order of lualine's: a mode, b branch and changes, c file ... x, y progress, z position.
     let at = |s: &str| text.find(s).unwrap();
     assert!(at("NORMAL") < at("main") && at("main") < at("+18") && at("+18") < at("src/layout.rs"));
-    let rust = text.rfind("rust").unwrap(); // (the file type: the slot has the word too)
     assert!(
-        at("utf-8") < at("LF") && at("LF") < rust && rust < at("42%") && at("42%") < at("12:3")
+        at("not utf-8") < at("CRLF")
+            && at("CRLF") < at("BOM")
+            && at("BOM") < at("python")
+            && at("python") < at("42%")
+            && at("42%") < at("12:3")
     );
-    assert!(at("src/layout.rs") < at("utf-8"));
+    assert!(at("src/layout.rs") < at("not utf-8"));
     // Separators: `` after each section on the left, `` before each on the right.
     assert_eq!(text.matches('\u{e0b0}').count(), 3, "{text:?}");
     assert_eq!(text.matches('\u{e0b2}').count(), 3, "{text:?}");
@@ -103,7 +108,8 @@ fn ui_10_without_icons_there_are_no_separators_and_no_glyphs() {
 #[test]
 fn ui_10_what_does_not_fit_is_dropped_from_the_right_least_important_first() {
     let t = Tones::new(&palette(BG));
-    let words = ["rust-analyzer", "LF", "utf-8", "rust", "42%", "+18", "main", "changes on disk"];
+    let words =
+        ["rust-analyzer", "CRLF", "not utf-8", "python", "42%", "+18", "main", "changes on disk"];
     let mut gone = vec![];
     for w in (24..=130).rev() {
         let line = render(w, &bar(true), &t).unwrap();
@@ -121,6 +127,10 @@ fn ui_10_what_does_not_fit_is_dropped_from_the_right_least_important_first() {
         assert!(gone.iter().all(|g| now.contains(g)), "{w}: {now:?} after {gone:?}");
         let k = now.len();
         assert_eq!(now, words[..k], "{w}: dropped in order: {text:?}");
+        assert!(
+            text.contains("CRLF") || !text.contains("BOM"),
+            "{w}: BOM goes with CRLF: {text:?}"
+        );
         gone = now;
     }
     assert_eq!(
@@ -183,24 +193,28 @@ fn last(r: &Rig) -> String {
 }
 
 #[test]
-fn ui_10_the_bar_says_the_mode_the_branch_the_changes_the_file_and_the_position() {
+fn ui_10_the_bar_says_the_mode_the_branch_the_changes_and_the_position_and_no_fact_that_is_elsewhere()
+ {
     for skin in [Skin::Flat, Skin::Depth] {
         let mut r = rig("ui10-bar", skin, (120, 24), true);
         let text = last(&r);
-        for want in
-            ["NORMAL", "main", "+1", "~1", "-1", "a.rs", "utf-8", "LF", "rust", "Top", "1:1"]
-        {
+        for want in ["NORMAL", "main", "+1", "~1", "-1", "1:1"] {
             assert!(text.contains(want), "{skin:?}: {want:?} in {text:?}");
         }
-        assert!(!text.contains('●'), "{skin:?}: not modified");
+        // the file is in the tab and the breadcrumb, how a file is usually coded says nothing,
+        // the type is in the name, and the scrollbar shows where the cursor is
+        for gone in ["a.rs", "utf-8", "LF", "rust", "Top", "%", "●"] {
+            assert!(!text.contains(gone), "{skin:?}: {gone:?} in {text:?}");
+        }
         r.keys("3jlix");
         let text = last(&r);
-        for want in ["INSERT", "●", "4:3", "30%"] {
-            assert!(text.contains(want), "{skin:?}: {want:?} in {text:?}");
-        }
+        assert!(text.contains("INSERT") && text.contains("4:3"), "{skin:?}: {text:?}");
+        assert!(!text.contains('●') && !text.contains('%'), "{skin:?}: {text:?}");
+        let tab = r.shot.frame.rows.iter().any(|x| x.text.contains("a.rs") && x.text.contains('●'));
+        assert!(tab, "{skin:?}: the tab says it is modified: {}", dump(&r.shot.frame));
         r.keys("<Esc>G");
         let text = last(&r);
-        assert!(text.contains("NORMAL") && text.contains("Bot"), "{skin:?}: {text}");
+        assert!(text.contains("NORMAL") && !text.contains("Bot"), "{skin:?}: {text}");
         r.keys("v");
         assert!(last(&r).contains("VISUAL"), "{skin:?}");
         // The mode block is the accent's in any mode but Normal, where it is neutral.
@@ -208,6 +222,28 @@ fn ui_10_the_bar_says_the_mode_the_branch_the_changes_the_file_and_the_position(
         let at = r.shot.paints.last().unwrap().iter().find(|(c, _)| c.contains(&3)).unwrap().1.bg;
         assert_eq!(at, Some(t.accent_block().0), "{skin:?}: Visual mode's block is the accent's");
     }
+}
+
+#[test]
+fn ui_10_where_there_is_no_tab_bar_the_bar_keeps_the_file_and_where_there_is_no_scrollbar_the_progress()
+ {
+    // under 10 rows there is no header, so no tab bar: the bar names the file and says it is modified
+    let mut r = rig("ui10-short", Skin::Flat, (100, 9), true);
+    assert!(last(&r).contains("a.rs"), "{}", last(&r));
+    r.keys("x");
+    assert!(last(&r).contains("a.rs") && last(&r).contains('●'), "{}", last(&r));
+    // a pane too narrow for the scrollbar (flat's column needs 26 columns of text): the bar has the progress
+    let flat = |w: u16| {
+        let mut r = rig_env("ui10-pane", &["a.rs=l1\nl2\n"], &["a.rs"], (w, 12), |e| {
+            e.skin = Skin::Flat;
+            e.syn = Syntax::new(true);
+            e.chrome = true;
+        });
+        r.send(SimEvent::Term(Event::Bg(BG)));
+        last(&r)
+    };
+    assert!(flat(26).contains("Top"), "{}", flat(26));
+    assert!(!flat(60).contains("Top"), "the scrollbar says it: {}", flat(60));
 }
 
 #[test]
@@ -247,14 +283,12 @@ fn ui_10_si_s_state_words_are_in_the_bar_and_a_second_file_is_in_the_tabs() {
     assert!(text.contains("1 change on disk"), "{text}");
     r.keys("x");
     let text = last(&r);
-    assert!(
-        text.contains('●') && text.contains("1 change on disk") && !text.contains("modified"),
-        "{text}"
-    );
+    assert!(text.contains("1 change on disk") && !text.contains("modified"), "{text}");
     r.keys(":e b.rs\n");
     let text = last(&r);
     assert!(!text.contains("2/2"), "the tab bar says where you are, the bar does not: {text}");
-    assert!(text.contains("b.rs"), "{text}");
+    assert!(!text.contains("b.rs"), "nor which file: the tab does: {text}");
+    assert!(r.shot.frame.rows[0].text.contains("b.rs"), "{}", r.shot.frame.rows[0].text);
 }
 
 #[test]
@@ -287,17 +321,67 @@ fn ui_10_the_security_slot_shows_the_servers_state_and_the_trust_of_the_root_and
     assert!(last(&r).contains("rust-analyzer · sandboxed"), "{}", last(&r));
 }
 
-#[test]
-fn ui_10_a_crlf_file_says_so_and_a_file_of_no_known_type_says_no_type() {
-    let mut r = rig_env("ui10-crlf", &["a.zzz=one\r\ntwo\r\n"], &["a.zzz"], (120, 24), |e| {
+/// The bar of a file `name` with `bytes` in it, open in flat, 120 columns wide.
+fn bar_of(name: &str, bytes: &[u8]) -> String {
+    let mut r = rig_env("ui10-file", &[name], &[name], (120, 24), |e| {
+        std::fs::write(e.cwd.join(name), bytes).unwrap();
         e.skin = Skin::Flat;
         e.syn = Syntax::new(true);
         e.chrome = true;
     });
     r.send(SimEvent::Term(Event::Bg(BG)));
-    let text = last(&r);
-    assert!(text.contains("CRLF") && !text.contains(" LF"), "{text}");
-    assert!(text.contains("utf-8") && text.contains("a.zzz"), "{text}");
+    last(&r)
+}
+
+#[test]
+fn ui_10_what_is_not_as_usual_is_said_at_the_right_and_nothing_else() {
+    let plain = bar_of("a.zzz", b"one\ntwo\n");
+    for gone in ["utf-8", "LF", "CRLF", "BOM", "a.zzz"] {
+        assert!(!plain.contains(gone), "{gone}: {plain}");
+    }
+    let crlf = bar_of("a.zzz", b"one\r\ntwo\r\n");
+    assert!(crlf.contains("CRLF") && !crlf.contains(" LF") && !crlf.contains("utf-8"), "{crlf}");
+    let bom = bar_of("a.zzz", b"\xEF\xBB\xBFone\ntwo\n");
+    assert!(bom.contains("BOM") && !bom.contains("CRLF"), "{bom}");
+    let both = bar_of("a.zzz", b"\xEF\xBB\xBFone\r\ntwo\r\n");
+    assert!(both.contains("CRLF") && both.contains("BOM"), "{both}");
+    // the core's own words for them are not said twice
+    assert_eq!(both.matches("CRLF").count(), 1, "{both}");
+    assert_eq!(both.matches("BOM").count(), 1, "{both}");
+    let latin = bar_of("a.zzz", b"caf\xe9\n");
+    assert!(latin.contains("not utf-8"), "{latin}");
+}
+
+#[test]
+fn ui_10_the_file_type_is_shown_only_for_a_file_whose_name_does_not_tell_it() {
+    // a script with no extension: its first line says what it is
+    let sh = bar_of("run", b"#!/bin/sh\necho hi\n");
+    assert!(sh.contains(" sh"), "{sh}");
+    let py = bar_of("tool", b"#!/usr/bin/env python3\nprint(1)\n");
+    assert!(py.contains("python"), "{py}");
+    // a name that tells it, even over a first line that says another thing, says nothing
+    let rs = bar_of("a.rs", b"#!/bin/sh\nfn a() {}\n");
+    assert!(!rs.contains("rust") && !rs.contains(" sh"), "{rs}");
+    let none = bar_of("notes", b"just words\n");
+    assert!(!none.contains("text") && !none.contains("notes"), "{none}");
+}
+
+#[test]
+fn ui_10_a_shebang_is_read_by_the_interpreter_and_not_by_its_path_or_version() {
+    use sim::icons::shebang;
+    for (line, ft) in [
+        ("#!/bin/sh", "sh"),
+        ("#!/usr/bin/env bash", "bash"),
+        ("#!/usr/bin/env -S python3 -u", "python"),
+        ("#!/usr/bin/python3.11", "python"),
+        ("#! /usr/bin/node", "javascript"),
+        ("#!/usr/bin/env ruby", "ruby"),
+    ] {
+        assert_eq!(shebang(line), Some(ft), "{line}");
+    }
+    for line in ["", "#!", "# !/bin/sh", "#!/usr/bin/env", "#!/opt/weird/thing", "fn a() {}"] {
+        assert_eq!(shebang(line), None, "{line:?}");
+    }
 }
 
 #[test]

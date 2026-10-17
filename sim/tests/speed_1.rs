@@ -203,7 +203,7 @@ fn markdown(b: &mut Bench) -> Times {
     b.r.deliver_spans();
     b.r.keys("10000G");
     b.r.deliver_spans();
-    assert!(b.r.sim.md && b.r.status().contains("big.md"), "{}", b.r.status());
+    assert!(b.r.sim.md && b.r.app().path.as_deref() == Some("big.md"), "{}", b.r.status());
     const SET: [&str; 12] = [
         "j",
         "k",

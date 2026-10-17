@@ -83,6 +83,9 @@ layer 0
   Shape [1012 157 3 18] r2 #feda99
   Shape [1012 237 3 18] r2 #fed6d7
   text [36 16] "files" #eaeaea bold
+  text [386 16] "README.md" #828387 bold
+  text [486 16] "›" #828387
+  text [506 16] "Lantern" #828387
   text [36 36] "~/lantern" #eaeaea bold
   text [386 36] "README.md" #eaeaea bold
   text [36 56] "▾" #eaeaea

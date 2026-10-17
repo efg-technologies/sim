@@ -6,7 +6,6 @@ layer 0
   Strip [156 36 850 20] r0 #353840
   Chip [16 598 80 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Chip [96 598 60 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
-  Chip [916 598 50 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Chip [966 598 50 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Shape [28 37 2 18] r1 #c6e1ff
   Pill [214 58 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
@@ -17,10 +16,11 @@ layer 0
   Pill [474 118 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
   Pill [564 118 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
   Pill [144 138 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
-  Pill [664 598 104 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [854 598 104 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
   Shape [1008 58 6 516] r3 #b8b8b8/0.07
   Thumb [1008 57 6 418] r3 #4c4f56 shadow(dy 1 blur 4 #000000/0.40)
   Shape [1007 158 8 2] r1 #b8b8b8
+  text [46 16] "hidden.txt" #eaeaea bold
   text [46 36] "hidden.txt" #eaeaea bold
   text [66 56] "1" #b8b8b8
   text [86 56] "invoice_final" #eaeaea
@@ -76,11 +76,6 @@ layer 0
   text [526 136] "word" #eaeaea
   text [26 596] "NORMAL" #eaeaea bold
   text [106 596] "main" #eaeaea
-  text [166 596] "hidden.txt" #eaeaea
-  text [676 596] "untrusted" #f1f1f1 bold
-  text [776 596] "utf-8" #eaeaea
-  text [836 596] "LF" #eaeaea
-  text [866 596] "text" #eaeaea
-  text [926 596] "20%" #eaeaea
+  text [866 596] "untrusted" #f1f1f1 bold
   text [976 596] "2:1" #eaeaea bold
 cursor Block [86 76 10 20] #eaeaea

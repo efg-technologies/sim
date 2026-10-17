@@ -4,6 +4,7 @@
 pub mod bar;
 pub mod changes;
 pub mod color;
+pub mod crumb;
 pub mod diff;
 pub mod find;
 pub mod grep;

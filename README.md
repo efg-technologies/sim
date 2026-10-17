@@ -63,6 +63,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 - A project tree that never moves, `Ctrl-p` to find files, `Ctrl-f` to search text with a preview, likely files marked with `•`, several files with a tab bar.
 - In the project's own benchmark a key takes under 1 ms at p99 (100,000-line file, release build); the first frame in a repository of 100,000 files was measured at 1.8 to 8.7 ms.
 - Syntax colors from your terminal's palette, Markdown read in place (markers hidden, tables aligned, and the line you are on always the file's own text), three looks (`zl`), Japanese kinsoku wrapping and full-width keys.
+- The editor's title is a breadcrumb, `src › sim.rs › leader_key`: the path and the heading or function the cursor is in. A fact is in one place: the status line has the mode, the branch, the counts and the position, and says `CRLF`, `BOM` or a file that is not UTF-8 only when it is one; the tab has the file and `●`, the scrollbar the position, and the tree is not in fog.
 - `NO_COLOR` and terminals with fewer than 8 colors draw with weight, underline and inverse video only, and meaning never depends on color alone: a changed line is `┆`, folders show status letters, a tab shows `↯` for a file changed on disk.
 
 **Keys you can find**

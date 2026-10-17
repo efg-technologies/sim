@@ -88,6 +88,30 @@ pub fn of(name: &str, is_dir: bool, open: bool) -> char {
     named.or(by_ext).map_or(FILE, |e| e.1)
 }
 
+/// UI-10: what a script says it is on its first line, `#!/bin/sh` or `#!/usr/bin/env python3`, in
+/// Neovim's names for the types (`sh`, `python`, `javascript`): the type of a file whose name does not tell it.
+pub fn shebang(line: &str) -> Option<&'static str> {
+    let mut words = line.strip_prefix("#!")?.split_whitespace();
+    let mut prog = words.next()?.rsplit('/').next()?;
+    if prog == "env" {
+        prog = words.find(|w| !w.starts_with('-') && !w.contains('='))?.rsplit('/').next()?;
+    }
+    Some(match prog.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
+        "sh" | "dash" | "ash" => "sh",
+        "bash" => "bash",
+        "zsh" => "zsh",
+        "fish" => "fish",
+        "python" => "python",
+        "node" | "deno" | "bun" => "javascript",
+        "ruby" => "ruby",
+        "perl" => "perl",
+        "lua" => "lua",
+        "php" => "php",
+        "awk" | "gawk" => "awk",
+        _ => return None,
+    })
+}
+
 /// UI-10: the file type the status line names, as Neovim does (`rust`, `markdown`, `zsh`), from
 /// the whole name or the extension of what the file stands for (chezmoi's names are read as such).
 pub fn filetype(name: &str) -> Option<&'static str> {

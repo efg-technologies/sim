@@ -25,6 +25,9 @@ layer 0
   Shape [1012 157 3 18] r2 #feda99
   Shape [1012 237 3 18] r2 #fed6d7
   text [36 16] "files" #eaeaea bold
+  text [386 16] "README.md" #828387 bold
+  text [486 16] "›" #828387
+  text [506 16] "Lantern" #828387
   text [36 36] "~/lantern" #eaeaea bold
   text [386 36] "README.md" #eaeaea bold
   text [36 56] "▸" #eaeaea
@@ -38,9 +41,9 @@ layer 0
   text [56 96] "src/" #eaeaea
   text [916 96] "," #929498
   text [936 96] "to" #eaeaea
-  text [56 116] "Cargo." #d7d7d8
-  text [56 136] "hidden" #d2d3d4
-  text [56 156] "LICENS" #d2d3d4
+  text [56 116] "Cargo." #eaeaea
+  text [56 136] "hidden" #eaeaea
+  text [56 156] "LICENS" #eaeaea
   text [26 176] "•" #b8b8b8
   text [56 176] "README" #feda99
   text [916 196] "e" #929498

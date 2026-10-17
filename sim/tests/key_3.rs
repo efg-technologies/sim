@@ -25,10 +25,12 @@ fn rig_wk(name: &str, skin: Skin, size: (u16, u16)) -> Rig {
 }
 
 /// The window: where its top border is (row, column) and its rows, border and all. It is the box whose
-/// top border has a title with blanks around it (the interface's boxes have none).
+/// top border has a title with blanks around it (the panel's has none, and the editor's, the first row,
+/// is the breadcrumb).
 fn window(r: &Rig) -> Option<((usize, usize), Vec<String>)> {
     let rows: Vec<Vec<char>> = r.screen.rows.iter().map(|x| x.text.chars().collect()).collect();
-    let top = rows.iter().position(|t| t.iter().collect::<String>().contains("╭─ "))?;
+    // (the editor's box has a title too, the breadcrumb, in its top border: the first row)
+    let top = (1..rows.len()).find(|&y| rows[y].iter().collect::<String>().contains("╭─ "))?;
     let left = rows[top].iter().position(|&c| c == '╭')?;
     let right = left + rows[top][left..].iter().position(|&c| c == '╮')?;
     let bottom = (top..rows.len()).find(|&y| rows[y].get(left) == Some(&'╰'))?;

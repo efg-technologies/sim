@@ -83,7 +83,7 @@ fn gui_2_markdown_s_surfaces_are_fences_headings_and_patches() {
     let r = depth("g2-md", &[&format!("a.md={MD}")], &["a.md"], (80, 24));
     let t = tones();
     let row_of =
-        |what: &str| (0..r.shot.frame.rows.len()).find(|&y| text(&r, y).contains(what)).unwrap();
+        |what: &str| (1..r.shot.frame.rows.len()).find(|&y| text(&r, y).contains(what)).unwrap(); // (not the box's title, the breadcrumb)
     let on = |role| with_role(&r, role);
     // a first-level heading is on the stronger band and a second-level one on the fainter, both Heading
     let h1 = on(Role::Heading).into_iter().find(|(y, ..)| *y == row_of("Title")).unwrap();

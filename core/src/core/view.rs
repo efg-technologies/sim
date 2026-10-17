@@ -145,6 +145,8 @@ fn status(a: &App, w: usize) -> String {
     let notes: Vec<String> = [
         b.dirty().then(|| "modified".into()),
         b.readonly.clone(),
+        b.format().1.then(|| "CRLF".into()),
+        b.format().0.then(|| "BOM".into()),
         a.gone.then(|| "deleted on disk".into()),
         count(runs.count(), "change on disk", "changes on disk"),
         a.diverged().then(|| "conflicts with the disk".into()),

@@ -270,13 +270,11 @@ impl Line {
     }
 }
 
-/// How the panel's text is faded (LOOK-7): by the distance of a row from `Near(row, top)`, the row
-/// of the open file (or of the cursor while the panel has the focus) and the first row shown, or by
-/// the distance from the cursor row `Find(row)` while a search has the focus.
+/// How the panel's text is faded (LOOK-7): not at all, or, while a search has the focus, the rows
+/// that are no match fade by their distance from the cursor row `Find(row)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fade {
     None,
-    Near(usize, usize),
     Find(usize),
 }
 
@@ -504,6 +502,9 @@ pub struct Deck<'a> {
     pub chrome: Option<Chrome<'a>>,
     /// UI-11: the scrollbar's rows, none where the interface does not draw it.
     pub scroll: Vec<ScrollCell>,
+    /// UI-18: the parts of the breadcrumb (the path's components and the section) and the index of the
+    /// file's, none where the interface does not draw it.
+    pub crumb: (Vec<String>, usize),
 }
 
 /// UI-2, UI-4: what the interface adds to a screen: whether the icons are drawn, the root as the
@@ -667,18 +668,34 @@ fn header_line(pw: u16, root: &str, icons: bool, t: &Tones) -> Line {
 }
 
 /// UI-4: the first row of the editor: the tab bar (`tabs.rs`).
-fn tabs_line(ew: u16, c: &Chrome, t: &Tones) -> Line {
-    crate::tabs::layout(&c.tabs, c.icons, c.cur, ew, Some(t)).0
+fn tabs_line(ew: u16, c: &Chrome, t: &Tones, crumb: Option<&(Vec<String>, usize)>) -> Line {
+    let mut line = crate::tabs::layout(&c.tabs, c.icons, c.cur, ew, Some(t)).0;
+    // UI-18: flat has no box to hold the breadcrumb: it is at the right of the bar, where the tabs
+    // leave room (a blank at each end and one between).
+    let used = fit(line.row.text.trim_end(), usize::MAX).1;
+    let room = usize::from(ew).saturating_sub(used + 2);
+    let segs = crumb.map(|c| crumb_segments(c, room, Some(t), true)).unwrap_or_default();
+    let width: usize = segs.iter().map(|s| fit(&s.0, usize::MAX).1).sum();
+    if width > 0 && width <= room {
+        let from = usize::from(ew) - width;
+        let (mut text, cols) = fit(&line.row.text, from);
+        text += &" ".repeat(from - cols);
+        let mut at = from as u16;
+        for (s, p) in segs {
+            let w = fit(&s, usize::MAX).1 as u16;
+            line.paints.insert(0, (at..at + w, p));
+            (text, at) = (text + &s, at + w);
+        }
+        line.row.text = text;
+        line.cols = ew;
+    }
+    line
 }
 
 /// The tint and the fade of a row of the panel (LOOK-2, LOOK-7): a changed file's row is tinted
-/// across; the others fade by the distance from the open file's row (or the cursor), or from the
-/// cursor row while a search has the focus (but not its bold rows).
+/// across; the rows that are no match of a search fade by their distance from the cursor row.
 fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
-    // A row with a git status never fades: it is news (UI-3).
-    let status = m.git.is_some() || m.dot.is_some();
     let fade = match fade {
-        Fade::Near(a, top) if !m.change && !status => ramp((top + i).abs_diff(a), 1.0, 14.0, 0.6),
         Fade::Find(c) if m.hit == Some(false) => find_fog(i.abs_diff(c)),
         _ => 0,
     };
@@ -967,6 +984,41 @@ pub(crate) fn border(
     l
 }
 
+/// UI-18: the breadcrumb as the runs of text of a title, in `room` columns: the directories and the
+/// separators in the secondary gray, the file (`file`, the index of its part) in bold and the section
+/// as text, each with a blank at the ends; all dim while the other box has the focus (as `files` is).
+fn crumb_segments(
+    (parts, file): &(Vec<String>, usize),
+    room: usize,
+    t: Option<&Tones>,
+    hot: bool,
+) -> Vec<(String, Paint)> {
+    let shown = crate::crumb::cut(parts, room);
+    let ink = |fg: Option<Rgb>, bold| Paint { fg, bold, ..Paint::default() };
+    let dim = ink(t.map(|t| t.dim), false);
+    let own = |bold| ink(t.filter(|_| !hot).map(|t| t.dim), bold);
+    let ell = shown.len() > 1 && shown[0] == "…";
+    let first = parts.len() - (shown.len() - usize::from(ell));
+    let mut out = vec![];
+    for (i, part) in shown.iter().enumerate() {
+        out.push((
+            if i == 0 { format!(" {part}") } else { part.clone() },
+            match (i < usize::from(ell), (first + i).wrapping_sub(usize::from(ell)).cmp(file)) {
+                (true, _) | (_, std::cmp::Ordering::Less) => dim,
+                (_, std::cmp::Ordering::Equal) => own(true),
+                _ => own(false),
+            },
+        ));
+        if i + 1 < shown.len() {
+            out.push((crate::crumb::SEP.to_string(), dim));
+        }
+    }
+    if let Some(l) = out.last_mut() {
+        l.0.push(' ');
+    }
+    out
+}
+
 /// The top and the bottom border of the panel's box and the editor's (LOOK-3): numbers, titles,
 /// badges (changes on disk on green, a conflict with the disk on the neutral surface).
 fn borders(d: &Deck) -> [Line; 2] {
@@ -1011,8 +1063,16 @@ fn borders(d: &Deck) -> [Line; 2] {
             .filter(|n| n.0 > 0)
             .map(|(n, w, p)| (badge(n, w[0], w[1]), p.unwrap_or(paint(None, true))))
             .collect();
-        // UI-16: no title (the tab says which file it is), only the badges, a rule between them.
+        // UI-16, UI-18: the title is the breadcrumb, and then the badges, a rule between them.
+        let badges: usize = notes.iter().map(|n| fit(&n.0, usize::MAX).1 + 1).sum();
         left = notes.into_iter().flat_map(|n| [s("─", line(false)), n]).skip(1).collect();
+        let room = usize::from(ew).saturating_sub(4 + 2 + badges);
+        let hot = own(false);
+        let mut crumb = crumb_segments(&d.crumb, room, t, hot);
+        if !left.is_empty() && !crumb.is_empty() {
+            crumb.push(s("─", line(false)));
+        }
+        left.splice(0..0, crumb);
     }
     top.add(border(ew, ['╭', '╮'], line(false), &left, &[]));
     bottom.add(border(ew, ['╰', '╯'], line(false), &[], &[]));
@@ -1075,7 +1135,7 @@ pub fn body(
             l.put(" ", Paint { bg: Some(t.bar), role: Role::Bar, ..Paint::default() });
             l
         };
-        lines.push(compose(p, tabs_line(g.ew + g.sign, c, t), end));
+        lines.push(compose(p, tabs_line(g.ew + g.sign, c, t, (!g.boxed).then_some(&d.crumb)), end));
     }
     for (i, e) in editor(g, ed, d.gray, t).into_iter().enumerate() {
         let p = (g.pw > 0).then(|| {

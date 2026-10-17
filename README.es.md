@@ -63,6 +63,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 - Un árbol de proyecto que nunca se mueve, `Ctrl-p` para buscar archivos, `Ctrl-f` para buscar texto con vista previa, archivos probables marcados con `•` y varios archivos con una barra de pestañas.
 - En el benchmark del propio proyecto, una tecla tarda menos de 1 ms en el percentil 99 (archivo de 100 000 líneas, compilación release); el primer fotograma en un repositorio de 100 000 archivos se midió en 1,8 a 8,7 ms.
 - Colores de sintaxis a partir de la paleta de la terminal, Markdown que se lee en su sitio (marcas ocultas, tablas alineadas y la línea donde estás siempre es el texto del archivo), tres apariencias (`zl`), ajuste de línea japonés con kinsoku y teclas de ancho completo.
+- El título del editor es una ruta de migas, `src › sim.rs › leader_key`: la ruta y el encabezado o la función donde está el cursor. Cada dato está en un solo lugar: la línea de estado tiene el modo, la rama, los contadores y la posición, y dice `CRLF`, `BOM` o que el archivo no es UTF-8 solo cuando es así; la pestaña tiene el archivo y `●`, la barra de desplazamiento la posición, y el árbol no está en niebla.
 - Con `NO_COLOR` y en las terminales con menos de 8 colores se dibuja solo con grosor, subrayado y vídeo inverso, y el significado nunca depende solo del color: una línea cambiada es `┆`, las carpetas muestran letras de estado y una pestaña muestra `↯` cuando un archivo cambió en disco.
 
 **Teclas que se pueden encontrar**

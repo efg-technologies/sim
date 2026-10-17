@@ -1,9 +1,10 @@
 //! UI-10, COLOR-1, COLOR-2, UI-17
 //! The status line of the interface (pure): one bar across the width, lualine's sections with
 //! powerline separators when icons are on: the mode in a block of its color, the branch and the
-//! changes against HEAD, the file with its icon and a dot when modified, and on the right the
-//! security slot, the encoding, the line ending, the file type, the progress and the position.
-//! What does not fit is dropped from the right, least important first.
+//! changes against HEAD, the core's state words (and the file with its icon and a dot when modified,
+//! where no tab says it), and on the right the security slot, what is out of the ordinary (an
+//! encoding, `CRLF`, `BOM`, a file type its name does not tell), the progress (where no scrollbar
+//! shows it) and the position. What does not fit is dropped from the right, least important first.
 use crate::color::{Chg, Tones};
 use crate::layout::{Line, fit, short};
 use crate::paint::{Cue, Paint, Role};
@@ -30,10 +31,10 @@ pub struct Bar<'a> {
     pub branch: Option<&'a str>,
     /// Lines added, changed and deleted against HEAD.
     pub counts: Option<(usize, usize, usize)>,
-    /// The file: its icon (a glyph and its accent), its path and whether it is modified; and the core's
-    /// state words after it (`2 changes on disk`).
+    /// The file, where no tab bar names it: its icon (a glyph and its accent), its path and whether it
+    /// is modified; and the core's state words after it (`2 changes on disk`).
     pub icon: Option<char>,
-    pub path: &'a str,
+    pub path: Option<&'a str>,
     pub modified: bool,
     pub notes: &'a str,
     /// The security slot: the language server's state or whether the root is trusted, and whether
@@ -41,6 +42,7 @@ pub struct Bar<'a> {
     pub slot: Option<(&'a str, bool)>,
     pub encoding: Option<&'a str>,
     pub eol: Option<&'a str>,
+    pub bom: Option<&'a str>,
     pub ftype: Option<&'a str>,
     pub progress: Option<&'a str>,
     pub pos: &'a str,
@@ -117,20 +119,26 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
         parts.push(seg(" ", None, false));
         left.push(Sect { bg: t.card, role: Role::Chip, segs: parts });
     }
-    // C: the file.
-    let mut file = vec![seg(" ", None, false)];
-    if let (true, Some(glyph)) = (b.icons, b.icon) {
-        file.push(seg(format!("{glyph} "), Some(t.focus), false)); // (monochrome)
-    }
-    file.push(seg(short(b.path, room), Some(p), false));
-    if b.modified {
-        file.push(seg(" ●", Some(p), true)); // unsaved: weight, not a color
+    // C: the file (where no tab says it) and the core's state words.
+    let mut file = vec![];
+    if let Some(path) = b.path {
+        file.push(seg(" ", None, false));
+        if let (true, Some(glyph)) = (b.icons, b.icon) {
+            file.push(seg(format!("{glyph} "), Some(t.focus), false)); // (monochrome)
+        }
+        file.push(seg(short(path, room), Some(p), false));
+        if b.modified {
+            file.push(seg(" ●", Some(p), true)); // unsaved: weight, not a color
+        }
     }
     if let (true, false) = (k.notes, b.notes.is_empty()) {
-        file.push(seg(format!("  {}", b.notes), Some(p), false));
+        let lead = if b.path.is_some() { "  " } else { " " };
+        file.push(seg(format!("{lead}{}", b.notes), Some(p), false));
     }
-    file.push(seg(" ", None, false));
-    left.push(Sect { bg: t.bar, role: Role::Bar, segs: file });
+    if !file.is_empty() {
+        file.push(seg(" ", None, false));
+        left.push(Sect { bg: t.bar, role: Role::Bar, segs: file });
+    }
     // X: the slot, the encoding, the line ending, the file type.
     let mut right = vec![];
     let mut x = vec![];
@@ -144,6 +152,9 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
         x.push(seg(format!(" {e}"), Some(p), false));
     }
     if let (true, Some(e)) = (k.eol, b.eol) {
+        x.push(seg(format!(" {e}"), Some(p), false));
+    }
+    if let (true, Some(e)) = (k.eol, b.bom) {
         x.push(seg(format!(" {e}"), Some(p), false));
     }
     if let (true, Some(ft)) = (k.ftype, b.ftype) {
@@ -208,7 +219,7 @@ pub fn render(w: u16, b: &Bar, t: &Tones) -> Option<Line> {
         let used = width(&l, &r, b.icons);
         if used <= w || next == drops.len() {
             // What is left of the width, besides the path, is its room.
-            let path_cols = fit(b.path, usize::MAX).1;
+            let path_cols = fit(b.path.unwrap_or(""), usize::MAX).1;
             let spare = (w + path_cols).saturating_sub(used);
             let room = spare.max(1).min(path_cols.max(1));
             break sections(b, t, keep, room);

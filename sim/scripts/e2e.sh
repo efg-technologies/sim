@@ -1671,11 +1671,14 @@ ui_10_the_status_line_is_a_bar_with_the_mode_the_branch_the_file_and_the_positio
   last | grep -q "NORMAL"
   last | grep -q "$branch"
   last | grep -q "~1" # one line changed against HEAD
-  last | grep -q "lib.rs"
-  last | grep -q "utf-8"
-  last | grep -q "LF"
-  last | grep -q "Top"
   last | grep -q "1:1"
+  # a fact is in one place (UI-18): the file is in the tab and the box's breadcrumb, not in the bar; what
+  # is as usual (utf-8, LF), the type the name tells and where the cursor is (the scrollbar) are not either
+  ! last | grep -q "lib.rs"
+  ! last | grep -q "utf-8"
+  ! last | grep -q "LF"
+  ! last | grep -q "Top"
+  screen | sed -n 1p | grep -F -q "src › lib.rs"
   # The block of the mode is a background (blue in Normal mode); a message takes the row over.
   screen_esc | tail -3 | grep -a -q '48;2;'
   typed zi
@@ -1697,7 +1700,7 @@ ui_4_every_open_file_has_a_tab_and_a_click_on_a_tab_shows_that_file() {
   wait_for "README.md"
   typed ':e src/lib.rs'
   keys Enter
-  wait_for "src/lib.rs" # the status line's bar names the file shown
+  wait_for "src › lib.rs" # the breadcrumb at the right of the tab bar names the file shown
   typed ':e src/main.rs'
   keys Enter
   tries=100
@@ -1708,13 +1711,13 @@ ui_4_every_open_file_has_a_tab_and_a_click_on_a_tab_shows_that_file() {
   printf '%s\n' "$first" | grep -q 'lib.rs'
   printf '%s\n' "$first" | grep -q 'main.rs'
   printf '%s\n' "$first" | grep -q '▎' # the shown tab's indicator
-  last | grep -q 'src/main.rs'
+  printf '%s\n' "$first" | grep -F -q 'src › main.rs'
   # A click on the first tab (tmux's columns count from 1): README.md is shown.
   col=$(printf '%s\n' "$first" | awk '{ print index($0, "README.md") }')
   click "$col" 1
   tries=100
-  while ! last | grep -q 'README.md' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
-  last | grep -q 'README.md'
+  while ! screen | sed -n 1p | grep -q '▎ README.md' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  screen | sed -n 1p | grep -q '▎ README.md' # the indicator is on the first tab
   screen | sed -n 1p | grep -q 'main.rs' # no tab is lost
 }
 
@@ -2041,7 +2044,7 @@ icon_1_the_icons_start_off_with_a_hint_once_and_the_remembered_choice_wins() {
   reply '11;rgb:1e1e/1e1e/1e1e'
   wait_for "zi: icons (needs a Nerd Font)"
   typed j
-  wait_for "NORMAL  src/lib.rs" # a key puts it out (and no screen so far had an icon in it)
+  wait_for "NORMAL" # a key puts it out (and no screen so far had an icon in it)
   typed ":q"
   keys Enter
   wait_exit
@@ -2049,7 +2052,7 @@ icon_1_the_icons_start_off_with_a_hint_once_and_the_remembered_choice_wins() {
   restart
   start src/lib.rs
   reply '11;rgb:1e1e/1e1e/1e1e'
-  wait_for "NORMAL  src/lib.rs"
+  wait_for "NORMAL"
   sleep 0.3
   if screen | grep -F -q "Nerd Font"; then fail "the hint came twice"; fi
   typed ":q"
@@ -2208,7 +2211,7 @@ ui_17_the_status_line_counts_the_matches_of_the_lit_search() {
 }
 
 # UI-16: the boxes' titles have no numbers, and the editor's border no longer repeats the file's name.
-ui_16_the_boxes_have_no_numbers_and_the_editor_s_border_is_plain() {
+ui_16_the_boxes_have_no_numbers_and_the_editor_s_border_is_the_breadcrumb() {
   project
   look depth
   CT=truecolor
@@ -2221,7 +2224,8 @@ ui_16_the_boxes_have_no_numbers_and_the_editor_s_border_is_plain() {
   gone "²"
   top=$(screen | sed -n 1p)
   case $top in
-    *"lib.rs"*) fail "the editor's border has the file's name: $top" ;;
+    *"src › lib.rs"*) ;;
+    *) fail "the editor's border is not the breadcrumb: $top" ;;
   esac
 }
 
@@ -2460,6 +2464,84 @@ md_7_a_click_in_a_read_line_is_the_char_of_the_file_under_the_pointer() {
   click 21 "$row" # the `m` of `em`: 20 columns in, 1-based
   wait_for "3:21"
   wait_for "Some **bold** and *em* here." # the line has the cursor now: the file's own text
+}
+
+# UI-18: the editor's box has the breadcrumb, with the section the cursor is in.
+ui_18_the_breadcrumb_names_the_file_and_the_section_the_cursor_is_in() {
+  mkdir -p "$W/src"
+  printf 'pub struct S;\n\nimpl S {\n    pub fn go(&self) {\n        run();\n    }\n}\n' > "$W/src/lib.rs"
+  printf '# Guide\n\n## Install\n\ntext here\n' > "$W/README.md"
+  look depth
+  CT=truecolor
+  start src/lib.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "src › lib.rs"
+  typed 4j
+  wait_for "src › lib.rs › go"
+  typed gg
+  wait_gone "› go"
+  typed ":e README.md"
+  keys Enter
+  wait_for "README.md › Guide" # the first heading is above the cursor on line 1
+  typed G
+  wait_for "README.md › Install" # a Markdown file's section is its heading
+  screen | sed -n 1p | grep -F -q "╭─ README.md › Install" # in the top border of the box
+}
+
+# UI-18: flat has no box, so the breadcrumb is at the right of the tab bar.
+ui_18_flat_has_the_breadcrumb_at_the_right_of_the_tab_bar() {
+  mkdir -p "$W/src"
+  printf 'fn a() {\n    x();\n}\n' > "$W/src/lib.rs"
+  look flat
+  CT=truecolor
+  start src/lib.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  typed j
+  wait_for "src › lib.rs › a"
+  first=$(screen | sed -n 1p)
+  printf '%s\n' "$first" | grep -q 'lib.rs .*src › lib.rs › a *$' # after the tab, at the right edge
+}
+
+# UI-10, VIS-9: a file that is as usual says nothing at the right of the bar, one that is not says so.
+ui_10_a_crlf_file_and_a_file_with_a_bom_say_so_and_one_that_is_as_usual_says_nothing() {
+  printf 'one\r\ntwo\r\n' > "$W/crlf.txt"
+  printf '\357\273\277one\ntwo\n' > "$W/bom.txt"
+  printf 'one\ntwo\n' > "$W/plain.txt"
+  look flat
+  CT=truecolor
+  start plain.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  tries=100
+  while ! screen | grep -v '^$' | tail -1 | grep -q 'NORMAL' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  ! screen | grep -v '^$' | tail -1 | grep -q 'CRLF\|BOM\|utf-8\|LF'
+  typed ":e crlf.txt"
+  keys Enter
+  wait_for "CRLF"
+  typed ":e bom.txt"
+  keys Enter
+  wait_for "BOM"
+  ! screen | grep -v '^$' | tail -1 | grep -q 'CRLF'
+}
+
+# COLOR-3: with no color the breadcrumb, the read view's table and the bar are still told by shapes.
+color_3_with_no_color_the_breadcrumb_the_table_and_the_bar_are_told_by_shapes() {
+  mkdir -p "$W/docs"
+  printf '# Notes\n\n| a | bb |\n|---|:-:|\n| 1 | 2 |\n\nend\n' > "$W/docs/n.md"
+  markdown on
+  look depth
+  CT=truecolor
+  NOCOLOR=1
+  start docs/n.md
+  wait_for "docs › n.md › Notes"
+  wait_for "│ a │ bb │" # the pipes are bars and the cells are aligned, whatever the color
+  screen | grep -F -q "├───┼────┤"
+  wait_for "│ 1 │ 2  │" # the second column is centered, two columns wide
+  typed x
+  wait_for "●" # the tab says modified with a shape
+  # no color of any kind in what tmux was drawn: weight, underline and inverse only
+  if screen_esc | grep -a -E '(\[|;)(3[0-8]|4[0-8]|9[0-7]|10[0-7])(;|m)' > /dev/null; then
+    fail "a color was drawn"
+  fi
 }
 
 main "$@"

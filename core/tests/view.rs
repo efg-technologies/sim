@@ -110,6 +110,19 @@ fn vis_9_status_line_golden() {
     golden("vis_9_status_line", &out);
 }
 
+#[test]
+fn vis_9_a_crlf_file_and_one_with_a_bom_say_so_among_the_state_words() {
+    let status = |bytes: &[u8]| {
+        let f = screen(&mut app_with(Some("f.txt"), bytes, (60, 4)));
+        f.rows.last().unwrap().text.trim_end().to_string()
+    };
+    assert_eq!(status(b"a\nb\n"), "f.txt  1:1  NORMAL", "LF and no BOM say nothing");
+    assert_eq!(status(b"a\r\nb\r\n"), "f.txt  1:1  NORMAL  CRLF");
+    assert_eq!(status(b"\xEF\xBB\xBFa\nb\n"), "f.txt  1:1  NORMAL  BOM");
+    assert_eq!(status(b"\xEF\xBB\xBFa\r\nb\r\n"), "f.txt  1:1  NORMAL  CRLF · BOM");
+    assert_eq!(status(b"a\r\nb\n"), "f.txt  1:1  NORMAL", "a mix is not CRLF (SAFE-3 keeps it)");
+}
+
 /// The status line the Decided rule of VIS-9 gives: `path` shortened from the left to `…/` and its
 /// last components, as many as keep the whole line within `w` columns (at least the file name);
 /// the line is cut at the width when even that does not fit.

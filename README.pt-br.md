@@ -63,6 +63,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 - Uma árvore de projeto que nunca se mexe, `Ctrl-p` para encontrar arquivos, `Ctrl-f` para buscar texto com prévia, arquivos prováveis marcados com `•`, vários arquivos com uma barra de abas.
 - No benchmark do próprio projeto, uma tecla leva menos de 1 ms no p99 (arquivo de 100 mil linhas, build de release); o primeiro quadro em um repositório com 100 mil arquivos foi medido em 1,8 a 8,7 ms.
 - Cores de sintaxe tiradas da paleta do seu terminal, Markdown lido no próprio lugar (marcas ocultas, tabelas alinhadas e a linha em que você está sempre é o texto do arquivo), três aparências (`zl`), quebra de linha com regras kinsoku do japonês e teclas de largura total.
+- O título do editor é uma trilha de navegação, `src › sim.rs › leader_key`: o caminho e o título ou a função em que o cursor está. Cada fato fica em um só lugar: a linha de status tem o modo, o branch, as contagens e a posição, e só diz `CRLF`, `BOM` ou arquivo que não é UTF-8 quando for o caso; a aba tem o arquivo e `●`, a barra de rolagem tem a posição, e a árvore não fica em neblina.
 - `NO_COLOR` e terminais com menos de 8 cores desenham só com peso, sublinhado e vídeo inverso, e o significado nunca depende só da cor: uma linha alterada é `┆`, as pastas mostram letras de status, uma aba mostra `↯` para um arquivo alterado no disco.
 
 **Teclas fáceis de encontrar**

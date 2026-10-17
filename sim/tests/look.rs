@@ -729,72 +729,48 @@ fn fade_over(r: &Rig, y: usize, cols: std::ops::Range<u16>) -> u8 {
 }
 
 #[test]
-fn look_7_the_tree_fades_by_its_distance_from_the_open_files_row_or_from_its_cursor() {
+fn look_7_the_tree_is_not_in_fog_whatever_its_distance_from_the_open_file_or_the_cursor() {
+    let panel_fade = |r: &Rig| -> Vec<u8> {
+        let g = r.sim.geo();
+        (1..=9)
+            .flat_map(|y| (g.px..g.px + g.pw).map(move |x| (y, x)))
+            .map(|(y, x)| paint_at(&r.shot.paints[y], x).fade)
+            .collect()
+    };
     let mut r = looked("l7-near", Skin::Depth, &FILES, (80, 24));
     assert!(r.sim.panel.focus);
-    // The tree has the focus: the distance is from its cursor row (row 0, then row 7).
-    let g = r.sim.geo();
-    let cols = g.px..g.px + g.pw;
-    for y in 1..=9 {
-        assert_eq!(fade_over(&r, y, cols.clone()), ramp(y - 1, 1.0, 14.0, 0.6), "row {y}");
-    }
+    // The tree has the focus, the cursor on its first row and then on its eighth: no row fades.
+    assert!(panel_fade(&r).iter().all(|&f| f == 0), "{:?}", panel_fade(&r));
     r.keys("jjjjjjj");
-    for y in 1..=9 {
-        assert_eq!(
-            fade_over(&r, y, cols.clone()),
-            ramp((y - 1).abs_diff(7), 1.0, 14.0, 0.6),
-            "row {y}"
-        );
-    }
-    // `eta.rs` is row 5; with it open and the focus in the text, the distance is from there.
+    assert!(panel_fade(&r).iter().all(|&f| f == 0));
+    // `eta.rs` is row 5 and is open, the focus in the text: the far rows are as clear as the near ones.
     r.keys("gg<CR>"); // a.txt
     r.keys("<C-n>jjjjj<CR>");
     assert_eq!(r.open_files(), ["a.txt", "eta.rs"]);
     assert!(!r.sim.panel.focus);
-    let expect = |y: usize| ramp((y - 1).abs_diff(5), 1.0, 14.0, 0.6);
-    for y in 1..=9 {
-        assert_eq!(fade_over(&r, y, cols.clone()), expect(y), "row {y}");
-    }
-    assert!((1..=9).any(|y| expect(y) > 0) && expect(6) == 0 && expect(5 + 1) == 0);
-    // The rows past the tree's last are empty: nothing to fade.
-    assert_eq!(fade_over(&r, 10, cols.clone()), 0);
-    // A changed file's row (on green) never fades, however far it is: a.txt, row 0.
-    let a = r.sim.bufs[0].id;
-    r.send(SimEvent::App(a, disk(b"changed\n")));
-    assert_eq!(fade_over(&r, 1, cols.clone()), 0, "{:?}", r.shot.paints[1]);
-    assert_eq!(fade_over(&r, 2, cols.clone()), expect(2));
-    // Flat and calm have no gradient.
+    assert!(panel_fade(&r).iter().all(|&f| f == 0), "{:?}", panel_fade(&r));
+    // A file in a closed directory, and no file at all: the same.
+    let mut files: Vec<String> = (1..=8).map(|i| format!("m{i}.rs")).collect();
+    files.push("d/f.rs=x\n".into());
+    let names: Vec<&str> = files.iter().map(String::as_str).collect();
+    let mut c = looked_with("l7-closed", Skin::Depth, &names, &["d/f.rs"], (80, 24));
+    c.keys("<C-n>jjjj<Esc>");
+    assert!(panel_fade(&c).iter().all(|&f| f == 0));
+    let mut n = looked("l7-nofile", Skin::Depth, &names, (80, 24));
+    n.keys("jjj<Esc>");
+    assert!(panel_fade(&n).iter().all(|&f| f == 0));
+    // The editor's own fog is as it was (LOOK-6): the rows far from the cursor fade there.
+    let text: String = (0..60).map(|i| format!("line {i}\n")).collect();
+    let mut f = looked("l7-editor", Skin::Depth, &[&format!("long.txt={text}")], (80, 30));
+    f.keys("<CR>");
+    let g = f.sim.geo();
+    let far = f.shot.paints[usize::from(g.y0) + 25].iter().any(|(_, p)| p.fade > 0);
+    assert!(far, "{:?}", f.shot.paints[usize::from(g.y0) + 25]);
+    // Flat and calm have none either.
     for skin in [Skin::Flat, Skin::Calm] {
         let mut f = looked("l7-flat", skin, &FILES, (80, 24));
         f.keys("jjjjj<CR>");
         assert!(f.shot.paints.iter().flatten().all(|(_, p)| p.fade == 0), "{skin:?}");
-    }
-}
-
-#[test]
-fn look_7_the_anchor_of_a_file_in_a_closed_directory_is_the_directory_and_with_no_file_the_cursor()
-{
-    let mut files: Vec<String> = (1..=8).map(|i| format!("m{i}.rs")).collect();
-    files.push("d/f.rs=x\n".into());
-    let names: Vec<&str> = files.iter().map(String::as_str).collect();
-    let mut r = looked_with("l7-closed", Skin::Depth, &names, &["d/f.rs"], (80, 24));
-    r.keys("<C-n>jjjj<Esc>"); // the tree, `d/` closed (row 0), its cursor on row 4, the focus in the text
-    assert!(!r.sim.panel.focus && r.open_files() == ["d/f.rs"]);
-    let g = r.sim.geo();
-    for y in 1..=9 {
-        // from `d/`, the nearest row of the file that is shown, and not from the cursor
-        assert_eq!(fade_over(&r, y, g.px..g.px + g.pw), ramp(y - 1, 1.0, 14.0, 0.6), "row {y}");
-    }
-    // With no file open the anchor is the cursor.
-    let mut n = looked("l7-nofile", Skin::Depth, &names, (80, 24));
-    n.keys("jjj<Esc>");
-    assert!(!n.sim.panel.focus && n.open_files().is_empty());
-    for y in 1..=9 {
-        assert_eq!(
-            fade_over(&n, y, g.px..g.px + g.pw),
-            ramp((y - 1).abs_diff(3), 1.0, 14.0, 0.6),
-            "row {y}"
-        );
     }
 }
 

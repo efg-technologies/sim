@@ -11,6 +11,7 @@ mod ptr;
 use crate::bar::{self, Bar, Block as BarBlock};
 use crate::changes::{Changes, Counts};
 use crate::color::{Syntax, Tones};
+use crate::crumb;
 use crate::diff::{Diff, Sign};
 use crate::grep;
 use crate::icons;
@@ -21,7 +22,7 @@ use crate::layout::{
     self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin, Tick,
 };
 use crate::marks::{Git, Marks};
-use crate::paint::{Layer, LayerKind, Paint, Role, Screen};
+use crate::paint::{Layer, LayerKind, Look, Paint, Role, Screen};
 use crate::pick;
 use crate::rank::History;
 use crate::search::Matcher;
@@ -271,6 +272,9 @@ pub struct Buf {
     /// UI-17: where the matches are (the first 100, as chars of the text) for a pattern and a
     /// version of the text, to say which one the cursor is at.
     count: Option<Count>,
+    /// UI-18: the section the cursor's line is in, for a version of the text, a line and whether
+    /// the highlighter calls the line a fenced one.
+    crumb: Option<((u64, usize, bool), Option<String>)>,
 }
 
 /// UI-14: the pattern (and whether it was asked to be case-sensitive) a matcher was made for; none
@@ -463,6 +467,12 @@ fn is_markdown(path: Option<&str>) -> bool {
 }
 
 /// Line `l` of the buffer without its line break; none past the end.
+/// The first 200 chars of line `l`, for what reads a line only to know what kind it is (a shebang, a
+/// heading, a definition): a line of a minified file is not copied whole for it.
+fn head_of(buf: &Buffer, l: usize) -> Option<String> {
+    (l < buf.lines()).then(|| buf.text.line(l).chars().take(200).collect())
+}
+
 fn text_of(buf: &Buffer, l: usize) -> Option<String> {
     (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
 }
@@ -892,6 +902,37 @@ impl Sim {
         self.bufs.iter().zip(names).enumerate().map(tab).collect()
     }
 
+    /// UI-18: the parts of the breadcrumb of the current file: its path below the root, and the section
+    /// the cursor is in. The section is kept for the version of the text and the cursor's line.
+    fn crumb(&mut self) -> (Vec<String>, usize) {
+        let (root, cwd) = (self.root.clone(), self.cwd.clone());
+        let Some(b) = self.bufs.get_mut(self.cur) else { return Default::default() };
+        let Some(path) = b.app.path.clone().filter(|p| !p.is_empty()) else {
+            return Default::default();
+        };
+        let (buf, v) = (&b.app.buf, b.app.buf.version());
+        let l = buf.line_of(buf.cursor);
+        // the highlighter's word on the line: a fenced one starts with a zero-width band
+        let fenced =
+            b.hl.as_ref()
+                .and_then(|h| h.spans.get(l.checked_sub(h.from)?))
+                .is_some_and(|s| s.first().is_some_and(|s| s.1 == Look::Band));
+        let key = (v, l, fenced);
+        let section = match &b.crumb {
+            Some((k, s)) if *k == key => s.clone(),
+            _ => {
+                let s = crumb::section(&path, l, &buf.text, fenced);
+                b.crumb = Some((key, s.clone()));
+                s
+            }
+        };
+        let below = cwd.join(&path);
+        let shown = below.strip_prefix(&root).unwrap_or(Path::new(&path)).to_string_lossy();
+        let parts = crumb::parts(&shown, section.as_deref());
+        let file = parts.len().saturating_sub(1 + usize::from(section.is_some()));
+        (parts, file)
+    }
+
     /// UI-5: asks for the diff of a file against HEAD (not where git said there is no repository).
     fn diff(&self, id: Id, out: &mut Vec<SimEffect>) {
         let req = self.bufs.iter().find(|b| b.id == id && !is_head(b)).and_then(|b| {
@@ -1173,6 +1214,7 @@ impl Sim {
             lit: false,
             count: None,
             finder: None,
+            crumb: None,
         });
         if let Some(b) = self.bufs.last_mut() {
             b.indent = indent_of(&b.app.buf);
@@ -1268,13 +1310,6 @@ impl Sim {
     fn open_path(&self) -> Option<PathBuf> {
         let path = self.cwd.join(self.bufs.get(self.cur)?.app.path.as_ref()?);
         path.strip_prefix(&self.root).ok().map(Path::to_path_buf)
-    }
-
-    /// LOOK-7: the row the open file is shown on in the tree: its own, or its nearest directory's.
-    fn open_row(&self) -> Option<usize> {
-        let path = self.cwd.join(self.bufs.get(self.cur)?.app.path.as_ref()?);
-        let rel = path.strip_prefix(&self.root).ok()?;
-        rel.ancestors().find_map(|a| self.view().row_of(a))
     }
 
     /// The whole screen: the panel, the current file and the status line (BUF-2: `2/5` is
@@ -1376,16 +1411,16 @@ impl Sim {
             out.push(SimEffect::Highlight(req));
         }
         let tones = self.tones.filter(|_| self.skin != Skin::Calm);
-        let anchor = if focus { self.panel.cur } else { self.open_row().unwrap_or(self.panel.cur) };
         let fade = match (g.boxed, focus, sel) {
             (false, ..) => Fade::None,
             (_, true, Some(i)) if self.panel.search.is_some() => Fade::Find(i),
-            _ => Fade::Near(anchor, self.panel.top),
+            _ => Fade::None,
         };
         self.refresh_hits();
         let scroll = ui.then(|| self.scrollbar(win)).flatten();
         let home_root = tilde(&self.root, self.home.as_deref());
         let tabs = self.tabs();
+        let crumb = if ui { self.crumb() } else { Default::default() };
         let deck = Deck {
             geo: g,
             tones: tones.as_ref(),
@@ -1396,6 +1431,7 @@ impl Sim {
             focus,
             chrome: ui.then(|| Chrome { icons: self.icons, root: &home_root, tabs, cur: self.cur }),
             scroll: scroll.unwrap_or_default(),
+            crumb,
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
         let editor = match cur {
@@ -1527,12 +1563,13 @@ impl Sim {
                 branch,
                 counts: None,
                 icon: None,
-                path: &path,
+                path: Some(&path),
                 modified: false,
                 notes: "",
                 slot: None,
                 encoding: None,
                 eol: None,
+                bom: None,
                 ftype: None,
                 progress: None,
                 pos: &pos,
@@ -1568,6 +1605,10 @@ impl Sim {
             l if l >= last => "Bot".into(),
             l => format!("{}%", l * 100 / buf.lines().max(1)),
         };
+        // UI-10: a fact is in one place. The tab bar says the file and that it is modified, the
+        // scrollbar where the cursor is; only what is not as usual is said here.
+        let g = self.geo();
+        let (tabbed, scrolled) = (g.head > 0, g.boxed || g.rule > 0);
         let pos = format!("{}:{}", line + 1, col + 1);
         let file = Path::new(name).file_name().map_or(name.into(), |n| n.to_string_lossy());
         // What is hidden or dangerous is the alert's (magenta): an untrusted root, a server that
@@ -1579,6 +1620,7 @@ impl Sim {
             _ => None,
         };
         let slot = slot.map(|(s, c)| (if icons { format!("\u{f132} {s}") } else { s }, c));
+        let first = head_of(buf, 0).filter(|_| icons::filetype(&file).is_none());
         let bar = Bar {
             icons,
             mode: &mode,
@@ -1586,14 +1628,22 @@ impl Sim {
             branch,
             counts,
             icon: Some(icons::of(&file, false, false)),
-            path: name,
+            path: (!tabbed).then_some(name),
             modified: buf.dirty(),
             notes: &notes,
             slot: slot.as_ref().map(|(s, c)| (s.as_str(), *c)),
-            encoding: Some("utf-8"),
-            eol: Some(if buf.format().1 { "CRLF" } else { "LF" }),
-            ftype: icons::filetype(&file),
-            progress: Some(&progress),
+            encoding: buf
+                .readonly
+                .as_deref()
+                .filter(|r| r.contains("not valid UTF-8"))
+                .map(|_| "not utf-8"),
+            eol: buf.format().1.then_some("CRLF"),
+            bom: buf.format().0.then_some("BOM"),
+            ftype: first
+                .as_deref()
+                .and_then(icons::shebang)
+                .filter(|_| icons::filetype(&file).is_none()),
+            progress: (!scrolled).then_some(progress.as_str()),
             pos: &pos,
         };
         bar::render(w, &bar, t)
@@ -1839,14 +1889,16 @@ impl Guides<'_> {
 }
 
 /// UI-10: the state words of the core's status line, which follow the position and the mode
-/// (`  3:7  NORMAL  2 changes on disk · deleted on disk`): without `modified`, which the bar says by
-/// its dot. None is built again here, so none can be lost (P1).
+/// (`  3:7  NORMAL  2 changes on disk · deleted on disk`): without `modified`, which the tab says by its
+/// dot, and `CRLF` and `BOM`, which the bar says at its right. None is built again here, so none can
+/// be lost (P1).
 fn state_words(status: &str, line: usize, col: usize) -> String {
     let at = format!("  {line}:{col}  ");
     let Some(i) = status.find(&at) else { return String::new() };
     let rest = &status[i + at.len()..];
     let notes = rest.split_once("  ").map_or("", |(_, n)| n.trim());
-    notes.split(" · ").filter(|n| *n != "modified").collect::<Vec<_>>().join(" · ")
+    let said_elsewhere = |n: &str| matches!(n, "modified" | "CRLF" | "BOM");
+    notes.split(" · ").filter(|n| !said_elsewhere(n)).collect::<Vec<_>>().join(" · ")
 }
 
 /// UI-2: `path` as the header shows it: `~/...` below `$HOME`, `~` for `$HOME`, else as it is.

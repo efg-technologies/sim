@@ -16,7 +16,6 @@ layer 0
   Band [618 518 386 56] r6 #33373f shadow(dy 1 blur 4 #000000/0.40)
   Chip [16 598 80 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Chip [96 598 120 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
-  Chip [916 598 50 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Chip [966 598 50 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Shape [368 37 2 18] r1 #c6e1ff
   Shape [371 197 1 5] r0 #feda99
@@ -77,15 +76,18 @@ layer 0
   Shape [1012 157 3 18] r2 #feda99
   Shape [1012 237 3 18] r2 #fed6d7
   text [36 16] "files" #828387 bold
+  text [386 16] "README.md" #eaeaea bold
+  text [486 16] "›" #828387
+  text [506 16] "Lantern" #eaeaea
   text [36 36] "~/lantern" #eaeaea bold
   text [386 36] "README.md" #eaeaea bold
-  text [36 56] "▸" #d2d3d4
-  text [56 56] "docs/" #d2d3d4
+  text [36 56] "▸" #eaeaea
+  text [56 56] "docs/" #eaeaea
   text [386 56] "1" #eaeaea bold
   text [426 56] "#" #b8b8b8
   text [446 56] "Lantern" #8feefa bold
-  text [36 76] "▸" #d2d3d4
-  text [56 76] "scripts/" #d2d3d4
+  text [36 76] "▸" #eaeaea
+  text [56 76] "scripts/" #eaeaea
   text [406 76] "1" #b8b8b8
   text [36 96] "▸" #eaeaea
   text [56 96] "src/" #eaeaea
@@ -102,12 +104,12 @@ layer 0
   text [836 96] "a" #eaeaea
   text [856 96] "window," #eaeaea
   text [936 96] "to" #eaeaea
-  text [56 116] "Cargo.toml" #d7d7d8
+  text [56 116] "Cargo.toml" #eaeaea
   text [426 116] "show" #eaeaea
   text [476 116] "what" #eaeaea
   text [526 116] "is" #eaeaea
   text [556 116] "hidden." #eaeaea
-  text [56 136] "hidden.txt" #e1e2e2
+  text [56 136] "hidden.txt" #eaeaea
   text [406 136] "3" #b5b5b5
   text [56 156] "LICENSE" #eaeaea
   text [406 156] "4" #b2b2b2
@@ -192,11 +194,6 @@ layer 0
   text [106 596] "main" #eaeaea
   text [156 596] "~1" #feda99
   text [186 596] "-3" #fed6d7
-  text [226 596] "README.md" #eaeaea
-  text [736 596] "utf-8" #eaeaea
-  text [796 596] "LF" #eaeaea
-  text [826 596] "markdown" #eaeaea
-  text [926 596] "Top" #eaeaea
   text [976 596] "1:1" #eaeaea bold
 layer 1
   Float [416 496 200 100] r14 #282c34 shadow(dy 16 blur 40 #000000/0.70) rim(#ffffff/0.22 1)

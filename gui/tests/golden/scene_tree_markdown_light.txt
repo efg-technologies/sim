@@ -78,6 +78,9 @@ layer 0
   Shape [1012 157 3 18] r2 #513003
   Shape [1012 237 3 18] r2 #680418
   text [36 16] "files" #343434 bold
+  text [386 16] "README.md" #a3a4a5 bold
+  text [486 16] "›" #a3a4a5
+  text [506 16] "Lantern" #a3a4a5
   text [36 36] "~/lantern" #343434 bold
   text [386 36] "README.md" #343434 bold
   text [36 56] "▸" #343434
@@ -103,14 +106,14 @@ layer 0
   text [836 96] "a" #343434
   text [856 96] "window," #343434
   text [936 96] "to" #343434
-  text [56 116] "Cargo.toml" #434343
+  text [56 116] "Cargo.toml" #343434
   text [426 116] "show" #343434
   text [476 116] "what" #343434
   text [526 116] "is" #343434
   text [556 116] "hidden." #343434
-  text [56 136] "hidden.txt" #494a4a
+  text [56 136] "hidden.txt" #343434
   text [406 136] "3" #7f7f7f
-  text [56 156] "LICENSE" #505051
+  text [56 156] "LICENSE" #343434
   text [406 156] "4" #818181
   text [426 156] "##" #7d7d7d
   text [456 156] "Usage" #13474a bold

@@ -15,7 +15,6 @@ layer 0
   Band [428 498 576 76] r6 #33373f shadow(dy 1 blur 4 #000000/0.40)
   Chip [16 598 80 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Chip [96 598 120 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
-  Chip [906 598 50 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Chip [956 598 60 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
   Shape [368 37 2 18] r1 #c6e1ff
   Shape [371 177 1 5] r0 #feda99
@@ -77,13 +76,16 @@ layer 0
   Shape [1012 237 3 18] r2 #fed6d7
   Shape [1007 353 8 2] r1 #b8b8b8
   text [36 16] "files" #828387 bold
+  text [386 16] "README.md" #eaeaea bold
+  text [486 16] "›" #828387
+  text [506 16] "Layout" #eaeaea
   text [36 36] "~/lantern" #eaeaea bold
   text [386 36] "README.md" #eaeaea bold
-  text [36 56] "▸" #d2d3d4
-  text [56 56] "docs/" #d2d3d4
+  text [36 56] "▸" #eaeaea
+  text [56 56] "docs/" #eaeaea
   text [396 56] "15" #939497
-  text [36 76] "▸" #d2d3d4
-  text [56 76] "scripts/" #d2d3d4
+  text [36 76] "▸" #eaeaea
+  text [56 76] "scripts/" #eaeaea
   text [396 76] "14" #939497
   text [426 76] "A" #d2d3d4
   text [446 76] "tiny" #d2d3d4
@@ -103,9 +105,9 @@ layer 0
   text [476 96] "what" #d2d3d4
   text [526 96] "is" #d2d3d4
   text [556 96] "hidden." #d2d3d4
-  text [56 116] "Cargo.toml" #d7d7d8
+  text [56 116] "Cargo.toml" #eaeaea
   text [396 116] "13" #97989a
-  text [56 136] "hidden.txt" #e1e2e2
+  text [56 136] "hidden.txt" #eaeaea
   text [396 136] "12" #9a9b9d
   text [426 136] "##" #b8b8b8
   text [456 136] "Usage" #88e0ec bold
@@ -198,10 +200,5 @@ layer 0
   text [106 596] "main" #eaeaea
   text [156 596] "~1" #feda99
   text [186 596] "-3" #fed6d7
-  text [226 596] "README.md" #eaeaea
-  text [726 596] "utf-8" #eaeaea
-  text [786 596] "LF" #eaeaea
-  text [816 596] "markdown" #eaeaea
-  text [916 596] "57%" #eaeaea
   text [966 596] "17:1" #eaeaea bold
 cursor Block [426 396 10 20] #eaeaea
