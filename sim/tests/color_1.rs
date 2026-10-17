@@ -60,6 +60,24 @@ fn hue_of(c: Rgb) -> Result<Option<Hue>, f64> {
     nearest.filter(|(_, c)| near(*c) < 35.0).map(|(x, _)| Some(x)).ok_or(h)
 }
 
+/// Whether column `x` of a row of text is in a token that stands for a hidden char: `^` and the
+/// char after it, or `<U+` and the hex digits to the `>`.
+fn in_token(text: &str, x: usize) -> bool {
+    let cs: Vec<char> = text.chars().collect();
+    let on = |from: usize, len: usize| (from..from + len).contains(&x);
+    (0..cs.len()).any(|i| match cs[i] {
+        '^' => {
+            cs.get(i + 1).is_some_and(|c| "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_?".contains(*c))
+                && on(i, 2)
+        }
+        '<' => {
+            let tok: String = cs[i..].iter().take(8).collect();
+            tok.starts_with("<U+") && tok.ends_with('>') && on(i, 8)
+        }
+        _ => false,
+    })
+}
+
 fn role_of(h: Hue) -> Role {
     match h {
         Hue::Red | Hue::Amber | Hue::Green => Role::Change,
@@ -275,9 +293,12 @@ fn walk(r: &Rig, what: &str, normal: bool, alert: bool, lit: bool) {
                             .text
                             .find("untrusted")
                             .map(|b| rows[last].text[..b].chars().count());
-                        y == last
+                        let slot = y == last
                             && alert
-                            && at.is_some_and(|a| usize::from(x) + 2 >= a && usize::from(x) < a + 9)
+                            && at
+                                .is_some_and(|a| usize::from(x) + 2 >= a && usize::from(x) < a + 9);
+                        // or a hidden char of the text (UI-15): the cells of a `^X` or `<U+XXXX>` token
+                        slot || (in_text && in_token(&rows[y].text, usize::from(x)))
                     }
                     // a heading: its text and its band, in the rows of the text that have one
                     Role::Kind => {
@@ -416,4 +437,22 @@ fn color_1_no_look_of_the_text_is_magenta_the_alert_s_hue() {
     let mut syn = Syntax::new(true);
     syn.bg(BG);
     assert_eq!(syn.hue(Num), syn.hue(Str));
+}
+
+#[test]
+fn color_1_the_hidden_chars_of_a_file_are_the_only_alert_in_the_text() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let file = "h.txt=a\u{1b}b \u{202e}c <U+202E> ^[ end\nsecond\n";
+        let mut r = rig_env(&format!("budget-hid-{skin:?}"), &[file], &["h.txt"], (100, 20), |e| {
+            e.skin = skin;
+            e.syn = Syntax::new(true);
+            e.chrome = true;
+        });
+        r.send(SimEvent::Term(Event::Bg(BG)));
+        walk(&r, &format!("{skin:?} hidden chars"), true, false, false);
+        let t = Tones::new(&palette(BG));
+        let magenta =
+            r.shot.paints.iter().flatten().filter(|(_, p)| p.fg == Some(t.alert_fg())).count();
+        assert!(magenta >= 2, "{skin:?}: both tokens are drawn in the alert");
+    }
 }

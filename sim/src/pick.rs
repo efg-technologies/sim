@@ -4,7 +4,7 @@
 //! it covers. What it shows is `sim/live.rs`'s state; the colors are the budget's (COLOR-1).
 use crate::color::Tones;
 use crate::grep::PRow;
-use crate::layout::{Line, border, fit, tail};
+use crate::layout::{self, Line, border, fit, tail};
 use crate::paint::{Look, Looks, Paint, Paints};
 use si::core::view::{Frame, Row, Style, width};
 use std::ops::Range;
@@ -198,6 +198,9 @@ fn pane_line(p: Option<&Pane>, k: usize, width: u16, t: Option<&Tones>) -> Line 
         l.row = Row { text: src.text.clone(), spans: src.spans.clone(), underline: vec![] };
         l.cols = cols;
         l.looks = p.looks.get(k).cloned().unwrap_or_default();
+        if let Some(t) = t {
+            layout::alerted(&mut l.row, &mut l.paints, t);
+        }
         let lit = p.lit.filter(|lit| lit.rows.contains(&k));
         let marks = lit.iter().flat_map(|lit| lit.marks.iter().filter(|m| m.0 == k));
         l.looks.extend(marks.map(|m| (m.1.clone(), Look::Bold)));

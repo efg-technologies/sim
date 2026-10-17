@@ -187,6 +187,11 @@ fn ui_12_a_heading_reads_on_its_two_bands_and_the_page() {
             worst_primary = worst_primary.min(lc);
         }
     }
+    // a hidden char's alert text (UI-15) on the page
+    for bg in BGS {
+        let lc = apca(Tones::new(&palette(bg)).alert_fg(), bg).abs();
+        assert!(lc >= 75.0, "{}: the alert's text on the page |Lc| {lc:.1}", hex(bg));
+    }
     eprintln!(
         "UI-12 lowest |Lc|: a heading on its bands and the page {worst:.1}, primary there {worst_primary:.1}"
     );

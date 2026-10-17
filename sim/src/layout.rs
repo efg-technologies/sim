@@ -793,6 +793,9 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
     for (i, e) in ed.frame.rows[..ed.frame.rows.len().saturating_sub(1)].iter().enumerate() {
         let cols = if e.text.is_ascii() { e.text.len() } else { fit(&e.text, usize::MAX).1 };
         let mut line = Line { row: e.clone(), cols: cols as u16, ..Line::default() };
+        if let Some(t) = t {
+            alerted(&mut line.row, &mut line.paints, t);
+        }
         // The Visual selection is a gray background instead of an underline (SYN-5), ahead of the syntax looks.
         if gray {
             line.looks =
@@ -1111,6 +1114,18 @@ pub struct Glyph {
     pub ch: char,
     pub col: u16,
     pub tone: Tone,
+}
+
+/// UI-15: takes the spans of `Style::Hidden` (a char shown in another form, SAFE-8) out of a row and
+/// paints their columns in the alert's text color, ahead of any other paint of the cell: the one
+/// place in the text with the alert's hue (COLOR-1). Where it is not called (calm) the Painter draws
+/// the style inverse.
+pub fn alerted(row: &mut Row, paints: &mut Paints, t: &Tones) {
+    let ink = Paint { fg: Some(t.alert_fg()), ..Paint::default() };
+    let hidden: Vec<_> =
+        row.spans.iter().filter(|s| s.1 == Style::Hidden).map(|s| (s.0.clone(), ink)).collect();
+    row.spans.retain(|s| s.1 != Style::Hidden);
+    paints.splice(0..0, hidden);
 }
 
 /// UI-8: the surface across a row of markdown: a fenced block's (neutral), a first-level heading's
