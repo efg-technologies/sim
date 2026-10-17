@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-17
 
 First public release: sim, the next-generation Vim. It shows even what is hidden, it is secure, and it is written in Rust. One program, `sim`, in two crates: the core (`sim-editor-core`, library `sim_core`) and the editor (`sim-editor`, the binary).
 
