@@ -334,23 +334,35 @@ pub fn runs_commands(listing: &[u8]) -> Option<String> {
     None
 }
 
-/// Runs git in `dir`, in English so that "not a git repository" can be told from other failures.
-fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    if !filter::programs_allowed() {
-        return Err(PLAIN_RUNS_NOTHING.into());
-    }
-    let out = Command::new("git")
-        .args(["-c", "core.fsmonitor=false", "--no-optional-locks"])
+/// The command line of every git of sim's, built here and nowhere else: no shell; no monitor; no
+/// optional lock; `diff.submodule=short`, since a repository's own `diff.submodule = diff` makes git
+/// start a child `git diff` in a submodule, under the submodule's own config, which the guard never
+/// read (flags like `--no-ext-diff` do not reach that child, and config does); the names after `--`
+/// are paths, never patterns or magic (`GIT_LITERAL_PATHSPECS`: a file named `*` or `:(top)` would
+/// match the whole repository, the submodules too); in English, so that "not a git repository" can
+/// be told from other failures; and nothing fetched.
+pub fn command(dir: &Path, args: &[&str]) -> Command {
+    let mut c = Command::new("git");
+    c.args(["-c", "core.fsmonitor=false", "-c", "diff.submodule=short", "--no-optional-locks"])
         .args(args)
         .current_dir(dir)
         .env("LC_ALL", "C")
+        .env("GIT_LITERAL_PATHSPECS", "1")
         // Git never fetches for sim: in a partial clone with objects missing a `git status`
         // would, from the promisor remote, and run what the repository says serves a fetch (its
         // `uploadpack`, an `ext::` url) or ask for a password on the terminal sim draws on.
         .env("GIT_NO_LAZY_FETCH", "1")
         .env("GIT_ALLOW_PROTOCOL", "sim-none")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output();
+        .env("GIT_TERMINAL_PROMPT", "0");
+    c
+}
+
+/// Runs git in `dir` as `command` builds it.
+fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    if !filter::programs_allowed() {
+        return Err(PLAIN_RUNS_NOTHING.into());
+    }
+    let out = command(dir, args).output();
     let shown = layout::short(&dir.to_string_lossy(), 30); // (the reason is what matters: it is last)
     let out = out.map_err(|e| format!("cannot run git in {shown}: {}", why(&e)))?;
     if out.status.success() {
@@ -488,8 +500,14 @@ pub fn worker(tx: Sender<SimEvent>, job: impl Fn() -> SimEvent + Send + 'static)
 /// environment as every git of sim's (`git`, `run`): no external diff and no text conversion
 /// (those are commands a repository can name), no color, and nothing fetched.
 pub fn git_diff(dir: &Path, name: &str) -> Result<Vec<u8>, String> {
-    let args = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "-U0", "HEAD", "--", name];
-    git(dir, &args)
+    git(dir, &git_diff_args(name))
+}
+
+/// UI-5: the arguments of that diff. A file is never a submodule, so none is looked at
+/// (`--ignore-submodules=all`: no child git, and none to read a submodule's own config).
+pub fn git_diff_args(name: &str) -> Vec<&str> {
+    let flags = ["--no-ext-diff", "--no-textconv", "--no-color", "--ignore-submodules=all"];
+    [&["diff"][..], &flags, &["-U0", "HEAD", "--", name]].concat()
 }
 
 /// UI-5: the diff of the file a request names (its path is relative to `cwd`, as its App has it).

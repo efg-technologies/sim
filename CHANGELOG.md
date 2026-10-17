@@ -20,6 +20,7 @@ First public release: sim, the next-generation Vim. It shows even what is hidden
 - Unsaved changes are snapshotted at most once per second into a private state directory (`$XDG_STATE_HOME/sim`, else `~/.local/state/sim`, mode 0700). After a crash, `kill -9` or a closed terminal, reopening the file offers them back as one undo step (SAFE-6, STATE-1). SIGTERM and SIGHUP snapshot and exit; every way out, a panic included, restores the terminal (CLI-4).
 - Hidden characters are shown, never sent raw to the terminal: control characters as `^[`, bidirectional controls, U+200B and a stray U+FEFF as `<U+202E>`, drawn in the alert's block in every state a cell can be in (SAFE-8, UI-15).
 - No modelines: settings and commands are never read from file contents. No network access: no source file of sim uses `std::net`, and the core depends on an allowlist of crates that `scripts/check.sh` enforces (SAFE-9).
+- A file's name is a path for git, never a pattern (`GIT_LITERAL_PATHSPECS`), and the sign column's diff never enters a submodule (`--ignore-submodules=all`, `diff.submodule=short`): a file named `*` or `:(top)` in a repository whose submodule has config of its own could make git run that submodule's external diff (MARK-1, UI-5).
 
 #### Changes from outside are merged and marked (DISK)
 

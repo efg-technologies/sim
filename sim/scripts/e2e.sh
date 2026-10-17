@@ -2163,4 +2163,39 @@ ui_16_the_boxes_have_no_numbers_and_the_editor_s_border_is_plain() {
   esac
 }
 
+# UI-5, MARK-1: a file named `*` is that file for git, not every file: the sign column's diff does not make
+# git enter a submodule and run what the submodule's own config names.
+ui_5_a_file_named_star_does_not_make_git_run_a_submodule_s_own_commands() {
+  g() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git "$@"; }
+  id='-c user.name=sim -c user.email=sim@example.com'
+  src="$CASE_DIR/src"
+  mkdir -p "$src"
+  g -C "$src" init -q
+  printf 'one\n' > "$src/f"
+  g -C "$src" add f
+  g -C "$src" $id commit -q -m 1
+  printf 'two\n' > "$src/f"
+  g -C "$src" $id commit -q -a -m 2
+  g -C "$W" init -q
+  g -C "$W" -c protocol.file.allow=always submodule add -q "$src" sub
+  g -C "$W/sub" checkout -q HEAD~1
+  printf 'star\n' > "$W/*"
+  g -C "$W" add -A
+  g -C "$W" $id commit -q -m top
+  g -C "$W/sub" checkout -q - # the submodule's commit is not the one the repository records
+  printf '#!/bin/sh\ntouch "%s/witness"\n' "$CASE_DIR" > "$CASE_DIR/ext.sh"
+  chmod +x "$CASE_DIR/ext.sh"
+  g config -f "$W/.git/modules/sub/config" diff.external "$CASE_DIR/ext.sh"
+  g -C "$W" config diff.submodule diff
+  printf 'star\nchanged\n' > "$W/*"
+  # the control: git as sim ran the diff before makes the submodule's own external diff run
+  g -C "$W" -c core.fsmonitor=false --no-optional-locks diff --no-ext-diff --no-textconv --no-color -U0 HEAD -- '*' > /dev/null
+  [ -e "$CASE_DIR/witness" ]
+  rm -f "$CASE_DIR/witness"
+  start '*'
+  wait_for "*  1:1  NORMAL"
+  sleep 1 # the diff is asked for in a thread of its own
+  [ ! -e "$CASE_DIR/witness" ]
+}
+
 main "$@"
