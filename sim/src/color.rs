@@ -233,6 +233,8 @@ pub struct Tones {
     /// the page's own lightness moved as far from it, made of the page and the secondary gray (`stepped`).
     pub cc: Rgb,
     pub thumb: Rgb,
+    /// UI-14, PICK-4: the text on the accent's solid color (found once: it is asked for in every row).
+    solid_on: Rgb,
     fg: [Rgb; 5],
     block: [Rgb; 5],
     on: [Rgb; 5],
@@ -278,6 +280,7 @@ impl Tones {
             thumb: stepped(p.bg, p.secondary, 1.8, 0.07),
             gray: by(p.secondary, 0.30),
             gray_on: text_on(p.primary, by(p.secondary, 0.30)),
+            solid_on: text_on(p.primary, fg[Accent::Blue as usize]),
             fg,
             block,
             on: block.map(|b| text_on(p.primary, b)),
@@ -305,8 +308,7 @@ impl Tones {
     /// UI-14, PICK-4: the accent as a solid background, for the match the cursor is on and the
     /// matched chars of a preview: its text color (|Lc| >= 75.5 against the card) and the text on it.
     pub fn accent_solid(&self) -> (Rgb, Rgb) {
-        let solid = self.fg(Accent::Blue);
-        (solid, text_on(self.primary, solid))
+        (self.fg(Accent::Blue), self.solid_on)
     }
 
     /// The Alert: magenta, likewise.

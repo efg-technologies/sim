@@ -30,6 +30,11 @@ fn hostile(c: char) -> bool {
 /// `s` cut to `max` columns, hostile chars replaced by U+FFFD, and the columns it takes: by si's
 /// own `width`, so an emoji presentation sequence takes what the editor gives it (VIS-7).
 pub fn fit(s: &str, max: usize) -> (String, usize) {
+    // (printable ASCII, which nearly all of it is: one column a char and nothing to replace)
+    if s.bytes().all(|b| (b' '..0x7f).contains(&b)) {
+        let n = s.len().min(max);
+        return (s[..n].to_string(), n);
+    }
     let cs: Vec<char> = s.chars().map(|c| if hostile(c) { '\u{fffd}' } else { c }).collect();
     let (mut end, mut cols) = (0, 0);
     while end < cs.len() && cols + width(&cs, end, cols) <= max {

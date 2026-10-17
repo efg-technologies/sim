@@ -185,7 +185,11 @@ fn pane_line(p: Option<&Pane>, k: usize, width: u16, t: Option<&Tones>) -> Line 
         l.row.spans.push((0..l.cols, Style::Secondary));
     } else if k + 1 < p.frame.rows.len() && p.note.is_none() {
         let src = &p.frame.rows[k];
-        let cols = fit(&src.text, usize::MAX).1 as u16;
+        let cols = if src.text.chars().all(narrow) {
+            src.text.chars().count()
+        } else {
+            fit(&src.text, usize::MAX).1
+        } as u16;
         l.row = Row { text: src.text.clone(), spans: src.spans.clone(), underline: vec![] };
         l.cols = cols;
         l.looks = p.looks.get(k).cloned().unwrap_or_default();
@@ -296,19 +300,48 @@ fn outside(r: &Range<u16>, a: u16, z: u16) -> impl Iterator<Item = Range<u16>> {
     left.into_iter().chain(right).filter(|r| !r.is_empty())
 }
 
+/// Cuts the ranges of `v` at `a..z`, in place and in order (the first range that has a cell
+/// decides it): those inside are gone, those that reach into it are shortened, and one that
+/// covers it all becomes two, side by side.
 fn clip<T: Clone>(v: &mut Vec<(Range<u16>, T)>, a: u16, z: u16) {
-    *v = v.iter().flat_map(|(r, x)| outside(r, a, z).map(move |r| (r, x.clone()))).collect();
+    let (mut kept, mut right) = (0, vec![]);
+    v.retain_mut(|(r, x)| {
+        let keep = if r.start >= r.end || (r.start >= a && r.end <= z) {
+            false
+        } else {
+            if r.start < a && r.end > z {
+                right.push((kept, (z..r.end, x.clone())));
+            }
+            if r.start < a {
+                r.end = r.end.min(a);
+            } else if r.end > z {
+                r.start = r.start.max(z);
+            }
+            true
+        };
+        kept += usize::from(keep);
+        keep
+    });
+    for (n, (at, piece)) in right.into_iter().enumerate() {
+        v.insert(at + 1 + n, piece);
+    }
 }
 
-/// PICK-1: puts the line `o` over the columns `x..x + o.cols` of a screen row: the row's text,
-/// styles, looks and paints are cut there and the line's put in, so nothing under the window shows
-/// through. A wide char the window cuts in two is a blank (both halves of it), a row shorter than
-/// `x` is padded up to it, and a char that combines with one under the window goes with it.
-pub fn splice(row: &mut Row, looks: &mut Looks, paints: &mut Paints, x: u16, o: Line) {
-    let (a, z) = (x, x + o.cols);
-    let cs: Vec<char> = row.text.chars().collect();
-    // `side` is where the char before was: 0 left of the window, 1 under it, 2 right of it (a
-    // combining char follows the one it combines with)
+/// Whether a char takes exactly one column whatever is around it (so a row of them is cut by
+/// counting): Latin text, box drawing, blocks and Braille, but not a char that can start an emoji
+/// sequence (`©` `®`) and not a control.
+fn narrow(c: char) -> bool {
+    ((' '..'\u{300}').contains(&c) && !c.is_control() && c != '\u{a9}' && c != '\u{ae}')
+        || ('\u{2500}'..='\u{259f}').contains(&c)
+        || ('\u{2800}'..='\u{28ff}').contains(&c)
+}
+
+/// The text of a row left of column `a` and right of column `z`, and the columns the left one
+/// takes, by si's `width`. A wide char the window cuts in two leaves a blank for the half that is
+/// outside, and a combining char goes with the char it combines with.
+fn walk(text: &str, a: u16, z: u16) -> (String, String, u16) {
+    let cs: Vec<char> = text.chars().collect();
+    // `side` is where the char before was: 0 left of the window, 1 under it, 2 right of it
     let (mut left, mut right, mut col, mut side, mut lw) =
         (String::new(), String::new(), 0u16, 0u8, 0u16);
     for i in 0..cs.len() {
@@ -336,7 +369,6 @@ pub fn splice(row: &mut Row, looks: &mut Looks, paints: &mut Paints, x: u16, o: 
             }
             2 => right.push(cs[i]),
             _ => {
-                // a wide char the window cuts in two leaves a blank for the half that is outside
                 if s < a {
                     left.extend(std::iter::repeat_n(' ', usize::from(a - s)));
                     lw = a;
@@ -346,10 +378,34 @@ pub fn splice(row: &mut Row, looks: &mut Looks, paints: &mut Paints, x: u16, o: 
         }
         col = e;
     }
+    (left, right, lw)
+}
+
+/// PICK-1: puts the line `o` over the columns `x..x + o.cols` of a screen row: the row's text,
+/// styles, looks and paints are cut there and the line's put in, so nothing under the window shows
+/// through. A wide char the window cuts in two is a blank (both halves of it), a row shorter than
+/// `x` is padded up to it, and a char that combines with one under the window goes with it.
+pub fn splice(row: &mut Row, looks: &mut Looks, paints: &mut Paints, x: u16, o: Line) {
+    let (a, z) = (x, x + o.cols);
+    // A row of chars that each take one column (nearly every row) is cut by counting chars; any
+    // other is walked with si's `width`, which knows the wide, the combining and the emoji.
+    let (left, right, lw) = if row.text.chars().all(narrow) {
+        let at = |n: usize| row.text.char_indices().nth(n).map_or(row.text.len(), |(i, _)| i);
+        let n = row.text.chars().count();
+        (
+            row.text[..at(usize::from(a))].to_string(),
+            row.text[at(usize::from(z))..].to_string(),
+            n.min(usize::from(a)) as u16,
+        )
+    } else {
+        walk(&row.text, a, z)
+    };
     let pad = " ".repeat(usize::from(a.saturating_sub(lw)));
     row.text = left + &pad + &o.row.text + &right;
     clip(&mut row.spans, a, z);
-    row.underline = row.underline.iter().flat_map(|r| outside(r, a, z)).collect();
+    if !row.underline.is_empty() {
+        row.underline = row.underline.iter().flat_map(|r| outside(r, a, z)).collect();
+    }
     clip(looks, a, z);
     clip(paints, a, z);
     let go = |r: &Range<u16>| r.start + x..r.end + x;
