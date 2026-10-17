@@ -1477,7 +1477,9 @@ ui_8_markdown_is_colored_and_every_char_of_the_file_is_on_the_screen() {
   start a.md
   wait_for "a.md"
   reply '11;rgb:1e1e/1e1e/1e1e'
-  wait_esc '1m.*38;2;230;230;230m Title' # a heading: bold, in the text's own color (no hue of its level)
+  wait_esc '1m.*38;2;[0-9;]*m Title' # a heading: bold, in a color of its own (the heading hue, cyan)
+  ! screen_esc | grep -a 'Title' | grep -q '38;2;230;230;230m Title' # not the text's primary gray
+  wait_esc '48;2;[0-9;]*m#' # on a band of that hue, across the row, behind its `#`
   # Nothing is hidden: the markers and the url are drawn, only dimmer.
   screen | grep -F -q '# Title'
   screen | grep -F -q 'Some `code` and **bold** here.'

@@ -50,6 +50,7 @@ pub enum Look {
     H4,
     H5,
     H6,
+    Sub,
     Bullet,
     Quote,
     Em,
@@ -61,7 +62,8 @@ pub enum Look {
 /// How a look is drawn (before a paint's colors): its SGR attributes, the syntax look whose hue it
 /// takes (SGR 31-36 stands for it without a palette), and whether it is the secondary gray. Only
 /// the looks of code have a hue (SYN-1); markdown's are weight, slant, underline and grays: a
-/// heading is bold in the text's own color whatever its level, a bullet, a quote's bar, a marker
+/// heading is bold in the text's own color whatever its level (flat and depth give the hue and take
+/// the weight of levels 4 to 6 by `Sub`, UI-8), a bullet, a quote's bar, a marker
 /// and the language of a fence are secondary, a link is underlined (its blue is the accent's, laid
 /// on by `layout` in flat and depth; calm has none, P3). One hue, one meaning (UI-1).
 fn made_of(look: Look, pal: bool) -> (&'static str, Option<Look>, bool) {
@@ -70,6 +72,7 @@ fn made_of(look: Look, pal: bool) -> (&'static str, Option<Look>, bool) {
         Kw => (";1", Some(Kw), false),
         Str | Ty | Num | Fun => ("", Some(look), false),
         H1 | H2 | H3 | H4 | H5 | H6 => (";1", None, false),
+        Sub => ("", None, false),
         Bullet | Quote | Lang => ("", None, true),
         Link => (";4", None, false),
         Com => (if pal { ";3" } else { ";2;3" }, None, true),

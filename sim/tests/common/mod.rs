@@ -596,6 +596,7 @@ fn dump_rows(f: &Frame, looks: &[Looks], paints: &[Paints], t: Option<&Tones>) -
                 Some(Look::H4) => '4',
                 Some(Look::H5) => '5',
                 Some(Look::H6) => '6',
+                Some(Look::Sub) => 'h',
                 Some(Look::Mark) => 'm',
                 Some(Look::Tick) => 'k',
                 Some(Look::Code) => 'C',

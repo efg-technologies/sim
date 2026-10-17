@@ -178,14 +178,16 @@ impl Accent {
 /// UI-1: what a color of the interface means. Neutral (the primary, secondary and faint grays, and
 /// weight) is all structure; Change is green for what comes, amber for what changed and red for
 /// what goes, and nothing else; Accent, blue, is "here, where you act"; Alert, magenta, is only
-/// what is hidden or dangerous. One hue, one meaning, so that a change is the one thing that pops
-/// out (CONCEPT finding 8).
+/// what is hidden or dangerous; Kind, cyan, is what a thing is where the chrome has no hue for it
+/// (a heading). One hue, one meaning, so that a change is the one thing that pops out (CONCEPT
+/// finding 8); how much a thing is, or its rank, is lightness and weight (Mackinlay 1986).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
     Neutral,
     Change,
     Accent,
     Alert,
+    Kind,
 }
 
 /// The three meanings of Change.
@@ -236,6 +238,12 @@ pub struct Tones {
     pub thumb: Rgb,
     /// UI-14, PICK-4: the text on the accent's solid color (found once: it is asked for in every row).
     solid_on: Rgb,
+    /// UI-8: a heading's text (the hue SYN-1 gives functions, |Lc| >= 75.5 against the stronger band)
+    /// and the bands of the first and the second level: the page mixed 18% and 9% toward that hue, less
+    /// where that would be farther from the page in lightness than the card.
+    pub head: Rgb,
+    pub head1: Rgb,
+    pub head2: Rgb,
     fg: [Rgb; 5],
     block: [Rgb; 5],
     on: [Rgb; 5],
@@ -259,6 +267,12 @@ impl Tones {
             if chroma < 0.02 { a.class().1 } else { h }
         };
         let block = Accent::ALL.map(|a| hued(p.bg, hue(a)));
+        // The bands are the page mixed 18% and 9% toward the heading's hue, but no further from the
+        // page in lightness than the card is (0.95 of it): primary text keeps UI-12's floor on them.
+        let cyan = syn.raw_cyan();
+        let (page, step) = (to_lch(p.bg)[0], (to_lch(card)[0] - to_lch(p.bg)[0]).abs() * 0.95);
+        let t1 = 0.18f64.min(step / (to_lch(cyan)[0] - page).abs().max(1e-6));
+        let (head1, head2) = (by(cyan, t1), by(cyan, t1 / 2.0));
         Tones {
             add,
             add_text: text_on(p.primary, add),
@@ -282,6 +296,9 @@ impl Tones {
             gray: by(p.secondary, 0.30),
             gray_on: text_on(p.primary, by(p.secondary, 0.30)),
             solid_on: text_on(p.primary, fg[Accent::Blue as usize]),
+            head: text_on(cyan, head1),
+            head1,
+            head2,
             fg,
             block,
             on: block.map(|b| text_on(p.primary, b)),
@@ -323,7 +340,7 @@ impl Tones {
 
     /// Every color the chrome has, with the role it has (UI-1): what the budget is checked against.
     pub fn roles(&self) -> Vec<(&'static str, Role, Rgb)> {
-        use Role::{Accent as A, Alert, Change, Neutral};
+        use Role::{Accent as A, Alert, Change, Kind, Neutral};
         let (ab, ao) = self.accent_block();
         let (lb, lo) = self.alert_block();
         let (sb, so) = self.accent_solid();
@@ -357,6 +374,9 @@ impl Tones {
             ("accent block text", A, ao),
             ("accent solid", A, sb),
             ("accent solid text", A, so),
+            ("heading text", Kind, self.head),
+            ("heading band", Kind, self.head1),
+            ("fainter heading band", Kind, self.head2),
             ("alert text", Alert, self.alert_fg()),
             ("alert block", Alert, lb),
             ("alert block text", Alert, lo),
@@ -459,6 +479,12 @@ impl Syntax {
     pub fn raw(&self, a: Accent) -> Rgb {
         let (i, hue) = a.class();
         self.ansi[i].unwrap_or_else(|| from_lch([0.5, 0.12, hue]))
+    }
+
+    /// UI-8: the terminal's cyan (the reply of OSC 4 when it came, else the color of the OKLCH hue
+    /// 195), before it is moved to read against anything: the hue of functions and of headings.
+    pub fn raw_cyan(&self) -> Rgb {
+        self.ansi[6].unwrap_or_else(|| from_lch([0.5, 0.12, 195.0]))
     }
 
     /// The text color of a syntax look, or none (then the terminal's own SGR 31-36 is used).

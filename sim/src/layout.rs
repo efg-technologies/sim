@@ -658,12 +658,15 @@ fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
 fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     let on = |bg| Paint { bg: Some(bg), ..Paint::default() };
     let link = Paint { fg: Some(t.accent_fg()), ..Paint::default() };
+    let head = Paint { fg: Some(t.head), ..Paint::default() };
     let mut paints: Paints = line
         .looks
         .iter()
         .filter_map(|(r, l)| match l {
             Look::Code | Look::Tick => Some((r.clone(), on(t.code))),
             Look::Link => Some((r.clone(), link)),
+            // UI-8: a heading is in the heading hue (after the link's: a link in it is the accent's)
+            Look::H1 | Look::H2 | Look::H3 | Look::Sub => Some((r.clone(), head)),
             _ => None,
         })
         .collect();
@@ -706,9 +709,15 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
         line.looks.push((line.cols..line.cols + w as u16, Look::Lang));
         line.put(&lang, Paint::default());
     }
-    if m.band {
+    let band = match m.band {
+        Band::None => None,
+        Band::Fence => Some(t.band),
+        Band::H1 => Some(t.head1),
+        Band::H2 => Some(t.head2),
+    };
+    if let Some(band) = band {
         line.pad(ew);
-        paints.push((gutter..ew, on(t.band)));
+        paints.push((gutter..ew, on(band)));
     }
     line.paints.extend(paints);
 }
@@ -788,7 +797,12 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             line.looks =
                 take(&mut line.row.underline).into_iter().map(|r| (r, Look::Sel)).collect();
         }
-        line.looks.extend(ed.looks[i].iter().cloned());
+        // UI-8: with tones the heading's hue says it is one and its weight its level: levels 4 to 6 are
+        // `Sub`, which has the hue and not the weight the Painter gives every heading look.
+        let sub = |l: Look| {
+            if t.is_some() && matches!(l, Look::H4 | Look::H5 | Look::H6) { Look::Sub } else { l }
+        };
+        line.looks.extend(ed.looks[i].iter().map(|(r, l)| (r.clone(), sub(*l))));
         let kind = ed.ch.get(i).copied().unwrap_or(Kind::Plain);
         if let (Some(t), true) = (t, kind != Kind::Plain) {
             // Words that come are on green, the words that go (REVIEW) on red, struck and dim; the
@@ -1094,12 +1108,23 @@ pub struct Glyph {
     pub tone: Tone,
 }
 
+/// UI-8: the surface across a row of markdown: a fenced block's (neutral), a first-level heading's
+/// (the heading hue, stronger) or a second-level one's (fainter).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Band {
+    #[default]
+    None,
+    Fence,
+    H1,
+    H2,
+}
+
 /// UI-8, UI-6: what a row of an editor frame has besides the looks of its chars: a line of a fenced
 /// block (a surface across the row), the chars drawn as others (a quote's `>` as `▌`, the indent
 /// guides), and the language a fence names, for the right of its row.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Extra {
-    pub band: bool,
+    pub band: Band,
     pub glyph: Vec<Glyph>,
     pub lang: Option<String>,
     /// UI-7: the columns of a TODO badge in this row.
@@ -1181,7 +1206,7 @@ pub fn colors<'a>(
     let (gutter, mut win) = (digits + 2, None);
     let (mut out, mut md) =
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
-    let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, false);
+    let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, Band::None);
     let (mut lui, mut trail, mut badge, mut hk) = (LineUi::default(), 0, 0..0, 0);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
@@ -1190,9 +1215,13 @@ pub fn colors<'a>(
             (cs, sp, ci) = (text(l).unwrap_or_default().chars().collect(), spans(l), 0);
             win = Some((win.map_or(l, |w: (usize, usize)| w.0), l));
             // a fenced block, and a first-level heading (a faint band of its own)
-            band = sp.is_some_and(|s| {
-                s.first().is_some_and(|s| s.1 == Look::Band) || s.iter().any(|s| s.1 == Look::H1)
-            });
+            let has = |k: Look| sp.is_some_and(|s| s.iter().any(|s| s.1 == k));
+            band = match sp {
+                Some(s) if s.first().is_some_and(|s| s.1 == Look::Band) => Band::Fence,
+                _ if has(Look::H1) => Band::H1,
+                _ if has(Look::H2) => Band::H2,
+                _ => Band::None,
+            };
             let lang = sp.and_then(|s| s.iter().find(|s| s.1 == Look::Lang));
             md[i].lang = lang.map(|s| cs[s.0.clone()].iter().collect());
             (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
@@ -1203,7 +1232,7 @@ pub fn colors<'a>(
                 .unwrap_or(0..0);
         }
         // (a row with no text and no number is past the end of the file, not the rest of a line)
-        md[i].band = band && (starts.is_some() || len > 0);
+        md[i].band = if starts.is_some() || len > 0 { band } else { Band::None };
         while used < len && ci < cs.len() {
             let (n, w) = shown(&cs, ci, col);
             let look = sp.and_then(|s| s.get(s.partition_point(|s| s.0.end <= ci)));

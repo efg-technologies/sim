@@ -171,3 +171,23 @@ fn ui_6_the_colorcolumn_and_the_handle_are_steps_from_the_page_the_author_s_scal
     let solarized = stepped((0x00, 0x2b, 0x36), (0x93, 0xa1, 0xa1), 1.8, 0.07);
     assert!(to_lch(solarized)[1] <= to_lch((0x00, 0x2b, 0x36))[1] + 0.01);
 }
+
+#[test]
+fn ui_12_a_heading_reads_on_its_two_bands_and_the_page() {
+    let (mut worst, mut worst_primary) = (f64::MAX, f64::MAX);
+    for bg in BGS {
+        let t = Tones::new(&palette(bg));
+        for (name, surface) in [("page", bg), ("H2's band", t.head2), ("H1's band", t.head1)] {
+            let lc = apca(t.head, surface).abs();
+            assert!(lc >= 75.0, "{}: the heading on {name} |Lc| {lc:.1}", hex(bg));
+            worst = worst.min(lc);
+            // code in a heading is primary text on the band
+            let lc = apca(t.primary, surface).abs();
+            assert!(lc >= 75.0, "{}: primary text on {name} |Lc| {lc:.1}", hex(bg));
+            worst_primary = worst_primary.min(lc);
+        }
+    }
+    eprintln!(
+        "UI-12 lowest |Lc|: a heading on its bands and the page {worst:.1}, primary there {worst_primary:.1}"
+    );
+}

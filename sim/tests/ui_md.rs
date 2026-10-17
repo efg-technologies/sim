@@ -278,6 +278,12 @@ fn sequences(out: &str) -> Vec<Vec<&str>> {
     all
 }
 
+/// Whether the first `what` of `out` is drawn bold: the attributes of its sequence (single digits,
+/// ahead of the two-digit colors) have a 1.
+fn is_bold(out: &str, what: &str) -> bool {
+    before(out, what).iter().skip(1).take_while(|p| p.len() == 1).any(|p| *p == "1")
+}
+
 /// The SGR sequence in force at the first `what` of `out`.
 fn before<'a>(out: &'a str, what: &str) -> Vec<&'a str> {
     let i = out.find(what).unwrap();
@@ -325,24 +331,122 @@ fn ui_8_no_sgr_sequence_is_longer_than_tmux_takes() {
     }
 }
 
+const LEVELS: &str =
+    "# One\n\n## Two\n\n### Three\n\n#### Four\n\n##### Five\n\n###### Six\n\ntext\n";
+const WORDS: [&str; 6] = ["One", "Two", "Three", "Four", "Five", "Six"];
+
+/// The column (of the screen) where `needle` first is in a row's text.
+fn col(text: &str, needle: &str) -> u16 {
+    text[..text.find(needle).unwrap()].chars().count() as u16
+}
+
+/// The first background of a cell's paints (the row's band is behind the text's own paints).
+fn bg_at(r: &Rig, y: usize, x: u16) -> Option<Rgb> {
+    r.shot.paints[y].iter().find(|(c, p)| c.contains(&x) && p.bg.is_some()).and_then(|p| p.1.bg)
+}
+
+/// The first foreground of a cell's paints (the fog's paint, which has none, may come first).
+fn fg_at(r: &Rig, y: usize, x: u16) -> Option<Rgb> {
+    r.shot.paints[y].iter().find(|(c, p)| c.contains(&x) && p.fg.is_some()).and_then(|p| p.1.fg)
+}
+
+/// The row of a heading `hashes #` + `word`, the column of its word and the one of its hashes.
+fn heading(r: &Rig, hashes: usize, word: &str) -> (usize, u16, u16) {
+    let y = row_of(r, &format!("{} {word}", "#".repeat(hashes)));
+    let text = &r.shot.frame.rows[y].text;
+    (y, col(text, word), col(text, "#"))
+}
+
 #[test]
-fn ui_8_a_first_level_heading_is_on_a_faint_band_and_the_other_levels_are_bold_with_no_color() {
+fn ui_8_every_heading_is_in_the_heading_hue_and_its_hashes_stay_dim() {
     for skin in [Skin::Flat, Skin::Depth] {
-        let r = shown("md-h1", skin, "# One\n\n## Two\n\ntext\n");
+        let r = shown("md-hue", skin, LEVELS);
         let t = Tones::new(&palette(BG));
-        let (one, two, text) = (row_of(&r, "# One"), row_of(&r, "## Two"), row_of(&r, "text"));
+        for (n, word) in WORDS.iter().enumerate() {
+            let (y, x, hash) = heading(&r, n + 1, word);
+            let level = n + 1;
+            assert_eq!(fg_at(&r, y, x), Some(t.head), "{skin:?} level {level}: the hue");
+            assert_eq!(fg_at(&r, y, hash), None, "{skin:?} level {level}: a hash is dim");
+            assert_eq!(look_at(&r, y, hash), Some(Look::Mark));
+        }
+        assert_eq!(fg_at(&r, row_of(&r, "text"), 8), None, "{skin:?}: prose has no hue");
+    }
+}
+
+#[test]
+fn ui_8_levels_1_to_3_are_bold_and_4_to_6_are_not_and_calm_is_as_it_was() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let r = shown("md-bold", skin, LEVELS);
+        let out = draw(r.shot.clone());
+        let want = [true, true, true, false, false, false];
+        for (word, bold) in WORDS.iter().zip(want) {
+            assert_eq!(is_bold(&out, word), bold, "{skin:?} {word}: {:?}", before(&out, word));
+        }
+        // the levels are told apart by the looks: 1 to 3 as they are, 4 to 6 as `Sub`
+        let looks: Vec<_> = WORDS
+            .iter()
+            .enumerate()
+            .map(|(n, w)| {
+                let (y, x, _) = heading(&r, n + 1, w);
+                look_at(&r, y, x).unwrap()
+            })
+            .collect();
+        let sub = [Look::H1, Look::H2, Look::H3, Look::Sub, Look::Sub, Look::Sub];
+        assert_eq!(looks, sub, "{skin:?}");
+    }
+    // calm: every level bold, no hue, no band, the looks of the highlighter
+    let r = shown("md-bold-calm", Skin::Calm, LEVELS);
+    let out = draw(r.shot.clone());
+    for (n, word) in WORDS.iter().enumerate() {
+        assert!(is_bold(&out, word), "calm {word}: {:?}", before(&out, word));
+        let (y, x, _) = heading(&r, n + 1, word);
+        let level = [Look::H1, Look::H2, Look::H3, Look::H4, Look::H5, Look::H6][n];
+        assert_eq!(look_at(&r, y, x), Some(level), "calm keeps the highlighter's looks");
+    }
+    assert!(r.shot.paints.iter().all(Vec::is_empty), "calm draws no hue and no band");
+}
+
+#[test]
+fn ui_8_a_first_level_heading_is_on_a_band_of_the_heading_hue_and_a_second_level_one_on_a_fainter_one()
+ {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let r = shown("md-bands", skin, LEVELS);
+        let t = Tones::new(&palette(BG));
         let w = r.shot.frame.width;
-        assert_eq!(paint_at(&r, one, 8).bg, Some(t.band), "{skin:?}: H1's band");
-        assert_eq!(paint_at(&r, one, w - 3).bg, Some(t.band), "{skin:?}: across the pane");
-        assert_eq!(paint_at(&r, two, 8).bg, None, "{skin:?}: H2 has none");
-        assert_eq!(paint_at(&r, text, 8).bg, None);
-        // Bold in the text's own color: no hue of a level of its own.
-        for y in [one, two] {
-            let x = r.shot.frame.rows[y].text.find(['O', 'T']).unwrap() as u16;
-            assert!(matches!(look_at(&r, y, x), Some(Look::H1 | Look::H2)), "{skin:?}");
-            assert_eq!(paint_at(&r, y, x).fg, None, "{skin:?}: no color of its own");
+        let (one, two) = (heading(&r, 1, "One").0, heading(&r, 2, "Two").0);
+        for (y, band, name) in [(one, t.head1, "H1"), (two, t.head2, "H2")] {
+            assert_eq!(bg_at(&r, y, 8), Some(band), "{skin:?}: {name}'s band");
+            assert_eq!(bg_at(&r, y, w - 3), Some(band), "{skin:?}: {name}'s band to the edge");
+        }
+        assert_ne!(t.head1, t.head2, "the first is the stronger");
+        let (page, lch) = (sim::color::to_lch(BG), |c| sim::color::to_lch(c));
+        assert!((lch(t.head1)[0] - page[0]).abs() > (lch(t.head2)[0] - page[0]).abs());
+        // the bands are of the heading's hue: mixed into the page, never gray
+        for band in [t.head1, t.head2] {
+            assert!(lch(band)[1] > page[1] + 0.005, "{skin:?}: {band:?} has a hue");
+        }
+        for (hashes, word) in [(3, "Three"), (4, "Four"), (5, "Five"), (6, "Six")] {
+            let y = heading(&r, hashes, word).0;
+            assert_eq!(bg_at(&r, y, 8), None, "{skin:?}: level {hashes} has no band");
+        }
+        assert_eq!(bg_at(&r, row_of(&r, "text"), 8), None);
+        if one > 0 {
+            assert_eq!(bg_at(&r, one - 1, 8), None, "not above");
         }
     }
-    let calm = shown("md-h1-calm", Skin::Calm, "# One\n");
-    assert!(calm.shot.paints.iter().all(Vec::is_empty), "calm draws no band");
+}
+
+#[test]
+fn ui_8_a_link_or_code_in_a_heading_keeps_its_own_color() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let r = shown("md-hlink", skin, "## Head [lnk](http://x.y) and `cod`\n");
+        let t = Tones::new(&palette(BG));
+        let y = row_of(&r, "## Head");
+        let text = &r.shot.frame.rows[y].text;
+        let (head, link, code) = (col(text, "Head"), col(text, "lnk"), col(text, "cod"));
+        assert_eq!(fg_at(&r, y, head), Some(t.head));
+        assert_eq!(fg_at(&r, y, link), Some(t.accent_fg()), "{skin:?}: a link is the accent's");
+        assert_eq!(fg_at(&r, y, code), None, "{skin:?}: code is neutral");
+        assert_eq!(bg_at(&r, y, code), Some(t.code), "{skin:?}: on its surface, over the band");
+    }
 }

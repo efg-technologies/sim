@@ -1,6 +1,7 @@
 //! COLOR-1: the color budget. One hue has one meaning across all of sim: neutral grays and weight are
 //! all structure; green, amber and red are changes and nothing else; blue is the accent, "here,
-//! where you act"; magenta is the alert, only for what is hidden or dangerous. The chrome's colors
+//! where you act"; magenta is the alert, only for what is hidden or dangerous; cyan is the kind,
+//! what a heading is (hue says what a thing is, lightness and weight how much). The chrome's colors
 //! are walked by role (pure) and the screens cell by cell (the cells that are not neutral are the
 //! ones that may be).
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
@@ -26,12 +27,13 @@ const BGS: [Rgb; 8] = [
 ];
 
 /// The hue class of a color: none for a gray, else the nearest of the five hues of the interface
-/// (OKLCH degrees: red 25, amber 85, green 145, blue 250, magenta 320) within 35 degrees.
+/// (OKLCH degrees: red 25, amber 85, green 145, cyan 195, blue 250, magenta 320) within 35 degrees.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Hue {
     Red,
     Amber,
     Green,
+    Cyan,
     Blue,
     Magenta,
 }
@@ -42,22 +44,26 @@ fn hue_of(c: Rgb) -> Result<Option<Hue>, f64> {
         return Ok(None);
     }
     let near = |center: f64| {
-        let d = (h - center).abs();
+        let d = (h - center).rem_euclid(360.0);
         d.min(360.0 - d)
     };
     let all = [
         (Hue::Red, 25.0),
         (Hue::Amber, 85.0),
         (Hue::Green, 145.0),
+        (Hue::Cyan, 195.0),
         (Hue::Blue, 250.0),
         (Hue::Magenta, 320.0),
     ];
-    all.into_iter().find(|(_, c)| near(*c) < 35.0).map(|(x, _)| Some(x)).ok_or(h)
+    // the nearest of them (green's and cyan's 35 degrees overlap)
+    let nearest = all.into_iter().min_by(|a, b| near(a.1).total_cmp(&near(b.1)));
+    nearest.filter(|(_, c)| near(*c) < 35.0).map(|(x, _)| Some(x)).ok_or(h)
 }
 
 fn role_of(h: Hue) -> Role {
     match h {
         Hue::Red | Hue::Amber | Hue::Green => Role::Change,
+        Hue::Cyan => Role::Kind,
         Hue::Blue => Role::Accent,
         Hue::Magenta => Role::Alert,
     }
@@ -76,6 +82,12 @@ fn color_1_every_color_of_the_chrome_has_one_role_and_its_hue_belongs_to_it() {
                     "{bg:?}: {name} {c:?} is neutral, so it has no hue of its own ({h:?}), page chroma {page:.3}"
                 ),
                 // (a tint is the page mixed with its hue: on a page with a tint of its own it drifts)
+                // (a band is the page mixed toward the heading's hue: likewise)
+                (Role::Kind, _) if name.ends_with("band") => {
+                    let [_, chroma, h] = to_lch(c);
+                    let near = |x: f64| (h - x).abs().min(360.0 - (h - x).abs());
+                    assert!(chroma < 0.03 || near(195.0) < 70.0, "{bg:?}: {name} {c:?} hue {h:.0}");
+                }
                 (Role::Change, _) if name.ends_with("tint") => {
                     // (a pale tint of a pale page may have no chroma to speak of)
                     let [_, chroma, h] = to_lch(c);
@@ -105,7 +117,7 @@ fn color_1_every_color_of_the_chrome_has_one_role_and_its_hue_belongs_to_it() {
 }
 
 #[test]
-fn color_1_the_three_changes_the_accent_and_the_alert_are_five_hues_far_apart() {
+fn color_1_the_three_changes_the_accent_the_kind_and_the_alert_are_six_hues_far_apart() {
     for bg in BGS {
         let t = Tones::new(&palette(bg));
         use sim::color::Chg::{Add, Del, Mod};
@@ -114,6 +126,7 @@ fn color_1_the_three_changes_the_accent_and_the_alert_are_five_hues_far_apart() 
             ("mod", t.change_fg(Mod)),
             ("del", t.change_fg(Del)),
             ("accent", t.accent_fg()),
+            ("kind", t.head),
             ("alert", t.alert_fg()),
         ]
         .map(|(n, c)| (n, to_lch(c)[2]));
@@ -266,6 +279,13 @@ fn walk(r: &Rig, what: &str, normal: bool, alert: bool, lit: bool) {
                             && alert
                             && at.is_some_and(|a| usize::from(x) + 2 >= a && usize::from(x) < a + 9)
                     }
+                    // a heading: its text and its band, in the rows of the text that have one
+                    Role::Kind => {
+                        in_text
+                            && r.shot.looks[y].iter().any(|(_, l)| {
+                                matches!(l, Look::H1 | Look::H2 | Look::H3 | Look::Sub)
+                            })
+                    }
                     Role::Neutral => true,
                 };
                 assert!(
@@ -367,7 +387,7 @@ fn color_1_no_look_of_the_text_is_magenta_the_alert_s_hue() {
     // every look there is, with the color the Painter gives it where it has a palette (the syntax
     // hues of `Syntax::hue`, derived or answered by the terminal) and where it has none (SGR 31-36)
     let all = [
-        Com, Str, Kw, Num, Ty, Fun, Tick, Lang, Mark, Url, Link, Code, H1, H2, H3, H4, H5, H6,
+        Com, Str, Kw, Num, Ty, Fun, Tick, Lang, Mark, Url, Link, Code, H1, H2, H3, H4, H5, H6, Sub,
         Bullet, Quote, Em, Band, Bold, Sel,
     ];
     for bg in BGS {
