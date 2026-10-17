@@ -116,6 +116,9 @@ pub struct Paint {
     pub bold: bool,
     /// The fade stops at |Lc| 40, not 60: the line numbers, and what is only decoration (LOOK-6).
     pub soft: bool,
+    /// The last word for its cells: they are drawn with this paint and nothing else, whatever look,
+    /// selection, underline, fade or other paint they have (UI-15: a hidden char).
+    pub sealed: bool,
 }
 
 /// Column ranges of a row and their paints; the first range a column is in decides.
@@ -238,9 +241,21 @@ fn cells(cells: &mut Vec<Cell>, s: &Screen, i: usize, cols: usize) {
                 fade,
                 bold: p.bold || q.bold,
                 soft: p.soft || q.soft,
+                sealed: false,
             };
         };
         cells[span(r)].iter_mut().for_each(on);
+    }
+    // UI-15: a hidden char is drawn as itself and nothing else: in flat and depth by a sealed paint,
+    // in calm by its style (reverse video), whatever else the cell has (a selection, a match, a
+    // surface, the fog, an underline).
+    for c in cells.iter_mut().filter(|c| c.style == Some(Style::Hidden)) {
+        *c = Cell { style: Some(Style::Hidden), ..Cell::default() };
+    }
+    for (r, p) in paints.iter().filter(|(_, p)| p.sealed) {
+        for c in &mut cells[span(r)] {
+            *c = Cell { paint: *p, ..Cell::default() };
+        }
     }
 }
 

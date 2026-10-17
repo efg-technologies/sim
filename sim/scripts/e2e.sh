@@ -1878,9 +1878,9 @@ ui_15_a_hidden_char_is_the_alert_s_and_the_same_text_typed_is_not() {
   reply '11;rgb:1e1e/1e1e/1e1e'
   wait_for "^[b <U+202E> end"
   line=$(screen_esc | grep -a 'end')
-  printf '%s' "$line" | grep -aq '38;2;[0-9;]*m^\[' # the control char: in a color of its own
+  printf '%s' "$line" | grep -aq '48;2;[0-9;]*m^\[' # the control char: on a block of the alert's color
   ! printf '%s' "$line" | grep -aq '38;2;230;230;230m^\[' # not the primary gray
-  printf '%s' "$line" | grep -aq '38;2;230;230;230mb <U+202E> end' # the same text typed is plain, with the chars after the control one
+  printf '%s' "$line" | grep -aq '\[49mb <U+202E> end' # the chars after it, and the same text typed, are plain
   # calm: reverse video, no hue
   typed zl
   wait_for "look: depth"

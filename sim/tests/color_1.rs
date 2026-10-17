@@ -451,8 +451,8 @@ fn color_1_the_hidden_chars_of_a_file_are_the_only_alert_in_the_text() {
         r.send(SimEvent::Term(Event::Bg(BG)));
         walk(&r, &format!("{skin:?} hidden chars"), true, false, false);
         let t = Tones::new(&palette(BG));
-        let magenta =
-            r.shot.paints.iter().flatten().filter(|(_, p)| p.fg == Some(t.alert_fg())).count();
-        assert!(magenta >= 2, "{skin:?}: both tokens are drawn in the alert");
+        let (back, _) = t.alert_block();
+        let blocks = r.shot.paints.iter().flatten().filter(|(_, p)| p.bg == Some(back) && p.sealed);
+        assert!(blocks.count() >= 2, "{skin:?}: both tokens are drawn as the alert's block");
     }
 }

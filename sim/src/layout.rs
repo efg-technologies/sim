@@ -1117,13 +1117,14 @@ pub struct Glyph {
 }
 
 /// UI-15: takes the spans of `Style::Hidden` (a char shown in another form, SAFE-8) out of a row and
-/// paints their columns in the alert's text color, ahead of any other paint of the cell: the one
-/// place in the text with the alert's hue (COLOR-1). Where it is not called (calm) the Painter draws
-/// the style inverse.
+/// paints their columns as the alert's block (its surface and its own text), sealed: no selection,
+/// match, surface, change, band or fog may change it, so the signal holds in every state of a cell.
+/// Where it is not called (calm) the Painter draws the style inverse, also sealed.
 pub fn alerted(row: &mut Row, paints: &mut Paints, t: &Tones) {
-    let ink = Paint { fg: Some(t.alert_fg()), ..Paint::default() };
+    let (back, text) = t.alert_block();
+    let block = Paint { bg: Some(back), fg: Some(text), sealed: true, ..Paint::default() };
     let hidden: Vec<_> =
-        row.spans.iter().filter(|s| s.1 == Style::Hidden).map(|s| (s.0.clone(), ink)).collect();
+        row.spans.iter().filter(|s| s.1 == Style::Hidden).map(|s| (s.0.clone(), block)).collect();
     row.spans.retain(|s| s.1 != Style::Hidden);
     paints.splice(0..0, hidden);
 }

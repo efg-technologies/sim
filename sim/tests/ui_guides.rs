@@ -105,6 +105,7 @@ fn paint(r: &Rig, y: usize, x: u16) -> Paint {
         fade: if a.fade > 0 { a.fade } else { p.fade },
         bold: a.bold || p.bold,
         soft: a.soft || p.soft,
+        sealed: a.sealed || p.sealed,
     })
 }
 

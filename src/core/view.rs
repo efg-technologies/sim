@@ -381,9 +381,10 @@ pub fn render(a: &mut App) -> Frame {
             if i == 0 && d.sym != ' ' {
                 spans.push((0..1, Style::Change));
             }
-            // A char shown in another form is Hidden (SAFE-8), unless it has a style already.
+            // A char shown in another form is Hidden (SAFE-8) whatever its style is: an attacker's
+            // change around it must not hide it.
             #[rustfmt::skip]
-            let sty = |z: usize| if d.sty[z] == Style::Primary && show(d.cs[z]).is_some() { Style::Hidden } else { d.sty[z] };
+            let sty = |z: usize| if show(d.cs[z]).is_some() { Style::Hidden } else { d.sty[z] };
             let mut x = s;
             while x < e {
                 let end = (x..e).find(|&z| sty(z) != sty(x)).unwrap_or(e);

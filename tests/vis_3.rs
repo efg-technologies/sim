@@ -163,3 +163,23 @@ fn vis_9_the_status_line_counts_changes_on_disk_and_proposals() {
     a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
     assert_eq!(status(&screen(&mut a)), "f  1:1  NORMAL  modified · deleted on disk · 1 proposal");
 }
+
+#[test]
+fn safe_8_a_hidden_char_in_a_changed_word_is_hidden_all_the_same_and_the_change_stays_beside_it() {
+    // someone else writes a right-to-left override into a word of the file: the Trojan Source case
+    let mut a = named("f.rs", "alpha\nbeta gamma\ndelta\n", (30, 6));
+    disk(&mut a, "alpha\nbeta GA\u{202e}MMA\ndelta\n");
+    let f = screen(&mut a);
+    let row = &f.rows[1];
+    let at = row.text.find("<U+202E>").unwrap() as u16;
+    let hidden: Vec<_> =
+        row.spans.iter().filter(|s| s.1 == Style::Hidden).map(|s| s.0.clone()).collect();
+    assert_eq!(hidden, vec![at..at + 8], "{row:?}: Hidden wins over Change");
+    let change = changed(&f, 1);
+    assert!(
+        change.contains(&(at - 1)) && change.contains(&(at + 8)),
+        "the words beside it: {change:?}"
+    );
+    assert!(!change.iter().any(|c| (at..at + 8).contains(c)), "and none under it");
+    assert!(change.contains(&0), "the gutter's symbol");
+}
