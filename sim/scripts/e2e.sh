@@ -41,6 +41,8 @@
 #   $HINTED            set it before `start` to see the hint of ICON-1; otherwise the hint counts as given
 #   $ICONS_ON          set it in a case that draws icons: no other screen may have a private-use code point
 #   $SIM_PATH          set it before `start` to run sim with that PATH (for a fake or a missing rg)
+#   $SIM_E2E_KEEP      set it (to a directory) to keep what a case that fails saw, in $SIM_E2E_KEEP/<case>.txt: the screen,
+#                      the screen with its escape sequences made visible, and the names in the state directory (CI uploads it)
 #   look WORD          make the look the next `start` begins with (calm, flat, depth, or none for no file:
 #                      LOOK-1); a case that does not say gets calm, so that the looks of the other cases stay what they were written for
 set -eu
@@ -87,6 +89,21 @@ keys() { tm send-keys -t "$SESSION" "$@"; }
 typed() { tm send-keys -t "$SESSION" -l -- "$1"; }
 screen() { tm capture-pane -p -t "$SESSION"; }
 screen_esc() { tm capture-pane -p -e -t "$SESSION"; }
+
+# $SIM_E2E_KEEP: what a failed case saw, in $SIM_E2E_KEEP/<case>.txt, for whoever cannot be at the machine (CI).
+keep_failure() {
+  [ -n "${SIM_E2E_KEEP:-}" ] || return 0
+  mkdir -p "$SIM_E2E_KEEP" || return 0
+  {
+    echo "== $name: screen"
+    screen
+    echo "== $name: screen with its escape sequences"
+    screen_esc | cat -v
+    echo "== $name: the state directory"
+    ls -lA "$XDG_STATE_HOME/sim"
+  } > "$SIM_E2E_KEEP/$name.txt" 2>&1 || true
+}
+
 # What a terminal answers to the color query (OSC 10, 11 and 4): typed into sim as keys.
 reply() { tm send-keys -t "$SESSION" -l -- "$(printf '\033]%s\033\\' "$1")"; }
 
@@ -200,6 +217,7 @@ run_one() {
           echo "---- screen at failure ----"
           screen
           echo "---------------------------"
+          keep_failure
         fi
         panes=$(tm list-panes -a -F "#{pane_pid}" 2> /dev/null || true)
         sock=$(tm display-message -p "#{socket_path}" 2> /dev/null || true)
@@ -728,6 +746,12 @@ gitproject() {
   git -C "$W" init -q
   git -C "$W" add -A
   git -C "$W" -c user.name=sim -c user.email=sim@example.com commit -q -m init
+}
+
+# WORD in front of the first line of FILE. Not `sed -i`: it takes a suffix on macOS (BSD sed) and none with GNU sed.
+prepend() {
+  { printf '%s' "$1"; cat "$2"; } > "$2.new"
+  mv "$2.new" "$2"
 }
 
 find_1_slash_searches_the_whole_tree_and_enter_opens_the_best_match() {
@@ -1604,7 +1628,7 @@ ui_5_the_git_signs_of_the_file_against_head_are_in_the_sign_column() {
   look flat
   CT=truecolor
   # line 1 of src/lib.rs changed, a line added at the end
-  sed -i '1s/^/changed /' "$W/src/lib.rs"
+  prepend 'changed ' "$W/src/lib.rs"
   printf 'added line\n' >> "$W/src/lib.rs"
   start src/lib.rs
   reply '11;rgb:1e1e/1e1e/1e1e'
@@ -1620,7 +1644,7 @@ ui_5_the_git_signs_of_the_file_against_head_are_in_the_sign_column() {
 
 ui_10_the_status_line_is_a_bar_with_the_mode_the_branch_the_file_and_the_position() {
   gitproject
-  sed -i '1s/^/changed /' "$W/src/lib.rs"
+  prepend 'changed ' "$W/src/lib.rs"
   look depth
   CT=truecolor
   ICONS_ON=1 # powerline's separators are icons (ICON-1): the choice `zi` remembers is on

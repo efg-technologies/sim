@@ -44,20 +44,50 @@ jobs:
       - name: Install tmux (macOS)
         if: runner.os == 'macOS'
         run: command -v tmux || brew install tmux
-      - run: tmux -V
 
-      # fmt, clippy -D warnings, tests, trace, the three line caps, the dependency lists of the core, the editor
-      # and the window, release binary size. The window's pixel tests draw on llvmpipe and skip, saying so, where
-      # there is none (no GPU, no software Vulkan: they are not run here).
+      # What a platform's first run needs to be read by somebody who is not at the machine: the system, the
+      # tools the scripts call (BSD or GNU), and the variables sim reads.
+      - name: The runner
+        run: |
+          uname -a
+          sw_vers 2> /dev/null || true
+          tmux -V
+          git --version
+          python3 --version
+          perl -e 'print "perl $^V\n"'
+          echo "uid $(id -u), sh is $(command -v sh), tmux is $(command -v tmux)"
+          for v in TERM LANG LC_ALL LC_CTYPE TMPDIR COLORTERM TERM_PROGRAM; do printf '%s=%s\n' "$v" "$(printenv "$v" || true)"; done
+
+      # fmt, clippy -D warnings, tests (all of them: a failing file does not hide the ones after it), trace, the
+      # three line caps, the dependency lists of the core, the editor and the window, release binary size. The
+      # window's pixel tests draw on llvmpipe and skip, saying so, where there is none (no GPU, no software
+      # Vulkan: they are not run here). The log is kept in the artifact of a failed run.
       - name: scripts/check.sh
         if: ${{ !cancelled() }}
-        run: sh scripts/check.sh
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/sim-ci-logs"
+          sh scripts/check.sh 2>&1 | tee "$RUNNER_TEMP/sim-ci-logs/check.log"
 
       # No global or system git configuration may leak into the cases (they carry their own
       # identity through the environment). Benches are timing-sensitive and stay out of CI.
+      # SIM_E2E_KEEP: a case that fails leaves its screen, with and without its escape sequences, in the artifact.
       - name: scripts/e2e.sh (the core as sim --plain, then the editor)
         if: ${{ !cancelled() }}
+        shell: bash
         env:
           GIT_CONFIG_GLOBAL: /dev/null
           GIT_CONFIG_SYSTEM: /dev/null
-        run: sh scripts/e2e.sh
+        run: |
+          mkdir -p "$RUNNER_TEMP/sim-ci-logs"
+          export SIM_E2E_KEEP="$RUNNER_TEMP/sim-ci-logs/e2e"
+          sh scripts/e2e.sh 2>&1 | tee "$RUNNER_TEMP/sim-ci-logs/e2e.log"
+
+      - name: Keep the logs and the screens of what failed
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.os }}
+          path: ${{ runner.temp }}/sim-ci-logs
+          if-no-files-found: ignore
+          retention-days: 14

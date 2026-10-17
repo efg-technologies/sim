@@ -50,6 +50,13 @@ import time
 
 # si's places and snapshots (SAFE-6, CLI-6) go to a directory of its own, never to the user's.
 STATE = tempfile.mkdtemp(prefix="sim-bench-state.")
+# ICON-1: where no Nerd Font is known (Terminal.app, a CI runner: anywhere but Ghostty, kitty and
+# WezTerm, whose variables this script may have inherited) sim says `zi: icons (needs a Nerd Font)` in
+# place of the status line's text until the first key, once. Every run here looks for NORMAL on that
+# line, so the hint counts as given: the runs are the same in a developer's terminal and on a runner.
+os.mkdir(os.path.join(STATE, "sim"), 0o700)
+with open(os.path.join(STATE, "sim", "icons-hint"), "w") as marker:
+    marker.write("shown\n")
 ENV = dict(os.environ, HOME=STATE, XDG_STATE_HOME=STATE)
 atexit.register(shutil.rmtree, STATE, True)
 

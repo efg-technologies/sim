@@ -46,8 +46,10 @@ count() {
 
 step 1 cargo fmt --check
 step 2 cargo clippy --workspace --all-targets -- -D warnings
-# The tests that run git never read the user's git configuration (and never write it).
-step 3 env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null XDG_CONFIG_HOME=/nonexistent cargo test --workspace
+# The tests that run git never read the user's git configuration (and never write it). Without
+# --no-fail-fast cargo stops at the first test file that fails and says nothing of the files after it:
+# a platform's first run would show one failure and hide the rest.
+step 3 env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null XDG_CONFIG_HOME=/nonexistent cargo test --workspace --no-fail-fast
 step 4 sh scripts/trace.sh
 
 printf '\n[5/%s] core/src has at most %s lines\n' "$N" "$MAX_CORE_LINES"

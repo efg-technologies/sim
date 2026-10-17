@@ -13,7 +13,12 @@
 # This never touches the user's tmux: every case starts its own tmux server on its own socket
 # (-L sim-e2e-<pid>), so options and paste buffers set by one case never reach another. It reads no
 # config (-f /dev/null) and sets escape-time to 0, so tmux itself never delays an Escape.
-# Each case also gets its own HOME and XDG_STATE_HOME.
+# Each case also gets its own HOME and XDG_STATE_HOME, and sim gets none of the variables of the terminal
+# this runs in (COLORTERM, NO_COLOR, TERM_PROGRAM, and what Ghostty, kitty and WezTerm set), so a case
+# is the same in a developer's Ghostty and on a CI runner. The hint of ICON-1 counts as given.
+#
+#   SIM_E2E_KEEP=DIR   a case that fails leaves what it saw in DIR/<case>.txt: the screen, the screen with
+#                      its escape sequences made visible, and the names in the state directory (CI uploads it)
 #
 # Helpers (available inside a case):
 #   start [args...]    run si in a detached 80x24 session, in the case's temp directory
@@ -49,7 +54,13 @@ shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # ---- helpers used by cases ----
 
 start() {
-  cmd="cd $(shq "$CASE_DIR") && env HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") $(shq "$SIM_BIN")"
+  # ICON-1: where no Nerd Font is known (anywhere but Ghostty, kitty and WezTerm) the status line says
+  # `zi: icons (needs a Nerd Font)` in place of its text until the first key, once, and the cases wait for
+  # that text: the hint counts as given. (A state directory that cannot be made is a case's own business.)
+  if [ -d "$XDG_STATE_HOME" ] && [ ! -e "$XDG_STATE_HOME/sim/icons-hint" ]; then
+    mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"
+  fi
+  cmd="cd $(shq "$CASE_DIR") && env -u COLORTERM -u NO_COLOR -u TERM_PROGRAM -u GHOSTTY_RESOURCES_DIR -u KITTY_PID -u WEZTERM_PANE HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
   # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after si exits.
@@ -60,6 +71,21 @@ keys() { tm send-keys -t "$SESSION" "$@"; }
 typed() { tm send-keys -t "$SESSION" -l -- "$1"; }
 screen() { tm capture-pane -p -t "$SESSION"; }
 colors() { tm capture-pane -p -e -t "$SESSION"; }
+
+# SIM_E2E_KEEP=DIR: what a failed case saw, in DIR/<case>.txt, for whoever cannot be at the machine (CI).
+keep_failure() {
+  [ -n "${SIM_E2E_KEEP:-}" ] || return 0
+  mkdir -p "$SIM_E2E_KEEP" || return 0
+  {
+    echo "== $name: screen"
+    screen
+    echo "== $name: screen with its escape sequences"
+    colors | cat -v
+    echo "== $name: the state directory"
+    ls -lA "$XDG_STATE_HOME/sim"
+  } > "$SIM_E2E_KEEP/$name.txt" 2>&1 || true
+}
+
 # A detached tmux has no terminal to ask for its background, so the answer is typed into the pane.
 reply() { tm send-keys -t "$SESSION" -l -- "$(printf '\033]11;%s\033\\' "$1")"; }
 
@@ -149,6 +175,7 @@ run_one() {
           echo "---- screen at failure ----"
           screen
           echo "---------------------------"
+          keep_failure
         fi
         panes=$(tm list-panes -a -F "#{pane_pid}" 2> /dev/null || true)
         sock=$(tm display-message -p "#{socket_path}" 2> /dev/null || true)
@@ -412,7 +439,7 @@ safe_6_recovers_after_kill_9() {
   keys Enter
   wait_for "exit=0"
   # quitting forgot the snapshot: nothing is left to offer next time
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -v '^positions$')" ]
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(positions|icons-hint)$')" ]
 }
 
 safe_6_sigterm_keeps_the_last_edit() {
@@ -464,7 +491,7 @@ safe_6_a_file_changed_meanwhile_is_merged_with_the_snapshot() {
   keys Enter
   wait_for "exit=0"
   # the stale snapshot went with the one of this session
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -v '^positions$')" ]
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(positions|icons-hint)$')" ]
 }
 
 # Another process rewrites the open file the way an AI does: a new file moved over the old one.
