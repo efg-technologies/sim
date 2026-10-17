@@ -1,4 +1,4 @@
-# sim is one product in two crates: the core (sim-core, core/) holds what must never lose text and
+# sim is one product in two crates: the core (sim-editor-core, core/) holds what must never lose text and
 # has its own line cap and dependency allowlist; the editor (sim-editor, sim/) is the binary `sim`.
 [workspace]
 members = ["core", "sim"]

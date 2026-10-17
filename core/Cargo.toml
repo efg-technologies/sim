@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/efg-technologies/sim"
 readme = "../README.md"
 
-# The package is `sim-editor-core` because `sim-core` is taken on crates.io (by an unrelated project);
+# The package is `sim-editor-core` because the plainer name is taken on crates.io (by an unrelated project);
 # the library keeps the name `sim_core`, and `sim-editor` depends on it under that name. The core is
 # published for the sake of `sim-editor`: cargo cannot publish a crate whose dependency is only a path.
 [lib]

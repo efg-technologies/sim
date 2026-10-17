@@ -8,11 +8,11 @@ cd "$(dirname "$0")/.."
 # The core (core/src) is the part that must never lose text: its own hard cap and its own allowlist
 # of dependencies. The editor (sim/src) has a cap of its own; the reasons for both are in CONCEPT.md.
 MAX_CORE_LINES=3200
-MAX_SIM_LINES=7050
+MAX_SIM_LINES=7600
 CORE_DEPS="crossterm notify regex-lite ropey rustix similar unicode-width"
 MAX_BYTES=$((5 * 1024 * 1024))
 
-N=8
+N=9
 step() {
   n=$1
   shift
@@ -64,13 +64,24 @@ if [ "$deps" != "$CORE_DEPS" ]; then
   exit 1
 fi
 
-# 8. Size of the release binary.
-step 8 cargo build --release
+# 8. The name: sim is Secure vIM, and si, once a program, is only its core now. The crates are
+# sim-editor and sim-editor-core. What this repository said before must not come back (this file
+# names the patterns, so it is left out).
+printf '\n[8/%s] the name is Secure vIM, the crates sim-editor and sim-editor-core\n' "$N"
+old=$(grep -rIn -E 'SI iMproved|SIght|sim-core' . --exclude-dir=target --exclude-dir=.git --exclude=check.sh || true)
+if [ -n "$old" ]; then
+  printf '%s\n' "$old" >&2
+  echo "check.sh: step 8 failed: the name sim was given before (SI iMproved, SIght) or the crate sim-core is back" >&2
+  exit 1
+fi
+
+# 9. Size of the release binary.
+step 9 cargo build --release
 bin=${CARGO_TARGET_DIR:-target}/release/sim
 bytes=$(wc -c < "$bin" | tr -d ' ')
 echo "$bin: $bytes bytes (limit $MAX_BYTES)"
 if [ "$bytes" -gt "$MAX_BYTES" ]; then
-  echo "check.sh: step 8 failed: $bin is $bytes bytes, over $MAX_BYTES" >&2
+  echo "check.sh: step 9 failed: $bin is $bytes bytes, over $MAX_BYTES" >&2
   exit 1
 fi
 

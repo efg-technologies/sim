@@ -3,7 +3,7 @@
 @CONCEPT.md
 @SPEC.md
 
-You are implementing sim: the next-generation Vim, written in Rust. It is one program in two crates: the core (`sim-core`, in `core/`: the buffer, vi's grammar, saves that lose nothing, the merge with what other processes write, the terminal) and the editor (`sim-editor`, in `sim/`: the binary `sim`, which runs the core's editor for each open file and adds the tree, finding, search, marks, syntax, the looks and the mouse). `sim --plain` is the core alone.
+You are implementing sim: the next-generation Vim, written in Rust. It is one program in two crates: the core (`sim-editor-core`, in `core/`: the buffer, vi's grammar, saves that lose nothing, the merge with what other processes write, the terminal) and the editor (`sim-editor`, in `sim/`: the binary `sim`, which runs the core's editor for each open file and adds the tree, finding, search, marks, syntax, the looks and the mouse). `sim --plain` is the core alone.
 Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC is the core's and holds for every file open in sim; part two is the editor's and only adds.
 
 ## The pyramid
@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC i
         ┌─┴─────────┴─┐
         │    SPEC     │  what      requirements with IDs         SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       core/src ≤ 3,200, sim/src ≤ 7,050
+      │      CODE       │  how       core/src ≤ 3,200, sim/src ≤ 7,600
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       core/tests, sim/tests and the E2E scripts
     └─────────────────────┘
@@ -32,7 +32,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC i
 
 ```
 Cargo.toml          the workspace: members core and sim; the release profile
-core/               the package sim-editor-core, the library crate `sim_core` (published for sim-editor's sake; `sim-core` is taken on crates.io)
+core/               the package sim-editor-core, the library crate `sim_core` (published for sim-editor's sake)
   src/
     lib.rs          exposes core/ and io/
     core/           pure. Never touches std::fs, std::process, clocks or the terminal
@@ -61,6 +61,9 @@ sim/                the package sim-editor: the library `sim` and the binary `si
     sim/panel.rs    the panel's keys, the reveal of directories, the search, the narrowed tree (pure)
     tree.rs         the tree: entries, stable order, expansion, the visible rows (pure)
     find.rs         fuzzy matching of paths and ranking (pure)
+    keys.rs         the key table (`keys.tsv`: the only source of which-key, `:help` and the README's table of keys, KEY-1), the keys that can follow a prefix, the help's rows, which-key's window (pure)
+    sim/guide.rs    what guides the hands in the state: the leader, the prefix typed, the pause that opens which-key, the letters on the tabs, the hint for Tab (pure)
+    tabs.rs         the tab bar and the letters of `<Space>bp` (pure)
     grep.rs         the content search's literal smart-case query, the lines it finds in a text, the rows of the picker's list made of them, rg's output (pure)
     sim/live.rs     the picker in the state: Ctrl-f's search of contents and Ctrl-p's finder of files, their keys, the results (a search's arrive in batches), the preview of the selected file with its colors and the count (pure)
     pick.rs         the picker's window: where it is for a screen's size, its rows (border, prompt, list, preview, count), and how it is laid over the rows of a screen (pure)
@@ -72,6 +75,8 @@ sim/                the package sim-editor: the library `sim` and the binary `si
     paint.rs        the looks beyond the core's four styles, the paints (a background, a color of its own, a fade for a run of cells, its cue without color), the Screen, the Painter that writes it (in color, or in weight, underline and inverse when there is none, COLOR-2), the mouse modes on and off
     layout.rs       the panel and the editor composed into one Screen: marks, search, colors; the three looks (calm, flat, depth): geometry, green and red, tints, boxes, ruler, fog; the char under a point (pure)
     io.rs           directory reads, git, the file list, the history, look and icons files, the detection of plain mode, of `NO_COLOR` and of terminfo, the threads, the content search (rg or the built-in reader) and the preview's read (the impure parts)
+  keys.tsv          the key table as data: keys, modes, a line of description and a longer text for each entry
+  help.txt          what `sim --help` prints (`{version}` is the Cargo version)
   tests/            the editor's tests and goldens; scripts/e2e.sh runs `sim` in tmux
 scripts/            check.sh, trace.sh, e2e.sh (runs both suites), bench.sh, pty_bench.py
 core/scripts/e2e.sh the core's cases, run against `sim --plain`
@@ -97,8 +102,9 @@ If another one is needed, first write the reason into SPEC.
 - clippy denies `unwrap_used`, `expect_used` and `panic` (tests may use them, through clippy.toml; a helper in a test file allows what it needs at the top of the file)
 - Never panic on an I/O error. Say what happened, in words, on the status line
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
+- A key is added to `sim/keys.tsv` in the same change that adds it to the core or to sim: `sim/tests/key_1.rs` feeds every key to a Sim and fails for a key that does something and is not in the table, and for an entry that does nothing
 - `[profile.release]` (in the workspace) has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- core/src stays within 3,200 lines and sim/src within 7,050 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
+- core/src stays within 3,200 lines and sim/src within 7,600 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
 - Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
 - Code, comments, messages, docs and commit messages are in English. sim is the next-generation Vim (新時代の Vim): in README, CONCEPT, this file, the crates' descriptions and `--help`, it is never described as a likeness of Vim (nothing "-like", nothing "-style")
 
@@ -124,9 +130,10 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 3. `cargo test --workspace`
 4. scripts/trace.sh
 5. core/src has at most 3,200 lines
-6. sim/src has at most 7,050 lines
+6. sim/src has at most 7,600 lines
 7. the core depends on its allowlist only
-8. the release binary is at most 5 MB
+8. the name is *Secure vIM* and the crates are sim-editor and sim-editor-core: a grep keeps the earlier name stories and the earlier crate name from coming back
+9. the release binary is at most 5 MB
 
 scripts/trace.sh checks these three things, and prints a table with one row per ID (ID, milestone, number of tests, implemented or not).
 

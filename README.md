@@ -2,11 +2,11 @@
 
 > 隠れたものまで見える、セキュアな Rust 製 Vim
 
-sim is the next-generation Vim (新時代の Vim): it shows even what is hidden, it is secure, and it is written in Rust. *SI iMproved*, as Vim is *Vi IMproved*.
+sim is the next-generation Vim (新時代の Vim): it shows even what is hidden, it is secure, and it is written in Rust. The name is *Secure vIM*.
 
 Files that other processes rewrite: you read them as fast as possible, fix them, and save them without losing anything. A project's files a few keys away, several of them open at once, and syntax colors that never take the change color's hue.
 
-sim is one program in two crates: the **core** (`sim-core`, in `core/`: the buffer, vi's grammar, saves, the merge with what other processes write, the terminal) and the **editor** (`sim-editor`, in `sim/`: the binary `sim`, with the tree, finding, search, marks, syntax, the looks and the mouse). `sim --plain` is the core alone: the calm look, one file, no panel, and no program of its own run (no git, ripgrep, language server, filter or hook). It is what sim is as root and as the editor of `sudoedit`.
+sim is one program in two crates: the **core** (`sim-editor-core`, in `core/`: the buffer, vi's grammar, saves, the merge with what other processes write, the terminal) and the **editor** (`sim-editor`, in `sim/`: the binary `sim`, with the tree, finding, search, marks, syntax, the looks and the mouse). `sim --plain` is the core alone: the calm look, one file, no panel, and no program of its own run (no git, ripgrep, language server, filter or hook). It is what sim is as root and as the editor of `sudoedit`.
 
 Everything sim promises, it promises for every file open in it: **without an explicit action, nobody's text is lost** — yours or another process's.
 
@@ -62,10 +62,15 @@ Needs Rust 1.88 or later (the code uses `let` chains). Runs on Linux and macOS, 
 | `/` in the tree, `Ctrl-p` anywhere | find a file: matches and the folders leading to them light up in place |
 | `Ctrl-f` anywhere | search the contents of the files as you type (ripgrep if it is on PATH): results grouped by file in the panel, the file under the cursor previewed with the match bold; `j k` move, `Enter` opens there, `Esc` puts everything back |
 | `.` in the tree | only the files that changed, are open, or were opened recently |
-| `Tab` `Shift-Tab` | next / previous open file |
+| `Tab` `Shift-Tab` | next / previous open file (sim says so once when a second file is open, until you have used them three times) |
+| `Space` `b` `p` · `Space` `b` `c` | put a letter on each tab; the letter shows that file · closes it (a file with changes stays, as with `:q`) |
+| a pause after `Space`, `z`, `g`, `[`, `]` or an operator | a small window lists the keys that can come next; keep typing and it is not in the way, `Esc` closes it |
+| `:help` · `F1` | every key and command, fuzzy-filtered (`tab` finds `Tab`, `Shift-Tab` and `Space b p`); `Enter` and `Esc` close it and run nothing |
 | `:wa` `:qa` `:qa!` | save all · quit all · quit all discarding |
 | `zh` · `zl` · `zi` | syntax colors on / off · the next look (calm, flat, depth) · icons on / off |
 | mouse | click to open or place the cursor, wheel to scroll, drag to select |
+
+`sim --version` and `sim --help` print the version and a short usage.
 
 Everything else is vi: motions, operators, text objects, counts, `.`, Visual mode, `:s`, ranges. Opening a file again puts you where you left it. With the IME on, full-width keys work as commands; `SIM_ON_NORMAL='fcitx5-remote -c'` turns the IME off whenever you return to Normal mode (`SI_ON_NORMAL`, its name before sim was one program, still works).
 
