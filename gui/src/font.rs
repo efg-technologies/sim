@@ -15,10 +15,21 @@ static DEJAVU: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono.ttf");
 static DEJAVU_BOLD: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono-Bold.ttf");
 static DEJAVU_ITALIC: &[u8] = include_bytes!("../assets/fonts/DejaVuSansMono-Oblique.ttf");
 
-/// The platform's own monospace font, by name where `fontdb` does not read it from the system (macOS:
-/// Menlo); elsewhere the generic `monospace`, which `fontdb` has from the fontconfig files.
-pub const NATIVE_MONOSPACE: Option<&str> =
-    if cfg!(target_os = "macos") { Some("Menlo") } else { None };
+/// The families tried, in order, when none was asked for: common coding fonts, the first one the system
+/// has wins. After them, on macOS, its own (`MACOS_FAMILIES`), then the generic `monospace` (which `fontdb`
+/// has from the fontconfig files), then the bundled font.
+pub const DEFAULT_FAMILIES: [&str; 7] = [
+    "JetBrains Mono",
+    "Fira Code",
+    "Cascadia Mono",
+    "Source Code Pro",
+    "Noto Sans Mono",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+];
+
+/// macOS's own monospace fonts, after the common ones: `fontdb` does not read its generic one from the system.
+pub const MACOS_FAMILIES: [&str; 2] = ["Menlo", "Monaco"];
 
 /// The bundled font, and what the text is set in where the platform has no monospace font at all.
 pub const BUNDLED_FAMILY: &str = "DejaVu Sans Mono";
@@ -26,7 +37,7 @@ pub const BUNDLED_FAMILY: &str = "DejaVu Sans Mono";
 #[derive(Clone, Debug)]
 pub struct FontConfig {
     /// Families to try (comma separated in `SIM_GUI_FONT`); empty, or none of them installed: the
-    /// platform's own monospace font (`default_family`).
+    /// default (`default_family`).
     pub families: Vec<String>,
     /// The size of the text, in device-independent pixels.
     pub size_dp: f32,
@@ -170,13 +181,14 @@ fn has_family(db: &fontdb::Database, name: &str) -> bool {
     db.faces().any(|f| f.families.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)))
 }
 
-/// The family text is set in when none was asked for (or none asked for is installed): `native` (Menlo
-/// on macOS) if the system has it, else `None`, which is the generic monospace of the system (the
-/// fontconfig files' `monospace`); the bundled font where even that is not installed. The chars a
-/// family lacks (CJK, symbols, emoji) fall back by the locale in any case.
-pub fn default_family(db: &fontdb::Database, native: Option<&str>) -> Option<String> {
-    if let Some(n) = native.filter(|n| has_family(db, n)) {
-        return Some(n.to_string());
+/// The family text is set in when none was asked for (or none asked for is installed), chosen among the
+/// system's fonts: the first of `DEFAULT_FAMILIES` and then of `extra` (macOS's own) that it has; else `None`,
+/// which is the generic monospace of the system (the first family of the fontconfig files' `monospace`);
+/// else the bundled font, so that no glyph is a missing box. The chars a family lacks (CJK, symbols,
+/// emoji) fall back by the locale in any case.
+pub fn default_family(db: &fontdb::Database, extra: &[&str]) -> Option<String> {
+    if let Some(n) = DEFAULT_FAMILIES.iter().chain(extra).find(|n| has_family(db, n)) {
+        return Some((*n).to_string());
     }
     let generic = fontdb::Query { families: &[fontdb::Family::Monospace], ..Default::default() };
     db.query(&generic).is_none().then(|| BUNDLED_FAMILY.to_string())
@@ -189,16 +201,18 @@ impl FontBook {
         if !cfg.embedded_only {
             db.load_system_fonts();
         }
+        // the default is chosen among the system's fonts, before the bundled one is added to them
+        let macos: &[&str] = if cfg!(target_os = "macos") { &MACOS_FAMILIES } else { &[] };
+        let by_default = if cfg.embedded_only {
+            Some(BUNDLED_FAMILY.to_string())
+        } else {
+            default_family(&db, macos)
+        };
         for data in [DEJAVU, DEJAVU_BOLD, DEJAVU_ITALIC] {
             db.load_font_data(data.to_vec());
         }
-        let wanted: Vec<&str> = if cfg.embedded_only {
-            vec![BUNDLED_FAMILY]
-        } else {
-            cfg.families.iter().map(String::as_str).collect()
-        };
-        let asked = wanted.iter().find(|n| has_family(&db, n)).map(|s| (*s).to_string());
-        let family = asked.or_else(|| default_family(&db, NATIVE_MONOSPACE));
+        let asked = cfg.families.iter().find(|n| has_family(&db, n)).cloned();
+        let family = asked.or(by_default);
         let generic = db.family_name(&fontdb::Family::Monospace).to_string();
         let locale = cfg.locale.clone().unwrap_or_else(|| "en-US".into());
         let mut fs = FontSystem::new_with_locale_and_db(locale, db);
@@ -417,36 +431,70 @@ mod tests {
         assert!(m.cell_h > m.font_px && m.baseline > 0.0 && m.baseline < m.cell_h, "{m:?}");
     }
 
-    /// A font database that has only the bundled font, whose generic monospace is `generic`.
-    fn bundled_db(generic: &str) -> fontdb::Database {
-        let mut db = fontdb::Database::new();
+    /// A font database whose faces are the bundled font under these family names, and whose generic
+    /// monospace is `generic`: a system that has exactly these fonts.
+    fn system_with(names: &[&str], generic: &str) -> fontdb::Database {
+        let mut bundled = fontdb::Database::new();
         for data in [DEJAVU, DEJAVU_BOLD, DEJAVU_ITALIC] {
-            db.load_font_data(data.to_vec());
+            bundled.load_font_data(data.to_vec());
+        }
+        let face = bundled.faces().next().unwrap().clone();
+        let mut db = fontdb::Database::new();
+        for name in names {
+            let families = vec![((*name).to_string(), fontdb::Language::English_UnitedStates)];
+            db.push_face_info(fontdb::FaceInfo {
+                families,
+                id: fontdb::ID::dummy(),
+                ..face.clone()
+            });
         }
         db.set_monospace_family(generic);
         db
     }
 
     #[test]
-    fn gui_16_with_no_family_asked_for_the_text_is_in_the_platforms_monospace_and_never_a_name_of_ours()
+    fn gui_16_the_default_is_the_first_common_coding_font_the_system_has() {
+        // Nimbus Mono PS is a Courier clone, and the generic monospace here: DejaVu is chosen over it
+        let db = system_with(&["Nimbus Mono PS", "DejaVu Sans Mono"], "Nimbus Mono PS");
+        assert_eq!(default_family(&db, &[]).as_deref(), Some("DejaVu Sans Mono"));
+        // the order of the list: the first installed wins, however the system's own fonts are ordered
+        let all = DEFAULT_FAMILIES;
+        for (i, name) in all.iter().enumerate() {
+            let rest = &all[i..];
+            let mut have: Vec<&str> = rest.iter().rev().copied().collect();
+            have.push("Nimbus Mono PS");
+            let db = system_with(&have, "Nimbus Mono PS");
+            assert_eq!(default_family(&db, &[]).as_deref(), Some(*name), "{rest:?}");
+        }
+        // (Noto Sans Mono is before Liberation Mono in the list)
+        let db = system_with(&["Liberation Mono", "Noto Sans Mono"], "Liberation Mono");
+        assert_eq!(default_family(&db, &[]).as_deref(), Some("Noto Sans Mono"));
+    }
+
+    #[test]
+    fn gui_16_macos_fonts_come_after_the_common_ones_and_the_generic_monospace_and_the_bundled_font_last()
      {
-        // the generic monospace of the system is installed: the text is set in it (no name at all)
-        let db = bundled_db("DejaVu Sans Mono");
-        assert_eq!(default_family(&db, None), None);
-        // macOS has a name of its own, used if the system has it, and the generic one if it has not
-        assert_eq!(
-            default_family(&db, Some("DejaVu Sans Mono")).as_deref(),
-            Some("DejaVu Sans Mono")
-        );
-        assert_eq!(default_family(&db, Some("Menlo")), None);
-        // a system whose monospace is not installed gets the bundled font, not a missing glyph box
-        let db = bundled_db("A Font Nobody Has");
-        assert_eq!(default_family(&db, None).as_deref(), Some(BUNDLED_FAMILY));
-        assert_eq!(NATIVE_MONOSPACE.is_some(), cfg!(target_os = "macos"));
+        let extra = MACOS_FAMILIES;
+        let db = system_with(&["Monaco", "Menlo", "Courier New"], "Courier New");
+        assert_eq!(default_family(&db, &extra).as_deref(), Some("Menlo"), "Menlo, then Monaco");
+        let db = system_with(&["Monaco", "Courier New"], "Courier New");
+        assert_eq!(default_family(&db, &extra).as_deref(), Some("Monaco"));
+        // a common font beats macOS's own; and where macOS's are not asked for they are not used
+        let db = system_with(&["Menlo", "Liberation Mono"], "Menlo");
+        assert_eq!(default_family(&db, &extra).as_deref(), Some("Liberation Mono"));
+        let db = system_with(&["Menlo"], "Menlo");
+        assert_eq!(default_family(&db, &[]), None, "the generic monospace: no name at all");
+        // none of the list, a generic monospace the system has: it is used
+        let db = system_with(&["Nimbus Mono PS"], "Nimbus Mono PS");
+        assert_eq!(default_family(&db, &extra), None);
+        // none of the list and no generic monospace installed: the bundled font, not a missing glyph box
+        let db = system_with(&["Nimbus Mono PS"], "A Font Nobody Has");
+        assert_eq!(default_family(&db, &extra).as_deref(), Some(BUNDLED_FAMILY));
+        assert_eq!(MACOS_FAMILIES, ["Menlo", "Monaco"]);
         // nobody's favorite font is in the code
         let src = include_str!("font.rs");
         let owner = ["UDEV", " Gothic"].concat();
-        assert_eq!(src.matches(owner.as_str()).count(), 0, "a default family is the platform's");
+        assert_eq!(src.matches(owner.as_str()).count(), 0, "a default family is a common one");
     }
 
     #[test]

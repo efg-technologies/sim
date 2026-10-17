@@ -29,9 +29,12 @@ fn gui_16_help_names_the_font_override_and_the_platforms_default() {
             "SIM_GUI_ICONS",
             "SIM_GUI_NO_STATE",
             "monospace",
-            "Menlo",
         ] {
             assert!(text.contains(word), "--help does not say {word}: {text}");
+        }
+        // every family the default tries is named, whole (a name that wrapped would not be found)
+        for name in sim_gui::font::DEFAULT_FAMILIES.iter().chain(&sim_gui::font::MACOS_FAMILIES) {
+            assert!(text.contains(name), "--help does not name {name}: {text}");
         }
         assert!(!text.contains("{version}"));
     }
