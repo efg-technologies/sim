@@ -106,6 +106,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `<Space>` | leader 鍵 |
 | `<Space>bp` | 以字母選擇分頁 |
 | `<Space>bc` | 選擇要關閉的分頁 |
+| `<Space>ge` | 顯示相對於 HEAD 的變更 |
 | `F1` | 說明 |
 | `:help` | 說明 |
 

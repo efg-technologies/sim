@@ -106,6 +106,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `<Space>` | leader |
 | `<Space>bp` | pick a tab by letter |
 | `<Space>bc` | pick a tab to close |
+| `<Space>ge` | changes from HEAD |
 | `F1` | help |
 | `:help` | help |
 

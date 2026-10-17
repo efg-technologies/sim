@@ -106,6 +106,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `<Space>` | leader 键 |
 | `<Space>bp` | 按字母选择标签页 |
 | `<Space>bc` | 选择要关闭的标签页 |
+| `<Space>ge` | 显示相对于 HEAD 的改动 |
 | `F1` | 帮助 |
 | `:help` | 帮助 |
 

@@ -106,6 +106,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 | `<Space>` | tecla líder |
 | `<Space>bp` | elegir una pestaña por letra |
 | `<Space>bc` | elegir una pestaña para cerrarla |
+| `<Space>ge` | ver los cambios respecto a HEAD |
 | `F1` | ayuda |
 | `:help` | ayuda |
 

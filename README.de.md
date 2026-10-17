@@ -106,6 +106,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 | `<Space>` | Leader-Taste |
 | `<Space>bp` | Tab per Buchstabe wählen |
 | `<Space>bc` | Tab zum Schließen wählen |
+| `<Space>ge` | Änderungen gegenüber HEAD anzeigen |
 | `F1` | Hilfe |
 | `:help` | Hilfe |
 

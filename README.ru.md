@@ -106,6 +106,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (в Linux sim и сам раб�
 | `<Space>` | лидер |
 | `<Space>bp` | выбрать вкладку по букве |
 | `<Space>bc` | выбрать вкладку, чтобы закрыть |
+| `<Space>ge` | показать изменения относительно HEAD |
 | `F1` | справка |
 | `:help` | справка |
 

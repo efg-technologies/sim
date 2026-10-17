@@ -106,6 +106,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 | `<Space>` | leader |
 | `<Space>bp` | choisir un onglet par une lettre |
 | `<Space>bc` | choisir un onglet à fermer |
+| `<Space>ge` | voir les changements par rapport à HEAD |
 | `F1` | aide |
 | `:help` | aide |
 

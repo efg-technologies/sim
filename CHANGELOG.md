@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The changes view: `<Space>ge` opens the panel with only the files that differ from `HEAD`, staged and unstaged together and untracked ones too, in their folders. Each file shows its status letter and `+n −n` from `git diff --numstat HEAD` (an untracked file its line count) and each folder the sums. Deleted files are listed, and Enter opens `HEAD`'s version of one read-only, as a buffer named `HEAD:path` whose tab says so; a rename is one row, `old → new`, with a cut that keeps the new name whole and marks every cut with `…`. `<Space>ge` again, or `q`, goes back to the tree. In `sim --plain` the key is refused, naming plain mode (DIFF-1 to DIFF-6).
+
+### Changed
+
+- sim's git is built in one function, and what a command line can stop is neutralized instead of making sim skip the repository: a file system monitor, hooks (`core.hooksPath` points to an empty private directory), a filter (emptied by name, except git-lfs's own filter as `git lfs install` writes it, with only git-lfs's harmless settings beside it), an external diff and a text conversion run nothing, and git answers. A repository whose config still could run a command that nothing stops, such as `core.sshCommand` or an `include`, is skipped as before, with the key named (GIT-1 to GIT-3).
+- A submodule is one entry with its status and no child git runs in it: `git status` sees its commit and not its work tree, and every diff of sim's takes no submodule (GIT-4).
+
 ## [0.1.0] - 2026-10-17
 
 First public release: sim, the next-generation Vim. It shows even what is hidden, it is secure, and it is written in Rust. One program, `sim`, in two crates: the core (`sim-editor-core`, library `sim_core`) and the editor (`sim-editor`, the binary).

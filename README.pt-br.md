@@ -106,6 +106,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `<Space>` | líder |
 | `<Space>bp` | escolher uma aba por letra |
 | `<Space>bc` | escolher uma aba para fechar |
+| `<Space>ge` | ver as mudanças em relação ao HEAD |
 | `F1` | ajuda |
 | `:help` | ajuda |
 

@@ -106,6 +106,7 @@ Rust 1.88 이상이 필요합니다. Linux와 macOS의 아무 터미널에서나
 | `<Space>` | 리더 |
 | `<Space>bp` | 글자로 탭 고르기 |
 | `<Space>bc` | 탭을 골라 닫기 |
+| `<Space>ge` | HEAD 기준 변경 사항 보기 |
 | `F1` | 도움말 |
 | `:help` | 도움말 |
 
