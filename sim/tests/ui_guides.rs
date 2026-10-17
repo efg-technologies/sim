@@ -87,7 +87,7 @@ fn row(r: &Rig, what: &str) -> String {
     let text: String =
         r.shot.frame.rows[y].text.chars().skip(usize::from(g.tx()) + digits).collect();
     // (in depth the box's border follows the blanks that fill the row)
-    text.trim_end_matches(['┃', '│', ' ', '↲']).to_string()
+    text.trim_end_matches(['┃', '│', ' ', '↲', '⎺', '⎻', '⎼', '⎽']).to_string()
 }
 
 fn y_of(r: &Rig, what: &str) -> usize {

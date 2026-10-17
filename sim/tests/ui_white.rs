@@ -29,7 +29,7 @@ fn line(r: &Rig, n: usize) -> String {
     let g = r.sim.geo();
     let y = usize::from(g.y0) + n - 1;
     let text: String = r.shot.frame.rows[y].text.chars().skip(usize::from(g.tx()) + 5).collect();
-    text.trim_end_matches(['┃', '│', ' ']).to_string()
+    text.trim_end_matches(['┃', '│', ' ', '⎺', '⎻', '⎼', '⎽']).to_string()
         + if text.trim_end().ends_with(['┃', '│']) { "" } else { "" }
 }
 
@@ -110,8 +110,15 @@ fn ui_6_the_marks_are_where_the_chars_are_after_wide_ones_and_a_wrapped_line_end
     let y =
         (0..r.shot.frame.rows.len()).find(|&y| r.shot.frame.rows[y].text.contains("end")).unwrap();
     assert!(r.shot.frame.rows[y].text.contains("end↲"));
-    let full = body("ui6-full", Skin::Flat, &format!("{}\n", "x".repeat(44)), (50, 12));
+    // A line that is exactly as wide as the text has room for fills the row: no cell left for the arrow.
+    let room = usize::from(body("ui6-room", Skin::Flat, "x\n", (50, 12)).sim.geo().ew) - 5;
+    let full = body("ui6-full", Skin::Flat, &format!("{}\n", "x".repeat(room)), (50, 12));
     assert!(!full.shot.frame.rows.iter().any(|x| x.text.contains('↲')), "no cell left: no arrow");
+    let one_less = body("ui6-less", Skin::Flat, &format!("{}\n", "x".repeat(room - 1)), (50, 12));
+    assert!(
+        one_less.shot.frame.rows.iter().any(|x| x.text.contains('↲')),
+        "one cell left: the arrow"
+    );
 }
 
 #[test]

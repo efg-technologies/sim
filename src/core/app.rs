@@ -124,7 +124,7 @@ pub struct App {
     /// The last `f F t T`: the key and the char.
     pub(super) find: Option<(char, char)>,
     /// The last search: pattern, whether it is case-sensitive regardless, whether it goes forward.
-    pub(super) search: Option<(String, bool, bool)>,
+    pub search: Option<(String, bool, bool)>,
     /// A buffer of at least this many bytes is searched by several threads (PERF-4): `None` is
     /// `PAR_MIN`. Tests set it to search a small buffer in parallel, or a big one in one thread.
     pub par_min: Option<usize>,

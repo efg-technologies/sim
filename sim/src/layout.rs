@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -143,6 +143,9 @@ pub struct Geo {
     /// UI-5: the columns the editor keeps to the left of its text for the signs (0 or 1; the second
     /// cell of the sign column is the App's own change symbol, the first of its row).
     pub sign: u16,
+    /// UI-11: the column at the right end of the editor that holds the scrollbar where there is no
+    /// box border to hold it (flat: 0 or 1).
+    pub rule: u16,
     pub pw: u16,
     pub ew: u16,
     pub px: u16,
@@ -164,9 +167,21 @@ impl Geo {
         let ex = if pw > 0 { pw + 1 + 2 * b } else { b };
         // (the editor keeps at least 24 columns for its text)
         let sign = u16::from(head > 0 && w.saturating_sub(ex + b) >= 25);
-        let ew = w.saturating_sub(ex + b + sign);
+        let rule = u16::from(head > 0 && !boxed && w.saturating_sub(ex + sign) >= 26);
+        let ew = w.saturating_sub(ex + b + sign + rule);
         let y0 = b + head;
-        Geo { boxed, head, sign, pw, ew, px: b, ex, y0, rows: h.saturating_sub(1 + 2 * b + head) }
+        Geo {
+            boxed,
+            head,
+            sign,
+            rule,
+            pw,
+            ew,
+            px: b,
+            ex,
+            y0,
+            rows: h.saturating_sub(1 + 2 * b + head),
+        }
     }
 
     /// The column the editor's text starts at: after its sign column.
@@ -242,7 +257,10 @@ pub enum Tick {
     #[default]
     Plain,
     Shown,
+    /// UI-11: a match of a search (the accent), a line that was changed (amber).
+    Hit,
     Loss,
+    Change,
     Gain,
 }
 
@@ -281,6 +299,65 @@ pub fn sign_rows(
 ) -> Vec<Option<Sign>> {
     let line = |r: &Row| number(r, digits).and_then(|n| n.checked_sub(1));
     f.rows.iter().map(|r| line(r).and_then(of)).collect()
+}
+
+/// UI-11: what a row of the scrollbar shows: the strongest mark in its range of lines (`Plain` for
+/// none), whether it is in the thumb (the lines on screen), and where the cursor is in it, in quarters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScrollCell {
+    pub mark: Tick,
+    pub thumb: bool,
+    pub cursor: Option<usize>,
+}
+
+/// UI-11: the scrollbar's `rows` rows for a file of `n` lines: LOOK-4's rows (`ruler`), the thumb
+/// from the first to the last line `shown`, and the row of the line the `cursor` is on, with which
+/// quarter of the row it is (satellite's `⎺⎻⎼⎽`).
+pub fn scrollbar(
+    rows: usize,
+    n: usize,
+    marks: impl Iterator<Item = (Range<usize>, Tick)>,
+    shown: Option<(usize, usize)>,
+    cursor: Option<usize>,
+) -> Vec<ScrollCell> {
+    let mut out: Vec<ScrollCell> = ruler(rows, n, marks, None)
+        .into_iter()
+        .map(|mark| ScrollCell { mark, ..ScrollCell::default() })
+        .collect();
+    if rows == 0 || n == 0 {
+        return out;
+    }
+    let row = |l: usize| (l.min(n - 1) * rows / n).min(rows - 1);
+    if let Some((a, z)) = shown {
+        out[row(a)..=row(z.max(a))].iter_mut().for_each(|c| c.thumb = true);
+    }
+    if let Some(l) = cursor.map(|l| l.min(n - 1)) {
+        out[row(l)].cursor = Some((l * rows % n) * 4 / n);
+    }
+    out
+}
+
+/// UI-11: a cell of the scrollbar, `plain` where it shows nothing: a mark is `┃` in its color (a
+/// change's, the accent's for a match), the cursor `⎺⎻⎼⎽` in the secondary gray or the mark's
+/// color, the thumb a surface behind them.
+fn scroll_cell(c: ScrollCell, t: &Tones, plain: Line) -> Line {
+    let ink = match c.mark {
+        Tick::Gain => Some(t.change_fg(Chg::Add)),
+        Tick::Change => Some(t.change_fg(Chg::Mod)),
+        Tick::Loss => Some(t.change_fg(Chg::Del)),
+        Tick::Hit => Some(t.accent_fg()),
+        _ => None,
+    };
+    let glyph = match (c.cursor, ink) {
+        (Some(q), _) => ["⎺", "⎻", "⎼", "⎽"][q.min(3)],
+        (None, Some(_)) => "┃",
+        (None, None) if c.thumb => " ",
+        _ => return plain,
+    };
+    let mut l = Line::default();
+    let fg = ink.or(c.cursor.map(|_| t.focus));
+    l.put(glyph, Paint { fg, bg: c.thumb.then_some(t.thumb), ..Paint::default() });
+    l
 }
 
 /// The line number a row of an editor frame shows, if it starts a line.
@@ -407,6 +484,8 @@ pub struct Deck<'a> {
     pub win: Option<(usize, usize)>,
     pub focus: bool,
     pub chrome: Option<Chrome<'a>>,
+    /// UI-11: the scrollbar's rows, none where the interface does not draw it.
+    pub scroll: Vec<ScrollCell>,
 }
 
 /// UI-2, UI-4: what the interface adds to a screen: whether the icons are drawn, the root as the
@@ -640,7 +719,7 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
 /// gutter; in depth the card (its tint and its half rows) and the fog of the rows that are no change
 /// (LOOK-2, LOOK-5, LOOK-6).
 fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> {
-    let (rows, ew, to) = (usize::from(g.rows), g.ew, if g.boxed { g.ew } else { 0 });
+    let (rows, ew, to) = (usize::from(g.rows), g.ew, if g.boxed || g.rule > 0 { g.ew } else { 0 });
     // The sign column's first cell, ahead of the App's row (UI-5); `bg` is the cursor's line.
     let signed = |l: Line, bg: Option<Rgb>, sign: Option<Sign>| {
         if g.sign == 0 {
@@ -926,14 +1005,21 @@ pub fn body(
             line.add(edge(false));
         }
         line.add(e);
-        if g.boxed {
+        if g.boxed || g.rule > 0 {
             line.add(end);
         }
         line
     };
     if let (Some(c), Some(t), true) = (&d.chrome, t, g.head > 0) {
         let p = (g.pw > 0).then(|| header_line(g.pw, c.root, c.icons, t));
-        lines.push(compose(p, tabs_line(g.ew + g.sign, c, t), edge(false)));
+        let end = if g.boxed {
+            edge(false)
+        } else {
+            let mut l = Line::default();
+            l.put(" ", Paint { bg: Some(t.bar), ..Paint::default() });
+            l
+        };
+        lines.push(compose(p, tabs_line(g.ew + g.sign, c, t), end));
     }
     for (i, e) in editor(g, ed, d.gray, t).into_iter().enumerate() {
         let p = (g.pw > 0).then(|| {
@@ -956,15 +1042,16 @@ pub fn body(
             p.paints.extend(paint.filter(|p| *p != Paint::default()).map(|p| (0..g.pw, p)));
             p
         });
-        let end = if g.boxed {
-            match ticks[i] {
+        let plain = if g.boxed { edge(false) } else { cell(" ", None) };
+        let end = match (d.scroll.get(i), t) {
+            (Some(c), Some(t)) => scroll_cell(*c, t, plain),
+            _ if g.boxed => match ticks[i] {
                 Tick::Gain => cell("┃", t.map(|t| t.add)),
                 Tick::Loss => cell("┃", t.map(|t| t.del)),
                 Tick::Shown if t.is_some() => cell("┃", t.map(|t| t.line)),
                 _ => edge(false),
-            }
-        } else {
-            Line::default()
+            },
+            _ => Line::default(),
         };
         lines.push(compose(p, e, end));
     }

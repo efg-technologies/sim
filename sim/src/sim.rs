@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -15,7 +15,8 @@ use crate::icons;
 use crate::indent::{self, Indent, Lead};
 use crate::io::GIT_SKIPPED;
 use crate::layout::{
-    self, Chrome, Colored, Deck, Ed, Extra, Fade, Geo, Kind, Line, LineUi, Mark, Skin,
+    self, Chrome, Colored, Deck, Ed, Extra, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin,
+    Tick,
 };
 use crate::marks::{Git, Marks};
 use crate::paint::{Looks, Paint, Screen};
@@ -208,6 +209,16 @@ pub struct Buf {
     /// UI-6: how the file is indented, found from its first lines when it is opened and when it
     /// is saved or changes on disk.
     indent: Indent,
+    /// UI-11: the lines the last search matches, for the scrollbar, found for a pattern and a
+    /// version of the text.
+    hits: Option<Hits>,
+}
+
+/// The lines a search matches, and what they were found for: the pattern, whether it was asked to be
+/// case-sensitive, and the version of the text.
+struct Hits {
+    key: (String, bool, u64),
+    lines: Vec<usize>,
 }
 
 #[derive(Default)]
@@ -555,6 +566,69 @@ impl Sim {
         self.refocus();
     }
 
+    /// UI-11: finds the lines the last `/` search matches in the current file, for the scrollbar, when
+    /// the pattern is a plain word (a regex is si's to run, and its marks are not worth a scan on
+    /// the way of a key), the file is not long (`HIT_LINES`) and the text is not being typed: once
+    /// for a pattern and a version of the text.
+    fn refresh_hits(&mut self) {
+        let Some(b) = self.bufs.get_mut(self.cur) else { return };
+        let (buf, mode) = (&b.app.buf, b.app.vi.mode);
+        if matches!(mode, Mode::Insert | Mode::Cmd) {
+            return; // the marks of the text as it was stay while it is typed
+        }
+        let want = b.app.search.clone().filter(|(p, ..)| plain(p) && buf.lines() <= HIT_LINES);
+        let Some((pat, cs, _)) = want else { return b.hits = None };
+        let key = (pat.clone(), cs, buf.version());
+        if b.hits.as_ref().is_some_and(|h| h.key == key) {
+            return;
+        }
+        // The case rule of si's search for a pattern with no escape: smartcase (one capital makes it
+        // exact), or exact when it was asked to be.
+        let fold = !cs && !pat.chars().any(char::is_uppercase);
+        let need = if fold { pat.to_ascii_lowercase() } else { pat };
+        let has = |l: usize| {
+            let line: std::borrow::Cow<str> = buf.text.line(l).into();
+            if fold { line.to_ascii_lowercase().contains(&need) } else { line.contains(&need) }
+        };
+        let lines = (0..buf.lines()).filter(|&l| has(l)).collect();
+        b.hits = Some(Hits { key, lines });
+    }
+
+    /// UI-11: the scrollbar's rows for the current file: the marks of changes on disk, the git signs
+    /// against HEAD (every line for a file git does not know) and the matches of a search, the
+    /// thumb for the lines on screen and the cursor's place.
+    fn scrollbar(&self, win: Option<(usize, usize)>) -> Option<Vec<ScrollCell>> {
+        let b = self.bufs.get(self.cur)?;
+        let (buf, rows) = (&b.app.buf, usize::from(self.geo().rows));
+        let loss = |gone: bool| if gone { Tick::Loss } else { Tick::Gain };
+        let mut marks: Vec<(std::ops::Range<usize>, Tick)> =
+            buf.marks.iter().map(|m| (m.line..m.line + 1, loss(m.kind == '-'))).collect();
+        marks.extend(buf.hunks.iter().map(|h| (h.mine.clone(), loss(h.theirs.is_empty()))));
+        let untracked =
+            self.open_path().is_some_and(|p| self.marks.git(&p) == Some(Git::Untracked));
+        match (&b.diff, untracked) {
+            (_, true) => marks.push((0..buf.lines(), Tick::Gain)),
+            (Some(d), _) if d.all => marks.push((0..buf.lines(), Tick::Gain)),
+            (Some(d), _) => marks.extend(d.signs.iter().map(|(&l, s)| {
+                let tick = match s {
+                    Sign::Add => Tick::Gain,
+                    Sign::Change => Tick::Change,
+                    Sign::Del | Sign::DelTop => Tick::Loss,
+                };
+                (l..l + 1, tick)
+            })),
+            _ => {}
+        }
+        marks.extend(b.hits.iter().flat_map(|h| h.lines.iter().map(|&l| (l..l + 1, Tick::Hit))));
+        Some(layout::scrollbar(
+            rows,
+            buf.lines(),
+            marks.into_iter(),
+            win,
+            Some(buf.line_of(buf.cursor)),
+        ))
+    }
+
     /// UI-4: the tabs: one for each open file, in order.
     pub fn tabs(&self) -> Vec<Tab> {
         let paths: Vec<&str> =
@@ -810,6 +884,7 @@ impl Sim {
             lsp_alert: false,
             diag: (0, 0),
             indent: Indent::default(),
+            hits: None,
         });
         if let Some(b) = self.bufs.last_mut() {
             b.indent = indent_of(&b.app.buf);
@@ -1058,6 +1133,8 @@ impl Sim {
             _ => Fade::Near(anchor, self.panel.top),
         };
         let pane = self.live_pane();
+        self.refresh_hits();
+        let scroll = (ui && pane.is_none()).then(|| self.scrollbar(win)).flatten();
         let home_root = tilde(&self.root, self.home.as_deref());
         let tabs = self.tabs();
         let deck = Deck {
@@ -1070,6 +1147,7 @@ impl Sim {
             win,
             focus,
             chrome: ui.then(|| Chrome { icons: self.icons, root: &home_root, tabs, cur: self.cur }),
+            scroll: scroll.unwrap_or_default(),
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
         let editor = match (&pane, cur) {
@@ -1242,6 +1320,16 @@ impl Sim {
         };
         (r, mark)
     }
+}
+
+/// UI-11: how many lines a file may have for the scrollbar to mark the matches of a search.
+const HIT_LINES: usize = 5_000;
+
+/// Whether a search pattern is a plain word: no regex syntax and no escape, so that its matches are
+/// the lines that contain it.
+fn plain(pat: &str) -> bool {
+    !pat.is_empty()
+        && !pat.contains(['\\', '.', '+', '*', '?', '(', ')', '|', '[', ']', '{', '}', '^', '$'])
 }
 
 /// UI-6: the indentation of a buffer, from its first lines.

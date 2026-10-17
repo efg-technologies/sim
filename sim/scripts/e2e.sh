@@ -1697,4 +1697,23 @@ ui_7_a_todo_comment_has_a_badge_in_one_style_for_every_keyword() {
   printf '%s\n' "$todo" | grep -a -q '48;2;'
 }
 
+ui_11_the_scrollbar_has_a_marker_for_the_cursor_and_follows_it() {
+  i=1
+  while [ "$i" -le 200 ]; do echo "line $i" >> "$W/a.txt"; i=$((i + 1)); done
+  look flat
+  CT=truecolor
+  start a.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "line 1"
+  tries=100
+  while ! screen | grep -q '[⎺⎻⎼⎽]' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  at=$(screen | grep -n '[⎺⎻⎼⎽]' | head -1 | cut -d: -f1)
+  [ "$at" -le 4 ] # near the top of the bar for the first line
+  typed G
+  wait_for "line 200"
+  tries=100
+  while [ "$(screen | grep -n '[⎺⎻⎼⎽]' | head -1 | cut -d: -f1)" -le 4 ] && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  [ "$(screen | grep -n '[⎺⎻⎼⎽]' | head -1 | cut -d: -f1)" -ge 18 ] # and near the bottom for the last
+}
+
 main "$@"
