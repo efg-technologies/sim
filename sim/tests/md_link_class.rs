@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use sim::lie::{Budget, Refs, line_marks};
+use sim::lie::{Budget, Refs, deceptive, line_marks};
 use sim::syn::{self, Syn};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -701,6 +701,16 @@ fn md_10_what_a_reader_sees_that_a_text_does_not_say_is_judged_too() {
         ("and in a code span", "<a name=\"d\" href=\"#d\">#</a> x `[Examples](TBD)` y", &[]),
         ("a member of a package is no file", "[`math/rand.Seed`](/pkg/math/rand/#Seed)", &[]),
         ("a file is one", "[`docs/guide.md`](docs/other.md)", &["docs/other.md"]),
+        (
+            "a shortcut image after an address",
+            "[good.com![1]](https://evil.com)",
+            &["https://evil.com"],
+        ),
+        (
+            "an empty label before the dot of a subdomain",
+            "[good.com](https://.good.com)",
+            &["https://.good.com"],
+        ),
         ("a home is not strikethrough", "[~/notes.md](notes.md)", &[]),
         (
             "a quoted `>` in an honest tag",
@@ -809,6 +819,490 @@ fn md_10_a_tag_of_raw_html_that_goes_over_lines_has_its_target_marked_on_the_lin
     assert_eq!(marks, vec![1..cs.len() - 1], "{marks:?}");
 }
 
+#[test]
+fn md_10_a_target_with_a_scheme_is_never_a_relative_path() {
+    // the review of e1ee30b: `search-ms:` was read as a relative path that ends with the text, and Explorer
+    // opens a WebDAV share on the host in it
+    rows(&[
+        (
+            "search-ms with a share of the host in the text",
+            r"[good.com](search-ms:query=x&crumb=location:\\evil.com@SSL\DavWWWRoot\good.com)",
+            &[r"search-ms:query=x&crumb=location:\\evil.com@SSL\DavWWWRoot\good.com"],
+        ),
+        ("ms-msdt", "[good.com](ms-msdt:/id)", &["ms-msdt:/id"]),
+        ("a scheme that nobody knows", "[good.com](zz-app:good.com)", &["zz-app:good.com"]),
+        ("a drive", r"[good.com](C:\good.com)", &[r"C:\good.com"]),
+        ("a path of the text", "[/etc/hosts](vscode:file/etc/hosts)", &["vscode:file/etc/hosts"]),
+        ("a phone", "[good.com](tel:+123)", &["tel:+123"]),
+        ("a message", "[good.com](sms:+123)", &["sms:+123"]),
+        ("a phone for a path", "[./a/b.md](tel:+123)", &["tel:+123"]),
+        ("a text that names nothing, to an app", "[Open in VS Code](vscode:extension/x)", &[]),
+        ("a text that names nothing, to a phone", "[Call us](tel:+123)", &[]),
+        ("a relative path that ends with the text is honest", "[good.com](docs/good.com)", &[]),
+        ("a file of the machine", "[docs](file:///usr/share/doc)", &[]),
+        ("a file of the machine, by its path", "[/etc/hosts](file:///etc/hosts)", &[]),
+        (
+            "a path with an at-sign is no authority",
+            "[good.com](file:@good.com:99999/x)",
+            &["file:@good.com:99999/x"],
+        ),
+        ("one slash is no authority", "[good.com](file:/@good.com/x)", &["file:/@good.com/x"]),
+        (
+            "a share of another host",
+            "[good.com](file://evil.com/share)",
+            &["file://evil.com/share"],
+        ),
+        (
+            "a share by four slashes",
+            "[good.com](file:////evil.com/share)",
+            &["file:////evil.com/share"],
+        ),
+        (
+            "a share by backslashes",
+            r"[good.com](file:\\evil.com\share)",
+            &[r"file:\\evil.com\share"],
+        ),
+    ]);
+    // a post box goes to the host after the last `@` of each recipient, in the address and in `to`, `cc`
+    // and `bcc`
+    rows(&[
+        ("the box of the text", "[support@good.com](mailto:support@good.com)", &[]),
+        ("with a subject", "[support@good.com](mailto:support@good.com?subject=x)", &[]),
+        ("a host with a box of it", "[good.com](mailto:sales@good.com)", &[]),
+        ("another host", "[good.com](mailto:a@evil.com)", &["mailto:a@evil.com"]),
+        (
+            "a second recipient",
+            "[support@good.com](mailto:support@good.com,x@evil.com)",
+            &["mailto:support@good.com,x@evil.com"],
+        ),
+        (
+            "a copy",
+            "[support@good.com](mailto:support@good.com?cc=x@evil.com)",
+            &["mailto:support@good.com?cc=x@evil.com"],
+        ),
+        (
+            "a blind copy, a header written in capitals",
+            "[support@good.com](mailto:support@good.com?BCC=x@evil.com)",
+            &["mailto:support@good.com?BCC=x@evil.com"],
+        ),
+        (
+            "an at-sign that is percent-encoded",
+            "[support@good.com](mailto:support%40evil.com)",
+            &["mailto:support%40evil.com"],
+        ),
+        (
+            "the host of the text again in every box",
+            "[support@good.com](mailto:a@good.com?cc=b@good.com&bcc=c@good.com)",
+            &[],
+        ),
+        (
+            "a header that a line break in its value starts",
+            "[support@good.com](mailto:support@good.com?subject=x%0d%0aBcc:b@evil.com)",
+            &["mailto:support@good.com?subject=x%0d%0aBcc:b@evil.com"],
+        ),
+        (
+            "a body has lines",
+            "[support@good.com](mailto:support@good.com?body=Hello%0AThanks)",
+            &[],
+        ),
+        ("no recipient", "[good.com](mailto:)", &["mailto:"]),
+        ("no host in the box", "[good.com](mailto:root)", &["mailto:root"]),
+    ]);
+    // a special scheme with fewer than two slashes goes to the document's own host, or to the next one when
+    // there is no base: it is not known
+    rows(&[
+        ("no slash", "[good.com](https:good.com)", &["https:good.com"]),
+        ("one slash", "[good.com](https:/good.com)", &["https:/good.com"]),
+        ("one backslash", r"[good.com](https:\good.com)", &[r"https:\good.com"]),
+        ("two slashes", "[good.com](https://good.com)", &[]),
+        // (a Markdown target reads `\\` as an escaped backslash, and a renderer writes it `%5C`)
+        ("two backslashes", r"[good.com](HTTPS:\\good.com)", &[r"HTTPS:\\good.com"]),
+        ("three slashes", "[good.com](https:///good.com)", &[]),
+    ]);
+}
+
+#[test]
+fn md_10_a_subdomain_is_trusted_unless_the_host_in_the_text_is_a_suffix_that_many_share() {
+    rows(&[
+        ("a platform", "[github.io](https://evil.github.io)", &["https://evil.github.io"]),
+        (
+            "a platform of containers",
+            "[herokuapp.com](https://x.herokuapp.com)",
+            &["https://x.herokuapp.com"],
+        ),
+        ("a storage", "[amazonaws.com](https://x.amazonaws.com)", &["https://x.amazonaws.com"]),
+        (
+            "a region of it",
+            "[s3.amazonaws.com](https://evil.s3.amazonaws.com)",
+            &["https://evil.s3.amazonaws.com"],
+        ),
+        ("a country's second level", "[co.uk](https://evil.co.uk)", &["https://evil.co.uk"]),
+        ("another", "[or.jp](https://evil.or.jp)", &["https://evil.or.jp"]),
+        ("another", "[com.au](https://evil.com.au)", &["https://evil.com.au"]),
+        ("the host itself", "[github.io](https://github.io)", &[]),
+        ("a page of an owner", "[user.github.io](https://docs.user.github.io)", &[]),
+        (
+            "an owner is not another",
+            "[user.github.io](https://evil.github.io)",
+            &["https://evil.github.io"],
+        ),
+        ("a docs host of an owner", "[python.org](https://docs.python.org/3/)", &[]),
+        ("another", "[github.com](https://docs.github.com/x)", &[]),
+        ("a company of a country", "[example.co.uk](https://www.example.co.uk)", &[]),
+        ("its subdomain", "[example.co.uk](https://docs.example.co.uk)", &[]),
+    ]);
+    for suffix in [
+        "github.io",
+        "githubusercontent.com",
+        "gitlab.io",
+        "vercel.app",
+        "netlify.app",
+        "herokuapp.com",
+        "pages.dev",
+        "workers.dev",
+        "web.app",
+        "firebaseapp.com",
+        "appspot.com",
+        "blogspot.com",
+        "azurewebsites.net",
+        "cloudfront.net",
+        "readthedocs.io",
+        "wordpress.com",
+        "ngrok.io",
+        "ngrok-free.app",
+        "onrender.com",
+        "fly.dev",
+        "glitch.me",
+        "surge.sh",
+        "bitbucket.io",
+        "translate.goog",
+        "myshopify.com",
+        "wixsite.com",
+        "notion.site",
+        "substack.com",
+    ] {
+        let doc = format!("[{suffix}](https://evil.{suffix})");
+        assert_eq!(marked(&doc), [format!("https://evil.{suffix}")], "{suffix}");
+    }
+}
+
+#[test]
+fn md_10_a_host_that_has_letters_that_are_not_ascii_is_an_address_and_is_judged() {
+    rows(&[
+        ("a Cyrillic o", "[g\u{43e}\u{43e}gle.com](https://evil.com)", &["https://evil.com"]),
+        (
+            "a Cyrillic o, and the real host",
+            "[g\u{43e}\u{43e}gle.com](https://google.com)",
+            &["https://google.com"],
+        ),
+        ("a Cyrillic a", "[ex\u{430}mple.com](https://example.com)", &["https://example.com"]),
+        (
+            "fullwidth",
+            "[\u{ff47}\u{ff4f}\u{ff4f}\u{ff47}\u{ff4c}\u{ff45}\u{ff0e}\u{ff43}\u{ff4f}\u{ff4d}](https://evil.com)",
+            &["https://evil.com"],
+        ),
+        (
+            "fullwidth, and the real host",
+            "[\u{ff27}\u{ff4f}\u{ff4f}\u{ff47}\u{ff4c}\u{ff45}\u{ff0e}\u{ff43}\u{ff4f}\u{ff4d}](https://google.com)",
+            &[],
+        ),
+        ("a name, as written", "[例え.jp](https://例え.jp)", &[]),
+        ("a name, as punycode", "[例え.jp](https://xn--r8jz45g.jp)", &[]),
+        ("a name, another host", "[例え.jp](https://evil.jp)", &["https://evil.jp"]),
+        (
+            "a name, with a host after it",
+            "[例え.jp](https://xn--r8jz45g.jp.evil.com)",
+            &["https://xn--r8jz45g.jp.evil.com"],
+        ),
+        (
+            "a name, as written with another host after it",
+            "[例え.jp](https://例え.jp.evil.com)",
+            &["https://例え.jp.evil.com"],
+        ),
+        ("a name with a u umlaut", "[bücher.de](https://xn--bcher-kva.de)", &[]),
+        ("another", "[münchen.de](https://xn--mnchen-3ya.de/)", &[]),
+        ("a name of capitals", "[MÜNCHEN.de](https://xn--mnchen-3ya.de/)", &[]),
+        ("a name with a www", "[www.例え.jp](https://xn--r8jz45g.jp)", &[]),
+        ("a box", "[me@例え.jp](mailto:me@xn--r8jz45g.jp)", &[]),
+        ("a box of another host", "[me@例え.jp](mailto:me@evil.jp)", &["mailto:me@evil.jp"]),
+        (
+            "a Cyrillic o in the top-level domain",
+            "[google.c\u{43e}m](https://evil.com)",
+            &["https://evil.com"],
+        ),
+        (
+            "a Cyrillic o in the domain, and the real host",
+            "[google.c\u{43e}m](https://google.com)",
+            &["https://google.com"],
+        ),
+        (
+            "a Greek omicron in the domain",
+            "[google.c\u{3bf}m](https://evil.com)",
+            &["https://evil.com"],
+        ),
+        (
+            "a one-dot leader for the dot",
+            "[google\u{2024}com](https://evil.com)",
+            &["https://evil.com"],
+        ),
+        (
+            "a small full stop for the dot",
+            "[google\u{fe52}com](https://evil.com)",
+            &["https://evil.com"],
+        ),
+        (
+            "an address of numbers has no subdomain",
+            "[1.2.3.4](https://evil.1.2.3.4)",
+            &["https://evil.1.2.3.4"],
+        ),
+        ("a sentence is no host", "[例えば、これはテスト](https://good.com)", &[]),
+        ("a word with a dot that is no host", "[例え.テスト](https://good.com)", &[]),
+    ]);
+    // the punycode of the labels
+    for (label, code) in
+        [("例え", "xn--r8jz45g"), ("bücher", "xn--bcher-kva"), ("münchen", "xn--mnchen-3ya")]
+    {
+        assert!(!deceptive(&format!("{label}.jp"), &format!("https://{code}.jp")), "{label}");
+        assert!(deceptive(&format!("{label}.jp"), &format!("https://{code}x.jp")), "{label}");
+    }
+}
+
+/// MD-10: the table of URL and host forms (SPEC): a text and a target, and whether the walk marks the target
+/// (a lie, or a form that fails closed) or leaves it (honest, or out of scope). By group: the schemes (special,
+/// special without `//`, opaque known, opaque unknown, none, scheme-relative), the authority (userinfo, ports,
+/// `\\`, `%`, a trailing dot, case, `www.`), IPv4 and IPv6, the names (IDN, punycode, fullwidth, mixed
+/// scripts), and the shared suffixes.
+const FORMS: &[(&str, &str, bool)] = &[
+    ("good.com", "https://evil.com", true),
+    ("good.com", "http://evil.com", true),
+    ("good.com", "ws://evil.com", true),
+    ("good.com", "wss://evil.com", true),
+    ("good.com", "ftp://evil.com", true),
+    ("good.com", "HTTPS://EVIL.COM", true),
+    ("good.com", "https://good.com", false),
+    ("good.com", "HTTP://GOOD.COM/x", false),
+    ("good.com", "ftp://good.com/f", false),
+    ("good.com", "https:evil.com", true),
+    ("good.com", "https:/evil.com", true),
+    ("good.com", "https:good.com", true),
+    ("good.com", "http:/good.com", true),
+    ("good.com", "wss:good.com", true),
+    ("good.com", "https:\\good.com", true),
+    ("good.com", "https:///good.com", false),
+    ("good.com", "https:////good.com", false),
+    ("good.com", "mailto:a@evil.com", true),
+    ("good.com", "mailto:a@good.com", false),
+    ("a@good.com", "mailto:a@good.com", false),
+    ("a@good.com", "mailto:a@good.com?cc=b@evil.com", true),
+    ("a@good.com", "MAILTO:a@good.com", false),
+    ("good.com", "tel:123", true),
+    ("good.com", "TEL:123", true),
+    ("good.com", "sms:123", true),
+    ("good.com", "javascript:alert(1)", true),
+    ("good.com", "data:text/html,x", true),
+    ("good.com", "vbscript:x", true),
+    ("good.com", "blob:https://evil.com/u", true),
+    ("good.com", "view-source:https://evil.com", true),
+    ("good.com", "about:blank", true),
+    ("good.com", "file://evil.com/s", true),
+    ("good.com", "file:///etc/x", true),
+    ("good.com", "file://localhost/x", true),
+    ("Docs", "file:///etc/x", false),
+    ("Docs", "file://localhost/x", false),
+    ("good.com", "search-ms:query=x&crumb=location:\\\\evil.com@SSL\\DavWWWRoot\\good.com", true),
+    ("good.com", "ms-msdt:/id", true),
+    ("good.com", "ms-excel:ofe|u|https://evil.com/x.xlsx", true),
+    ("good.com", "zoommtg://evil.com/j", true),
+    ("good.com", "intent://evil.com#Intent;scheme=https;end", true),
+    ("good.com", "c:\\good.com", true),
+    ("good.com", "a:good.com", true),
+    ("Open it", "search-ms:query=x", false),
+    ("Open it", "ms-msdt:/id", false),
+    ("good.com", "docs/good.com", false),
+    ("good.com", "good.com", false),
+    ("good.com", "./good.com", false),
+    ("good.com", "docs/other", true),
+    ("good.com", "//evil.com", true),
+    ("good.com", "\\\\evil.com", true),
+    ("good.com", "/\\evil.com", true),
+    ("good.com", "\\/evil.com", true),
+    ("good.com", "//good.com", false),
+    ("good.com", "/redirect?to=evil", true),
+    ("good.com", "#frag", true),
+    ("good.com", "https://good.com@evil.com", true),
+    ("good.com", "https://good.com:pw@evil.com", true),
+    ("good.com", "https://a@good.com@evil.com", true),
+    ("good.com", "https://evil.com@good.com", false),
+    ("good.com", "https://good.com:80@evil.com:81/", true),
+    ("good.com", "https://good.com:/", false),
+    ("good.com", "https://good.com:80/", false),
+    ("good.com", "https://good.com:80x/", true),
+    ("good.com", "https://good.com:0x50/", true),
+    ("good.com", "https://good.com\\@evil.com/", true),
+    ("good.com", "https://good.com%2eevil.com/", true),
+    ("good.com", "https://good.com%40evil.com/", true),
+    ("good.com", "https://good.com./", false),
+    ("good.com", "https://good.com../", true),
+    ("good.com", "https://GOOD.com/", false),
+    ("good.com", "https://www.good.com/", false),
+    ("www.good.com", "https://good.com/", false),
+    ("good.com", "https:///", true),
+    ("good.com", "https://@good.com", false),
+    ("good.com", "https://good.com#@evil.com", false),
+    ("good.com", "https://good.com?@evil.com", false),
+    ("good.com", "https://evil.com#@good.com", true),
+    ("good.com", "https://good.com\u{3002}evil.com/", true),
+    ("good.com", "https://good.com\u{ff20}evil.com/", true),
+    ("good.com", "https://good.com\u{200b}.evil.com/", true),
+    ("good.com", "https://good.com.evil.com/", true),
+    ("good.com", "https://evilgood.com/", true),
+    ("good.com", "https://good.com-evil.com/", true),
+    ("good.com", "https://good_com.evil.com", true),
+    ("127.0.0.1", "http://127.0.0.1/", false),
+    ("127.0.0.1", "http://127.0.0.1:8080/x", false),
+    ("127.0.0.1", "http://2130706433/", true),
+    ("127.0.0.1", "http://0x7f000001/", true),
+    ("127.0.0.1", "http://0177.0.0.1/", true),
+    ("127.0.0.1", "http://127.1/", true),
+    ("127.0.0.1", "http://127.0.0.2/", true),
+    ("127.0.0.1", "http://[::1]/", true),
+    ("127.0.0.1", "http://127.0.0.1./", false),
+    ("good.com", "http://127.0.0.1/", true),
+    ("good.com", "http://2130706433/", true),
+    ("good.com", "http://[::ffff:127.0.0.1]/", true),
+    ("localhost", "http://localhost:3000/", false),
+    ("localhost", "http://127.0.0.1:3000/", true),
+    ("g\u{43e}\u{43e}gle.com", "https://evil.com", true),
+    ("g\u{43e}\u{43e}gle.com", "https://google.com", true),
+    ("g\u{43e}\u{43e}gle.com", "https://g\u{43e}\u{43e}gle.com", false),
+    ("g\u{43e}\u{43e}gle.com", "https://xn--ggle-55da.com", false),
+    ("example.com", "https://ex\u{430}mple.com", true),
+    (
+        "\u{ff47}\u{ff4f}\u{ff4f}\u{ff47}\u{ff4c}\u{ff45}\u{ff0e}\u{ff43}\u{ff4f}\u{ff4d}",
+        "https://evil.com",
+        true,
+    ),
+    (
+        "\u{ff47}\u{ff4f}\u{ff4f}\u{ff47}\u{ff4c}\u{ff45}\u{ff0e}\u{ff43}\u{ff4f}\u{ff4d}",
+        "https://google.com",
+        false,
+    ),
+    (
+        "\u{ff27}\u{ff4f}\u{ff4f}\u{ff47}\u{ff4c}\u{ff45}\u{ff0e}\u{ff43}\u{ff4f}\u{ff4d}",
+        "https://google.com",
+        false,
+    ),
+    ("good.com", "https://\u{ff47}\u{ff4f}\u{ff4f}\u{ff44}\u{ff0e}\u{ff43}\u{ff4f}\u{ff4d}", true),
+    ("\u{4f8b}\u{3048}.jp", "https://\u{4f8b}\u{3048}.jp", false),
+    ("\u{4f8b}\u{3048}.jp", "https://xn--r8jz45g.jp", false),
+    ("\u{4f8b}\u{3048}.jp", "https://evil.jp", true),
+    ("\u{4f8b}\u{3048}.jp", "https://xn--r8jz45g.jp.evil.com", true),
+    ("xn--r8jz45g.jp", "https://\u{4f8b}\u{3048}.jp", true),
+    ("\u{4f8b}\u{3048}.jp", "https://\u{4f8b}\u{3048}.jp.evil.com", true),
+    ("\u{dc}BER.de", "https://xn--ber-goa.de", false),
+    ("u\u{308}ber.de", "https://xn--ber-goa.de", true),
+    ("\u{4f8b}\u{3048}.\u{307f}\u{3093}\u{306a}", "https://evil.com", false),
+    ("good.com", "https://\u{fb01}sh.com", true),
+    ("fish.com", "https://\u{fb01}sh.com", true),
+    ("paypal.com", "https://paypa1.com", true),
+    ("paypal.com", "https://paypaI.com", true),
+    ("google.c\u{43e}m", "https://google.c\u{43e}m", false),
+    ("google.c\u{43e}m", "https://xn--google.cm-xyz", true),
+    ("google\u{2024}com", "https://evil.com", true),
+    ("google\u{fe52}com", "https://evil.com", true),
+    ("google\u{30fb}com", "https://evil.com", false),
+    ("1.2.3.4", "https://evil.1.2.3.4", true),
+    ("1.2.3.4", "https://1.2.3.4/", false),
+    ("good.com", "https://good.com%E3%80%82evil.com", true),
+    ("good.com", "https://xn--good-xyz.com", true),
+    ("github.io", "https://evil.github.io", true),
+    ("github.io", "https://github.io", false),
+    ("user.github.io", "https://docs.user.github.io", false),
+    ("user.github.io", "https://evil.github.io", true),
+    ("python.org", "https://docs.python.org/3/", false),
+    ("github.com", "https://docs.github.com/x", false),
+    ("co.uk", "https://evil.co.uk", true),
+    ("example.co.uk", "https://docs.example.co.uk", false),
+    ("amazonaws.com", "https://x.amazonaws.com", true),
+    ("s3.amazonaws.com", "https://b.s3.amazonaws.com", true),
+    ("surge.sh", "https://evil.surge.sh", true),
+    ("x.surge.sh", "https://y.surge.sh", true),
+    ("www.github.io", "https://evil.github.io", true),
+    ("herokuapp.com", "https://evil.herokuapp.com", true),
+    ("evil.herokuapp.com", "https://herokuapp.com", true),
+    // the second pass: a post box, a share, a platform, a look-alike in capitals or in a path, an IDN top-level domain
+    ("good.com", "http://good.com:80@evil.com", true),
+    ("good.com", "http://evil.com\\.good.com", true),
+    ("good.com", "https://good.com/%2e%2e/", false),
+    ("good.com", "https://evil.com/..;/good.com", true),
+    ("a@good.com", "mailto:a@good.com?subject=x%0d%0aBcc:b@evil.com", true),
+    ("a@good.com", "mailto:a@good.com?body=Hello%0AThanks", false),
+    ("a@good.com", "mailto:a@good.com;b@evil.com", true),
+    ("a@good.com", "mailto:a@good.com,b@good.com", false),
+    ("a@good.com", "mailto:a%2540evil.com", true),
+    ("a@good.com", "mailto:a@good.com%0Abcc:x@evil.com", true),
+    ("a@good.com", "mailto:\"a@good.com\"@evil.com", true),
+    ("a@good.com", "mailto:a@www.good.com", false),
+    ("a@good.com", "mailto:A@GOOD.COM", false),
+    ("a@good.com", "mailto:a@good.com#frag", false),
+    ("127.0.0.1", "http://127.0.0.1@evil.com", true),
+    ("good.com", "foo://good.com@evil.com", true),
+    ("good.com", "tel://evil.com", true),
+    ("good.com", "\\\\evil.com\\share\\good.com", true),
+    ("good.com", "file://evil.com/good.com", true),
+    ("good.com", "file:////evil.com/share/good.com", true),
+    ("good.com", "file:\\\\\\evil.com\\share", true),
+    ("good.com", "smb://evil.com/share", true),
+    ("good.com", "ms-appinstaller:?source=https://evil.com/x.appx", true),
+    ("github.io", "https://evil.github.io.", true),
+    ("GitHub.io", "https://evil.github.io", true),
+    ("github.io/user", "https://evil.github.io", true),
+    ("evil.github.io", "https://github.io", true),
+    ("a.github.io", "https://a.github.io.evil.com", true),
+    ("vercel.app", "https://x.vercel.app", true),
+    ("githubusercontent.com", "https://raw.githubusercontent.com/x", true),
+    ("raw.githubusercontent.com", "https://raw.githubusercontent.com/x", false),
+    ("fly.io", "https://x.fly.io", false),
+    ("8.8.8.8", "https://x.8.8.8.8", true),
+    ("amazonaws.com.cn", "https://x.amazonaws.com.cn", false),
+    ("g\u{43e}\u{43e}gle.com/login", "https://evil.com", true),
+    ("g\u{43e}\u{43e}gle.com", "https://g\u{43e}\u{43e}gle.com/login", false),
+    ("https://g\u{43e}\u{43e}gle.com/x", "https://evil.com", true),
+    ("https://g\u{43e}\u{43e}gle.com/x", "https://g\u{43e}\u{43e}gle.com/y", false),
+    ("\u{413}\u{41e}\u{41e}\u{413}\u{41b}\u{415}.com", "https://evil.com", true),
+    ("caf\u{e9}.fr", "https://xn--caf-dma.fr", false),
+    ("caf\u{e9}.fr", "https://evil.fr", true),
+    ("g\u{43e}\u{43e}gle.\u{440}\u{444}", "https://evil.com", false),
+    (
+        "\u{ff48}\u{ff54}\u{ff54}\u{ff50}\u{ff53}\u{ff1a}\u{ff0f}\u{ff0f}good.com",
+        "https://evil.com",
+        true,
+    ),
+    ("good.com", "\u{ff48}\u{ff54}\u{ff54}\u{ff50}\u{ff53}://evil.com/good.com", false),
+    ("good.com", "https\u{ff1a}//evil.com/good.com", false),
+    ("good.com", "https://good.com:443", false),
+    ("good.com", "https://good.com:443/", false),
+];
+
+#[test]
+fn md_10_every_form_of_a_url_and_of_a_host_is_judged_fails_closed_or_is_out_of_scope() {
+    let wrong: Vec<String> = FORMS
+        .iter()
+        .filter_map(|(text, target, lie)| {
+            let got = marked(&format!("[{text}]({target})"));
+            let want: Vec<String> = if *lie { vec![target.to_string()] } else { vec![] };
+            (got != want).then(|| format!("[{text}]({target}): marked {got:?}, wanted {want:?}"))
+        })
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "{} of {} forms differ:\n{}",
+        wrong.len(),
+        FORMS.len(),
+        wrong.join("\n")
+    );
+}
+
 // ---- the files the highlighter calls Markdown ----
 
 #[test]
@@ -874,6 +1368,18 @@ fn shapes() -> Vec<(&'static str, String)> {
         ("[1]: many times", "[1]: x ".repeat(N / 7)),
         ("uses of a text of tags", format!("[{}][1]", "<a".repeat(400)).repeat(N / 804)),
         ("a long word of a text", format!("[{}](x)", "good.".repeat(N / 5))),
+        (
+            "a host of 990 distinct letters that are not ASCII (its punycode is quadratic)",
+            format!(
+                "[{}.com](https://x.com) ",
+                (0x4e00..0x4e00 + 990).filter_map(char::from_u32).collect::<String>()
+            )
+            .repeat(N / 1_000),
+        ),
+        (
+            "mailboxes in many",
+            format!("[a@good.com](mailto:{}) ", "x@good.com,".repeat(80)).repeat(N / 900),
+        ),
         ("a long target", format!("[good.com]({})", "a.".repeat(N / 2))),
         (
             "nested and long",

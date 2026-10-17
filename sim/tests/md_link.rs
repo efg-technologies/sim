@@ -144,6 +144,12 @@ fn md_10_the_authority_is_read_as_a_browser_reads_it_for_the_special_schemes() {
         ("good.com", "https:/\\evil.com"),
         ("good.com", "https:\\\\evil.com"),
         ("good.com", "https:evil.com"),
+        // fewer than two slashes after a special scheme is resolved against a base: the document's own host,
+        // or this one where there is none; not known, so not honest even for the host in the text
+        ("good.com", "https:good.com"),
+        ("good.com", "https:/good.com"),
+        // (in a Markdown target `\\` is an escaped backslash: `https:\good.com`, one slash)
+        ("good.com", "https:\\\\good.com\\path"),
         ("good.com", "https:///evil.com"),
         ("good.com", "http:/evil.com/x"),
         ("good.com", "wss:evil.com"),
@@ -165,9 +171,7 @@ fn md_10_the_authority_is_read_as_a_browser_reads_it_for_the_special_schemes() {
     honest(&[
         ("good.com", "https://user:pw@good.com:8080/x?y#z"),
         ("good.com", "https://evil.com:80@good.com"),
-        ("good.com", "https:\\\\good.com\\path"),
-        ("good.com", "https:/good.com"),
-        ("good.com", "https:good.com"),
+        ("good.com", "https://good.com\\path"),
         ("good.com", "HTTPS://WWW.GOOD.COM./"),
         ("good.com", "https://go\tod.com"),
         ("good.com", "//good.com/x"),

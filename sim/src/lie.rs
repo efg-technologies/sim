@@ -112,15 +112,157 @@ impl Budget {
 /// with an authority that cannot be read, or a path (and whether it is absolute).
 enum Names {
     Host(String, String),
+    /// a host with letters that are not ASCII (as lower case, without `www.`)
+    Idn(String),
     Odd,
     Path(String, bool),
 }
 
-/// MD-10: where a target goes: to a host, to a host that cannot be read, or nowhere (relative).
+/// MD-10: where a target goes: to a host, to a host as written with letters that are not ASCII, to a host
+/// that cannot be read or is not known, to the hosts of the boxes of a `mailto:`, to nothing that a host
+/// names (a scheme that is neither special nor followed by `//`: `tel:`, `search-ms:`), or nowhere
+/// (relative: it has no scheme).
 enum Dest {
     Host(String),
+    Wide(String),
     Odd,
+    Mail(Vec<String>),
+    Opaque,
     Relative,
+}
+
+/// MD-10: `s` with the fullwidth forms of ASCII (U+FF01 to U+FF5E) as ASCII, and the full stops of other
+/// scripts as dots: what a browser makes of them in a host, and what a reader reads.
+fn map_wide(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '\u{ff01}'..='\u{ff5e}' => char::from_u32(c as u32 - 0xfee0).unwrap_or(c),
+            '\u{3002}' | '\u{ff61}' | '\u{2024}' | '\u{fe52}' => '.',
+            _ => c,
+        })
+        .collect()
+}
+
+/// MD-10: `l` with the letters of other scripts that look like an ASCII one as that one (Cyrillic and Greek
+/// letters that stand in for `a c d e g h i j k l m o p q s t v w x y`): so that a top-level domain with
+/// one of them in it is read for what a reader sees. Letters that look like none stay as they are.
+fn skeleton(l: &str) -> String {
+    const LIKE: &str = "а:a с:c е:e о:o р:p х:x у:y і:i ѕ:s ј:j ԁ:d һ:h ԛ:q ԝ:w ӏ:l к:k м:m т:t ο:o ν:v ρ:p ι:i κ:k α:a ɑ:a ɡ:g ı:i";
+    l.chars()
+        .map(|c| {
+            LIKE.split(' ')
+                .find_map(|p| p.strip_prefix(c).and_then(|r| r.strip_prefix(':')))
+                .and_then(|a| a.chars().next())
+                .unwrap_or(c)
+        })
+        .collect()
+}
+
+/// MD-10: whether `l` is a country code (not one that ends a source file: `EXTS`).
+fn cc_tld(l: &str) -> bool {
+    let b = l.as_bytes();
+    b.len() == 2
+        && b.iter().all(u8::is_ascii_lowercase)
+        && COUNTRY[(b[0] - b'a') as usize * 26 + (b[1] - b'a') as usize]
+        && !EXTS.contains(&l)
+}
+
+/// MD-10: the second labels of the countries' suffixes of the shape `co.uk`, `com.au`, `or.jp`.
+const SECOND: &str = "co com net org edu gov ac ad or ne go gr lg ed mil nom ltd plc sch gob gouv";
+
+/// MD-10: suffixes under which anyone can register a name, so that a subdomain of one is no one owner's:
+/// chosen from the private section of the Public Suffix List, by how often a platform's name is linked to
+/// (a README names its host, a page of its docs, a project's page); not the whole list, which is some
+/// 9,000 names and has no place in the editor. A host on it, a host of the shape `co.uk`, and a host under
+/// `amazonaws.com` are trusted for themselves only.
+const SHARED: &str = "github.io githubusercontent.com gitlab.io vercel.app netlify.app herokuapp.com \
+    pages.dev workers.dev web.app firebaseapp.com appspot.com blogspot.com azurewebsites.net cloudfront.net \
+    readthedocs.io wordpress.com ngrok.io ngrok-free.app onrender.com fly.dev glitch.me surge.sh bitbucket.io \
+    translate.goog myshopify.com wixsite.com notion.site substack.com r2.dev deno.dev now.sh repl.co gitpod.io \
+    run.app cloudfunctions.net googleusercontent.com pythonanywhere.com tumblr.com weebly.com";
+
+/// MD-10: whether `h` is a suffix that many share (`SHARED`, `SECOND` under a country, `amazonaws.com`).
+fn shared(h: &str) -> bool {
+    let two: Vec<&str> = h.split('.').collect();
+    let country =
+        two.len() == 2 && SECOND.split_whitespace().any(|g| g == two[0]) && cc_tld(two[1]);
+    let numbers = h.bytes().all(|b| b.is_ascii_digit() || b == b'.');
+    country
+        || numbers
+        || h == "amazonaws.com"
+        || h.ends_with(".amazonaws.com")
+        || SHARED.split_whitespace().any(|x| x == h)
+}
+
+/// MD-10: whether `h` is, or is under, a suffix of `SHARED` (`surge.sh` is a host though `sh` ends a source file).
+fn on_shared(h: &str) -> bool {
+    let h = h.to_ascii_lowercase();
+    SHARED
+        .split_whitespace()
+        .any(|x| h.strip_suffix(x).is_some_and(|p| p.is_empty() || p.ends_with('.')))
+}
+
+/// MD-10: the punycode (RFC 3492) of `label`, which is lower case; without its `xn--`.
+fn punycode(label: &str) -> Option<String> {
+    let adapt = |mut delta: u32, n: u32, first: bool| {
+        delta = if first { delta / 700 } else { delta / 2 };
+        delta += delta / n;
+        let mut k = 0;
+        while delta > 35 * 26 / 2 {
+            (delta, k) = (delta / 35, k + 36);
+        }
+        k + 36 * delta / (delta + 38)
+    };
+    let digit = |d: u32| char::from(if d < 26 { b'a' + d as u8 } else { b'0' + (d - 26) as u8 });
+    let cps: Vec<u32> = label.chars().map(u32::from).collect();
+    let mut out: String = label.chars().filter(char::is_ascii).collect();
+    let basic = out.len() as u32;
+    let (mut h, mut n, mut delta, mut bias) = (basic, 128u32, 0u32, 72u32);
+    out.extend(['-'].into_iter().filter(|_| basic > 0));
+    while (h as usize) < cps.len() {
+        let m = cps.iter().copied().filter(|&c| c >= n).min()?;
+        delta = delta.checked_add((m - n).checked_mul(h + 1)?)?;
+        n = m;
+        for &c in &cps {
+            delta += u32::from(c < n);
+            if c == n {
+                let (mut q, mut k) = (delta, 36);
+                loop {
+                    let t = if k <= bias {
+                        1
+                    } else if k >= bias + 26 {
+                        26
+                    } else {
+                        k - bias
+                    };
+                    if q < t {
+                        break;
+                    }
+                    out.push(digit(t + (q - t) % (36 - t)));
+                    (q, k) = ((q - t) / (36 - t), k + 36);
+                }
+                out.push(digit(q));
+                bias = adapt(delta, h + 1, h == basic);
+                (delta, h) = (0, h + 1);
+            }
+        }
+        (delta, n) = (delta + 1, n + 1);
+    }
+    Some(out)
+}
+
+/// MD-10: whether the host `target`, in ASCII, is the host `u` as written (lower case, letters that are not
+/// ASCII in some labels): every label the same, or the `xn--` of its punycode.
+fn encodes(u: &str, target: &str) -> bool {
+    let (ul, tl): (Vec<&str>, Vec<&str>) = (u.split('.').collect(), target.split('.').collect());
+    ul.len() == tl.len()
+        && ul.iter().zip(&tl).all(|(a, b)| {
+            if a.is_ascii() {
+                a == b
+            } else {
+                punycode(a).is_some_and(|p| *b == format!("xn--{p}"))
+            }
+        })
 }
 
 fn scheme_ok(s: &str) -> bool {
@@ -148,8 +290,20 @@ fn authority(a: &str) -> Dest {
     }
     let h = host.strip_suffix('.').unwrap_or(host);
     let valid = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.');
-    if h.is_empty() || !h.bytes().all(valid) {
+    if h.is_empty() {
         return Dest::Odd;
+    }
+    if !h.bytes().all(valid) {
+        // (a host as written with letters that are not ASCII: judged only against a text that names such a
+        // host; to any other it is odd)
+        let m = map_wide(h).to_lowercase();
+        let label =
+            |l: &str| !l.is_empty() && l.chars().all(|c| c.is_alphanumeric() || "-_".contains(c));
+        return if !m.is_ascii() && m.split('.').all(label) {
+            Dest::Wide(m.strip_prefix("www.").map_or(m.clone(), str::to_string))
+        } else {
+            Dest::Odd
+        };
     }
     let h = h.to_ascii_lowercase();
     Dest::Host(h.strip_prefix("www.").map_or(h.clone(), str::to_string))
@@ -177,12 +331,24 @@ fn url(raw: &str) -> (Dest, String) {
         .as_deref()
         .is_some_and(|s| matches!(s, "http" | "https" | "ws" | "wss" | "ftp" | "file"));
     let slash = |c: char| c == '/' || c == '\\';
-    let mut cs = rest.chars();
-    let two = cs.next().is_some_and(slash) && cs.next().is_some_and(slash);
-    let (from, back) = match (special, scheme.is_some(), two) {
-        (true, ..) => (rest.trim_start_matches(slash), true),
-        (_, false, true) => (&rest[2..], true),
-        (_, true, _) if rest.starts_with("//") => (&rest[2..], false),
+    let slashes = rest.chars().take_while(|&c| slash(c)).count();
+    // (a special scheme with fewer than two slashes is resolved against the base: the document's own host,
+    // or the next one where there is none; a scheme that is neither special nor followed by `//` is opaque;
+    // only a target with no scheme is relative)
+    let (from, back) = match (special, scheme.as_deref(), slashes >= 2) {
+        // (a file: has an authority after exactly two slashes; one slash or none, and three (an empty
+        // authority), are a path of the machine; four or more are a share of a host, as Windows reads them)
+        (true, Some("file"), _) => match slashes {
+            0 | 1 | 3 => return (Dest::Relative, rest.trim_start_matches(slash).to_string()),
+            2 => (&rest[2..], true),
+            _ => (rest.trim_start_matches(slash), true),
+        },
+        (true, _, true) => (rest.trim_start_matches(slash), true),
+        (true, ..) => return (Dest::Odd, rest.to_string()),
+        (false, None, true) => (&rest[2..], true),
+        (false, Some(_), _) if rest.starts_with("//") => (&rest[2..], false),
+        (false, Some("mailto"), _) => return (Dest::Mail(mailboxes(rest)), rest.to_string()),
+        (false, Some(_), _) => return (Dest::Opaque, rest.to_string()),
         _ => return (Dest::Relative, rest.to_string()),
     };
     let end = from
@@ -195,6 +361,55 @@ fn url(raw: &str) -> (Dest, String) {
         }
         d => (d, path),
     }
+}
+
+/// MD-10: `s` with its `%XX` read.
+fn pct(s: &str) -> String {
+    let (b, mut out, mut i) = (s.as_bytes(), vec![], 0);
+    while i < b.len() {
+        let hex = |k: usize| b.get(k).and_then(|&x| (x as char).to_digit(16));
+        match (b[i], hex(i + 1), hex(i + 2)) {
+            (b'%', Some(h), Some(l)) => (out.push((h * 16 + l) as u8), i += 3).0,
+            (x, ..) => (out.push(x), i += 1).0,
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// MD-10: the host of each box that a `mailto:` writes, in its address and in the `to`, `cc` and `bcc` of
+/// its query: what follows the last `@` of a recipient, which is empty where there is none or it cannot be
+/// read, so that it is no host that a text names.
+fn mailboxes(rest: &str) -> Vec<String> {
+    let body = rest.split('#').next().unwrap_or_default();
+    let (addrs, query) = body.split_once('?').unwrap_or((body, ""));
+    let headers = query
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .filter(|(k, _)| ["to", "cc", "bcc"].contains(&pct(k).to_ascii_lowercase().as_str()))
+        .map(|(_, v)| v);
+    // (a header other than the body that has a line break in its value starts one: a recipient that is
+    // not read)
+    let injected = query
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .any(|(k, v)| !pct(k).eq_ignore_ascii_case("body") && pct(v).contains(['\r', '\n']))
+        .then(String::new);
+    let mut boxes: Vec<String> = [addrs]
+        .into_iter()
+        .chain(headers)
+        .flat_map(|list| pct(list).split(',').map(str::to_string).collect::<Vec<_>>())
+        .filter(|a| !a.trim().is_empty())
+        .map(|a| {
+            let domain =
+                a.rsplit_once('@').map_or("", |p| p.1).trim().trim_end_matches('>').to_string();
+            match authority(&domain) {
+                Dest::Host(h) | Dest::Wide(h) => h,
+                _ => String::new(),
+            }
+        })
+        .collect();
+    boxes.extend(injected);
+    boxes
 }
 
 /// MD-10: whether a target runs code or carries data (`javascript:`, `data:`, `vbscript:`), through
@@ -266,6 +481,7 @@ fn address(w: &str) -> Option<Names> {
     if w.split_once("://").is_some_and(|(s, _)| scheme_ok(s)) {
         return Some(match url(w).0 {
             Dest::Host(h) => Names::Host(h, w.to_string()),
+            Dest::Wide(h) => Names::Idn(h),
             _ => Names::Odd,
         });
     }
@@ -280,18 +496,32 @@ fn address(w: &str) -> Option<Names> {
         .rsplit_once(':')
         .filter(|p| !p.1.is_empty() && p.1.bytes().all(|b| b.is_ascii_digit()))
         .map_or(host, |p| p.0);
+    // (a host with letters that are not ASCII, whose last label is a top-level domain: a name that a reader
+    // reads, and a browser maps)
+    if !host.is_ascii() {
+        let wide = map_wide(host).to_lowercase();
+        let ls: Vec<&str> = wide.split('.').collect();
+        let label =
+            |l: &&str| !l.is_empty() && l.chars().all(|c| c.is_alphanumeric() || "-_".contains(c));
+        let tld = ls.last().is_some_and(|l| {
+            let k = skeleton(l);
+            TLDS.contains(l) || cc_tld(l) || TLDS.contains(&k.as_str()) || cc_tld(&k)
+        });
+        if !wide.is_ascii() && ls.len() > 1 && tld && ls.iter().all(label) {
+            return Some(Names::Idn(
+                wide.strip_prefix("www.").map_or(wide.clone(), str::to_string),
+            ));
+        }
+    }
     let labels: Vec<&str> = host.split('.').collect();
     let label =
         |l: &&str| !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
     let last = labels.last().map(|l| l.to_ascii_lowercase()).unwrap_or_default();
     let www = host.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("www."));
-    let two = last.as_bytes();
-    let country = two.len() == 2
-        && two.iter().all(u8::is_ascii_lowercase)
-        && COUNTRY[(two[0] - b'a') as usize * 26 + (two[1] - b'a') as usize]
-        && !EXTS.contains(&last.as_str());
+    let country = cc_tld(&last);
     let ip = labels.len() == 4 && labels.iter().all(|l| l.parse::<u8>().is_ok());
-    let known = labels.len() > 1 && (www || country || ip || TLDS.contains(&last.as_str()));
+    let known = labels.len() > 1
+        && (www || country || ip || TLDS.contains(&last.as_str()) || on_shared(host));
     if let (true, Dest::Host(h)) = (
         (known && labels.iter().all(label)) || host.eq_ignore_ascii_case("localhost"),
         authority(host),
@@ -349,14 +579,14 @@ fn views(text: &str) -> (Vec<String>, bool) {
     if text.bytes().all(|b| plain(&b)) {
         return (vec![text.to_string()], false);
     }
-    let shown = shown(text);
+    let shown = map_wide(&shown(text));
     let (t, odd) = decode(&shown);
     // (and as a browser reads the tags that CommonMark does not: in a block of raw HTML, `<b title="]".>`
     // is a tag, and `<good.com>` is none)
     let (lenient, _) = decode(&unmarked(&shown));
-    // (a full stop of another script is the dot of an address to a browser, and to a reader)
-    let t: String =
-        t.chars().map(|c| if matches!(c, '。' | '．' | '｡') { '.' } else { c }).collect();
+    // (the fullwidth forms and the full stops of other scripts are what a browser maps them to in a host,
+    // and what a reader reads; an entity can make one)
+    let t = map_wide(&t);
     // (a tilde makes strikethrough unless it is a home: `~/`)
     let tc: Vec<char> = t.chars().collect();
     let stripped: String = (0..tc.len())
@@ -565,14 +795,17 @@ fn shown(s: &str) -> String {
         let (escaped, c) = (run % 2 == 1, cs[i]);
         run = if c == '\\' { run + 1 } else { 0 };
         let end = match (escaped, c) {
-            (false, '!') if cs.get(i + 1) == Some(&'[') => to(&square, i + 1).map(|cl| {
-                out.extend(&cs[i + 2..cl]);
+            // (an image has a source or a label after its alt: `![x]` alone may be text)
+            (false, '!') if cs.get(i + 1) == Some(&'[') => to(&square, i + 1).and_then(|cl| {
                 let list = match cs.get(cl + 1) {
-                    Some('(') => Some(&round),
-                    Some('[') => Some(&square),
-                    _ => None,
+                    Some('(') => &round,
+                    Some('[') => &square,
+                    _ => return None,
                 };
-                list.and_then(|v| to(v, cl + 1)).map_or(cl + 1, |e| e + 1)
+                to(list, cl + 1).map(|e| {
+                    out.extend(&cs[i + 2..cl]);
+                    e + 1
+                })
             }),
             (false, '<') => tag(&cs, i, cs.len()).map(|(end, alt)| {
                 out.extend(alt.map_or(&[][..], |a| &cs[a]));
@@ -603,12 +836,27 @@ fn deceptive_as_written(text: &str, target: &str) -> bool {
             Names::Odd => true,
             // (a subdomain of the host in the text is that host's owner's)
             Names::Host(h, raw) => match &dest {
-                Dest::Host(t) => *t != h && !t.ends_with(&format!(".{h}")),
-                Dest::Odd => true,
+                Dest::Host(t) => {
+                    *t != h
+                        && !(t.len() > h.len() + 1 && t.ends_with(&format!(".{h}")) && !shared(&h))
+                }
+                Dest::Odd | Dest::Wide(_) | Dest::Opaque => true,
+                Dest::Mail(boxes) => boxes.is_empty() || boxes.iter().any(|b| *b != h),
                 Dest::Relative => !q.ends_with(raw.as_str()),
+            },
+            // (a host with letters that are not ASCII is honest as written, or as the punycode of each label)
+            Names::Idn(u) => match &dest {
+                Dest::Host(t) => !encodes(&u, t),
+                Dest::Wide(w) => *w != u,
+                Dest::Mail(boxes) => {
+                    boxes.is_empty() || boxes.iter().any(|b| *b != u && !encodes(&u, b))
+                }
+                Dest::Relative => !q.ends_with(u.as_str()),
+                _ => true,
             },
             Names::Path(p, abs) => match dest {
                 Dest::Relative => q.is_empty() || !(p.ends_with(q) || q.ends_with(&p)),
+                Dest::Opaque | Dest::Mail(_) => true,
                 _ => q.is_empty() || abs || !q.ends_with(&p),
             },
         })
