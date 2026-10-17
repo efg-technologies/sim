@@ -539,10 +539,17 @@ fn diff_6_the_keys_are_in_the_table_so_which_key_and_help_show_them() {
     let first = next(&["<Space>".to_string()], 'n');
     assert!(first.iter().any(|r| r.0 == "g" && r.1 == "git"), "{first:?}");
     let second = next(&["<Space>".to_string(), "g".to_string()], 'n');
-    assert_eq!(second, [("e".to_string(), "changes from HEAD".to_string())]);
+    assert_eq!(
+        second,
+        [
+            ("e".to_string(), "changes from HEAD".to_string()),
+            ("i".to_string(), "what the guard did".to_string())
+        ]
+    );
     assert!(next(&["<Space>".to_string(), "g".to_string()], 't').iter().any(|r| r.0 == "e"));
     let help: Vec<&String> = rows().iter().map(|r| &r.1).collect();
     assert!(help.iter().any(|r| r.starts_with("<Space>ge") && r.contains("changes from HEAD")));
+    assert!(help.iter().any(|r| r.starts_with("<Space>gi") && r.contains("what the guard did")));
     // the window of the pause after `<Space>g`, in the tree and in the text
     let mut r = rig("d6-which", Skin::Depth);
     r.keys(" g");

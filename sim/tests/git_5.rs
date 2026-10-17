@@ -1,7 +1,7 @@
 //! GIT-5: the frame says what the guard did to the repository. What it turned off in the config (pure,
 //! then a real repository's status), then the screens: the words in the tree's top border (depth) or
 //! its header (flat), the lines of the boxes where git was not run, inverse and bold with no color,
-//! nothing on the frame in calm, and the status line's message once.
+//! nothing on the frame in calm, the status line's message once, and `<Space>gi`, which says it again.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
@@ -244,5 +244,53 @@ fn git_5_the_status_line_says_which_setting_once_and_is_safe_to_draw() {
     assert!(
         draw(&r.shot).contains("filter.a\u{fffd}[2Jb"),
         "a replacement char, not the control char"
+    );
+}
+
+#[test]
+fn git_5_space_g_i_says_again_why_git_is_off_or_which_settings_are_turned_off() {
+    // git was not run: the reason of the first message, with the key and the file
+    let mut r = shown("g5-gi-refused", Skin::Depth, false, REFUSED, (100, 14));
+    r.keys("j"); // (a key of the tree: the first message goes)
+    assert!(!r.status().contains("git skipped"), "the first message is gone: {}", r.status());
+    r.keys(" gi");
+    assert_eq!(r.status(), "git skipped: core.sshcommand in .git/config could run a command");
+    // settings turned off: all of them by name, in git's order
+    let mut r = shown("g5-gi-off", Skin::Depth, false, OFF, (120, 14));
+    r.keys("j");
+    r.keys(" gi");
+    assert_eq!(
+        r.status(),
+        "git: turned off the repository's core.fsmonitor, filter.wit, diff.external"
+    );
+    // nothing of the repository's config is turned off
+    let mut r = shown("g5-gi-clean", Skin::Depth, false, "", (100, 14));
+    r.keys(" gi");
+    assert_eq!(r.status(), "git: nothing of this repository's config is turned off");
+    // a directory that is no repository
+    let mut r = rig_env("g5-gi-none", &["a.rs"], &[], (100, 14), |_| {});
+    r.keys(" gi");
+    assert_eq!(r.status(), "git: no repository here");
+    // plain mode runs no program
+    let mut r = rig_env("g5-gi-plain", &["a.rs"], &["--plain", "a.rs"], (100, 14), |_| {});
+    r.keys(" gi");
+    assert_eq!(r.status(), "plain mode: no git");
+}
+
+#[test]
+fn git_5_the_names_that_space_g_i_says_come_from_the_config_and_are_made_safe_to_draw() {
+    let mut r = shown("g5-gi-hostile", Skin::Depth, false, "", (100, 14));
+    r.send(SimEvent::Status(Ok((vec![], String::new(), vec!["filter.a\u{1b}[2Jb".into()]))));
+    r.keys("j gi");
+    let all: String = r.shot.frame.rows.iter().map(|x| x.text.clone()).collect();
+    assert!(!all.contains('\u{1b}') && all.contains("filter.a\u{fffd}[2Jb"), "{all:?}");
+    // a very long list is cut to the line, not wrapped
+    let many: Vec<String> = (0..60).map(|i| format!("filter.name{i}")).collect();
+    r.send(SimEvent::Status(Ok((vec![], String::new(), many))));
+    r.keys("j gi");
+    assert!(
+        r.status().chars().count() <= 100 && r.status().starts_with("git: turned off"),
+        "{}",
+        r.status()
     );
 }

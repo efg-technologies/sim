@@ -22,6 +22,7 @@ use crate::layout::{
     self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin, Tick,
 };
 use crate::marks::{Git, Marks};
+use crate::md;
 use crate::paint::{Layer, LayerKind, Look, Paint, Role, Screen};
 use crate::pick;
 use crate::rank::History;
@@ -40,6 +41,7 @@ use sim_core::core::color::{Palette, Rgb, palette};
 use sim_core::core::vi::Mode;
 use sim_core::core::view::{self, Frame, Row, Shape};
 use sim_core::io::journal::Snapshot;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::mem::{replace, take};
 use std::path::{Path, PathBuf};
@@ -351,6 +353,10 @@ pub struct Sim {
     status: (Vec<u8>, String),
     /// GIT-5: the settings of the repository's that the guard turned off (git runs without them).
     off: Vec<String>,
+    /// GIT-5: why git was not run (the message of its first refusal), for `<Space>gi`.
+    why: Option<String>,
+    /// MD-10: the reference links of the Markdown file shown, for the file and the version of its text.
+    refs: RefCell<Option<(Id, u64, Arc<md::Refs>)>>,
     disk: HashSet<PathBuf>,
     marks: Marks,
     no_repo: bool,
@@ -687,6 +693,7 @@ impl Sim {
                     let (norepo, skip) =
                         (e.starts_with("not a git repository"), e.starts_with(GIT_SKIPPED));
                     self.no_repo |= norepo || skip;
+                    self.why = skip.then(|| e.clone()).or(self.why.take());
                     // Told once (MARK-1), not again at every opening of the panel
                     let told = skip && replace(&mut self.skipped, true);
                     if self.changes.take().is_some() {
@@ -981,6 +988,20 @@ impl Sim {
     fn note(&mut self, path: &Path, out: &mut Vec<SimEffect>) {
         self.history.record(&key_of(path), self.now);
         out.extend((!self.plain).then(|| SimEffect::History(self.history.clone())));
+    }
+
+    /// MD-10: the reference links of the file `b`, resolved over its text (looked through once for a
+    /// version of it).
+    fn refs_of(&self, b: &Buf) -> Arc<md::Refs> {
+        let (buf, ver) = (&b.app.buf, b.app.buf.version());
+        if let Some((id, v, r)) = &*self.refs.borrow()
+            && (*id, *v) == (b.id, ver)
+        {
+            return r.clone();
+        }
+        let r = Arc::new(md::Refs::new(buf.lines(), &|l| text_of(buf, l)));
+        *self.refs.borrow_mut() = Some((b.id, ver, r.clone()));
+        r
     }
 
     /// Gives an event to one file's App, and runs what it asks for. A change on disk or a save
@@ -1304,13 +1325,17 @@ impl Sim {
                 .selection()
                 .map_or(cl..cl + 1, |(s, e)| buf.line_of(s)..last(e).max(buf.line_of(s)) + 1)
         });
-        let colored = layout::colors(
+        // MD-10: a Markdown file's reference links are resolved over the document (once for a version)
+        let refs = || self.refs_of(b);
+        let md = is_markdown(b.app.path.as_deref());
+        let colored = layout::colors_with(
             f,
             digits(buf),
             &text,
             &spans,
             line_ui.as_ref().map(|f| f as &dyn Fn(usize) -> LineUi),
             read,
+            md.then_some(&refs as &dyn Fn() -> Arc<md::Refs>),
         );
         let win = colored.win;
         let (ver, h) = (buf.version(), usize::from(self.size.1));

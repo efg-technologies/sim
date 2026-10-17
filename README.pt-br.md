@@ -49,7 +49,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 - Quando outro processo reescreve o arquivo aberto, as linhas alteradas piscam por um instante e depois são marcadas no texto, a caixa indica quantas mudanças estão no disco, a aba mostra `↯` e a árvore marca o arquivo. `]c` e `[c` vão para a marca seguinte e para a anterior.
 - As mudanças em relação ao git HEAD aparecem como sinais na margem, uma letra de status para cada arquivo na árvore (uma pasta mostra a letra do status mais forte abaixo dela) e `+n ~n -n` na linha de status.
 - O git não é executado onde a configuração do próprio repositório poderia executar um comando (`core.fsmonitor`, um driver de filtro e mais): a caixa diz `git not run` sobre o bloco de alerta, e a linha de status indica a chave e o arquivo. Onde o git roda com configurações do próprio repositório desligadas (`core.fsmonitor`, o caminho dos hooks, filtros ou diff externo), a caixa diz quantas (`2 git settings off`).
-- Um link de Markdown cujo texto parece um endereço que o destino não é (`[https://good.example](https://evil.example)`) tem o destino sobre o bloco magenta, também na visão de leitura, que nunca esconde os colchetes nem a URL de um link.
+- Um link de Markdown cujo texto nomeia um endereço que o destino não é (`[https://good.example](https://evil.example)`, também um link de referência `[good.example][1]` cuja definição leva a outro lugar, um link em várias linhas ou com barra invertida ou entidade no destino) tem o destino, e numa referência também o texto, sobre o bloco magenta, na visão de leitura e também no calm; a visão de leitura nunca esconde os colchetes nem a URL de um link.
 
 **Recusa o que deve recusar e preserva o seu texto**
 
@@ -109,6 +109,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `<Space>bp` | escolher uma aba por letra |
 | `<Space>bc` | escolher uma aba para fechar |
 | `<Space>ge` | ver as mudanças em relação ao HEAD |
+| `<Space>gi` | o que a proteção fez com este repositório |
 | `<Space>um` | visualização de leitura de Markdown ligada ou desligada |
 | `F1` | ajuda |
 | `:help` | ajuda |

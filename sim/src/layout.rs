@@ -7,7 +7,9 @@ use crate::color::{Chg, Tones};
 use crate::diff::Sign;
 use crate::icons;
 use crate::marks::Git;
-use crate::md::{Plan, Read, Remap, deceptive_targets};
+use crate::md::{
+    Plan, Read, Refs, Remap, crosses, deceptive_across, deceptive_targets, ref_candidate,
+};
 use crate::paint::{Cue, Look, Looks, Paint, Paints, Role};
 use crate::syn::Spans;
 use crate::tabs::Tab;
@@ -17,6 +19,7 @@ use sim_core::core::color::Rgb;
 use sim_core::core::view::{Frame, Row, Style, shorten, width};
 use std::mem::take;
 use std::ops::Range;
+use std::sync::Arc;
 
 /// What the editor area shows while no file is open (TREE-1).
 const HELP: [&str; 5] =
@@ -980,6 +983,11 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         }
         if let (Some(t), Some(m)) = (t, extra) {
             extra_row(&mut line, m, t, gutter, ew);
+        } else if let Some(m) = extra {
+            // MD-10: calm has no paints, and the mark of a link that lies is a cue like a hidden char's
+            // (inverse, the Painter's, sealed): the look of the URL or the link under it is not drawn
+            line.looks.retain(|(r, _)| !m.lie.iter().any(|x| x.start < r.end && r.start < x.end));
+            line.row.spans.extend(m.lie.iter().map(|r| (r.clone(), Style::Hidden)));
         }
         // UI-5: the numbers as Neovim's `number` and `relativenumber` draw them: the cursor's line
         // is absolute, left-aligned, amber and bold; the others are the distance from it. In Insert
@@ -1423,6 +1431,20 @@ pub fn todo_badge(line: &str, spans: &Spans) -> Option<std::ops::Range<usize>> {
     None
 }
 
+/// MD-10: the lines of the paragraph around line `l`, as chars: up to three lines before it and two
+/// after, none blank (a link does not go over a blank line), and where `l` is among them.
+fn paragraph(text: &dyn Fn(usize) -> Option<String>, l: usize) -> (Vec<Vec<char>>, usize) {
+    let line = |k: Option<usize>| k.and_then(text).filter(|s| !s.trim().is_empty());
+    let before = (1..=3).map_while(|k| line(l.checked_sub(k)));
+    let mut lines: Vec<Vec<char>> = before.map(|s| s.chars().collect()).collect();
+    lines.reverse();
+    let at = lines.len();
+    lines.push(text(l).unwrap_or_default().chars().collect());
+    lines
+        .extend((1..=2).map_while(|k| line(Some(l + k))).map(|s| s.chars().collect::<Vec<char>>()));
+    (lines, at)
+}
+
 /// SYN-1: the looks of the rows of an editor frame. `digits` is the width of its line numbers,
 /// `text(l)` the buffer's line `l` and `spans(l)` the syntax spans of it, if they are known.
 /// The line of a row is read from its gutter, and a wrapped line goes on in the rows below it.
@@ -1434,6 +1456,20 @@ pub fn colors<'a>(
     spans: &dyn Fn(usize) -> Option<&'a Spans>,
     ui: Option<&dyn Fn(usize) -> LineUi>,
     read: Option<Range<usize>>,
+) -> Colored {
+    colors_with(f, digits, text, spans, ui, read, None)
+}
+
+/// `colors` for a Markdown file, which is given the reference links of the document (`refs`: asked for
+/// only where a line has something a reference could make lie, MD-10) and has the links that lie found.
+pub fn colors_with<'a>(
+    f: &Frame,
+    digits: usize,
+    text: &dyn Fn(usize) -> Option<String>,
+    spans: &dyn Fn(usize) -> Option<&'a Spans>,
+    ui: Option<&dyn Fn(usize) -> LineUi>,
+    read: Option<Range<usize>>,
+    refs: Option<&dyn Fn() -> Arc<Refs>>,
 ) -> Colored {
     let (gutter, mut win) = (digits + 2, None);
     // MD-1: the read view of the lines on screen, if it is on (`read`: the lines drawn as they are)
@@ -1480,7 +1516,20 @@ pub fn colors<'a>(
             plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s));
             (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
             // MD-10: the targets of the links of this line that say another place
-            lie = sp.filter(|_| ui.is_some()).map_or(vec![], |s| deceptive_targets(&cs, s));
+            lie = refs.map_or(vec![], |refs| {
+                let mut lie = deceptive_targets(&cs, sp.map_or(&[][..], |s| &s[..]));
+                let prev: Vec<char> =
+                    l.checked_sub(1).and_then(text).unwrap_or_default().chars().collect();
+                if crosses(&prev, &cs) {
+                    let (para, at) = paragraph(text, l);
+                    lie.extend(deceptive_across(&para, at));
+                }
+                if ref_candidate(&cs) {
+                    let refs = refs();
+                    lie.extend(refs.uses(&cs).into_iter().chain(refs.defs_on(l)));
+                }
+                lie
+            });
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
                 .filter(|_| ui.is_some())

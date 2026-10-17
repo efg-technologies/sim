@@ -5,6 +5,7 @@
 use super::panel::Out;
 use super::{Sim, SimEffect};
 use crate::keys;
+use crate::layout;
 use crate::tabs;
 use sim_core::core::app::{Event, Key};
 use sim_core::core::vi::Mode;
@@ -78,9 +79,27 @@ impl Sim {
             (Some(""), 'u') => self.leader = Some("u".into()),
             (Some("u"), 'm') => self.read_key(out),
             (Some("g"), 'e') => self.changes_key(out),
+            (Some("g"), 'i') => self.guard_key(),
             (Some("b"), 'p' | 'c') => self.tab_pick(c == 'c', out),
             _ => {}
         }
+    }
+
+    /// GIT-5: `<Space>gi` says again what the guard did: why git was not run (the message of its first
+    /// refusal, with the key and the file), or which settings of the repository's it turned off, by name.
+    /// The names come from the repository's config and are cut and made safe where they are drawn.
+    fn guard_key(&mut self) {
+        let tail = |k: &String| layout::tail(k, 30);
+        self.msg = Some(match (&self.why, self.off.is_empty()) {
+            _ if self.plain => "plain mode: no git".into(),
+            (Some(why), _) => why.clone(),
+            _ if self.no_repo => "git: no repository here".into(),
+            (None, false) => {
+                let names: Vec<String> = self.off.iter().map(tail).collect();
+                format!("git: turned off the repository's {}", names.join(", "))
+            }
+            (None, true) => "git: nothing of this repository's config is turned off".into(),
+        });
     }
 
     /// MD-5, MD-6: `<Space>um` turns the read view of Markdown on and off for every file, and the

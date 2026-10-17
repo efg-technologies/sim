@@ -186,11 +186,12 @@ fn motions(b: &mut Bench) -> Times {
 }
 
 /// MD-8: Markdown with what the read view works on: prose with markers, tables of Japanese and
-/// Latin cells, lists and rules, `lines` lines of it.
+/// Latin cells, lists, rules, and a reference link with its definition (MD-10) in each section, `lines`
+/// lines of it.
 fn md_text(lines: usize) -> String {
     let block = |i: usize| {
         format!(
-            "## Section {i}\n\nSome **bold** text, *emphasis*, `inline code` and a [link](https://example.com/{i}) in prose with 日本語 mixed in, long enough to wrap in a pane of eighty columns because prose does.\n\n| name | 説明 | n | note |\n|:--|:-:|--:|---|\n| alpha | **強い** | 1 | `a` |\n| beta | 普通 | 22 | _b_ |\n| gamma | ある | 333 | c |\n| 日本語 | x | 4444 | d |\n\n- item **one**\n- item `two`\n- [x] done\n\n---\n\n"
+            "## Section {i}\n\nSome **bold** text, *emphasis*, `inline code` and a [link](https://example.com/{i}) in prose with 日本語 mixed in, long enough to wrap in a pane of eighty columns because prose does.\n\n| name | 説明 | n | note |\n|:--|:-:|--:|---|\n| alpha | **強い** | 1 | `a` |\n| beta | 普通 | 22 | _b_ |\n| gamma | ある | 333 | c |\n| 日本語 | x | 4444 | d |\n\n- item **one**\n- item `two`\n- [x] done\n\nA reference to [docs.example.org][ref{i}] too.\n\n[ref{i}]: https://docs.example.org/{i}\n\n---\n\n"
         )
     };
     (0..).map(block).take(lines / 20 + 1).collect()
@@ -226,6 +227,17 @@ fn markdown(b: &mut Bench) -> Times {
     assert!(rows.iter().any(|r| r.text.contains('|') || r.text.contains('│')));
     assert!(rows.iter().filter(|r| r.text.contains("**")).count() <= 2, "the read view is on");
     t
+}
+
+/// MD-10: typing in the Markdown file with a definition and the use of an address on the screen: every key
+/// that changes the text looks through the first lines of the document for its reference links again.
+fn md_typing(b: &mut Bench) -> Times {
+    let mut out = vec![];
+    for s in 0..150 {
+        out.extend(b.time(&format!("Aword{s}<Esc>")));
+        b.time("3j");
+    }
+    out
 }
 
 fn inserts(b: &mut Bench) -> Times {
@@ -467,6 +479,20 @@ fn md_8_bench_a_key_in_a_markdown_file_with_tables_takes_under_1ms_at_p99() {
             );
             if p99.0 > P99 {
                 failed.push(format!("{skin:?} {}x{}: p99 {:?}", size.0, size.1, p99.0));
+            }
+            let mut typing = md_typing(&mut b);
+            typing.sort();
+            let (p50, p99) = (percentile(&typing, 50), percentile(&typing, 99));
+            eprintln!(
+                "MD-10 typing {skin:?} {}x{} keys {:5}  p50 {:>8.1?}  p99 {:>8.1?}",
+                size.0,
+                size.1,
+                typing.len(),
+                p50.0,
+                p99.0
+            );
+            if p99.0 > P99 {
+                failed.push(format!("typing {skin:?} {}x{}: p99 {:?}", size.0, size.1, p99.0));
             }
         }
     }

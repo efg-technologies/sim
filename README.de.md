@@ -49,7 +49,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 - Schreibt ein anderer Prozess die geöffnete Datei neu, blinken die geänderten Zeilen kurz auf und werden dann im Text markiert, der Rahmen nennt die Zahl der Änderungen auf dem Datenträger, der Tab zeigt `↯`, und der Dateibaum markiert die Datei. `]c` und `[c` springen zur nächsten und zur vorherigen Markierung.
 - Änderungen gegenüber git HEAD erscheinen als Markierungen in der Randspalte, als Statusbuchstabe für jede Datei im Dateibaum (ein Ordner zeigt den Buchstaben des stärksten Status darunter) und als `+n ~n -n` in der Statuszeile.
 - git wird nicht ausgeführt, wo die eigene Konfiguration des Repositorys einen Befehl ausführen könnte (`core.fsmonitor`, ein Filtertreiber und mehr): Der Rahmen sagt `git not run` auf dem Warnblock, und die Statuszeile nennt den Schlüssel und die Datei. Läuft git, nachdem eigene Einstellungen des Repositorys (`core.fsmonitor`, Hooks-Pfad, Filter, externes Diff) abgeschaltet wurden, nennt der Rahmen die Zahl (`2 git settings off`).
-- Ein Markdown-Link, dessen Text wie eine Adresse aussieht, die sein Ziel nicht ist (`[https://good.example](https://evil.example)`), zeigt sein Ziel auf dem magentafarbenen Block, auch in der Leseansicht, die von einem Link nie Klammern oder URL versteckt.
+- Ein Markdown-Link, dessen Text eine Adresse nennt, die sein Ziel nicht ist (`[https://good.example](https://evil.example)`, auch ein Referenz-Link `[good.example][1]`, dessen Definition woandershin zeigt, ein Link über mehrere Zeilen oder mit Backslash oder Entität im Ziel), zeigt sein Ziel, bei einer Referenz auch seinen Text, auf dem magentafarbenen Block, in der Leseansicht und auch im Calm-Look; die Leseansicht versteckt von einem Link nie Klammern oder URL.
 
 **Lehnt ab, was abzulehnen ist, und bewahrt Ihren Text**
 
@@ -109,6 +109,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 | `<Space>bp` | Tab per Buchstabe wählen |
 | `<Space>bc` | Tab zum Schließen wählen |
 | `<Space>ge` | Änderungen gegenüber HEAD anzeigen |
+| `<Space>gi` | was die Schutzschicht mit diesem Repository getan hat |
 | `<Space>um` | Markdown-Leseansicht an/aus |
 | `F1` | Hilfe |
 | `:help` | Hilfe |

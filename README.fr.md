@@ -49,7 +49,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 - Quand un autre processus réécrit le fichier ouvert, les lignes modifiées clignotent un instant puis sont signalées dans le texte, l’encadré indique combien de modifications sont sur le disque, l’onglet affiche `↯` et l’arborescence marque le fichier. `]c` et `[c` mènent à la marque suivante et à la précédente.
 - Les écarts avec git HEAD apparaissent sous forme de signes dans la marge, d’une lettre d’état pour chaque fichier de l’arborescence (un dossier affiche la lettre de l’état le plus fort en dessous de lui) et de `+n ~n -n` dans la ligne d’état.
 - git n’est pas exécuté là où la configuration du dépôt lui-même pourrait lancer une commande (`core.fsmonitor`, un pilote de filtre, et d’autres) : l’encadré affiche `git not run` sur le bloc d’alerte, et la ligne d’état indique la clé et le fichier. Là où git s’exécute avec des réglages du dépôt désactivés (`core.fsmonitor`, le chemin des hooks, des filtres ou un diff externe), l’encadré en donne le nombre (`2 git settings off`).
-- Un lien Markdown dont le texte ressemble à une adresse que sa cible n’est pas (`[https://good.example](https://evil.example)`) a sa cible sur le bloc magenta, y compris dans la vue de lecture, qui ne cache jamais les crochets ni l’URL d’un lien.
+- Un lien Markdown dont le texte nomme une adresse que sa cible n’est pas (`[https://good.example](https://evil.example)`, aussi un lien de référence `[good.example][1]` dont la définition mène ailleurs, un lien sur plusieurs lignes ou avec une barre oblique inverse ou une entité dans la cible) a sa cible, et pour une référence son texte, sur le bloc magenta, dans la vue de lecture et aussi en calm ; la vue de lecture ne cache jamais les crochets ni l’URL d’un lien.
 
 **Refuse ce qu’il doit refuser, conserve votre texte**
 
@@ -109,6 +109,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 | `<Space>bp` | choisir un onglet par une lettre |
 | `<Space>bc` | choisir un onglet à fermer |
 | `<Space>ge` | voir les changements par rapport à HEAD |
+| `<Space>gi` | ce que la garde a fait à ce dépôt |
 | `<Space>um` | vue de lecture Markdown activée ou désactivée |
 | `F1` | aide |
 | `:help` | aide |

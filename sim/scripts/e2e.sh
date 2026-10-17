@@ -2722,4 +2722,59 @@ ui_11_with_no_color_the_scrollbar_s_handle_is_a_rail_and_not_an_inverse_block() 
   screen | grep -F -q "║"
 }
 
+# MD-10: a reference link is judged by its definition: the use has its text and brackets marked, and the
+# definition its target; the backslash form that a browser reads as another host is marked; calm marks too.
+md_10_a_reference_link_and_a_backslash_target_that_lie_are_marked_in_every_look() {
+  printf 'Go to [good.example][1] now, or [good.example/docs][2].\n\nAlso [good.example](https://evil.example\\@good.example/) here.\n\n[1]: https://evil.example/login\n[2]: https://good.example/docs\n' > "$W/a.md"
+  markdown on
+  look depth
+  CT=truecolor
+  start a.md
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "evil.example/login"
+  tries=100
+  marked() { screen_esc | grep -a "$1" | grep -aq "48;2;[0-9;]*m$2"; }
+  while ! marked 'Go to' '\[good.example\]' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  marked 'Go to' '\[good.example\]' # the use of the reference that lies: its text, with its brackets
+  marked 'evil.example/login' 'https://evil.example/login' # its definition's target, where it is drawn
+  marked 'Also' 'https://evil.example' # the backslash form: a browser reads the host as evil.example
+  ! marked 'good.example/docs' 'https://good.example/docs' # one that says what it is, is not
+  ! marked 'Go to' '\[good.example/docs\]'
+  restart
+  # calm: the Painter's inverse, as for a hidden char
+  look calm
+  start a.md
+  wait_for "evil.example/login"
+  tries=100
+  rev() { screen_esc | grep -a "$1" | grep -aq "\[[0-9;]*7m[^[]*$2"; }
+  while ! rev 'evil.example/login' 'https://evil.example/login' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  rev 'evil.example/login' 'https://evil.example/login'
+  rev 'Go to' '\[good.example\]'
+}
+
+# GIT-5: the one-time message is gone after a key, and <Space>gi says it again.
+git_5_space_g_i_says_again_what_the_guard_did() {
+  gitproject
+  git -C "$W" config core.sshCommand cat
+  look depth
+  CT=truecolor
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "git skipped: core.sshcommand in .git/config could run a command"
+  typed j
+  wait_for "TREE"
+  gone "git skipped"
+  typed " gi"
+  wait_for "git skipped: core.sshcommand in .git/config could run a command"
+  restart
+  git -C "$W" config --unset core.sshCommand
+  git -C "$W" config core.fsmonitor /bin/false
+  git -C "$W" config filter.canary.clean cat
+  start
+  wait_for "git: turned off the repository's core.fsmonitor and 1 other"
+  typed j
+  typed " gi"
+  wait_for "git: turned off the repository's core.fsmonitor, filter.canary"
+}
+
 main "$@"

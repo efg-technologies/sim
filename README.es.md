@@ -49,7 +49,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 - Cuando otro proceso reescribe el archivo abierto, las líneas cambiadas destellan un instante y luego se marcan en el texto, el recuadro indica cuántos cambios hay en disco, la pestaña muestra `↯` y el árbol marca el archivo. `]c` y `[c` van a la marca siguiente y a la anterior.
 - Los cambios frente a git HEAD aparecen como signos en el margen, una letra de estado para cada archivo del árbol (una carpeta muestra la letra del estado más fuerte que hay debajo) y `+n ~n -n` en la línea de estado.
 - No se ejecuta git donde la propia configuración del repositorio podría ejecutar un comando (`core.fsmonitor`, un controlador de filtro y más): el recuadro dice `git not run` sobre el bloque de alerta y la línea de estado indica la clave y el archivo. Donde git sí se ejecuta con ajustes del propio repositorio desactivados (`core.fsmonitor`, la ruta de hooks, filtros o diff externo), el recuadro dice cuántos (`2 git settings off`).
-- Un enlace de Markdown cuyo texto parece una dirección que su destino no es (`[https://good.example](https://evil.example)`) tiene su destino sobre el bloque magenta, también en la vista de lectura, que nunca oculta los corchetes ni la URL de un enlace.
+- Un enlace de Markdown cuyo texto nombra una dirección que su destino no es (`[https://good.example](https://evil.example)`, también un enlace de referencia `[good.example][1]` cuya definición apunta a otro sitio, un enlace que ocupa varias líneas o que tiene una barra invertida o una entidad en el destino) tiene su destino, y en una referencia también su texto, sobre el bloque magenta, en la vista de lectura y también en calm; la vista de lectura nunca oculta los corchetes ni la URL de un enlace.
 
 **Rechaza lo que debe y conserva el texto**
 
@@ -109,6 +109,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 | `<Space>bp` | elegir una pestaña por letra |
 | `<Space>bc` | elegir una pestaña para cerrarla |
 | `<Space>ge` | ver los cambios respecto a HEAD |
+| `<Space>gi` | qué hizo la protección con este repositorio |
 | `<Space>um` | vista de lectura de Markdown activada/desactivada |
 | `F1` | ayuda |
 | `:help` | ayuda |
