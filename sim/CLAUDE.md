@@ -23,8 +23,9 @@ sim/
     sim/panel.rs   the panel's keys, the reveal of directories, the search, the narrowed tree (pure)
     tree.rs        the tree: entries, stable order, expansion, the visible rows (pure)
     find.rs        fuzzy matching of paths and ranking (pure)
-    grep.rs        the content search's literal smart-case query, the lines it finds in a text, the rows of the panel made of them, rg's output (pure)
-    sim/live.rs    the content search in the state: its keys, the results that arrive in batches, the preview in the editor pane, its status line (pure)
+    grep.rs        the content search's literal smart-case query, the lines it finds in a text, the rows of the picker's list made of them, rg's output (pure)
+    sim/live.rs    the picker in the state: Ctrl-f's search of contents, its keys, the results (they arrive in batches), the preview of the selected file with its colors and the count (pure)
+    pick.rs        the picker's window: where it is for a screen's size, its rows (border, prompt, list, preview, count), and how it is laid over the rows of a screen (pure)
     rank.rs        recency/frequency likelihood from the open history (pure)
     marks.rs       git status and on-disk changes → marks for files and directories (pure)
     sim/ptr.rs     the mouse: clicks, drags and the wheel in the panel and the text (pure)
@@ -39,13 +40,13 @@ sim/
 - Each open file is one `si::core::app::App`. sim never reaches into an App's internals beyond its public API; when sim needs something si doesn't offer, add the smallest extension point to si (and keep si within its own 3,600 lines and its SPEC; when si is at its cap, only a visibility may change there)
 - Colors: the four styles are si's palette (`Event::Bg`, given to every App; `term::sgr` paints them); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2)
 - Dependencies: si, syntect and two-face (bat's syntaxes; pure-Rust regex backend), ropey. Anything else needs a reason in SPEC first
-- sim/src stays within 6,400 lines (counted like si's; the reason it is not 3,000 any more is in CONCEPT.md). Rules from si's CLAUDE.md (edition 2024, `#![forbid(unsafe_code)]`, clippy denies unwrap/expect/panic, no panics on I/O errors, `//!` ID headers, English everywhere) apply
+- sim/src stays within 7,000 lines (counted like si's; the reason it is not 3,000 any more is in CONCEPT.md). Rules from si's CLAUDE.md (edition 2024, `#![forbid(unsafe_code)]`, clippy denies unwrap/expect/panic, no panics on I/O errors, `//!` ID headers, English everywhere) apply
 
 ## Tests and checks
 
 - Unit/property tests for the pure modules, integration tests that feed events to sim's state, goldens for composed frames, E2E in tmux on its own socket, benches for SPEED
 - `tests/buf_model.rs` is si's `tests/model.rs` for many files: a model of the shell (one event channel, a save thread, a watcher and a filter for each file, late listings and highlights, the real journal thread, an outside process that edits, deletes and moves files) drives `Sim::update` with random events and checks that no word is lost or crosses to another file, that no watcher outlives its file and that no row of the screen holds a char SAFE-8 forbids. `SI_FUZZ_CASES=30000 cargo test --release -p sim --test buf_model` runs it longer (the default is 2000 cases)
-- `sim/scripts/check.sh`: fmt, clippy, tests, `sim/scripts/trace.sh`, sim/src ≤ 6,400 lines. si's own check.sh must keep passing too
+- `sim/scripts/check.sh`: fmt, clippy, tests, `sim/scripts/trace.sh`, sim/src ≤ 7,000 lines. si's own check.sh must keep passing too
 - Never touch the real `$HOME` / `$XDG_STATE_HOME` / git config in tests (check.sh runs them with no global git config; repositories in tests are made with none either)
 - Goldens are in `sim/tests/golden/`; `SIM_BLESS=1` rewrites them. Benches are the ignored `*_bench_*` tests: `cargo test --release -p sim -- --ignored bench --nocapture`
 

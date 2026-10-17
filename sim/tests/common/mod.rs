@@ -434,6 +434,66 @@ impl Rig {
         rows
     }
 
+    /// PICK-1: where the picker's window is, if it is open and drawn.
+    pub fn win(&self) -> Option<sim::pick::Win> {
+        self.sim.pick_win()
+    }
+
+    /// The text of a rectangle of the screen (the body rows), one string for each of its rows.
+    pub fn rect(&self, r: sim::pick::Rect) -> Vec<String> {
+        let rows = self.cols(usize::from(r.x), usize::from(r.x) + usize::from(r.w));
+        rows[usize::from(r.y)..usize::from(r.y) + usize::from(r.h)].to_vec()
+    }
+
+    /// PICK-1: the rows of the picker's window, border and all.
+    pub fn float(&self) -> Vec<String> {
+        let Some(w) = self.win() else { return vec![] };
+        self.rect(sim::pick::Rect { x: w.x, y: w.y, w: w.w, h: w.h })
+    }
+
+    /// PICK-1: the query in the prompt (after the `❯ `).
+    pub fn query(&self) -> String {
+        let Some(w) = self.win() else { return String::new() };
+        let text = self.rect(w.prompt).pop().unwrap_or_default();
+        text.strip_prefix(" ❯ ").unwrap_or("").trim_end().to_string()
+    }
+
+    /// PICK-3: the rows of the list, the selected one starting with `▎`, without the blank ones
+    /// at the bottom.
+    pub fn list(&self) -> Vec<String> {
+        let Some(w) = self.win() else { return vec![] };
+        let mut rows = self.rect(w.list);
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    /// PICK-4: the rows of the preview, without the blank ones at the bottom.
+    pub fn pane(&self) -> Vec<String> {
+        let Some(w) = self.win() else { return vec![] };
+        let mut rows = self.rect(w.pane);
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    /// PICK-5: the text in the window's bottom border, between its corner and the first `─` run
+    /// (`3 / 12 ⠋`, with the blanks around it taken off).
+    pub fn count(&self) -> String {
+        let Some(b) = self.float().pop() else { return String::new() };
+        let inner = b.trim_start_matches(['╰', '─']);
+        inner.split('─').next().unwrap_or("").trim().to_string()
+    }
+
+    /// The row of the window's list that is underlined (calm marks the selection so), its index.
+    pub fn selected_in_float(&self) -> Option<usize> {
+        let w = self.win()?;
+        let rows = &self.screen.rows[usize::from(w.list.y)..usize::from(w.list.y + w.list.h)];
+        rows.iter().position(|r| !r.underline.is_empty())
+    }
+
     /// The row of the panel that is underlined (the cursor row while the panel has focus).
     pub fn selected(&self) -> Option<String> {
         let row = self.screen.rows.iter().find(|r| r.underline.iter().any(|u| u.start == 0))?;

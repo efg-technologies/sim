@@ -20,12 +20,13 @@ use crate::layout::{
 };
 use crate::marks::{Git, Marks};
 use crate::paint::{Looks, Paint, Screen};
+use crate::pick;
 use crate::rank::History;
 use crate::syn::Spans;
 use crate::tabs::{self, Tab};
 use crate::tree::{Entry, Row as TreeRow, Tree};
 use crossterm::event::MouseEvent;
-use live::Live;
+use live::{Live, Pick};
 use panel::Search;
 use ropey::Rope;
 use si::core::app::{App, Effect, Event, Key, Read};
@@ -45,6 +46,8 @@ use unicode_width::UnicodeWidthStr;
 
 /// UI-13: how long a yank is lit, as the author's `on_yank({ timeout = 150 })`.
 pub const FLASH_MS: u64 = 150;
+/// PICK-5: how long a frame of the spinner lasts.
+pub const SPIN_MS: u64 = 80;
 
 /// The text a yank took, lit (UI-13).
 struct Flash {
@@ -97,6 +100,8 @@ pub enum SimEvent {
     Diff(Id, Result<Vec<u8>, String>, usize),
     /// UI-13: the flash of a yank, the one with this number, is over.
     Unflash(u64),
+    /// PICK-5: the spinner of the search of this generation is to show its next frame.
+    Spin(u64),
 }
 
 /// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
@@ -151,6 +156,8 @@ pub enum SimEffect {
     Diff(DiffReq),
     /// UI-13: answer with `SimEvent::Unflash(n)` after `FLASH_MS` milliseconds.
     Flash(u64),
+    /// PICK-5: answer with `SimEvent::Spin(n)` after `SPIN_MS` milliseconds.
+    Spin(u64),
     /// LOOK-1: the look that was chosen, to remember.
     Look(Skin),
     /// UI-2: whether the icons are on, to remember.
@@ -448,7 +455,7 @@ impl Sim {
         self.fit();
         match ev {
             SimEvent::Term(Event::Key(k)) => self.key(k, &mut out),
-            SimEvent::Term(Event::Paste(s)) if !self.panel.focus => {
+            SimEvent::Term(Event::Paste(s)) if !self.panel.focus && self.panel.live.is_none() => {
                 self.to(self.id(), Event::Paste(s), &mut out)
             }
             SimEvent::Term(Event::Resize(w, h)) => self.size = (w.max(1), h.max(2)),
@@ -509,13 +516,13 @@ impl Sim {
                 self.syn.reply(&s);
                 self.retone();
             }
-            SimEvent::Spans(h) => {
-                if let Some(b) = self.bufs.iter_mut().find(|b| b.id == h.id) {
-                    b.hl = Some(h);
-                }
-            }
+            SimEvent::Spans(h) => match self.bufs.iter_mut().find(|b| b.id == h.id) {
+                Some(b) => b.hl = Some(h),
+                None => self.live_spans(h), // (the picker's preview, PICK-4)
+            },
             SimEvent::Grep(b) => self.live_batch(b, &mut out),
-            SimEvent::Preview(pv) => self.live_preview(pv),
+            SimEvent::Preview(pv) => self.live_preview(pv, &mut out),
+            SimEvent::Spin(n) => self.live_spin(n, &mut out),
             SimEvent::Unflash(n) => {
                 if self.flash.as_ref().is_some_and(|f| f.n == n) {
                     self.flash = None;
@@ -770,10 +777,11 @@ impl Sim {
     fn key(&mut self, k: Key, out: &mut Vec<SimEffect>) {
         self.msg = None;
         match k {
+            // PICK-2: while a picker is open every key is its own (Ctrl-n and Ctrl-p move in it)
+            _ if self.panel.live.is_some() => return self.live_key(k, out),
             Key::Ctrl('n') => return self.toggle(out),
             Key::Ctrl('p') => return self.find(out),
-            Key::Ctrl('f') => return self.live_start(out),
-            _ if self.panel.live.is_some() => return self.live_key(k, out),
+            Key::Ctrl('f') => return self.live_start(Pick::Grep, out),
             Key::Tab if self.idle() => return self.step(1),
             _ if self.panel.open && self.panel.focus => return self.panel_key(k, out),
             _ => {}
@@ -1048,15 +1056,11 @@ impl Sim {
     fn frame(&mut self, out: &mut Vec<SimEffect>) -> Screen {
         self.fit();
         self.scroll();
-        self.live_scroll();
+        self.live_prepare(out);
         let ((w, h), g) = (self.size, self.geo());
         let focus = self.panel.open && self.panel.focus;
-        let live = self.panel.live.is_some();
-        let rows = if g.pw > 0 && !live {
-            self.view().rows(self.panel.top, usize::from(g.rows))
-        } else {
-            vec![]
-        };
+        let rows =
+            if g.pw > 0 { self.view().rows(self.panel.top, usize::from(g.rows)) } else { vec![] };
         let root_str = self.root.to_string_lossy();
         let likely = if g.pw > 0 { self.history.top(&root_str, 5, self.now) } else { vec![] };
         let (ui, open) = (self.ui(), self.open_path());
@@ -1123,20 +1127,9 @@ impl Sim {
                 (cursor, shape) = ((cols.min(usize::from(w) - 1) as u16, h - 1), Shape::Bar);
             }
         }
-        if let Some((s, cols)) = self.live_status(room) {
-            status = s;
-            if self.panel.live.as_ref().is_some_and(|l| l.typing) {
-                (cursor, shape) = ((cols.min(usize::from(w) - 1) as u16, h - 1), Shape::Bar);
-            } else {
-                (cursor, shape) = (
-                    (g.px + 1.min(g.pw.saturating_sub(1)), g.y0 + self.live_cursor()),
-                    Shape::Block,
-                );
-            }
-        }
         let si_status = status.clone();
         status = layout::fit(&self.msg.clone().unwrap_or(status), room).0 + &pos;
-        let sel = focus.then(|| self.panel.cur - self.panel.top).filter(|_| !live);
+        let sel = focus.then(|| self.panel.cur - self.panel.top);
         let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
         if let (Some(i), false) = (sel, typing) {
             let col = at.as_ref().map_or(0, |r| layout::name_col(r.depth, ui));
@@ -1161,13 +1154,11 @@ impl Sim {
         let anchor = if focus { self.panel.cur } else { self.open_row().unwrap_or(self.panel.cur) };
         let fade = match (g.boxed, focus, sel) {
             (false, ..) => Fade::None,
-            (_, true, _) if live => Fade::Find(usize::from(self.live_cursor())),
             (_, true, Some(i)) if self.panel.search.is_some() => Fade::Find(i),
             _ => Fade::Near(anchor, self.panel.top),
         };
-        let pane = self.live_pane();
         self.refresh_hits();
-        let scroll = (ui && pane.is_none()).then(|| self.scrollbar(win)).flatten();
+        let scroll = ui.then(|| self.scrollbar(win)).flatten();
         let home_root = tilde(&self.root, self.home.as_deref());
         let tabs = self.tabs();
         let deck = Deck {
@@ -1175,7 +1166,6 @@ impl Sim {
             tones: tones.as_ref(),
             fade,
             gray: self.syn.sel().is_some(),
-            live: self.live_rows(g),
             app: self.bufs.get(self.cur).map(|b| &b.app),
             win,
             focus,
@@ -1183,9 +1173,8 @@ impl Sim {
             scroll: scroll.unwrap_or_default(),
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
-        let editor = match (&pane, cur) {
-            (Some((f, l)), _) => Some(Ed::new(f, l)),
-            (_, Some((b, f))) => Some(Ed {
+        let editor = match cur {
+            Some((b, f)) => Some(Ed {
                 digits: digits(&b.app.buf),
                 ch,
                 card,
@@ -1197,9 +1186,18 @@ impl Sim {
                 extra: &colored.extra,
                 ..Ed::new(f, &colored.looks)
             }),
-            _ => None,
+            None => None,
         };
         let (mut rows, mut looks, mut paints) = layout::body(&deck, &marked, sel, editor.as_ref());
+        // PICK-1: the picker is laid over the rows of the body, and has the terminal's cursor.
+        if let Some(win) = self.pick_win()
+            && let Some((lines, qcols)) = self.live_draw(&win, tones.as_ref())
+        {
+            let shadow = tones.as_ref().filter(|_| g.boxed);
+            pick::lay(&mut rows, &mut looks, &mut paints, w, &win, lines, shadow);
+            let at = qcols.min(usize::from(win.prompt.w).saturating_sub(5));
+            (cursor, shape) = ((win.prompt.x + 3 + at as u16, win.prompt.y), Shape::Bar);
+        }
         // UI-10: the bar, unless a message, the command line or a search has the row's text.
         let tree = focus.then(|| (at.as_ref().map(|r| r.path.display().to_string()), slash));
         let drawn =
@@ -1230,7 +1228,7 @@ impl Sim {
     /// and its slash while the panel has the focus.
     fn bar(&self, w: u16, si_status: &str, tree: Option<(&str, &str)>) -> Option<Line> {
         let t = self.tones.as_ref().filter(|_| self.ui())?;
-        if self.msg.is_some() || self.panel.search.is_some() || self.panel.live.is_some() {
+        if self.msg.is_some() || self.panel.search.is_some() {
             return None;
         }
         let marks = &self.marks;

@@ -1,9 +1,9 @@
-//! GREP-2, GREP-3, GREP-5
+//! GREP-2, GREP-3, GREP-5, PICK-3
 //! Searching the contents of files (pure): the literal smart-case query, the matching lines it
 //! finds in a text, the rows of the panel made of them, and the reading of ripgrep's output. The
 //! threads that run a search are in io.rs, the state of one search in sim/live.rs.
 use crate::find::fold;
-use crate::layout::{fit, stated};
+use crate::layout::{fit, short};
 use si::core::view::width;
 use std::cmp::Ordering;
 use std::ops::Range;
@@ -169,21 +169,15 @@ pub fn rank(a: (&str, f64), b: (&str, f64)) -> Ordering {
     b.1.total_cmp(&a.1).then_with(|| a.0.cmp(b.0))
 }
 
-/// A row of the panel: its text (at most as wide as the panel), the columns that are bold, the
-/// columns that are dimmed (a line number) and whether it is under the cursor.
+/// A row of the picker's list: its text (at most as wide as the list), the columns that are bold
+/// (the matches), the columns that are in the secondary gray (a path and a line number) and
+/// whether it is the selected one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PRow {
     pub text: String,
     pub bold: Vec<Range<u16>>,
-    pub dim: Range<u16>,
+    pub dim: Vec<Range<u16>>,
     pub sel: bool,
-}
-
-impl PRow {
-    /// GREP-3: a file: its path made to fit by `shorten`, and its count, which is never cut.
-    pub fn file(path: &str, count: usize, max: usize) -> PRow {
-        PRow { text: stated(path, &format!("  {count}"), max), ..PRow::default() }
-    }
 }
 
 /// The column each char starts in, and the end.
@@ -193,11 +187,13 @@ fn columns(cs: &[char]) -> Vec<usize> {
     v
 }
 
-/// GREP-3: a matching line as a row of `max` columns: ` {no}  {text}`. When the first match
-/// would be cut off by the width, the text starts at a `…` and `BEFORE` chars before it.
-pub fn row(l: &Line, max: usize) -> PRow {
-    let head = format!(" {}  ", l.no);
-    let room = max.saturating_sub(head.len());
+/// GREP-3: a matching line as a row of `max` columns: `{path}:{no}  {text}`, the path made to fit
+/// in two fifths of the row. When the first match would be cut off by the width, the text starts
+/// at a `…` and `BEFORE` chars before it.
+pub fn row(path: &str, l: &Line, max: usize) -> PRow {
+    let head = format!("{}:{}  ", short(path, (max * 2 / 5).max(1)), l.no);
+    let head_cols = fit(&head, usize::MAX).1;
+    let room = max.saturating_sub(head_cols);
     let mut cs: Vec<char> = fit(&l.text, usize::MAX).0.chars().collect();
     let (mut marks, cols) = (l.marks.clone(), columns(&cs));
     if let Some(m) = marks.first().filter(|m| cols[m.end.min(cs.len())] > room) {
@@ -210,12 +206,12 @@ pub fn row(l: &Line, max: usize) -> PRow {
     }
     let cols = columns(&cs);
     let kept = cols.iter().rposition(|&c| c <= room).unwrap_or(0);
-    let at = |i: usize| (head.len() + cols[i.min(kept)]).min(max) as u16;
+    let at = |i: usize| (head_cols + cols[i.min(kept)]).min(max) as u16;
     let bold = marks.iter().map(|r| at(r.start)..at(r.end)).filter(|r| r.start < r.end);
     PRow {
-        text: fit(&(head.clone() + &cs[..kept].iter().collect::<String>()), max).0,
+        text: fit(&(head + &cs[..kept].iter().collect::<String>()), max).0,
         bold: bold.collect(),
-        dim: 1..(head.len() - 2).min(max) as u16,
+        dim: std::iter::once(0..(head_cols - 2).min(max) as u16).collect(),
         sel: false,
     }
 }

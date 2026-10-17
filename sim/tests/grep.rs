@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::single_range_in_vec_init)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use sim::grep::{self, Batch, Group, Line, MAX_LINES, PRow, Query, Request, is_binary, parse_rg};
+use sim::grep::{self, Batch, Group, Line, MAX_LINES, Query, Request, is_binary, parse_rg};
 use sim::io;
 use sim::sim::SimEvent;
 use std::ffi::OsString;
@@ -128,58 +128,52 @@ fn grep_3_a_long_line_is_clipped_around_its_first_match() {
 }
 
 #[test]
-fn grep_3_a_row_is_the_number_and_the_text_cut_to_the_width() {
+fn grep_3_a_row_is_the_path_the_number_and_the_text_cut_to_the_width() {
     let l = q("needle").line(42, "    let needle = 1; // and some more text after it");
-    let r = grep::row(&l, 26);
-    assert_eq!(r.text, " 42  let needle = 1; // an");
-    assert_eq!(r.bold, [9..15]);
-    assert_eq!(r.dim, 1..3, "the number");
+    let r = grep::row("src/a.rs", &l, 40);
+    assert_eq!(r.text, "src/a.rs:42  let needle = 1; // and some");
+    assert_eq!(r.bold, [17..23]);
+    assert_eq!(r.dim, [0..11], "the path and the number");
     assert!(!r.sel);
-    let wide = grep::row(&l, 80);
-    assert_eq!(wide.text, " 42  let needle = 1; // and some more text after it");
+    let wide = grep::row("src/a.rs", &l, 80);
+    assert_eq!(wide.text, "src/a.rs:42  let needle = 1; // and some more text after it");
+    // a path takes at most two fifths of the row, made to fit
+    let r = grep::row("some/deeply/nested/directory/file.rs", &l, 40);
+    assert!(r.text.starts_with("…/file.rs:42  let"), "{}", r.text);
+    assert!(width(&r.text) <= 40);
 }
 
 #[test]
 fn grep_3_a_match_the_width_would_cut_off_is_brought_into_view_after_an_ellipsis() {
     let l = q("needle").line(5, "aaaa bbbb cccc dddd eeee ffff gggg needle hhhh");
-    let r = grep::row(&l, 26);
-    assert_eq!(r.text, " 5  …ggg needle hhhh", "4 chars before the match, after the ellipsis");
-    assert_eq!(r.bold, [9..15]);
+    let r = grep::row("a", &l, 26);
+    assert_eq!(r.text, "a:5  …ggg needle hhhh", "4 chars before the match, after the ellipsis");
+    assert_eq!(r.bold, [10..16]);
     // a match that starts in view but ends past the edge is cut there
-    let r = grep::row(&q("needle").line(5, "x needle needle"), 8);
-    assert_eq!(r.text, " 5  x ne");
-    assert_eq!(r.bold, [6..8]);
+    let r = grep::row("a", &q("needle").line(5, "x needle needle"), 12);
+    assert_eq!(r.text, "a:5  x needl");
+    assert_eq!(r.bold, [7..12]);
     // a match that starts past the edge brings the row to it
-    let r = grep::row(&q("needle").line(5, "0123456789 needle"), 12);
-    assert_eq!(r.text, " 5  …789 nee");
-    assert_eq!(r.bold, [9..12]);
+    let r = grep::row("a", &q("needle").line(5, "0123456789 needle"), 14);
+    assert_eq!(r.text, "a:5  …789 need");
+    assert_eq!(r.bold, [10..14]);
 }
 
 #[test]
 fn grep_3_wide_chars_are_counted_in_columns() {
     let l = q("語").line(3, "日本語のテキスト");
-    let r = grep::row(&l, 14);
-    assert_eq!(width(&r.text), 14, "{:?}", r.text);
-    assert_eq!(r.text, " 3  日本語のテ");
-    assert_eq!(r.bold, [8..10], "a wide char is two columns");
-}
-
-#[test]
-fn grep_3_the_file_row_keeps_its_count_and_shortens_the_path() {
-    assert_eq!(PRow::file("src/a.rs", 12, 26).text, "src/a.rs  12");
-    let r = PRow::file("some/deeply/nested/directory/file.rs", 3, 26);
-    assert!(r.text.ends_with("  3"), "{}", r.text);
-    assert!(r.text.starts_with("…/"), "{}", r.text);
-    assert!(width(&r.text) <= 26, "{}", r.text);
-    assert!(r.bold.is_empty() && r.dim.is_empty());
+    let r = grep::row("a", &l, 15);
+    assert_eq!(width(&r.text), 15, "{:?}", r.text);
+    assert_eq!(r.text, "a:3  日本語のテ");
+    assert_eq!(r.bold, [9..11], "a wide char is two columns");
 }
 
 #[test]
 fn grep_3_hostile_chars_in_a_row_are_replaced() {
     let l = q("x").line(1, "a\u{1b}[2Jx\u{202e}\u{7}");
-    let r = grep::row(&l, 40);
+    let r = grep::row("p", &l, 40);
     assert!(!r.text.chars().any(|c| c.is_control() || c == '\u{202e}'), "{:?}", r.text);
-    let r = PRow::file("dir\u{1b}[31m/x\n.rs", 1, 40);
+    let r = grep::row("dir\u{1b}[31m/x\n.rs", &l, 60);
     assert!(!r.text.chars().any(char::is_control), "{:?}", r.text);
 }
 

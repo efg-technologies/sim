@@ -4,7 +4,7 @@ Features we wanted but did not build yet.
 
 - Persistent undo across sessions (`undofile` in the author's nvim): needs a compact on-disk undo history per file; snapshots already cover crashes.
 - Reopen the last session's files when started in the same directory (persistence.nvim in the author's nvim).
-- The query of the search of contents edited in place (the cursor in the middle of it, `Ctrl-w`, `Ctrl-u`; it is typed at its end, as FIND-1's is), a click on a result (the mouse does nothing while it is on), syntax colors in its preview, and a preview of a file bigger than 2 MiB.
+- The query of the picker edited in place (the cursor in the middle of it; it is typed at its end, as FIND-1's is, with only `Ctrl-w` and `Ctrl-u` to edit it), a click on a result (the mouse does nothing while the picker is open), scrolling the preview, and a preview of a file bigger than 2 MiB.
 - Matches of a search shown in place with an underline (`hlsearch`), and trailing blanks made visible (`listchars` trail), both without a hue.
 - The characters of a search that matched, shown in the panel (bold or underlined in the file name): `Found::positions` has them already.
 - The terminal's own foreground (OSC 10) as the base of the selection's text, instead of a neutral gray.

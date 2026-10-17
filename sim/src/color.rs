@@ -302,6 +302,13 @@ impl Tones {
         (self.block(Accent::Blue), self.on(Accent::Blue))
     }
 
+    /// UI-14, PICK-4: the accent as a solid background, for the match the cursor is on and the
+    /// matched chars of a preview: its text color (|Lc| >= 75.5 against the card) and the text on it.
+    pub fn accent_solid(&self) -> (Rgb, Rgb) {
+        let solid = self.fg(Accent::Blue);
+        (solid, text_on(self.primary, solid))
+    }
+
     /// The Alert: magenta, likewise.
     pub fn alert_fg(&self) -> Rgb {
         self.fg(Accent::Purple)
@@ -316,6 +323,7 @@ impl Tones {
         use Role::{Accent as A, Alert, Change, Neutral};
         let (ab, ao) = self.accent_block();
         let (lb, lo) = self.alert_block();
+        let (sb, so) = self.accent_solid();
         vec![
             ("primary", Neutral, self.primary),
             ("secondary", Neutral, self.focus),
@@ -344,6 +352,8 @@ impl Tones {
             ("accent text", A, self.accent_fg()),
             ("accent block", A, ab),
             ("accent block text", A, ao),
+            ("accent solid", A, sb),
+            ("accent solid text", A, so),
             ("alert text", Alert, self.alert_fg()),
             ("alert block", Alert, lb),
             ("alert block text", Alert, lo),

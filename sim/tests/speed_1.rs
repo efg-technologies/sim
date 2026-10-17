@@ -84,6 +84,47 @@ impl Bench {
         let keys = common::keys(keys);
         keys.into_iter().map(|k| (self.one(SimEvent::Term(Event::Key(k))), k)).collect()
     }
+
+    /// The keys of the picker (PICK-2) with the shell played after each: what it asks for is done
+    /// off the clock (the search, the read of a preview, the highlighter) and what comes back is
+    /// an event of its own that is timed as a key is, since it is on the main thread too.
+    fn picked(&mut self, keys: &str) -> Times {
+        let mut out = vec![];
+        for k in common::keys(keys) {
+            let mut todo = vec![(SimEvent::Term(Event::Key(k)), k)];
+            while let Some((ev, label)) = todo.pop() {
+                let t = Instant::now();
+                let fx = self.r.sim.update(ev);
+                let mid = t.elapsed();
+                for e in &fx {
+                    if let SimEffect::Render(f) = e {
+                        self.term.draw(f.clone()).unwrap();
+                    }
+                }
+                let d = t.elapsed();
+                self.spent = (self.spent.0 + mid, self.spent.1 + d - mid);
+                self.term.out.clear();
+                out.push((d, label));
+                for e in fx {
+                    match e {
+                        SimEffect::Preview(path) => {
+                            todo.push((sim::io::preview(&self.r.sim.root, &path), label));
+                        }
+                        SimEffect::Highlight(req) => {
+                            todo.push((sim::io::Highlighter::default().run(req), label));
+                        }
+                        SimEffect::Grep(req) => {
+                            let mut batches = vec![];
+                            sim::io::grep(&req, None, &|| true, &mut |b| batches.push(b));
+                            todo.extend(batches.into_iter().map(|b| (SimEvent::Grep(b), label)));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        out
+    }
 }
 
 fn motions(b: &mut Bench) -> Times {
@@ -134,6 +175,17 @@ fn panel(b: &mut Bench) -> Times {
     let mut out = vec![];
     for _ in 0..100 {
         out.extend(b.time("jjjjjjjjjjllkkkkhhhhhhhh<C-d><C-u>G<Up>gg"));
+    }
+    out
+}
+
+/// PICK-1 to PICK-5: the picker open over the big file: Ctrl-f's search of contents typed into, moved in and
+/// cleared (over the 300 files and the big one), with the previews
+/// that come, their colors and the batches of results.
+fn picker(b: &mut Bench) -> Times {
+    let mut out = vec![];
+    for _ in 0..40 {
+        out.extend(b.picked("<C-f>fn<C-n><C-n><BS>f<C-p><C-u>let<C-n><Esc>"));
     }
     out
 }
@@ -217,13 +269,14 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     for skin in [Skin::Calm, Skin::Depth] {
         for size in [(80, 24), (240, 60)] {
             type Kind = fn(&mut Bench) -> Times;
-            let kinds: [(&str, Kind); 6] = [
+            let kinds: [(&str, Kind); 7] = [
                 ("motions", motions),
                 ("insert", inserts),
                 ("delete", deletes),
                 ("panel", panel),
                 ("mouse", mouse),
                 ("review", reviews),
+                ("picker", picker),
             ];
             for (name, run) in kinds {
                 // `SPEED_1_ONLY=review` runs the kinds named, for a look at one of them

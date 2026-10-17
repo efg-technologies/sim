@@ -1,4 +1,4 @@
-//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13
+//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13, PICK-5
 //! The event loop: several si Apps, the panel, the threads, running Effects. It is si's main.rs
 //! for many files: one save thread and one journal thread for all of them, a watcher and a
 //! filter for each, and every job and answer tagged with the id of its file. The file list, git's
@@ -186,6 +186,14 @@ fn main() -> ExitCode {
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(sim::sim::FLASH_MS));
                             drop(t.send(SimEvent::Unflash(n)));
+                        });
+                    }
+                    SimEffect::Spin(n) => {
+                        // PICK-5: a frame of the spinner; the state asks again while the search runs.
+                        let t = tx.clone();
+                        thread::spawn(move || {
+                            thread::sleep(Duration::from_millis(sim::sim::SPIN_MS));
+                            drop(t.send(SimEvent::Spin(n)));
                         });
                     }
                     SimEffect::Diff(req) => drop(diffs.send(req)),

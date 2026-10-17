@@ -832,43 +832,39 @@ fn look_6_a_row_of_a_change_does_not_fade_however_far_it_is_from_the_cursor() {
 }
 
 #[test]
-fn look_6_the_preview_of_a_search_is_drawn_in_the_editor_box_and_the_results_in_the_panels() {
+fn look_6_the_picker_floats_over_the_boxes_of_depth_and_the_rows_stay_whole() {
     let files = [
         "a.txt=alpha needle\nbeta\n",
         "sub/b.txt=gamma\nneedle again and Needle\n",
         "c.txt=nothing here\n",
     ];
     let mut r = looked("l6-live", Skin::Depth, &files, (100, 24));
+    let before: Vec<String> = (0..=22).map(|y| text(&r, y).to_string()).collect();
     r.keys("<C-f>needle");
-    let g = r.sim.geo();
-    assert_eq!(r.status(), "/needle  2 matches in 2 files");
-    // The boxes are whole, and the results are in the panel's: a file, its line, the next file.
+    let w = r.win().unwrap();
+    // Every row of the screen is as wide as the screen: the window replaces cells, it adds none.
     for y in 0..=22 {
         assert_eq!(width(text(&r, y)), 100, "row {y}: {}", text(&r, y));
     }
-    let panel = |y: usize| -> String {
-        text(&r, y).chars().skip(1).take(usize::from(g.pw)).collect::<String>().trim().to_string()
-    };
-    assert_eq!((panel(1).as_str(), panel(2).as_str()), ("a.txt  1", "1  alpha needle"));
-    assert_eq!(panel(3), "sub/b.txt  1");
-    assert!(text(&r, 1).contains("alpha needle") || text(&r, 2).contains("alpha needle"));
-    let preview = (1..=4).any(|y| {
-        text(&r, y).chars().skip(usize::from(g.ex)).collect::<String>().contains("alpha needle")
-    });
-    assert!(
-        preview,
-        "the file under the cursor is shown in the editor's box:\n{}",
-        dump(&r.shot.frame)
-    );
-    // While the query is typed the terminal's cursor is at its end, in the status line.
-    assert_eq!(r.shot.frame.cursor, (7, 23));
-    // The rows without a match fade by their distance from it, the lines with a match do not.
+    // The window is whole, with its shadow shifted by one cell, and the boxes beside it are as they were.
+    assert!(text(&r, usize::from(w.y)).chars().nth(usize::from(w.x)) == Some('╭'));
+    let boxes = |y: usize| -> String { text(&r, y).chars().take(usize::from(w.x)).collect() };
+    let inside = usize::from(w.y)..usize::from(w.y + w.h);
+    for (y, was) in before.iter().enumerate() {
+        if inside.contains(&y) {
+            assert_eq!(
+                boxes(y),
+                was.chars().take(usize::from(w.x)).collect::<String>(),
+                "row {y} beside it"
+            );
+        } else {
+            assert_eq!(text(&r, y), was, "row {y} above and below the window");
+        }
+    }
+    // The panel's rows are not faded by a search of contents: it is not the panel's search.
+    let g = r.sim.geo();
     let cols = g.px..g.px + g.pw;
-    let find = |d: usize| ((0.12 + d as f64 / 16.0 * 0.6).min(0.7) * 100.0).round() as u8;
-    assert_eq!(fade_over(&r, 1, cols.clone()), find(1));
-    assert_eq!(fade_over(&r, 3, cols.clone()), find(1));
-    assert_eq!(fade_over(&r, 2, cols.clone()), 0);
-    assert_eq!(fade_over(&r, 4, cols), 0);
+    assert!(fade_over(&r, 1, cols.clone()) < 60, "only the tree's own gradient");
 }
 
 // ---- LOOK-7: the panel recedes, and a search fades it ----

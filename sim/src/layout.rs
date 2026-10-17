@@ -4,7 +4,6 @@
 //! width.
 use crate::color::{Chg, Tones};
 use crate::diff::Sign;
-use crate::grep::PRow;
 use crate::icons;
 use crate::marks::Git;
 use crate::paint::{Look, Looks, Paint, Paints};
@@ -361,7 +360,7 @@ fn scroll_cell(c: ScrollCell, t: &Tones, plain: Line) -> Line {
 }
 
 /// The line number a row of an editor frame shows, if it starts a line.
-fn number(r: &Row, digits: usize) -> Option<usize> {
+pub(crate) fn number(r: &Row, digits: usize) -> Option<usize> {
     r.text.get(1..1 + digits)?.trim().parse().ok()
 }
 
@@ -471,15 +470,13 @@ impl<'a> Ed<'a> {
 
 /// What `body` needs to know about the look: the geometry, the tones (none when no tint, fog or
 /// color of a box can be drawn: calm, or no palette or truecolor), the fade of the panel, whether
-/// the Visual selection is a gray background (SYN-5), the rows of a content search that are the
-/// panel's (GREP-3), and for the borders of depth the App that has the file shown, the lines of it
+/// the Visual selection is a gray background (SYN-5), and for the borders of depth the App that has the file shown, the lines of it
 /// on screen and whether the panel has the focus.
 pub struct Deck<'a> {
     pub geo: Geo,
     pub tones: Option<&'a Tones>,
     pub fade: Fade,
     pub gray: bool,
-    pub live: Option<Vec<PRow>>,
     pub app: Option<&'a App>,
     pub win: Option<(usize, usize)>,
     pub focus: bool,
@@ -633,18 +630,6 @@ fn header_line(pw: u16, root: &str, icons: bool, t: &Tones) -> Line {
 /// UI-4: the first row of the editor: the tab bar (`tabs.rs`).
 fn tabs_line(ew: u16, c: &Chrome, t: &Tones) -> Line {
     crate::tabs::layout(&c.tabs, c.icons, c.cur, ew, Some(t)).0
-}
-
-fn live_line(pw: u16, p: Option<&PRow>) -> Line {
-    let mut l = Line::default();
-    if let Some(p) = p {
-        l.put(&p.text, Paint::default());
-        l.row.spans.extend((!p.dim.is_empty()).then(|| (p.dim.clone(), Style::Secondary)));
-        l.row.underline.extend(p.sel.then_some(0..l.cols));
-        l.looks.extend(p.bold.iter().map(|r| (r.clone(), Look::Bold)));
-    }
-    l.pad(pw);
-    l
 }
 
 /// The tint and the fade of a row of the panel (LOOK-2, LOOK-7): a changed file's row is tinted
@@ -881,7 +866,7 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
 /// A border row (LOOK-3): `ends` are its corners, `left` follows the first one and `right` comes
 /// before the last, with `─` between all of them, in `line`'s paint. `w` columns; what `left` has
 /// more than the room is cut.
-fn border(
+pub(crate) fn border(
     w: u16,
     ends: [char; 2],
     line: Paint,
@@ -1027,22 +1012,11 @@ pub fn body(
     }
     for (i, e) in editor(g, ed, d.gray, t).into_iter().enumerate() {
         let p = (g.pw > 0).then(|| {
-            let found = d.live.as_ref().map(|rows| rows.get(i));
-            let mut p = match (found, &d.chrome, t) {
-                (Some(row), ..) => live_line(g.pw, row),
-                (_, Some(c), Some(t)) => {
-                    chrome_line(g.pw, panel.get(i), sel == Some(i), t, c.icons)
-                }
+            let mut p = match (&d.chrome, t) {
+                (Some(c), Some(t)) => chrome_line(g.pw, panel.get(i), sel == Some(i), t, c.icons),
                 _ => panel_line(g.pw, panel.get(i), sel == Some(i), t),
             };
-            // (the rows of a search fade by their distance from the cursor, but the ones with a match)
-            let paint = match (found, d.fade, t) {
-                (Some(Some(r)), Fade::Find(c), Some(_)) if r.bold.is_empty() => {
-                    Some(Paint { fade: find_fog(i.abs_diff(c)), ..Paint::default() })
-                }
-                (Some(_), ..) => None,
-                _ => t.zip(panel.get(i)).map(|(t, (_, m))| panel_paint(i, m, d.fade, t)),
-            };
+            let paint = t.zip(panel.get(i)).map(|(t, (_, m))| panel_paint(i, m, d.fade, t));
             p.paints.extend(paint.filter(|p| *p != Paint::default()).map(|p| (0..g.pw, p)));
             p
         });

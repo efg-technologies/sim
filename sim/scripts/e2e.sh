@@ -832,18 +832,23 @@ grep_1_ctrl_f_searches_the_contents_as_you_type_and_esc_puts_everything_back() {
   gone "▸"
   keys C-f
   typed fn
-  wait_for "/fn  2 matches in 2 files"
-  screen | grep -F -q "src/lib.rs  1" # grouped by file, with the count
-  screen | grep -F -q " 1  fn lib() {}" # and the line, numbered
+  wait_for "Live grep"
+  wait_for "1 / 2" # the count
+  screen | grep -F -q "src/lib.rs:1  fn lib() {}" # path, line and text
   typed " m"
-  wait_for "/fn m  1 match in 1 file"
-  gone "src/lib.rs"
+  wait_for "1 / 1"
+  gone "src/lib.rs:1"
   keys BSpace BSpace
-  wait_for "/fn  2 matches in 2 files"
+  wait_for "1 / 2"
+  keys C-u # clears the query
+  wait_for "0 / 0"
+  gone "src/lib.rs:1"
+  typed fn
+  wait_for "1 / 2"
   keys Escape
   wait_for "src/main.rs  1:1  NORMAL"
+  gone "Live grep"
   gone "▸" # the panel was closed before, and is again
-  gone "matches"
   [ "$(cat "$W/src/main.rs")" = "fn main() {}" ] # nothing was written
 }
 
@@ -855,22 +860,22 @@ grep_1_ctrl_f_works_in_insert_mode_and_never_types() {
   wait_for INSERT
   keys C-f
   typed guide
-  wait_for "/guide  1 match in 1 file"
+  wait_for "1 / 1"
   keys Escape
   wait_for "src/main.rs  1:1  INSERT"
   gone modified
 }
 
-grep_3_the_matches_are_bold_and_the_line_numbers_dim() {
+grep_3_the_matches_are_bold_and_the_path_and_line_dim() {
   grepproject
   start
   wait_for "▸ src/"
   keys C-f
   typed needle
-  wait_for "/needle  2 matches in 2 files"
+  wait_for "1 / 2"
   wait_esc '1mneedle' # the match, bold
-  screen_esc | grep -q '\[2m1.*fn' # the line number is the secondary gray (faint)
-  ! screen_esc | grep -q '\[[34][0-7]m' # and no color is used
+  screen_esc | grep -q '\[2m.*big.txt:60' # the path and the line are the secondary gray (faint)
+  ! screen_esc | grep 'big.txt:60' | grep -q '\[[34][0-7]m' # and the list uses no color
 }
 
 grep_4_the_pane_previews_the_result_enter_opens_it_there_and_esc_puts_the_tree_back() {
@@ -879,25 +884,25 @@ grep_4_the_pane_previews_the_result_enter_opens_it_there_and_esc_puts_the_tree_b
   wait_for "▸ src/"
   keys C-f
   typed needle
-  wait_for "/needle  2 matches in 2 files"
+  wait_for "1 / 2"
   wait_for "the needle is here" # the preview of big.txt (the first result by path), in the pane
-  wait_for "  55 line 55" # centered: 11 lines above it
-  gone "  10 line 10"
+  wait_for " 57 line 57" # centered: three lines above it
+  gone " 10 line 10"
   keys Down
-  wait_for "/needle  2 matches in 2 files  src/lib.rs:1"
-  wait_for "   1 fn needle() {}" # the preview follows the cursor into the other file
-  gone "line 55"
+  wait_for "2 / 2" # (the selection moved)
+  wait_for "  1 fn needle() {}" # the preview follows the selection into the other file
+  gone "line 57"
   keys Up
-  wait_for "  55 line 55"
+  wait_for " 57 line 57"
   [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -v '^look$')" ] # not an open: no history yet (`look` is the seeded look)
   keys Enter
   wait_for "big.txt  60:5  NORMAL" # the line, and the column of the match
-  screen | grep -F -q "▸ src/" # the tree is back
-  gone "matches"
+  screen | grep -F -q "▸ src/" # the tree is as it was
+  gone "Live grep"
   keys Tab
   keys C-f
   typed other
-  wait_for "/other  1 match in 1 file"
+  wait_for "1 / 1"
   keys Enter
   wait_for "src/lib.rs  2:4  NORMAL"
   wait_for "▾ src/" # the tree shows where the file is
@@ -914,9 +919,10 @@ grep_4_esc_puts_back_the_file_the_position_and_the_tree() {
   wait_for "▾ docs/"
   keys C-f
   typed needle
-  wait_for "/needle  2 matches in 2 files"
+  wait_for "1 / 2"
   keys Escape
   wait_for "docs/  TREE" # the panel, as it was: the same row, the same expansion
+  gone "Live grep"
   screen | grep -F -q "▾ docs/"
   keys Escape
   wait_for "big.txt  6:1  NORMAL" # and the file, with the cursor where it was
@@ -933,13 +939,13 @@ grep_5_a_slow_search_never_blocks_a_key_and_a_new_query_stops_the_old_rg() {
   wait_for "src/main.rs  1:1  NORMAL"
   keys C-f
   typed f
-  wait_for "/f  searching…"
+  wait_for "0 / 0" # (and a spinner)
   tries=100
   until [ -s "$CASE_DIR/rg.pids" ] || [ "$tries" -le 0 ]; do sleep 0.05; tries=$((tries - 1)); done
   first=$(head -n 1 "$CASE_DIR/rg.pids")
   kill -0 "$first"
   typed n # the keys go on while rg sleeps; the new query kills the old process
-  wait_for "/fn  searching…"
+  wait_for "❯ fn"
   tries=100
   while kill -0 "$first" 2> /dev/null && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
   ! kill -0 "$first" 2> /dev/null
@@ -962,13 +968,13 @@ grep_5_without_rg_or_git_the_built_in_reader_searches_the_walk() {
   wait_for "▸ src/"
   keys C-f
   typed main
-  wait_for "/main  1 match in 1 file"
-  screen | grep -F -q "src/main.rs  1"
+  wait_for "1 / 1"
+  screen | grep -F -q "src/main.rs:1"
   keys Escape
   keys C-f
   typed needle
-  wait_for "/needle  1 match in 1 file"
-  screen | grep -F -q "skip.txt  1"
+  wait_for "1 / 1"
+  screen | grep -F -q "skip.txt:1"
 }
 
 mark_1_changed_files_have_the_change_color_and_their_directories_a_tilde() {
@@ -1731,6 +1737,83 @@ ui_13_a_yank_is_lit_for_a_moment() {
   tries=40
   while lit && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
   ! lit
+}
+
+pick_1_the_picker_floats_a_rounded_window_with_a_title_over_the_text() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  keys C-f
+  wait_for "Live grep"
+  screen | grep -F -q "╭─ Live grep ─" # a rounded border, titled
+  screen | grep -F -q "╰─ 0 / 0 " # and the count in the border below
+  screen | grep -F -q "❯" # the prompt
+  screen | head -n 1 | grep -F -q "fn main() {}" # the text above the window is as it was
+  screen | tail -n 1 | grep -F -q "src/main.rs  1:1  NORMAL" # and the status line
+  keys Escape
+  wait_for "src/main.rs  1:1  NORMAL"
+  gone "Live grep"
+}
+
+pick_2_the_keys_of_the_picker_move_clear_and_open() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  keys C-f
+  typed fn
+  wait_for "1 / 2"
+  keys C-n
+  wait_for "2 / 2"
+  keys C-p
+  wait_for "1 / 2"
+  keys C-n C-u
+  wait_for "0 / 0"
+  typed lib
+  wait_for "1 / 1"
+  keys Enter
+  wait_for "src/lib.rs  1:4  NORMAL  2/2" # at the column of the match
+  gone "Live grep"
+  [ "$(cat "$W/src/main.rs")" = "fn main() {}" ] # nothing was typed
+}
+
+pick_4_the_preview_has_the_syntax_colors_and_the_matching_line_is_lit() {
+  grepproject
+  look flat
+  CT=truecolor
+  start src/main.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "fn main() {}"
+  keys C-f
+  typed needle
+  wait_for "1 / 2"
+  wait_for "the needle is here"
+  # the pane's row of the matching line is on a background (the accent's block), and its match on another
+  wait_esc '48;2;[0-9;]*m  60 the '
+  keys Down
+  wait_for "2 / 2"
+  wait_for "   1 fn needle() {}"
+  # `fn` is a keyword: in the pane, once the highlighter has answered, an escape sequence follows
+  # the number's blank (plain text has none); the row has a border and no path
+  wait_esc "$(printf '   1 \033')"
+}
+
+pick_5_the_count_and_a_spinner_while_the_search_runs() {
+  project
+  mkdir -p "$CASE_DIR/bin"
+  printf '#!/bin/sh\nexec sleep 30\n' > "$CASE_DIR/bin/rg"
+  chmod +x "$CASE_DIR/bin/rg"
+  SIM_PATH="$CASE_DIR/bin:$PATH"
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  keys C-f
+  typed f
+  wait_for "0 / 0"
+  screen | grep -E -q '⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏' # the spinner turns
+  first=$(screen | grep -F '0 / 0')
+  sleep 0.3
+  [ "$(screen | grep -F '0 / 0')" != "$first" ] # and it has moved on
+  keys Escape
+  wait_for "src/main.rs  1:1  NORMAL"
 }
 
 main "$@"

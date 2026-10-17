@@ -74,7 +74,6 @@ impl Sim {
 
     /// TREE-2: Ctrl-n opens the panel and focuses it, or closes it when it has the focus.
     pub(super) fn toggle(&mut self, out: Out) {
-        self.live_end(false, out);
         if self.panel.open && self.panel.focus {
             self.end_search();
             (self.panel.open, self.panel.focus) = (false, false);
@@ -219,7 +218,6 @@ impl Sim {
 
     /// `/` in the panel and Ctrl-p anywhere (FIND-4): the panel opens, and a search starts.
     pub(super) fn find(&mut self, out: Out) {
-        self.live_end(false, out);
         self.end_search();
         self.focus = None;
         if !self.panel.open {

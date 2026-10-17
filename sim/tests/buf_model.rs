@@ -411,6 +411,7 @@ impl W {
                     SimEffect::Look(_)
                     | SimEffect::Icons(_)
                     | SimEffect::Diff(_)
+                    | SimEffect::Spin(_)
                     | SimEffect::Flash(_) => {}
                     SimEffect::Files => self.files_req = true,
                     SimEffect::Status => self.status_req = true,
@@ -418,8 +419,9 @@ impl W {
                         let _ = self.jobs.as_ref().map(|j| j.send(Job::History(h)));
                     }
                     SimEffect::Highlight(req) => {
+                        // (the picker's preview has an id of its own, PICK-4: the picker is open)
                         assert!(
-                            self.sim.bufs.iter().any(|b| b.id == req.id),
+                            self.sim.bufs.iter().any(|b| b.id == req.id) || self.sim.picker_open(),
                             "a highlight was asked for a file that is not open: {}",
                             req.id
                         );
