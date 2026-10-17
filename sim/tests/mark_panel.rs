@@ -149,7 +149,7 @@ fn mark_1_git_is_asked_at_the_start_and_when_the_panel_opens_and_not_where_there
     assert_eq!(count(&key(&mut sim, Key::Ctrl('n'))), 1, "when the panel opens");
     assert_eq!(count(&key(&mut sim, Key::Ctrl('n'))), 0, "closing it asks nothing");
     sim.update(SimEvent::Status(Err("not a git repository: /x".into())));
-    assert_eq!(count(&key(&mut sim, Key::Ctrl('p'))), 1, "the panel opening again looks again");
+    assert_eq!(count(&key(&mut sim, Key::Ctrl('n'))), 1, "the panel opening again looks again");
     assert_eq!(count(&key(&mut sim, Key::Ctrl('n'))), 0);
     sim.update(SimEvent::Status(Err("not a git repository: /x".into())));
     let fx = sim.update(SimEvent::App(0, Event::Saved(Ok((1, None)), 1)));
@@ -387,9 +387,7 @@ fn mark_3_the_narrowed_tree_follows_what_is_opened_and_what_changes() {
     let mut r = task_rig("m3-follow");
     r.keys(".");
     assert_eq!(r.panel().len(), 5);
-    r.keys("<C-p>Cargo\n"); // a search ends the narrowing, and opens a file
-    assert!(r.panel().contains(&"• Cargo.toml".to_string()));
-    r.keys("<C-n>.");
+    r.keys("<C-p>Cargo\n"); // the picker opens a file and leaves the narrowing as it is
     assert!(
         r.panel().contains(&"• Cargo.toml".to_string()),
         "the file just opened is in it: {:?}",
@@ -397,7 +395,7 @@ fn mark_3_the_narrowed_tree_follows_what_is_opened_and_what_changes() {
     );
     assert_eq!(r.panel().len(), 6);
     std::fs::write(r.cwd.join("README.md"), "changed\n").unwrap();
-    r.keys("<C-n><C-n>");
+    r.keys("<C-n>");
     assert!(r.panel().contains(&"  README.md".to_string()), "a change that git reports comes in");
 }
 

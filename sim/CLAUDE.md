@@ -24,7 +24,7 @@ sim/
     tree.rs        the tree: entries, stable order, expansion, the visible rows (pure)
     find.rs        fuzzy matching of paths and ranking (pure)
     grep.rs        the content search's literal smart-case query, the lines it finds in a text, the rows of the picker's list made of them, rg's output (pure)
-    sim/live.rs    the picker in the state: Ctrl-f's search of contents, its keys, the results (they arrive in batches), the preview of the selected file with its colors and the count (pure)
+    sim/live.rs    the picker in the state: Ctrl-f's search of contents and Ctrl-p's finder of files, their keys, the results (a search's arrive in batches), the preview of the selected file with its colors and the count (pure)
     pick.rs        the picker's window: where it is for a screen's size, its rows (border, prompt, list, preview, count), and how it is laid over the rows of a screen (pure)
     rank.rs        recency/frequency likelihood from the open history (pure)
     marks.rs       git status and on-disk changes → marks for files and directories (pure)

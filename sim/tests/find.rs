@@ -185,6 +185,42 @@ fn find_2_likelihood_breaks_ties_and_nothing_else() {
     assert!(Query::new("x.rs").search(&paths(&["nope"])).best(&list, &[]).is_none());
 }
 
+#[test]
+fn find_2_the_list_of_the_best_is_the_order_the_best_one_at_a_time_gives() {
+    // The picker's list (PICK-3) is `ranked`: the same order as taking the best, then the best of
+    // the rest, and so on, cut at `n`.
+    let list = paths(&[
+        "a/x.rs",
+        "b/x.rs",
+        "c/x.rs",
+        "src/core/review.rs",
+        "tests/review.rs",
+        "x.rs",
+        "z/q/xx.rs",
+        "lib/xs.rs",
+        "x_r_s",
+    ]);
+    let lik = |p: &str| match p {
+        "c/x.rs" => 2.0,
+        "b/x.rs" => 1.0,
+        "src/core/review.rs" => 0.5,
+        _ => 0.0,
+    };
+    for query in ["x.rs", "rs", "x", "review", "e"] {
+        let found = Query::new(query).search(&list);
+        let liked: Vec<(usize, f64)> =
+            (0..list.len()).map(|i| (i, lik(&list[i]))).filter(|l| l.1 > 0.0).collect();
+        let want = ranked_by(query, &list, lik);
+        for n in [1, 3, 100] {
+            let got: Vec<&str> =
+                found.ranked(&list, &liked, n).iter().map(|h| list[h.index].as_str()).collect();
+            assert_eq!(got, want[..want.len().min(n)], "{query} {n}");
+        }
+        assert_eq!(found.ranked(&list, &[], 100).len(), found.hits.len());
+    }
+    assert!(Query::new("").search(&list).ranked(&list, &[], 10).is_empty());
+}
+
 proptest! {
     #[test]
     fn find_1_matches_are_exactly_the_subsequences(

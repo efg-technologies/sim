@@ -145,7 +145,7 @@ fn find_1_enter_opens_the_best_match_at_once_and_the_tree_shows_where_it_is() {
     );
     assert!(lit(&r).iter().all(|l| l.starts_with(' ')), "and the search is over");
     // With nothing found Enter does nothing, and the query can be edited.
-    r.keys("<C-p>zzzz\n");
+    r.keys("<C-n>/zzzz\n");
     assert_eq!(r.open_files(), ["src/ui/panel.rs"]);
     assert_eq!(r.status(), "/zzzz  no match");
     r.keys("<BS><BS><BS><BS>");
@@ -332,7 +332,11 @@ fn find_3_the_list_is_asked_at_the_start_and_when_the_panel_opens_and_never_twic
     r.keys("<C-n>");
     assert_eq!(r.jobs.iter().filter(|j| **j == "files").count(), 2, "when the panel opens");
     r.keys("<C-n><C-p>");
-    assert_eq!(r.jobs.iter().filter(|j| **j == "files").count(), 3, "and Ctrl-p opens it too");
+    assert_eq!(
+        r.jobs.iter().filter(|j| **j == "files").count(),
+        3,
+        "and so does the picker's (Ctrl-p)"
+    );
 }
 
 #[test]
@@ -426,7 +430,7 @@ fn find_3_a_list_is_sorted_and_has_no_duplicates_whatever_git_says() {
 }
 
 #[test]
-fn find_4_ctrl_p_opens_the_panel_and_starts_the_search_from_anywhere() {
+fn find_4_ctrl_p_opens_the_picker_from_anywhere_and_never_reaches_the_text() {
     for (name, keys) in
         [("normal", ""), ("insert", "i"), ("cmdline", ":ab"), ("visual", "v"), ("pending", "d")]
     {
@@ -434,25 +438,31 @@ fn find_4_ctrl_p_opens_the_panel_and_starts_the_search_from_anywhere() {
         assert!(!r.sim.panel.open);
         r.keys(keys);
         r.keys("<C-p>z");
-        assert!(r.sim.panel.open && r.sim.panel.focus, "{name}");
-        assert_eq!(r.status(), "/z  1 match", "{name}");
-        assert_eq!(r.selected().as_deref(), Some("    z.txt"), "{name}");
+        assert!(r.sim.picker_open(), "{name}");
+        assert!(!r.sim.panel.open, "{name}: the panel is not the picker's");
+        assert_eq!(r.list(), ["▎y/z.txt"], "{name}");
+        assert_eq!(r.query(), "z", "{name}");
         assert_eq!(r.text(), "hi", "{name}: the key never reached the text");
     }
 }
 
 #[test]
-fn find_4_ctrl_p_with_the_panel_open_and_unfocused_focuses_it_and_a_second_one_starts_over() {
+fn find_4_ctrl_p_leaves_the_panel_as_it_is_and_the_tree_search_is_the_panel_s() {
     let mut r = rig("f4-open", &["x.txt", "y/z.txt"], &["x.txt"]);
     r.keys("<C-n><Esc>");
     assert!(r.sim.panel.open && !r.sim.panel.focus);
     r.keys("<C-p>z");
-    assert!(r.sim.panel.focus);
+    assert!(r.sim.panel.open && !r.sim.panel.focus, "unfocused as it was");
+    assert_eq!(r.list(), ["▎y/z.txt"]);
+    r.keys("<Esc>");
+    assert!(!r.sim.picker_open());
+    // `/` in the panel is FIND-1's search, with its status line
+    r.keys("<C-n>/z");
     assert_eq!(r.status(), "/z  1 match");
-    r.keys("<C-p>");
-    assert_eq!(r.status(), "/", "a new search");
-    r.keys("x\n");
-    assert_eq!(r.open_files(), ["x.txt"]);
+    r.keys("<C-p>x");
+    assert_eq!(r.query(), "x", "the picker opens over the search of the tree");
+    r.keys("<Esc>");
+    assert_eq!(r.status(), "/z  1 match", "and the search is as it was");
 }
 
 #[test]
@@ -462,7 +472,7 @@ fn find_4_ctrl_p_then_enter_is_a_quick_open_in_three_steps() {
     assert_eq!(r.open_files(), ["a.txt", "dir/target.rs"]);
     assert_eq!(r.sim.cur, 1);
     assert_eq!(r.status(), "dir/target.rs  1:1  NORMAL  2/2");
-    assert!(!r.sim.panel.focus);
+    assert!(!r.sim.panel.focus && !r.sim.panel.open);
 }
 
 #[test]

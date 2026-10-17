@@ -215,3 +215,27 @@ pub fn row(path: &str, l: &Line, max: usize) -> PRow {
         sel: false,
     }
 }
+
+/// FIND-4: a file as a row of `max` columns: its path made to fit, the directories in the
+/// secondary gray and the chars FIND-2 matched (`marks`, char ranges of the whole path) bold. When
+/// the path was shortened the marks are found again in what is left of it, the end it shares with
+/// the path.
+pub fn file_row(path: &str, marks: &[Range<usize>], max: usize) -> PRow {
+    let shown = short(path, max);
+    let (all, cs): (Vec<char>, Vec<char>) =
+        (fit(path, usize::MAX).0.chars().collect(), shown.chars().collect());
+    let common = all.iter().rev().zip(cs.iter().rev()).take_while(|(a, b)| a == b).count();
+    let (cut, gap) = (all.len() - common, cs.len() - common);
+    let cols = columns(&cs);
+    let at = |i: usize| cols[i.min(cs.len())] as u16;
+    let kept = marks.iter().filter(|r| r.end > cut);
+    let mut bold: Vec<Range<u16>> = vec![];
+    for r in kept.map(|r| at(r.start.max(cut) - cut + gap)..at(r.end - cut + gap)) {
+        match bold.last_mut() {
+            Some(b) if b.end >= r.start => b.end = b.end.max(r.end), // (chars that touch are one run)
+            _ => bold.push(r),
+        }
+    }
+    let dir = cs.iter().rposition(|&c| c == '/').map_or(0, |i| i + 1);
+    PRow { text: shown, bold, dim: (dir > 0).then(|| 0..at(dir)).into_iter().collect(), sel: false }
+}

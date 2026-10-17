@@ -780,7 +780,7 @@ impl Sim {
             // PICK-2: while a picker is open every key is its own (Ctrl-n and Ctrl-p move in it)
             _ if self.panel.live.is_some() => return self.live_key(k, out),
             Key::Ctrl('n') => return self.toggle(out),
-            Key::Ctrl('p') => return self.find(out),
+            Key::Ctrl('p') => return self.live_start(Pick::Files, out),
             Key::Ctrl('f') => return self.live_start(Pick::Grep, out),
             Key::Tab if self.idle() => return self.step(1),
             _ if self.panel.open && self.panel.focus => return self.panel_key(k, out),

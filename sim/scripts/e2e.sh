@@ -785,17 +785,21 @@ find_3_outside_git_the_files_come_from_a_walk() {
   wait_for "/hidden  no match"
 }
 
-find_4_ctrl_p_from_a_file_opens_the_panel_and_starts_the_search() {
+find_4_ctrl_p_from_a_file_opens_the_picker_and_enter_opens_the_file() {
   project
   start src/main.rs
   wait_for "src/main.rs  1:1  NORMAL"
   gone "▸"
   keys C-p
   typed lib
-  wait_for "/lib  1 match"
-  screen | grep -F -q "▸ docs/"
+  wait_for "Find files"
+  wait_for "1 / 1" # the count
+  screen | grep -F -q "▎src/lib.rs" # the selected result
+  wait_for "fn lib() {}" # and its preview
+  gone "▸" # the panel was closed before, and still is
   keys Enter
   wait_for "src/lib.rs  1:1  NORMAL  2/2"
+  gone "Find files"
 }
 
 find_4_ctrl_p_works_in_insert_mode_and_never_types() {
@@ -806,11 +810,10 @@ find_4_ctrl_p_works_in_insert_mode_and_never_types() {
   wait_for INSERT
   keys C-p
   typed guide
-  wait_for "/guide  1 match"
-  keys Escape # ends the search
-  wait_for "docs/  TREE"
-  keys Escape # gives the focus back (tmux would send two at once as Alt-Esc)
+  wait_for "1 / 1"
+  keys Escape # one key closes the picker
   wait_for "src/main.rs  1:1  INSERT" # still inserting, and nothing was typed
+  gone "Find files"
   gone modified
 }
 
@@ -1753,26 +1756,31 @@ pick_1_the_picker_floats_a_rounded_window_with_a_title_over_the_text() {
   keys Escape
   wait_for "src/main.rs  1:1  NORMAL"
   gone "Live grep"
+  keys C-p
+  wait_for "Find files"
+  screen | grep -F -q "╭─ Find files ─"
 }
 
 pick_2_the_keys_of_the_picker_move_clear_and_open() {
   project
   start src/main.rs
   wait_for "src/main.rs  1:1  NORMAL"
-  keys C-f
-  typed fn
-  wait_for "1 / 2"
-  keys C-n
-  wait_for "2 / 2"
   keys C-p
-  wait_for "1 / 2"
-  keys C-n C-u
-  wait_for "0 / 0"
+  wait_for "1 / 4" # the files the history likes first, then the rest
   typed lib
   wait_for "1 / 1"
-  keys Enter
-  wait_for "src/lib.rs  1:4  NORMAL  2/2" # at the column of the match
-  gone "Live grep"
+  keys C-u
+  wait_for "1 / 4"
+  keys C-n C-n
+  wait_for "3 / 4"
+  keys C-p
+  wait_for "2 / 4"
+  keys Down Up Up
+  wait_for "1 / 4"
+  keys C-n
+  keys Enter # the second file by the history, then the list: README.md
+  wait_for "README.md  1:1  NORMAL  2/2"
+  gone "Find files"
   [ "$(cat "$W/src/main.rs")" = "fn main() {}" ] # nothing was typed
 }
 

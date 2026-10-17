@@ -169,11 +169,29 @@ fn grep_3_wide_chars_are_counted_in_columns() {
 }
 
 #[test]
+fn grep_3_a_file_row_has_the_directories_secondary_and_the_matched_chars_bold() {
+    let r = grep::file_row("src/sim.rs", &[4..7], 30);
+    assert_eq!(r.text, "src/sim.rs");
+    assert_eq!((r.bold, r.dim), (vec![4..7], vec![0..4]));
+    // shortened, the matches are found again in what is left of the path
+    let r = grep::file_row("some/deeply/nested/directory/file.rs", &[29..33], 20);
+    assert_eq!(r.text, "…/directory/file.rs");
+    assert_eq!((r.bold, r.dim), (vec![12..16], vec![0..12]));
+    // a match in the part that was cut off is not drawn
+    let r = grep::file_row("some/deeply/nested/directory/file.rs", &[0..2, 29..30], 20);
+    assert_eq!(r.bold, [12..13]);
+    // a name with nothing above it has no directory
+    assert_eq!(grep::file_row("README.md", &[], 30).dim, Vec::<std::ops::Range<u16>>::new());
+}
+
+#[test]
 fn grep_3_hostile_chars_in_a_row_are_replaced() {
     let l = q("x").line(1, "a\u{1b}[2Jx\u{202e}\u{7}");
     let r = grep::row("p", &l, 40);
     assert!(!r.text.chars().any(|c| c.is_control() || c == '\u{202e}'), "{:?}", r.text);
     let r = grep::row("dir\u{1b}[31m/x\n.rs", &l, 60);
+    assert!(!r.text.chars().any(char::is_control), "{:?}", r.text);
+    let r = grep::file_row("dir\u{1b}[31m/x\n.rs", &[], 40);
     assert!(!r.text.chars().any(char::is_control), "{:?}", r.text);
 }
 

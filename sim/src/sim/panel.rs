@@ -1,4 +1,4 @@
-//! TREE-2, TREE-4, TREE-5, FIND-1, FIND-2, FIND-4, MARK-3
+//! TREE-2, TREE-4, TREE-5, FIND-1, FIND-2, MARK-3
 //! The panel's side of sim's state (pure): its keys, the directories it reveals as their listings
 //! arrive, the search that lights up matches, and the narrowed tree.
 use super::{Sim, SimEffect};
@@ -216,7 +216,7 @@ impl Sim {
 
     // ---- FIND-1, FIND-4: the search ----
 
-    /// `/` in the panel and Ctrl-p anywhere (FIND-4): the panel opens, and a search starts.
+    /// `/` in the panel (FIND-1): a search starts.
     pub(super) fn find(&mut self, out: Out) {
         self.end_search();
         self.focus = None;

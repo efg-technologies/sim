@@ -1,11 +1,12 @@
-//! GREP-1, GREP-3, GREP-4, GREP-6, PICK-2, PICK-3, PICK-4, PICK-5
-//! The picker in sim's state (pure): Ctrl-f's search of file contents,
+//! GREP-1, GREP-3, GREP-4, GREP-6, FIND-4, PICK-2, PICK-3, PICK-4, PICK-5
+//! The picker in sim's state (pure): Ctrl-f's search of file contents and Ctrl-p's file finder,
 //! their keys, the results (the content search's arrive in batches), the selection, the preview of
 //! the selected file, and what the window shows. The panel and the files are not touched: Esc
 //! closes the picker and everything is as it was.
 use super::panel::Out;
 use super::{Hl, Id, MAX_HL, Pv, Req, Sim, SimEffect, text_of};
 use crate::color::Tones;
+use crate::find::Query as Fuzzy;
 use crate::grep::{self, Batch, Group, Line, PRow, Query, Request};
 use crate::layout::{self, Line as Cells};
 use crate::paint::{Look, Looks};
@@ -17,14 +18,19 @@ use std::collections::HashMap;
 use std::mem::take;
 use std::path::PathBuf;
 
-/// Which picker it is: Ctrl-f's search of contents.
+/// FIND-4: the most files the finder lists.
+const MAX_FILES: usize = 1000;
+
+/// Which picker it is: Ctrl-f's search of contents, or Ctrl-p's finder of files.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Pick {
     #[default]
     Grep,
+    Files,
 }
 
-/// A picker.
+/// A picker. In the file finder a result is a file with one line, number 0, whose marks are the
+/// chars of its path that the query matched.
 #[derive(Default)]
 pub(super) struct Live {
     kind: Pick,
@@ -35,6 +41,8 @@ pub(super) struct Live {
     fresh: bool,
     done: bool,
     capped: bool,
+    /// How many files matched (the finder lists at most `MAX_FILES` of them).
+    total: usize,
     /// The result under the selection, counted over all the results, and whether a key has moved it
     /// (else it stays on the first result as more arrive).
     cur: usize,
@@ -105,7 +113,10 @@ impl Live {
         let all = self.groups.iter().flat_map(|g| g.lines.iter().map(move |l| (g, l)));
         let row = |(i, (g, l)): (usize, (&Group, &Line))| PRow {
             sel: i == self.cur,
-            ..grep::row(&g.path, l, max)
+            ..match self.kind {
+                Pick::Grep => grep::row(&g.path, l, max),
+                Pick::Files => grep::file_row(&g.path, &l.marks, max),
+            }
         };
         all.enumerate().skip(from).take(n).map(row).collect()
     }
@@ -133,7 +144,8 @@ impl Sim {
         self.panel.live.is_some()
     }
 
-    /// GREP-1: Ctrl-f. The picker opens with an empty query and the list of files is read again.
+    /// GREP-1, FIND-4: Ctrl-f and Ctrl-p. The picker opens with an empty query (one that is open
+    /// becomes this one) and the list of files is read again.
     pub(super) fn live_start(&mut self, kind: Pick, out: Out) {
         self.live_end(out);
         out.push(SimEffect::Files);
@@ -151,10 +163,11 @@ impl Sim {
         out.extend(l.preview.map(|p| SimEffect::Close(p.id)));
     }
 
-    /// GREP-5: asks for the search of the query again (a key, or a new list of files).
+    /// GREP-5, FIND-4: asks for the search of the query again (a key, or a new list of files).
     pub(super) fn live_run(&mut self, out: Out) {
         match self.panel.live.as_ref().map(|l| l.kind) {
             Some(Pick::Grep) => self.grep_run(out),
+            Some(Pick::Files) => self.files_run(),
             None => {}
         }
         self.live_sync(out);
@@ -169,12 +182,45 @@ impl Sim {
         self.live_gen += 1;
         (l.generation, l.likely) = (self.live_gen, top.into_iter().collect());
         if l.query.is_empty() {
-            (l.groups, l.cur, l.moved) = (vec![], 0, false);
+            (l.groups, l.cur, l.moved, l.total) = (vec![], 0, false, 0);
         }
         (l.fresh, l.done, l.capped) = (!l.query.is_empty(), l.query.is_empty(), false);
         let (root, query, files) = (self.root.clone(), l.query.clone(), self.files.clone());
         out.push(SimEffect::Grep(Request { generation: l.generation, root, query, first, files }));
         out.extend(l.running().then_some(SimEffect::Spin(l.generation)));
+    }
+
+    /// FIND-4: the files that match, best first (FIND-2's order), or the ones the history likes
+    /// while the query is empty. It runs in the key: a pass over the list (FIND-3).
+    fn files_run(&mut self) {
+        let Some(l) = self.panel.live.as_mut() else { return };
+        let history = self.history.top(&self.root.to_string_lossy(), usize::MAX, self.now);
+        let place = |(p, lk): &(String, f64)| Some((self.files.binary_search(p).ok()?, *lk));
+        let liked: Vec<(usize, f64)> = history.iter().filter_map(place).collect();
+        let was = l.pick().map(|(g, _)| g.path.clone()).filter(|_| l.moved);
+        let file = |i: usize, marks: Vec<std::ops::Range<usize>>| Group {
+            path: self.files[i].clone(),
+            lines: vec![Line { no: 0, col: 0, text: String::new(), marks }],
+        };
+        if l.query.is_empty() {
+            let mut first = liked.clone();
+            first.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            let taken: std::collections::HashSet<usize> = first.iter().map(|x| x.0).collect();
+            let rest = (0..self.files.len()).filter(|i| !taken.contains(i));
+            let all = first.iter().map(|x| x.0).chain(rest.take(MAX_FILES));
+            l.groups = all.take(MAX_FILES).map(|i| file(i, vec![])).collect();
+            l.total = self.files.len();
+        } else {
+            let found = Fuzzy::new(&l.query).search(&self.files);
+            let best = found.ranked(&self.files, &liked, MAX_FILES);
+            let marks =
+                |h: &crate::find::Hit| found.positions(h).iter().map(|&p| p..p + 1).collect();
+            l.groups = best.iter().map(|h| file(h.index, marks(h))).collect();
+            l.total = found.hits.len();
+        }
+        (l.fresh, l.done, l.capped) = (false, true, false);
+        l.moved = was.is_some();
+        l.cur = was.and_then(|p| l.index_of(&p, 0)).unwrap_or(0);
     }
 
     /// GREP-3, GREP-5: a batch of whole files. Those of an older search are dropped. Each file goes
@@ -195,6 +241,7 @@ impl Sim {
             l.groups.insert(at, g);
         }
         (l.done, l.capped) = (b.done, b.capped);
+        l.total = l.lines();
         l.cur = was.and_then(|(p, no)| l.index_of(&p, no)).unwrap_or(l.cur);
         self.live_sync(out);
     }
@@ -262,6 +309,7 @@ impl Sim {
             Key::Ctrl('w') => return self.live_edit(word, out),
             Key::Esc => return self.live_end(out),
             Key::Enter => return self.live_open(out),
+            Key::Ctrl('f') if l.kind == Pick::Files => return self.live_start(Pick::Grep, out),
             Key::Down | Key::Ctrl('n' | 'j') => cur + 1,
             Key::Up | Key::Ctrl('p' | 'k') => cur.saturating_sub(1),
             Key::PageDown => cur + page,
@@ -280,7 +328,7 @@ impl Sim {
         self.live_run(out);
     }
 
-    /// GREP-4: Enter. The picker closes, the file is shown in the tree as the tree's Enter
+    /// GREP-4, FIND-4: Enter. The picker closes, the file is shown in the tree as the tree's Enter
     /// shows it, and opened as `file:line:col` does, at the line and the column of the match.
     fn live_open(&mut self, out: Out) {
         let Some(l) = self.panel.live.as_ref().filter(|l| !l.fresh) else { return };
@@ -325,7 +373,7 @@ impl Sim {
         if win.pane.h == 0 {
             return; // (a window with no room for a preview: si renders no pane of no rows)
         }
-        let query = l.query.clone();
+        let (kind, query) = (l.kind, l.query.clone());
         let Some(p) = l.preview.as_mut().filter(|p| p.path == path) else { return };
         let (line, ph) = (no.saturating_sub(1), usize::from(win.pane.h));
         let (lines, ver) = (p.app.buf.lines(), p.app.buf.version());
@@ -362,10 +410,10 @@ impl Sim {
         let spans = |l: usize| hl.and_then(|h| h.spans.get(l.checked_sub(h.from)?));
         let looks = layout::colors(&frame, digits, &text, &spans, None).looks;
         let lit = Query::new(&query)
-            .filter(|_| no > 0)
+            .filter(|_| kind == Pick::Grep && no > 0)
             .and_then(|q| lit_of(&frame, digits, &text, line, &q));
         let title = layout::short(
-            &format!("{path}:{no}"),
+            &if kind == Pick::Grep { format!("{path}:{no}") } else { path },
             usize::from(win.pane.w).saturating_sub(4).max(1),
         );
         p.shown = Some(Shown { key, title, frame, looks, lit });
@@ -376,7 +424,10 @@ impl Sim {
         let l = self.panel.live.as_ref()?;
         let rows =
             l.rows(l.top, usize::from(win.list.h), usize::from(win.list.w).saturating_sub(1));
-        let (n, plus) = (l.lines(), if l.capped { "+" } else { "" });
+        let (n, plus) = match l.kind {
+            Pick::Grep => (l.lines(), if l.capped { "+" } else { "" }),
+            Pick::Files => (l.total, ""),
+        };
         let shown = if n == 0 { 0 } else { l.cur + 1 };
         let pane = l.preview.as_ref().and_then(|p| {
             let s = p.shown.as_ref()?;
@@ -384,7 +435,7 @@ impl Sim {
             Some(Pane { title: s.title.clone(), frame, looks, lit, note: p.note.as_deref() })
         });
         let view = View {
-            title: "Live grep",
+            title: if l.kind == Pick::Grep { "Live grep" } else { "Find files" },
             query: &l.query,
             rows: &rows,
             none: l.done && !l.fresh && l.lines() == 0 && !l.query.is_empty(),

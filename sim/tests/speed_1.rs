@@ -179,12 +179,13 @@ fn panel(b: &mut Bench) -> Times {
     out
 }
 
-/// PICK-1 to PICK-5: the picker open over the big file: Ctrl-f's search of contents typed into, moved in and
-/// cleared (over the 300 files and the big one), with the previews
+/// PICK-1 to PICK-5: the picker open over the big file: Ctrl-p's finder typed into, moved in and
+/// cleared, and Ctrl-f's search of contents (over the 300 files and the big one), with the previews
 /// that come, their colors and the batches of results.
 fn picker(b: &mut Bench) -> Times {
     let mut out = vec![];
     for _ in 0..40 {
+        out.extend(b.picked("<C-p>file1<C-n><C-n><C-p><C-n>2<BS><BS><C-u>dir3/fi<C-n><Esc>"));
         out.extend(b.picked("<C-f>fn<C-n><C-n><BS>f<C-p><C-u>let<C-n><Esc>"));
     }
     out

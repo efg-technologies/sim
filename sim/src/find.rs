@@ -1,4 +1,4 @@
-//! FIND-1, FIND-2
+//! FIND-1, FIND-2, FIND-4
 //! Fuzzy matching of a query against relative paths (pure): the score, the matched chars, the
 //! directories leading to matches, and the ranking.
 //!
@@ -161,5 +161,33 @@ impl Found {
         };
         let tied = || self.hits.iter().filter(|h| h.score == top);
         likeliest.max_by(by).map(|(_, h)| h).or_else(|| tied().min_by(|a, b| shorter(a, b)))
+    }
+
+    /// FIND-4: the best `n` hits, best first, in the order that taking `best` again and again gives:
+    /// the higher score, then the higher likelihood, then the shorter path, then the smaller. A
+    /// pass finds the `n` (`select_nth`) and only they are sorted, so a key costs the pass.
+    pub fn ranked(&self, paths: &[String], liked: &[(usize, f64)], n: usize) -> Vec<&Hit> {
+        let mut like = vec![0.0; if liked.is_empty() { 0 } else { self.hits.len() }];
+        for &(i, l) in liked {
+            if let Ok(at) = self.hits.binary_search_by_key(&i, |h| h.index) {
+                like[at] = l;
+            }
+        }
+        let lk = |at: usize| like.get(at).copied().unwrap_or(0.0);
+        let cmp = |&a: &usize, &b: &usize| {
+            let (ha, hb) = (&self.hits[a], &self.hits[b]);
+            let (pa, pb) = (&paths[ha.index], &paths[hb.index]);
+            hb.score
+                .cmp(&ha.score)
+                .then_with(|| lk(b).total_cmp(&lk(a)))
+                .then_with(|| pa.len().cmp(&pb.len()).then_with(|| pa.cmp(pb)))
+        };
+        let mut order: Vec<usize> = (0..self.hits.len()).collect();
+        if n < order.len() {
+            order.select_nth_unstable_by(n, cmp);
+            order.truncate(n);
+        }
+        order.sort_by(cmp);
+        order.into_iter().map(|at| &self.hits[at]).collect()
     }
 }

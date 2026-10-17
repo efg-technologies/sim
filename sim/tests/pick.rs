@@ -179,7 +179,7 @@ fn cell(r: &Rig, y: u16, x: u16) -> Paint {
 }
 
 #[test]
-fn pick_1_ctrl_f_opens_a_window_with_a_rounded_border_and_a_title() {
+fn pick_1_ctrl_f_and_ctrl_p_open_a_window_with_a_rounded_border_and_a_title() {
     let mut r = pick_rig("p1-open", Skin::Flat, (130, 40));
     assert!(r.float().is_empty(), "no window before");
     r.keys("<C-f>");
@@ -192,6 +192,8 @@ fn pick_1_ctrl_f_opens_a_window_with_a_rounded_border_and_a_title() {
     assert!(f[30].starts_with("╰─") && f[30].ends_with("─╯") && f[30].contains('┴'), "{}", f[30]);
     assert!(f[1].starts_with("│ ❯ "), "the prompt: {}", f[1]);
     assert!(f[2].starts_with('├') && f[2].contains('┤'), "the rule under it: {}", f[2]);
+    r.keys("<Esc><C-p>");
+    assert!(r.float()[0].starts_with("╭─ Find files ─"), "{}", r.float()[0]);
     assert_eq!(r.screen.shape, Shape::Bar, "the cursor is at the end of the query");
     assert_eq!(r.screen.cursor, (13 + 1 + 3, 4 + 1));
     r.keys("ab");
@@ -381,7 +383,7 @@ fn pick_2_esc_and_backspace_on_an_empty_query_close_it_and_everything_is_as_befo
     );
     assert_eq!(after, before);
     assert_eq!(r.jobs.iter().filter(|j| **j == "history").count(), saved, "no history");
-    r.keys("<C-f>x<BS><BS>");
+    r.keys("<C-p>x<BS><BS>");
     assert!(!r.sim.picker_open(), "Backspace on an empty query closes the picker");
     assert_eq!(r.sim.panel.cur, before.2);
 }
@@ -401,11 +403,24 @@ fn pick_2_tab_the_mouse_and_other_keys_do_nothing_while_it_is_open() {
 }
 
 #[test]
+fn pick_2_ctrl_f_in_the_file_finder_starts_the_search_of_contents_and_ctrl_p_in_it_is_up() {
+    let mut r = pick_rig("p2-switch", Skin::Flat, (120, 40));
+    r.keys("<C-p>txt");
+    assert!(r.float()[0].contains("Find files"));
+    r.keys("<C-f>");
+    assert!(r.float()[0].contains("Live grep") && r.query().is_empty());
+    r.keys("needle<C-p>");
+    assert!(r.float()[0].contains("Live grep"), "Ctrl-p moves up in a search of contents");
+}
+
+#[test]
 fn pick_2_enter_closes_it_and_opens_the_result() {
     let mut r = pick_rig("p2-enter", Skin::Flat, (120, 40));
-    r.keys("<C-f>again<CR>");
+    r.keys("<C-p>c.t<CR>");
     assert!(!r.sim.picker_open());
+    assert_eq!(r.app().path.as_deref(), Some("c.txt"));
     assert!(!r.sim.panel.open, "the panel stays as it was: closed");
+    r.keys("<C-f>again<CR>");
     assert_eq!(r.app().path.as_deref(), Some("sub/b.txt"));
     assert_eq!(r.app().buf.line_of(r.app().buf.cursor), 1, "at the line of the match");
 }
@@ -470,6 +485,37 @@ fn pick_3_the_selected_row_has_the_accent_s_block_and_a_bar_and_calm_underlines_
 }
 
 #[test]
+fn pick_3_the_file_finder_lists_the_best_first_with_the_directories_secondary() {
+    let mut r = pick_rig("p3-files", Skin::Flat, (130, 40));
+    r.keys("<C-p>txt");
+    assert_eq!(
+        r.list(),
+        ["▎a.txt", " c.txt", " sub/b.txt"],
+        "a.txt is open, so likelier; then the shorter path"
+    );
+    let w = r.win().unwrap();
+    let (x, y) = (w.list.x, w.list.y);
+    assert!(sec_at(&r, y + 2, x + 1..x + 5), "the directory `sub/` is secondary");
+    assert!(!sec_at(&r, y + 2, x + 5..x + 10), "the name is not");
+    assert!(bold_at(&r, y + 2, x + 7..x + 10), "`txt` of b.txt is bold");
+    assert!(!bold_at(&r, y + 2, x + 5..x + 6));
+    r.keys("<C-u>c.t");
+    assert_eq!(r.list(), ["▎c.txt"]);
+}
+
+#[test]
+fn pick_3_an_empty_query_lists_the_files_the_history_likes_then_the_rest_in_order() {
+    let mut r = pick_rig("p3-empty", Skin::Flat, (130, 40));
+    r.keys("<C-p>");
+    assert_eq!(
+        r.list(),
+        ["▎a.txt", " c.txt", " src/lib.rs", " src/main.rs", " sub/b.txt"],
+        "a.txt is the one that was opened"
+    );
+    assert_eq!(r.count(), "1 / 5");
+}
+
+#[test]
 fn pick_3_no_matches_is_said_where_the_list_would_be_but_not_for_an_empty_query() {
     let mut r = pick_rig("p3-none", Skin::Flat, (130, 40));
     r.keys("<C-f>");
@@ -479,6 +525,52 @@ fn pick_3_no_matches_is_said_where_the_list_would_be_but_not_for_an_empty_query(
     let w = r.win().unwrap();
     assert!(sec_at(&r, w.list.y, w.list.x + 1..w.list.x + 11));
     assert_eq!(r.count(), "0 / 0");
+    r.keys("<C-u><C-p>zzzz");
+    assert_eq!(r.list(), [" no matches"]);
+}
+
+#[test]
+fn pick_3_the_list_scrolls_to_keep_the_selected_row_in_view() {
+    let files: Vec<String> = (0..40).map(|i| format!("f{i:02}.txt=x{i}\n")).collect();
+    let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+    let mut r = rig_env("p3-scroll", &refs, &["f00.txt"], (130, 20), |e| {
+        e.skin = Skin::Flat;
+        e.syn = Syntax::new(true);
+    });
+    r.send(SimEvent::Term(Event::Bg(BG)));
+    r.keys("<C-p>f");
+    let rows = usize::from(r.win().unwrap().list.h);
+    assert_eq!(rows, 11);
+    for n in 1..=25 {
+        r.keys("<C-n>");
+        let list = r.list();
+        let at =
+            list.iter().position(|l| l.starts_with('▎')).unwrap_or_else(|| panic!("{n}: {list:?}"));
+        assert!(at < rows);
+        assert_eq!(list[at], format!("▎f{n:02}.txt"), "the selected row is the n-th");
+    }
+    r.keys("<C-p><C-p>");
+    let list = r.list();
+    assert!(list.iter().any(|l| l == "▎f23.txt"), "{list:?}");
+    for _ in 0..30 {
+        r.keys("<C-p>");
+    }
+    assert_eq!(r.list()[0], "▎f00.txt", "back at the top the list begins at its first row");
+}
+
+#[test]
+fn pick_3_a_thousand_rows_are_listed_and_the_count_says_how_many_matched() {
+    let files: Vec<String> = (0..1200).map(|i| format!("d/f{i:04}.txt=x\n")).collect();
+    let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+    let mut r = rig_env("p3-many", &refs, &["d/f0000.txt"], (130, 40), |e| {
+        e.skin = Skin::Flat;
+        e.syn = Syntax::new(true);
+    });
+    r.send(SimEvent::Term(Event::Bg(BG)));
+    r.keys("<C-p>f");
+    assert_eq!(r.count(), "1 / 1,200");
+    r.keys(&"<PageDown>".repeat(100));
+    assert_eq!(r.count(), "1,000 / 1,200", "the thousand best are listed");
 }
 
 // ---- PICK-4: the preview ----
@@ -536,6 +628,21 @@ fn pick_4_the_matching_line_is_on_the_accent_s_block_and_its_match_on_the_solid_
     assert_eq!(cell(&r, y, x + 4).bg, Some(solid));
     assert_eq!(cell(&r, y, x + 5).bg, Some(back));
     assert_ne!(cell(&r, y - 1, x).bg, Some(back), "not the line above");
+    // the file finder has no matching line to light
+    r.keys("<Esc><C-p>long");
+    let y = w.pane.y;
+    assert_ne!(cell(&r, y + 5, w.pane.x + 10).bg, Some(back));
+}
+
+#[test]
+fn pick_4_the_file_finder_previews_the_first_lines_of_a_file() {
+    let mut r = long_rig("p4-head", Skin::Flat);
+    r.keys("<C-p>long");
+    let pane = r.pane();
+    assert!(pane[0].contains("line 001") && pane[1].contains("line 002"), "{:?}", &pane[..2]);
+    assert_eq!(r.float()[0].matches("long.rs").count(), 1, "titled with the path, without a line");
+    r.keys("<C-u>oth");
+    assert!(r.pane()[0].contains("target of the other"));
 }
 
 #[test]
