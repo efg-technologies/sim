@@ -468,7 +468,7 @@ impl Sim {
         let text = |l: usize| text_of(buf, l);
         let hl = p.hl.as_ref().filter(|_| !off);
         let spans = |l: usize| hl.and_then(|h| h.spans.get(l.checked_sub(h.from)?));
-        let looks = layout::colors(&frame, digits, &text, &spans, None).looks;
+        let looks = layout::colors(&frame, digits, &text, &spans, None, None).looks;
         let lit = Query::new(&query)
             .filter(|_| kind == Pick::Grep && no > 0)
             .and_then(|q| lit_of(&frame, digits, &text, line, &q));
@@ -550,7 +550,8 @@ fn lit_of(
     };
     let end = (first + 1..body).find(stops).unwrap_or(body);
     let bold: Spans = q.ranges(&text(line)?).into_iter().map(|r| (r, Look::Bold)).collect();
-    let marked = layout::colors(frame, digits, text, &|l| (l == line).then_some(&bold), None).looks;
+    let marked =
+        layout::colors(frame, digits, text, &|l| (l == line).then_some(&bold), None, None).looks;
     let marks = (first..end).flat_map(|i| {
         let row: &Looks = &marked[i];
         row.iter().filter(|(_, l)| *l == Look::Bold).map(move |(r, _)| (i, r.clone()))

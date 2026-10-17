@@ -101,7 +101,11 @@ impl Sim {
         let b = self.bufs.get(self.cur)?;
         let (buf, x) = (&b.app.buf, usize::from(x));
         let digits = buf.lines().to_string().len().max(3);
-        let (l, i) = layout::hit(b.frame.as_ref()?, digits, &|l| text_of(buf, l), (x, y.into()))?;
+        // MD-7: the row the pointer is on may be one of the read view's
+        let colored = self.colors(b, b.frame.as_ref()?).0;
+        let map = colored.extra.get(usize::from(y)).and_then(|e| e.map.as_ref());
+        let (l, i) =
+            layout::hit(b.frame.as_ref()?, digits, &|l| text_of(buf, l), (x, y.into()), map)?;
         Some(buf.start(l) + i.min(buf.line_len(l)))
     }
 

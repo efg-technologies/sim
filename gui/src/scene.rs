@@ -1,4 +1,4 @@
-//! GUI-1, GUI-2, GUI-3, GUI-9, GUI-12
+//! GUI-1, GUI-2, GUI-3, GUI-9, GUI-12, MD-9
 //! From sim's screen to what is drawn: a display list of surfaces (rounded rectangles with a shadow,
 //! a rim, a fill) and glyphs, in layers. This is where sim's layers become elevations: the boxes of
 //! the tree and of the text are raised from the floor; a heading's band, a fence's band, a chip (the

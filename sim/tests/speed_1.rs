@@ -19,6 +19,8 @@ type Times = Vec<(Duration, Key)>;
 
 struct Bench {
     r: Rig,
+    /// The highlighter of the run, which keeps its parse states between requests (the shell's does).
+    hl: sim::io::Highlighter,
     term: Painter<Vec<u8>>,
     size: (u16, u16),
     /// What the events took in `Sim::update` and in the painter, all together (for the print).
@@ -33,11 +35,12 @@ impl Bench {
         let mut files: Vec<String> =
             (0..300).map(|i| format!("dir{}/file{i}.rs", i % 12)).collect();
         files.push(format!("big.rs={code}"));
+        files.push(format!("big.md={}", md_text(20_000)));
         let names: Vec<&str> = files.iter().map(String::as_str).collect();
         // A history as full as it gets (MARK-2: 1,000 files), for the marks of the panel.
         let mut r = rig_env("speed-1", &names, &["big.rs"], size, |e| {
             // The look, with a palette and truecolor, so that the tints, the fog and the card are drawn too (LOOK-3 to LOOK-7).
-            (e.skin, e.syn, e.chrome, e.icons) = (skin, Syntax::new(true), true, true);
+            (e.skin, e.syn, e.chrome, e.icons, e.md) = (skin, Syntax::new(true), true, true, true);
             for i in 0..1000 {
                 e.history.record(
                     &e.cwd.join(format!("dir{}/file{i}.rs", i % 12)).to_string_lossy(),
@@ -60,7 +63,8 @@ impl Bench {
             b.lines() >= 100_000 && b.line_of(b.cursor) == 49_999,
             "the big file, in the middle"
         );
-        Bench { r, term: Painter::new(Vec::new()), size, spent: Default::default() }
+        let hl = sim::io::Highlighter::default();
+        Bench { r, hl, term: Painter::new(Vec::new()), size, spent: Default::default() }
     }
 
     /// The time of one event: the state's update and the painter's bytes into memory.
@@ -82,6 +86,35 @@ impl Bench {
     fn time(&mut self, keys: &str) -> Times {
         let keys = common::keys(keys);
         keys.into_iter().map(|k| (self.one(SimEvent::Term(Event::Key(k))), k)).collect()
+    }
+
+    /// MD-8: the keys of `keys`, each followed by the answer of the highlighter to what it asked for
+    /// (the shell's thread plays that off the clock, and its answer is an event on the main thread:
+    /// timed as a key is).
+    fn walked(&mut self, keys: &str) -> Times {
+        let mut out = vec![];
+        for k in common::keys(keys) {
+            let mut todo = vec![SimEvent::Term(Event::Key(k))];
+            while let Some(ev) = todo.pop() {
+                let t = Instant::now();
+                let fx = self.r.sim.update(ev);
+                let mid = t.elapsed();
+                for e in &fx {
+                    if let SimEffect::Render(f) = e {
+                        self.term.draw(f.clone()).unwrap();
+                    }
+                }
+                let d = t.elapsed();
+                self.spent = (self.spent.0 + mid, self.spent.1 + d - mid);
+                self.term.out.clear();
+                out.push((d, k));
+                todo.extend(fx.into_iter().filter_map(|e| match e {
+                    SimEffect::Highlight(req) => Some(self.hl.run(req)),
+                    _ => None,
+                }));
+            }
+        }
+        out
     }
 
     /// The keys of the picker (PICK-2) with the shell played after each: what it asks for is done
@@ -150,6 +183,49 @@ fn motions(b: &mut Bench) -> Times {
         .map(|i| if i % 100 == 99 { ["G", "gg"][i / 100 % 2] } else { SET[rng.below(SET.len())] })
         .collect();
     b.time(&walk)
+}
+
+/// MD-8: Markdown with what the read view works on: prose with markers, tables of Japanese and
+/// Latin cells, lists and rules, `lines` lines of it.
+fn md_text(lines: usize) -> String {
+    let block = |i: usize| {
+        format!(
+            "## Section {i}\n\nSome **bold** text, *emphasis*, `inline code` and a [link](https://example.com/{i}) in prose with 日本語 mixed in, long enough to wrap in a pane of eighty columns because prose does.\n\n| name | 説明 | n | note |\n|:--|:-:|--:|---|\n| alpha | **強い** | 1 | `a` |\n| beta | 普通 | 22 | _b_ |\n| gamma | ある | 333 | c |\n| 日本語 | x | 4444 | d |\n\n- item **one**\n- item `two`\n- [x] done\n\n---\n\n"
+        )
+    };
+    (0..).map(block).take(lines / 20 + 1).collect()
+}
+
+/// MD-8: the read view over a Markdown file of 20,000 lines, tables on most screens: the motions of
+/// `motions` (without the jumps to the ends), with the highlighter's answers played after each key.
+fn markdown(b: &mut Bench) -> Times {
+    b.r.keys(":e big.md\n");
+    b.r.deliver_spans();
+    b.r.keys("10000G");
+    b.r.deliver_spans();
+    assert!(b.r.sim.md && b.r.status().contains("big.md"), "{}", b.r.status());
+    const SET: [&str; 12] = [
+        "j",
+        "k",
+        "w",
+        "b",
+        "e",
+        "<C-d>",
+        "<C-u>",
+        "<Down>",
+        "<Up>",
+        "<PageDown>",
+        "<PageUp>",
+        "$",
+    ];
+    let mut rng = Rng(5);
+    let walk: String = (0..3000).map(|_| SET[rng.below(SET.len())]).collect();
+    let t = b.walked(&walk);
+    // the last screen is the read view's: tables, and the markers left out of every line but the cursor's
+    let rows = &b.r.shot.frame.rows;
+    assert!(rows.iter().any(|r| r.text.contains('|') || r.text.contains('│')));
+    assert!(rows.iter().filter(|r| r.text.contains("**")).count() <= 2, "the read view is on");
+    t
 }
 
 fn inserts(b: &mut Bench) -> Times {
@@ -359,4 +435,40 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
         failed.is_empty(),
         "p99 over its time (1 ms for a key, 2 ms for the mouse): {failed:?}"
     );
+}
+
+/// MD-8: a key in a Markdown file whose screens hold tables, with the read view on, takes at most
+/// 1 ms at p99, in calm and in depth, at both sizes.
+///
+///   cargo test --release -p sim-editor --test speed_1 -- --ignored md_8 --nocapture
+#[test]
+#[ignore]
+fn md_8_bench_a_key_in_a_markdown_file_with_tables_takes_under_1ms_at_p99() {
+    release_only();
+    let mut failed = vec![];
+    for skin in [Skin::Calm, Skin::Depth] {
+        for size in [(80, 24), (240, 60)] {
+            markdown(&mut Bench::new(size, false, skin)); // warm up
+            let mut b = Bench::new(size, true, skin);
+            let mut t = markdown(&mut b);
+            t.sort();
+            let (p50, p99, max) = (percentile(&t, 50), percentile(&t, 99), t[t.len() - 1]);
+            eprintln!(
+                "MD-8 {skin:?} {}x{} keys {:5}  p50 {:>8.1?}  p99 {:>8.1?}  max {:>8.1?} ({:?})  mean: update {:>7.1?}, painter {:>7.1?}",
+                size.0,
+                size.1,
+                t.len(),
+                p50.0,
+                p99.0,
+                max.0,
+                max.1,
+                b.spent.0 / t.len() as u32,
+                b.spent.1 / t.len() as u32
+            );
+            if p99.0 > P99 {
+                failed.push(format!("{skin:?} {}x{}: p99 {:?}", size.0, size.1, p99.0));
+            }
+        }
+    }
+    assert!(failed.is_empty(), "p99 over 1 ms: {failed:?}");
 }

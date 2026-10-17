@@ -62,7 +62,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 
 - A project tree that never moves, `Ctrl-p` to find files, `Ctrl-f` to search text with a preview, likely files marked with `•`, several files with a tab bar.
 - In the project's own benchmark a key takes under 1 ms at p99 (100,000-line file, release build); the first frame in a repository of 100,000 files was measured at 1.8 to 8.7 ms.
-- Syntax colors from your terminal's palette, Markdown drawn without concealing a character, three looks (`zl`), Japanese kinsoku wrapping and full-width keys.
+- Syntax colors from your terminal's palette, Markdown read in place (markers hidden, tables aligned, and the line you are on always the file's own text), three looks (`zl`), Japanese kinsoku wrapping and full-width keys.
 - `NO_COLOR` and terminals with fewer than 8 colors draw with weight, underline and inverse video only, and meaning never depends on color alone: a changed line is `┆`, folders show status letters, a tab shows `↯` for a file changed on disk.
 
 **Keys you can find**
@@ -107,6 +107,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `<Space>bp` | pick a tab by letter |
 | `<Space>bc` | pick a tab to close |
 | `<Space>ge` | changes from HEAD |
+| `<Space>um` | markdown read view on/off |
 | `F1` | help |
 | `:help` | help |
 
@@ -133,7 +134,7 @@ What the others still do better, for now: Neovim and Helix ship a language-serve
 
 ## Roadmap (planned, not shipped)
 
-Vim registers, macros and marks · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a Markdown reading view · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
+Vim registers, macros and marks · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
 
 ## Working on it
 

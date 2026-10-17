@@ -180,6 +180,8 @@ pub enum SimEffect {
     Look(Skin),
     /// UI-2: whether the icons are on, to remember.
     Icons(bool),
+    /// MD-5: whether the read view of Markdown is on, to remember.
+    Md(bool),
     /// KEY-3: answer with `SimEvent::Pause(n)` after `PAUSE_MS` milliseconds.
     Pause(u64),
     /// KEY-6: how many times Tab and Shift-Tab were used, to remember.
@@ -361,6 +363,8 @@ pub struct Sim {
     chrome: bool,
     home: Option<PathBuf>,
     pub icons: bool,
+    /// MD-1, MD-5: whether the read view of Markdown is on (never in plain mode).
+    pub md: bool,
     /// `SIM_ON_NORMAL` (VI-11), which every file's App runs.
     hook: Option<String>,
     /// PLAIN-1: plain mode: calm, no panel at the start, and no program (git, rg, filters, the hook).
@@ -400,6 +404,8 @@ pub struct Env {
     pub icons: bool,
     /// KEY-6: how many times Tab and Shift-Tab were used (at most 3; the saved count).
     pub tab_uses: u8,
+    /// MD-5: whether the read view of Markdown is on (the saved choice; the tests start without).
+    pub md: bool,
     /// ICON-1: the first status line is the hint that `zi` turns the icons on.
     pub hint: bool,
     /// UI-1: whether flat and depth draw the interface (the binary does; the tests of the looks
@@ -448,6 +454,12 @@ fn key_of(path: &Path) -> String {
 /// The width of the line numbers of a buffer (the core's gutter).
 fn digits(buf: &Buffer) -> usize {
     buf.lines().to_string().len().max(3)
+}
+
+/// MD-1: whether a file is Markdown: by its extension, as the core does for prose (`view::render`).
+fn is_markdown(path: Option<&str>) -> bool {
+    let ext = path.and_then(|p| Path::new(p).extension()).and_then(|e| e.to_str());
+    ext.is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
 }
 
 /// Line `l` of the buffer without its line break; none past the end.
@@ -509,7 +521,7 @@ impl Sim {
         // Plain mode is calm, with no hook, and (PLAIN-1) asks for no git and no highlighting colors.
         (sim.skin, sim.hook) = if plain { (Skin::Calm, None) } else { (env.skin, env.hook) };
         (sim.chrome, sim.home, sim.icons) = (env.chrome, env.home, env.icons);
-        sim.tab_uses = env.tab_uses;
+        (sim.tab_uses, sim.md) = (env.tab_uses, env.md && !plain);
         if sim.syn.mono {
             // COLOR-2: nothing asks the terminal, so the interface is laid out on a dark page, whose
             // colors the Painter does not write.
@@ -1196,12 +1208,20 @@ impl Sim {
         let lit = self.flash.as_ref().filter(|f| f.id == b.id && f.ver == buf.version());
         let guides = self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone())));
         let line_ui = guides.as_ref().map(|g| move |l: usize| g.of(buf, l));
+        // MD-1: the lines the read view leaves as they are: the cursor's, and the selected ones
+        let read = (self.md && is_markdown(b.app.path.as_deref())).then(|| {
+            let (cl, last) = (buf.line_of(buf.cursor), |e: usize| buf.line_of(e.saturating_sub(1)));
+            b.app
+                .selection()
+                .map_or(cl..cl + 1, |(s, e)| buf.line_of(s)..last(e).max(buf.line_of(s)) + 1)
+        });
         let colored = layout::colors(
             f,
             digits(buf),
             &text,
             &spans,
             line_ui.as_ref().map(|f| f as &dyn Fn(usize) -> LineUi),
+            read,
         );
         let win = colored.win;
         let (ver, h) = (buf.version(), usize::from(self.size.1));
@@ -1209,6 +1229,8 @@ impl Sim {
             return (colored, None);
         };
         let z = z.max(a); // a screen too narrow for its gutter shows cut numbers: no window that ends before it starts
+        // MD-4: a table that the window has not all of is asked for whole
+        let (a, z) = colored.need.as_ref().map_or((a, z), |n| (a.min(n.start), z.max(n.end)));
         let covered = |h: &Hl| h.ver == ver && h.from <= a && z < h.from + h.spans.len();
         let (from, on) = (a.saturating_sub(h), !self.hl_off && buf.text.len_bytes() <= MAX_HL);
         let n = z + h - from + 1;

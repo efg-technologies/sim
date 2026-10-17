@@ -10,7 +10,7 @@ layer 0
   Heading [428 58 576 16] r6 #32424b shadow(dy 1 blur 4 #000000/0.40)
   Heading [928 158 76 16] r6 #2d373f shadow(dy 1 blur 4 #000000/0.40)
   Chip [26 178 90 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
-  Patch [926 198 60 16] r4 #3a3d45
+  Patch [926 198 30 16] r4 #3a3d45
   Heading [928 338 76 16] r6 #2d373f shadow(dy 1 blur 4 #000000/0.40)
   Band [928 518 76 36] r6 #33373f shadow(dy 1 blur 4 #000000/0.40)
   Band [428 558 576 16] r6 #33373f shadow(dy 1 blur 4 #000000/0.40)
@@ -36,16 +36,15 @@ layer 0
   text [56 76] "script" #eaeaea
   text [36 96] "▸" #eaeaea
   text [56 96] "src/" #eaeaea
-  text [916 96] "n" #929498
-  text [926 96] "dow," #eaeaea
-  text [976 96] "to" #eaeaea
+  text [916 96] "," #929498
+  text [936 96] "to" #eaeaea
   text [56 116] "Cargo." #d7d7d8
   text [56 136] "hidden" #d2d3d4
   text [56 156] "LICENS" #d2d3d4
   text [26 176] "•" #b8b8b8
   text [56 176] "README" #feda99
-  text [916 196] "a" #929498
-  text [926 196] "ntern" #d9d9da
+  text [916 196] "e" #929498
+  text [926 196] "rn" #d9d9da
   text [916 476] "n" #929498
   text [926 476] "." #d2d3d4
   text [956 516] "rust" #b8b8b8

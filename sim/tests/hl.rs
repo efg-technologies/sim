@@ -101,6 +101,7 @@ fn syn_3_a_line_of_many_spans_is_laid_out_in_the_time_of_a_key() {
         &|l| (l == 0).then(|| line.clone()),
         &|l| (l == 0).then_some(&spans),
         None,
+        None,
     );
     let took = t.elapsed();
     assert_eq!(colored.win, Some((0, 0)));

@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -7,6 +7,7 @@ use crate::color::{Chg, Tones};
 use crate::diff::Sign;
 use crate::icons;
 use crate::marks::Git;
+use crate::md::{Plan, Read, Remap};
 use crate::paint::{Cue, Look, Looks, Paint, Paints, Role};
 use crate::syn::Spans;
 use crate::tabs::Tab;
@@ -770,6 +771,23 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     line.paints.extend(paints);
 }
 
+/// MD-1: `line`, a row the core made, as the read view draws it: its text and every range of
+/// columns of it moved by `map` (what stood on a char that is not drawn is gone with it), and the
+/// delimiter row's rule dim; the rule is `─` where the interface is drawn and `-` in calm.
+fn drawn(line: &mut Line, m: &Extra, map: &Remap, tones: Option<&Tones>) -> Extra {
+    line.row.text = map.text(&line.row.text, if tones.is_some() { '─' } else { '-' });
+    let go = |r: Range<u16>| map.range(r);
+    let row = &mut line.row;
+    row.spans = take(&mut row.spans).into_iter().filter_map(|(r, s)| Some((go(r)?, s))).collect();
+    row.underline = take(&mut row.underline).into_iter().filter_map(go).collect();
+    line.looks = take(&mut line.looks).into_iter().filter_map(|(r, l)| Some((go(r)?, l))).collect();
+    line.paints =
+        take(&mut line.paints).into_iter().filter_map(|(r, p)| Some((go(r)?, p))).collect();
+    line.looks.extend(map.rules().into_iter().map(|r| (r, Look::Mark)));
+    line.cols = fit(&line.row.text, usize::MAX).1 as u16;
+    m.mapped(map)
+}
+
 /// The rows of the editor, `ew` columns each where something is drawn behind the blanks and as
 /// they are else: the core's rows with the looks; in flat and depth (`t`) the words of the change style
 /// on green or red, the tint of the rows that have a change, the joined words and the bar of the
@@ -853,6 +871,10 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         };
         line.looks.extend(ed.looks[i].iter().map(|(r, l)| (r.clone(), sub(*l))));
         let kind = ed.ch.get(i).copied().unwrap_or(Kind::Plain);
+        // MD-1: a row of the read view is drawn from the core's row, moved; rows of changes are not
+        let map = ed.extra.get(i).and_then(|m| Some((m, m.map.as_ref()?)));
+        let moved = map.filter(|_| kind == Kind::Plain).map(|(m, map)| drawn(&mut line, m, map, t));
+        let extra = moved.as_ref().or(ed.extra.get(i));
         if let (Some(t), true) = (t, kind != Kind::Plain) {
             // Words that come are on green; the gutter's symbol by its own char.
             let sym = e.text.chars().next();
@@ -881,7 +903,7 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
                 line.paints.push((0..ew, Paint { fade, ..Paint::default() }));
             }
         }
-        if let (Some(t), Some(m)) = (t, ed.extra.get(i)) {
+        if let (Some(t), Some(m)) = (t, extra) {
             extra_row(&mut line, m, t, gutter, ew);
         }
         // UI-5: the numbers as Neovim's `number` and `relativenumber` draw them: the cursor's line
@@ -1176,6 +1198,30 @@ pub struct Extra {
     /// UI-14: the columns of the matches of a search in this row, and of the current one.
     pub hit: Vec<std::ops::Range<u16>>,
     pub now: Vec<std::ops::Range<u16>>,
+    /// MD-1: the row of a line of the read view, as it is drawn from the row the core made.
+    pub map: Option<Remap>,
+}
+
+impl Extra {
+    /// MD-1: the extras of the row as the read view draws it: every column and char moved by `m`,
+    /// and what stood on a char that is not drawn gone with it.
+    fn mapped(&self, m: &Remap) -> Extra {
+        let ranges = |v: &[Range<u16>]| -> Vec<Range<u16>> {
+            v.iter().filter_map(|r| m.range(r.clone())).collect()
+        };
+        let glyph = self
+            .glyph
+            .iter()
+            .filter_map(|g| Some(Glyph { idx: m.idx(g.idx)?, col: m.col(g.col)?, ..*g }));
+        Extra {
+            glyph: glyph.collect(),
+            badge: ranges(&self.badge),
+            flash: ranges(&self.flash),
+            hit: ranges(&self.hit),
+            now: ranges(&self.now),
+            ..self.clone()
+        }
+    }
 }
 
 /// UI-6: what the interface wants drawn on a line of the buffer: the columns of its indent guides
@@ -1198,6 +1244,8 @@ pub struct Colored {
     pub looks: Vec<Looks>,
     pub win: Option<(usize, usize)>,
     pub extra: Vec<Extra>,
+    /// MD-4: the lines whose spans the read view wants, if the window has not all of a table.
+    pub need: Option<Range<usize>>,
 }
 
 /// UI-7: the keywords of a TODO comment, the longest of those that start alike first.
@@ -1244,8 +1292,16 @@ pub fn colors<'a>(
     text: &dyn Fn(usize) -> Option<String>,
     spans: &dyn Fn(usize) -> Option<&'a Spans>,
     ui: Option<&dyn Fn(usize) -> LineUi>,
+    read: Option<Range<usize>>,
 ) -> Colored {
     let (gutter, mut win) = (digits + 2, None);
+    // MD-1: the read view of the lines on screen, if it is on (`read`: the lines drawn as they are)
+    let shown_lines = f.rows.iter().filter_map(|r| number(r, digits)).map(|n| n.saturating_sub(1));
+    let (first, last) = shown_lines.fold((usize::MAX, 0), |(a, z), n| (a.min(n), z.max(n)));
+    let pane = usize::from(f.width).saturating_sub(gutter);
+    let read =
+        read.filter(|_| first <= last).map(|r| Read::new(first..last + 1, r, pane, text, spans));
+    let mut plan: Option<Plan> = None;
     let (mut out, mut md) =
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, Band::None);
@@ -1279,6 +1335,7 @@ pub fn colors<'a>(
                 cs.iter().position(|&c| c == '|').unwrap_or(0),
                 cs.iter().rposition(|&c| c == '|').unwrap_or(0),
             );
+            plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s));
             (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
@@ -1288,6 +1345,10 @@ pub fn colors<'a>(
         }
         // (a row with no text and no number is past the end of the file, not the rest of a line)
         md[i].band = if starts.is_some() || len > 0 { band } else { Band::None };
+        let (mut map, mut edited) = (Remap::default(), false);
+        if plan.is_some() {
+            map.keep(0..gutter as u16, 0..gutter);
+        }
         while used < len && ci < cs.len() {
             let (n, w) = shown(&cs, ci, col);
             let look = sp.and_then(|s| s.get(s.partition_point(|s| s.0.end <= ci)));
@@ -1374,11 +1435,31 @@ pub fn colors<'a>(
             }
             match (look, out[i].last_mut()) {
                 (Some(k), Some((p, pk))) if *pk == k && p.end == cols.start => p.end = cols.end,
-                (Some(k), _) => out[i].push((cols, k)),
+                (Some(k), _) => out[i].push((cols.clone(), k)),
                 _ => {}
+            }
+            // MD-1: what the read view does at this char: puts something in before it, leaves it out
+            if let Some(op) = plan.as_ref().map(|p| p.op(ci)) {
+                if let Some((c, k)) = op.fill {
+                    map.fill(c, k);
+                    edited = true;
+                }
+                if op.hide {
+                    edited = true;
+                } else {
+                    map.keep(cols, gutter + used..gutter + used + n);
+                }
             }
             (used, col, ci) = (used + n, col + w, ci + 1);
         }
+        // MD-1: the end of the line may have something put in (the last cell of a table), and the
+        // row has a map if the view changed it and the walk ended where the core's row does
+        let ended = ci == cs.len() && (starts.is_some() || len > 0);
+        if let Some((c, k)) = plan.as_ref().filter(|_| ended).and_then(|p| p.op(ci).fill) {
+            map.fill(c, k);
+            edited = true;
+        }
+        md[i].map = (plan.is_some() && edited && used == len).then_some(map);
         // UI-8: the rule of a thematic break goes on to the pane's edge.
         if rule && ci == cs.len() && (starts.is_some() || len > 0) {
             let from = gutter + col;
@@ -1398,12 +1479,13 @@ pub fn colors<'a>(
             }
         }
     }
-    Colored { looks: out, win, extra: md }
+    Colored { looks: out, win, extra: md, need: read.and_then(|r| r.need) }
 }
 
 /// PTR-1: the char under the point `(x, row)` of an editor frame, as (line, index in the line), by
 /// the same walk as `colors`: the line of a row is read from its gutter, a wrapped line goes on in
-/// the rows below, and each char takes what `shown` says. A point in the gutter is the start of
+/// the rows below, and each char takes what `shown` says (`map`: the read view's of the row hit,
+/// MD-7). A point in the gutter is the start of
 /// its row's text; one past the end of the text is the row's last char, or, on the last row of a
 /// line, the end of the line (a Normal-mode cursor is then put on its last char by the App).
 pub fn hit(
@@ -1411,7 +1493,10 @@ pub fn hit(
     digits: usize,
     text: &dyn Fn(usize) -> Option<String>,
     (x, row): (usize, usize),
+    map: Option<&Remap>,
 ) -> Option<(usize, usize)> {
+    // MD-7: a point in a row of the read view is taken back to the column of the core's row
+    let x = map.map_or(x, |m| usize::from(m.back(u16::try_from(x).unwrap_or(u16::MAX))));
     let (gutter, mut line, mut cs, mut ci) = (digits + 2, None, Vec::<char>::new(), 0);
     for (i, r) in f.rows.iter().enumerate().take(row + 1) {
         if let Some(l) = number(r, digits).and_then(|n| n.checked_sub(1)) {

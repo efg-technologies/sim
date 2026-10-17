@@ -62,7 +62,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 
 - Une arborescence de projet qui ne bouge jamais, `Ctrl-p` pour trouver des fichiers, `Ctrl-f` pour chercher du texte avec aperçu, les fichiers probables marqués d’un `•`, plusieurs fichiers avec une barre d’onglets.
 - Dans le benchmark du projet lui-même, une touche prend moins de 1 ms au p99 (fichier de 100 000 lignes, build de release) ; la première image dans un dépôt de 100 000 fichiers a été mesurée entre 1,8 et 8,7 ms.
-- Des couleurs de syntaxe tirées de la palette de votre terminal, un Markdown dessiné sans masquer aucun caractère, trois apparences (`zl`), le retour à la ligne japonais selon les règles kinsoku et les touches pleine chasse.
+- Des couleurs de syntaxe tirées de la palette de votre terminal, un Markdown lu sur place (marques masquées, tableaux alignés, et la ligne où vous êtes toujours le texte du fichier), trois apparences (`zl`), le retour à la ligne japonais selon les règles kinsoku et les touches pleine chasse.
 - `NO_COLOR` et les terminaux de moins de 8 couleurs dessinent uniquement avec l’épaisseur, le soulignement et la vidéo inverse, et le sens ne dépend jamais de la couleur seule : une ligne modifiée est `┆`, les dossiers affichent des lettres d’état, un onglet affiche `↯` pour un fichier modifié sur le disque.
 
 **Des touches faciles à trouver**
@@ -107,6 +107,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 | `<Space>bp` | choisir un onglet par une lettre |
 | `<Space>bc` | choisir un onglet à fermer |
 | `<Space>ge` | voir les changements par rapport à HEAD |
+| `<Space>um` | vue de lecture Markdown activée ou désactivée |
 | `F1` | aide |
 | `:help` | aide |
 
@@ -133,7 +134,7 @@ Là où les autres ont de l’avance, pour l’instant : Neovim et Helix intèg
 
 ## Feuille de route (prévu, pas livré)
 
-Registres, macros et marques de Vim · intégration du presse-papiers au-delà d’OSC 52 · un client de serveur de langage dans un bac à sable · `:tutor` · une vue de lecture Markdown · une arborescence des diffs git · une interface graphique avec une vraie profondeur (un prototype) · des paquets pour l’AUR et crates.io.
+Registres, macros et marques de Vim · intégration du presse-papiers au-delà d’OSC 52 · un client de serveur de langage dans un bac à sable · `:tutor` · une arborescence des diffs git · une interface graphique avec une vraie profondeur (un prototype) · des paquets pour l’AUR et crates.io.
 
 ## Développer sim
 

@@ -62,7 +62,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 
 - Ein Dateibaum, der sich nie verschiebt, `Ctrl-p` zum Finden von Dateien, `Ctrl-f` zum Durchsuchen von Text mit Vorschau, wahrscheinliche Dateien mit `•` markiert, mehrere Dateien mit einer Tab-Leiste.
 - Im eigenen Benchmark des Projekts braucht eine Taste bei p99 weniger als 1 ms (Datei mit 100 000 Zeilen, Release-Build); der erste Frame in einem Repository mit 100 000 Dateien wurde mit 1,8 bis 8,7 ms gemessen.
-- Syntaxfarben aus der Palette Ihres Terminals, Markdown gezeichnet, ohne ein Zeichen zu verbergen, drei Looks (`zl`), japanischer Kinsoku-Umbruch und vollbreite Tasten.
+- Syntaxfarben aus der Palette Ihres Terminals, Markdown direkt lesbar (Auszeichnungen ausgeblendet, Tabellen ausgerichtet, und die Zeile, in der Sie stehen, immer der Text der Datei), drei Looks (`zl`), japanischer Kinsoku-Umbruch und vollbreite Tasten.
 - `NO_COLOR` und Terminals mit weniger als 8 Farben zeichnen nur mit Schriftstärke, Unterstreichung und inverser Darstellung, und Bedeutung hängt nie allein von der Farbe ab: Eine geänderte Zeile ist `┆`, Ordner zeigen Statusbuchstaben, ein Tab zeigt `↯` für eine auf dem Datenträger geänderte Datei.
 
 **Tasten, die sich finden lassen**
@@ -107,6 +107,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 | `<Space>bp` | Tab per Buchstabe wählen |
 | `<Space>bc` | Tab zum Schließen wählen |
 | `<Space>ge` | Änderungen gegenüber HEAD anzeigen |
+| `<Space>um` | Markdown-Leseansicht an/aus |
 | `F1` | Hilfe |
 | `:help` | Hilfe |
 
@@ -133,7 +134,7 @@ Was die anderen vorerst noch besser können: Neovim und Helix liefern einen Lang
 
 ## Roadmap (geplant, nicht ausgeliefert)
 
-Vim-Register, Makros und Marken · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · eine Leseansicht für Markdown · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
+Vim-Register, Makros und Marken · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
 
 ## Entwicklung
 

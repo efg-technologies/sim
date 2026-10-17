@@ -62,7 +62,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 
 - Un árbol de proyecto que nunca se mueve, `Ctrl-p` para buscar archivos, `Ctrl-f` para buscar texto con vista previa, archivos probables marcados con `•` y varios archivos con una barra de pestañas.
 - En el benchmark del propio proyecto, una tecla tarda menos de 1 ms en el percentil 99 (archivo de 100 000 líneas, compilación release); el primer fotograma en un repositorio de 100 000 archivos se midió en 1,8 a 8,7 ms.
-- Colores de sintaxis a partir de la paleta de la terminal, Markdown dibujado sin ocultar ningún carácter, tres apariencias (`zl`), ajuste de línea japonés con kinsoku y teclas de ancho completo.
+- Colores de sintaxis a partir de la paleta de la terminal, Markdown que se lee en su sitio (marcas ocultas, tablas alineadas y la línea donde estás siempre es el texto del archivo), tres apariencias (`zl`), ajuste de línea japonés con kinsoku y teclas de ancho completo.
 - Con `NO_COLOR` y en las terminales con menos de 8 colores se dibuja solo con grosor, subrayado y vídeo inverso, y el significado nunca depende solo del color: una línea cambiada es `┆`, las carpetas muestran letras de estado y una pestaña muestra `↯` cuando un archivo cambió en disco.
 
 **Teclas que se pueden encontrar**
@@ -107,6 +107,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 | `<Space>bp` | elegir una pestaña por letra |
 | `<Space>bc` | elegir una pestaña para cerrarla |
 | `<Space>ge` | ver los cambios respecto a HEAD |
+| `<Space>um` | vista de lectura de Markdown activada/desactivada |
 | `F1` | ayuda |
 | `:help` | ayuda |
 
@@ -133,7 +134,7 @@ En qué siguen siendo mejores los demás, por ahora: Neovim y Helix incluyen un 
 
 ## Hoja de ruta (prevista, no publicada)
 
-Registros, macros y marcas de Vim · integración con el portapapeles más allá de OSC 52 · un cliente de servidores de lenguaje en un sandbox · `:tutor` · una vista de lectura de Markdown · un árbol de diff de git · una GUI con profundidad real (un prototipo) · paquetes para AUR y crates.io.
+Registros, macros y marcas de Vim · integración con el portapapeles más allá de OSC 52 · un cliente de servidores de lenguaje en un sandbox · `:tutor` · un árbol de diff de git · una GUI con profundidad real (un prototipo) · paquetes para AUR y crates.io.
 
 ## Desarrollo
 

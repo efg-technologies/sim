@@ -1,4 +1,4 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the history file in sim's state directory, and the
 //! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
@@ -76,6 +76,8 @@ pub enum Job {
     Look(Skin),
     /// Whether the icons are on, to save (UI-2).
     Icons(bool),
+    /// Whether the read view of Markdown is on, to save (MD-5).
+    Md(bool),
     /// How many times Tab and Shift-Tab were used, to save (KEY-6).
     TabUses(u8),
     /// A snapshot that a dead session left for this file, to delete when ours replaces it.
@@ -117,6 +119,9 @@ pub fn journal_thread(
                 }
                 Job::Icons(on) => {
                     hist.iter().filter_map(|d| save_icons(d, on).err()).for_each(|e| say(1, e))
+                }
+                Job::Md(on) => {
+                    hist.iter().filter_map(|d| save_md(d, on).err()).for_each(|e| say(1, e))
                 }
                 Job::TabUses(n) => {
                     hist.iter().filter_map(|d| save_tab_uses(d, n).err()).for_each(|e| say(1, e))
@@ -848,6 +853,16 @@ pub fn start_icons(
 
 pub fn save_icons(dir: &Path, on: bool) -> Result<(), String> {
     save_state(dir, "icons", if on { "on\n" } else { "off\n" })
+}
+
+/// MD-5: whether the read view of Markdown is on, as saved in `dir` (`md`, `on` or `off`); on when
+/// there is no choice yet, or the file says anything else.
+pub fn load_md(dir: &Path) -> bool {
+    !fs::read_to_string(dir.join("md")).is_ok_and(|t| t.trim_end_matches('\n') == "off")
+}
+
+pub fn save_md(dir: &Path, on: bool) -> Result<(), String> {
+    save_state(dir, "md", if on { "on\n" } else { "off\n" })
 }
 
 /// KEY-6: how many times Tab and Shift-Tab were used, as saved in `dir` (`tab-uses`): a number, at most 3.

@@ -1,4 +1,4 @@
-//! KEY-2, KEY-3, KEY-5, KEY-6
+//! KEY-2, KEY-3, KEY-5, KEY-6, MD-5, MD-6
 //! What guides the user's hands in sim's state (pure): the leader (Space and what follows it), the
 //! prefix that is typed and not complete, the pause after which which-key shows what can come next,
 //! the letters on the tabs, and the hint for Tab.
@@ -75,10 +75,23 @@ impl Sim {
             (None, ' ') => self.leader = Some(String::new()),
             (Some(""), 'b') => self.leader = Some("b".into()),
             (Some(""), 'g') => self.leader = Some("g".into()),
+            (Some(""), 'u') => self.leader = Some("u".into()),
+            (Some("u"), 'm') => self.read_key(out),
             (Some("g"), 'e') => self.changes_key(out),
             (Some("b"), 'p' | 'c') => self.tab_pick(c == 'c', out),
             _ => {}
         }
+    }
+
+    /// MD-5, MD-6: `<Space>um` turns the read view of Markdown on and off for every file, and the
+    /// choice is remembered; plain mode has none.
+    fn read_key(&mut self, out: Out) {
+        if self.plain {
+            return self.msg = Some("plain mode: no read view".into());
+        }
+        self.md = !self.md;
+        self.msg = Some(format!("markdown: {}", if self.md { "read view" } else { "raw" }));
+        out.push(SimEffect::Md(self.md));
     }
 
     /// KEY-5: the letters of the tabs, bufferline's: from the first letter of each file's name.

@@ -1,4 +1,4 @@
-//! GUI-9, GUI-12, GUI-14
+//! GUI-9, GUI-12, GUI-14, MD-9
 //! Goldens for the renderer, in two layers.
 //!
 //! The scene goldens (`tests/golden/scene_*.txt`) are the display list as text: every surface with its
@@ -97,13 +97,20 @@ fn fog_drive(h: &mut Headless) {
     h.keys("<C-n><Esc>");
 }
 
-const CASES: [Case; 6] = [
+/// MD-9: the cursor on a row of the table: that row is the file's own text, the rows around it are
+/// read (aligned, their markers gone).
+fn table_row(h: &mut Headless) {
+    h.keys("<C-n><Esc>17G");
+}
+
+const CASES: [Case; 7] = [
     Case { name: "tree_markdown_dark", file: "README.md", theme: DARK, drive: tree_markdown },
     Case { name: "tree_markdown_light", file: "README.md", theme: LIGHT, drive: tree_markdown },
     Case { name: "picker_dark", file: "README.md", theme: DARK, drive: picker },
     Case { name: "hidden_char_dark", file: "hidden.txt", theme: DARK, drive: hidden },
     Case { name: "which_key_dark", file: "README.md", theme: DARK, drive: which_key },
     Case { name: "changes_dark", file: "README.md", theme: DARK, drive: changes },
+    Case { name: "table_row_dark", file: "README.md", theme: DARK, drive: table_row },
 ];
 
 fn headless(c: &Case, size: (u16, u16)) -> Headless {
@@ -418,6 +425,35 @@ fn gui_14_pixels_of_the_changes_view() {
     let size = (960, 540);
     let Some(px) = pixels(&CASES[5], size) else { return eprintln!("skipped: no GPU adapter") };
     compare("pixels_changes_dark.png", size, &px);
+}
+
+#[test]
+fn md_9_pixels_of_a_table_in_the_read_view() {
+    let size = (960, 540);
+    let Some(px) = pixels(&CASES[6], size) else { return eprintln!("skipped: no GPU adapter") };
+    compare("pixels_table_row_dark.png", size, &px);
+}
+
+#[test]
+fn md_9_a_table_in_the_read_view_is_the_same_cells_as_the_terminal_draws() {
+    let size = (100, 30);
+    let h = headless(&CASES[6], size);
+    let dump = scene_of(&h, size).dump();
+    // the x of the first run `word` on the line of the scene at height `y`
+    let at = |y: u32, word: &str| -> f32 {
+        let key = format!("{y}] \"{word}\"");
+        let line =
+            dump.lines().find(|l| l.contains(&key)).unwrap_or_else(|| panic!("{key}\n{dump}"));
+        let x = line.split('[').nth(1).and_then(|r| r.split(' ').next());
+        x.and_then(|x| x.parse().ok()).unwrap()
+    };
+    // `what` of the header and `the` of the second row are in one column: the cells are aligned by
+    // their width, and the row the cursor is on (17) is the file's own text, one column to the left
+    let (header, cursor, second) = (at(356, "what"), at(396, "the"), at(416, "the"));
+    assert_eq!(header, second, "the columns of the read view");
+    assert!(cursor < second, "the cursor's row is raw: {cursor} against {second}");
+    assert!(!dump.contains("\"**sim**\"") && !dump.contains("\"---\""), "read, not raw");
+    check_text("scene_table_row_dark.txt", &dump);
 }
 
 #[test]

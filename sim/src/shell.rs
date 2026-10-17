@@ -1,4 +1,4 @@
-//! GUI-4, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3
+//! GUI-4, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6
 //! The shell: what is done with the Effects `Sim::update` returns, apart from the terminal: read a
 //! directory, open, save and watch a file, ask git, highlight, search, snapshot, run a filter. The
 //! terminal's loop (`main.rs`) and a window's use this one code, so a window cannot do these things
@@ -143,6 +143,7 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
         icons,
         hint,
         tab_uses: front.tab_uses.unwrap_or_else(|| history.map_or(0, sio::load_tab_uses)),
+        md: !plain && history.is_none_or(sio::load_md),
         chrome: true,
     };
     let (sim, fx) = Sim::new(s, env);
@@ -402,10 +403,12 @@ impl Shell {
             (SimEffect::Look(k), Work::Threads(t)) => drop(t.jobs.send(Job::Look(k))),
             (SimEffect::Icons(on), Work::Threads(t)) => drop(t.jobs.send(Job::Icons(on))),
             (SimEffect::TabUses(n), Work::Threads(t)) => drop(t.jobs.send(Job::TabUses(n))),
+            (SimEffect::Md(on), Work::Threads(t)) => drop(t.jobs.send(Job::Md(on))),
             (
                 SimEffect::History(_)
                 | SimEffect::Look(_)
                 | SimEffect::Icons(_)
+                | SimEffect::Md(_)
                 | SimEffect::TabUses(_),
                 Work::Inline(_),
             ) => {}

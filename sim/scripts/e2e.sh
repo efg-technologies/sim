@@ -43,6 +43,9 @@
 #   $SIM_PATH          set it before `start` to run sim with that PATH (for a fake or a missing rg)
 #   $SIM_E2E_KEEP      set it (to a directory) to keep what a case that fails saw, in $SIM_E2E_KEEP/<case>.txt: the screen,
 #                      the screen with its escape sequences made visible, and the names in the state directory (CI uploads it)
+#   markdown WORD      make the read view of Markdown the next `start` begins with (on, off, or none for no choice
+#                      yet, whose first run is on: MD-5); a case that does not say gets off, so that the cases
+#                      that show a Markdown file are written for its raw text
 #   look WORD          make the look the next `start` begins with (calm, flat, depth, or none for no file:
 #                      LOOK-1); a case that does not say gets calm, so that the looks of the other cases stay what they were written for
 set -eu
@@ -71,8 +74,17 @@ look() {
   LOOKED=1
 }
 
+# MD-5: the read view is remembered in sim's state directory too, and the first run is on; the cases are
+# written for the raw text unless they say otherwise.
+markdown() {
+  mkdir -p -m 700 "$XDG_STATE_HOME/sim"
+  if [ "$1" = none ]; then rm -f "$XDG_STATE_HOME/sim/md"; else echo "$1" > "$XDG_STATE_HOME/sim/md"; fi
+  MDED=1
+}
+
 start() {
   [ -n "${LOOKED:-}" ] || [ -e "$XDG_STATE_HOME/sim/look" ] || look calm
+  [ -n "${MDED:-}" ] || [ -e "$XDG_STATE_HOME/sim/md" ] || markdown off
   # ICON-1: the icons start off in tmux (no Nerd Font is known), once with a hint on the status line;
   # the cases are written without that hint, so it is taken as given unless a case wants to see it.
   [ -n "${HINTED:-}" ] || [ -e "$XDG_STATE_HOME/sim/icons-hint" ] || { mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"; }
@@ -342,7 +354,7 @@ gone() { ! screen | grep -F -q -- "$1"; }
 # What is left in si's state directory but the places where files were closed (CLI-6, which stay).
 # What the journal left in the state directory: not the places, and not the choices sim keeps beside it
 # (`look`, `history`, `icons`, and the marker of the hint, STATE-1).
-journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|tab-uses|no-hooks|\.migrated)$' || true; }
+journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|tab-uses|no-hooks|md|\.migrated)$' || true; }
 
 # After sim is gone: the normal screen is back and the tty is in cooked mode again.
 terminal_restored() {
@@ -945,7 +957,7 @@ grep_4_the_pane_previews_the_result_enter_opens_it_there_and_esc_puts_the_tree_b
   gone "line 57"
   keys Up
   wait_for " 57 line 57"
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(look|icons-hint|tab-uses|no-hooks)$')" ] # not an open: no history yet (`look` is the seeded look)
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(look|icons-hint|tab-uses|no-hooks|md)$')" ] # not an open: no history yet (`look` and `md` are the seeded ones)
   keys Enter
   wait_for "big.txt  60:5  NORMAL" # the line, and the column of the match
   screen | grep -F -q "▸ src/" # the tree is as it was
@@ -1317,7 +1329,7 @@ buf_1_snapshots_are_off_when_the_state_directory_is_not_private() {
   typed ":w"
   keys Enter
   wait_content "$W/src/lib.rs" "n lib() {}" # saving works all the same
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(look|icons-hint|tab-uses|no-hooks)$')" ] # and nothing was written there (the case's own files aside)
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(look|icons-hint|tab-uses|no-hooks|md)$')" ] # and nothing was written there (the case's own files aside)
 }
 
 # ---- S4: the mouse ----
@@ -2354,6 +2366,100 @@ diff_6_which_key_and_help_list_space_g_e() {
   wait_for "Help · keys and commands"
   typed "HEAD"
   wait_for "<Space>ge"
+}
+
+# MD-1: every line but the cursor's is read, the cursor's is the file's own text, and the file is unchanged.
+md_1_the_lines_but_the_cursor_s_are_read_and_the_file_is_unchanged() {
+  printf '# Title\n\nSome **bold** and `code`.\n\nSecond **line** here.\n' > "$W/README.md"
+  markdown on
+  start README.md
+  wait_for "Some bold and code."
+  screen | grep -F -q "Second line here."
+  screen | grep -F -q "# Title"
+  typed jj
+  wait_for 'Some **bold** and `code`.'
+  screen | grep -F -q "Second line here."
+  typed Vjj
+  wait_for 'Second **line** here.'
+  keys Escape
+  typed :q
+  keys Enter
+  wait_exit
+  [ "$(sed -n 3p "$W/README.md")" = 'Some **bold** and `code`.' ]
+}
+
+# MD-3: a table is aligned by the width of its cells, the Japanese ones two columns a char.
+md_3_a_table_is_aligned_by_display_width() {
+  printf '# T\n\n| name | n |\n|:--|--:|\n| 日本語 | 1 |\n| **b** | 22 |\n\nend\n' > "$W/README.md"
+  markdown on
+  start README.md
+  wait_for "| name   |  n |"
+  screen | grep -F -q "|--------|----|"
+  screen | grep -F -q "| 日本語 |  1 |"
+  screen | grep -F -q "| b      | 22 |"
+  typed jj
+  wait_for "| name | n |" # the cursor's row is the file's own
+  screen | grep -F -q "| 日本語 |  1 |"
+}
+
+# MD-4: a table that does not fit the pane stays raw, whole.
+md_4_a_table_wider_than_the_pane_stays_raw() {
+  w=$(printf 'w%.0s' $(seq 1 90))
+  printf '| %s | b |\n|---|---|\n| x **y** | z |\n' "$w" > "$W/README.md"
+  markdown on
+  start README.md
+  wait_for "x **y**"
+  screen | grep -F -q "|---|---|"
+}
+
+# MD-5: <Space>um turns the read view off and on, the choice is the next run's, and the first run is on.
+md_5_space_u_m_toggles_the_read_view_and_the_choice_is_remembered() {
+  printf '# Title\n\nSome **bold** here.\n\nSecond **line** here.\n' > "$W/README.md"
+  markdown none
+  start README.md
+  wait_for "Second line here." # the first run is the read view
+  typed " u"
+  wait_for "markdown read view on/off" # which-key lists it
+  typed m
+  wait_for "markdown: raw"
+  screen | grep -F -q "Second **line** here."
+  [ "$(cat "$XDG_STATE_HOME/sim/md")" = off ]
+  restart
+  start README.md
+  wait_for "Second **line** here."
+  typed " um"
+  wait_for "markdown: read view"
+  wait_for "Second line here." # (the highlighter's answer may be a moment behind the key)
+  [ "$(cat "$XDG_STATE_HOME/sim/md")" = on ]
+  typed ":help"
+  keys Enter
+  wait_for "Help · keys and commands"
+  typed "markdown read"
+  wait_for "<Space>um"
+}
+
+# MD-6: sim --plain has no read view, says so, and neither reads nor writes the choice.
+md_6_plain_mode_has_no_read_view() {
+  printf '# Title\n\nSome **bold** here.\n' > "$W/README.md"
+  MDED=1
+  start --plain README.md
+  wait_for "Some **bold** here."
+  typed " um"
+  wait_for "plain mode: no read view"
+  screen | grep -F -q "Some **bold** here."
+  [ ! -e "$XDG_STATE_HOME/sim/md" ]
+}
+
+# MD-7: a click in a line of the read view puts the cursor on the char of the file under the pointer.
+md_7_a_click_in_a_read_line_is_the_char_of_the_file_under_the_pointer() {
+  printf '# Title\n\nSome **bold** and *em* here.\n' > "$W/README.md"
+  markdown on
+  start README.md
+  wait_for "Some bold and em here."
+  row=$(screen | grep -n -F "Some bold and em here." | cut -d: -f1)
+  click 21 "$row" # the `m` of `em`: 20 columns in, 1-based
+  wait_for "3:21"
+  wait_for "Some **bold** and *em* here." # the line has the cursor now: the file's own text
 }
 
 main "$@"

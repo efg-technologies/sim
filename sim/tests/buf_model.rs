@@ -406,6 +406,7 @@ impl W {
                     SimEffect::Preview(path) => local.push(io::preview(&self.sim.root, &path)),
                     SimEffect::Look(_)
                     | SimEffect::Icons(_)
+                    | SimEffect::Md(_)
                     | SimEffect::Diff(_)
                     | SimEffect::Spin(_)
                     | SimEffect::Pause(_)

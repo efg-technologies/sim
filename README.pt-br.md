@@ -62,7 +62,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 
 - Uma árvore de projeto que nunca se mexe, `Ctrl-p` para encontrar arquivos, `Ctrl-f` para buscar texto com prévia, arquivos prováveis marcados com `•`, vários arquivos com uma barra de abas.
 - No benchmark do próprio projeto, uma tecla leva menos de 1 ms no p99 (arquivo de 100 mil linhas, build de release); o primeiro quadro em um repositório com 100 mil arquivos foi medido em 1,8 a 8,7 ms.
-- Cores de sintaxe tiradas da paleta do seu terminal, Markdown desenhado sem ocultar nenhum caractere, três aparências (`zl`), quebra de linha com regras kinsoku do japonês e teclas de largura total.
+- Cores de sintaxe tiradas da paleta do seu terminal, Markdown lido no próprio lugar (marcas ocultas, tabelas alinhadas e a linha em que você está sempre é o texto do arquivo), três aparências (`zl`), quebra de linha com regras kinsoku do japonês e teclas de largura total.
 - `NO_COLOR` e terminais com menos de 8 cores desenham só com peso, sublinhado e vídeo inverso, e o significado nunca depende só da cor: uma linha alterada é `┆`, as pastas mostram letras de status, uma aba mostra `↯` para um arquivo alterado no disco.
 
 **Teclas fáceis de encontrar**
@@ -107,6 +107,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `<Space>bp` | escolher uma aba por letra |
 | `<Space>bc` | escolher uma aba para fechar |
 | `<Space>ge` | ver as mudanças em relação ao HEAD |
+| `<Space>um` | visualização de leitura de Markdown ligada ou desligada |
 | `F1` | ajuda |
 | `:help` | ajuda |
 
@@ -133,7 +134,7 @@ O que os outros ainda fazem melhor, por enquanto: Neovim e Helix incluem um clie
 
 ## Roadmap (planejado, não lançado)
 
-Registradores, macros e marcas do Vim · integração com a área de transferência além do OSC 52 · um cliente de servidor de linguagem em sandbox · `:tutor` · uma visualização de leitura de Markdown · uma árvore de diff do git · uma GUI com profundidade de verdade (um protótipo) · pacotes para o AUR e o crates.io.
+Registradores, macros e marcas do Vim · integração com a área de transferência além do OSC 52 · um cliente de servidor de linguagem em sandbox · `:tutor` · uma árvore de diff do git · uma GUI com profundidade de verdade (um protótipo) · pacotes para o AUR e o crates.io.
 
 ## Desenvolvimento
 

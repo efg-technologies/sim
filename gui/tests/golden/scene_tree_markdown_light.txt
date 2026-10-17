@@ -10,9 +10,9 @@ layer 0
   Heading [428 58 576 16] r6 #cee0e4 shadow(dy 1 blur 4 #000000/0.18)
   Heading [428 158 576 16] r6 #dfe9ed shadow(dy 1 blur 4 #000000/0.18)
   Chip [26 178 320 16] r6 #dadbde shadow(dy 1 blur 4 #000000/0.18) rim(#000000/0.10 1)
-  Patch [466 198 150 16] r4 #dee0e3
-  Patch [896 198 90 16] r4 #dee0e3
-  Patch [426 218 60 16] r4 #dee0e3
+  Patch [466 198 130 16] r4 #dee0e3
+  Patch [876 198 80 16] r4 #dee0e3
+  Patch [426 218 50 16] r4 #dee0e3
   Heading [428 338 576 16] r6 #dfe9ed shadow(dy 1 blur 4 #000000/0.18)
   Band [428 518 576 56] r6 #e4e6ea shadow(dy 1 blur 4 #000000/0.18)
   Chip [16 598 60 16] r6 #aed5ff shadow(dy 1 blur 4 #000000/0.18) rim(#000000/0.10 1)
@@ -24,23 +24,49 @@ layer 0
   Shape [371 210 1 5] r0 #513003
   Shape [367 313 8 2] r1 #680418
   Shape [431 376 1 20] r0 #7d7d7d
-  Shape [501 376 1 20] r0 #7d7d7d
-  Shape [631 376 1 20] r0 #7d7d7d
+  Shape [581 376 1 20] r0 #7d7d7d
+  Shape [771 376 1 20] r0 #7d7d7d
   Shape [431 396 1 20] r0 #7d7d7d
   Shape [431 406 5 1] r0 #7d7d7d
+  Shape [436 406 10 1] r0 #7d7d7d
   Shape [446 406 10 1] r0 #7d7d7d
   Shape [456 406 10 1] r0 #7d7d7d
   Shape [466 406 10 1] r0 #7d7d7d
+  Shape [476 406 10 1] r0 #7d7d7d
   Shape [486 406 10 1] r0 #7d7d7d
-  Shape [491 396 1 20] r0 #7d7d7d
+  Shape [496 406 10 1] r0 #7d7d7d
   Shape [506 406 10 1] r0 #7d7d7d
   Shape [516 406 10 1] r0 #7d7d7d
   Shape [526 406 10 1] r0 #7d7d7d
-  Shape [551 396 1 20] r0 #7d7d7d
-  Shape [546 406 5 1] r0 #7d7d7d
+  Shape [536 406 10 1] r0 #7d7d7d
+  Shape [546 406 10 1] r0 #7d7d7d
+  Shape [556 406 10 1] r0 #7d7d7d
+  Shape [566 406 10 1] r0 #7d7d7d
+  Shape [576 406 10 1] r0 #7d7d7d
+  Shape [581 396 1 20] r0 #7d7d7d
+  Shape [586 406 10 1] r0 #7d7d7d
+  Shape [596 406 10 1] r0 #7d7d7d
+  Shape [606 406 10 1] r0 #7d7d7d
+  Shape [616 406 10 1] r0 #7d7d7d
+  Shape [626 406 10 1] r0 #7d7d7d
+  Shape [636 406 10 1] r0 #7d7d7d
+  Shape [646 406 10 1] r0 #7d7d7d
+  Shape [656 406 10 1] r0 #7d7d7d
+  Shape [666 406 10 1] r0 #7d7d7d
+  Shape [676 406 10 1] r0 #7d7d7d
+  Shape [686 406 10 1] r0 #7d7d7d
+  Shape [696 406 10 1] r0 #7d7d7d
+  Shape [706 406 10 1] r0 #7d7d7d
+  Shape [716 406 10 1] r0 #7d7d7d
+  Shape [726 406 10 1] r0 #7d7d7d
+  Shape [736 406 10 1] r0 #7d7d7d
+  Shape [746 406 10 1] r0 #7d7d7d
+  Shape [756 406 10 1] r0 #7d7d7d
+  Shape [771 396 1 20] r0 #7d7d7d
+  Shape [766 406 5 1] r0 #7d7d7d
   Shape [431 416 1 20] r0 #7d7d7d
-  Shape [571 416 1 20] r0 #7d7d7d
-  Shape [751 416 1 20] r0 #7d7d7d
+  Shape [581 416 1 20] r0 #7d7d7d
+  Shape [771 416 1 20] r0 #7d7d7d
   Shape [431 436 1 20] r0 #7d7d7d
   Shape [581 436 1 20] r0 #7d7d7d
   Shape [771 436 1 20] r0 #7d7d7d
@@ -71,14 +97,12 @@ layer 0
   text [496 96] "made-up" #343434
   text [576 96] "project" #343434
   text [656 96] "that" #343434
-  text [706 96] "**" #7d7d7d
-  text [726 96] "sim" #343434 bold
-  text [756 96] "**" #7d7d7d
-  text [786 96] "opens" #343434
-  text [846 96] "in" #343434
-  text [876 96] "a" #343434
-  text [896 96] "window," #343434
-  text [976 96] "to" #343434
+  text [706 96] "sim" #343434 bold
+  text [746 96] "opens" #343434
+  text [806 96] "in" #343434
+  text [836 96] "a" #343434
+  text [856 96] "window," #343434
+  text [936 96] "to" #343434
   text [56 116] "Cargo.toml" #434343
   text [426 116] "show" #343434
   text [476 116] "what" #343434
@@ -96,20 +120,15 @@ layer 0
   text [406 176] "5" #838484
   text [406 196] "6" #868686
   text [426 196] "Run" #414141
-  text [466 196] "`" #7d7d7d
-  text [476 196] "lantern" #414141
-  text [556 196] "build" #414141
-  text [606 196] "`" #7d7d7d
-  text [626 196] "to" #414141
-  text [656 196] "compile" #414141
-  text [736 196] "the" #414141
-  text [776 196] "notes," #414141
-  text [846 196] "then" #414141
-  text [896 196] "`" #7d7d7d
-  text [906 196] "lantern" #414141
-  text [426 216] "serve" #434343
-  text [476 216] "`" #7d7d7d
-  text [486 216] "." #434343
+  text [466 196] "lantern" #414141
+  text [546 196] "build" #414141
+  text [606 196] "to" #414141
+  text [636 196] "compile" #414141
+  text [716 196] "the" #414141
+  text [756 196] "notes," #414141
+  text [826 196] "then" #414141
+  text [876 196] "lantern" #414141
+  text [426 216] "serve." #434343
   text [406 236] "7" #898989
   text [406 256] "8" #8b8b8c
   text [426 256] "-" #7d7d7d
@@ -137,15 +156,15 @@ layer 0
   text [396 356] "13" #969697
   text [396 376] "14" #979898
   text [446 376] "path" #59595a
-  text [516 376] "what" #59595a
-  text [566 376] "it" #59595a
-  text [596 376] "is" #59595a
+  text [596 376] "what" #59595a
+  text [646 376] "it" #59595a
+  text [676 376] "is" #59595a
   text [396 396] "15" #999a9b
   text [396 416] "16" #9c9c9d
   text [446 416] "src/main.rs" #59595a
-  text [586 416] "the" #59595a
-  text [626 416] "entry" #59595a
-  text [686 416] "point" #59595a
+  text [596 416] "the" #59595a
+  text [636 416] "entry" #59595a
+  text [696 416] "point" #59595a
   text [396 436] "17" #9e9e9f
   text [446 436] "src/notes.rs" #59595a
   text [596 436] "the" #59595a
