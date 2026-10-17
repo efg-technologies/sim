@@ -1681,4 +1681,20 @@ ui_6_listchars_show_tabs_trailing_blanks_and_the_end_of_every_line() {
   [ "$(sed -n 1p "$W/a.txt")" = "a  " ] # the file is as it was
 }
 
+ui_7_a_todo_comment_has_a_badge_in_one_style_for_every_keyword() {
+  printf 'fn a() {\n    // TODO: later\n    // FIX: now\n}\n' > "$W/a.rs"
+  look flat
+  CT=truecolor
+  start a.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "// FIX: now"
+  tries=100
+  while ! screen_esc | grep -a 'TODO:' | grep -q '1m.*48;2;' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  # Bold on a surface, for both keywords: the same two sequences, whatever the word.
+  todo=$(screen_esc | grep -a 'TODO:' | sed 's/.*\(\x1b\[1m[^T]*\)TODO:.*/\1/')
+  fix=$(screen_esc | grep -a 'FIX:' | sed 's/.*\(\x1b\[1m[^F]*\)FIX:.*/\1/')
+  [ -n "$todo" ] && [ "$todo" = "$fix" ]
+  printf '%s\n' "$todo" | grep -a -q '48;2;'
+}
+
 main "$@"

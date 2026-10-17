@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -598,6 +598,9 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
             _ => None,
         })
         .collect();
+    // UI-7: one style for every keyword: bold primary on the card's surface.
+    let badge = Paint { bg: Some(t.card), fg: Some(t.primary), bold: true, ..Paint::default() };
+    paints.extend(m.badge.iter().map(|r| (r.clone(), badge)));
     if !m.glyph.is_empty() {
         let mut cs: Vec<char> = line.row.text.chars().collect();
         for g in &m.glyph {
@@ -1023,6 +1026,8 @@ pub struct Extra {
     pub band: bool,
     pub glyph: Vec<Glyph>,
     pub lang: Option<String>,
+    /// UI-7: the columns of a TODO badge in this row.
+    pub badge: Vec<std::ops::Range<u16>>,
 }
 
 /// UI-6: what the interface wants drawn on a line of the buffer: the columns of its indent guides
@@ -1042,6 +1047,40 @@ pub struct Colored {
     pub extra: Vec<Extra>,
 }
 
+/// UI-7: the keywords of a TODO comment, the longest of those that start alike first.
+const TODO: [&str; 10] =
+    ["FIXME", "WARNING", "FIX", "BUG", "HACK", "WARN", "PERF", "TEST", "TODO", "NOTE"];
+
+/// UI-7: the chars of a badge in a line (the keyword, the `(name)` it may have and the colon) if one
+/// of its comments has one: a keyword in capitals as a word, followed by `:` or by `(name):`. Only
+/// the first is a badge. `spans` are the highlighter's, and the badge is in one of its comments.
+pub fn todo_badge(line: &str, spans: &Spans) -> Option<std::ops::Range<usize>> {
+    let cs: Vec<char> = line.chars().collect();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    for (range, _) in spans.iter().filter(|s| s.1 == Look::Com) {
+        for i in range.clone().filter(|&i| i < cs.len() && (i == 0 || !word(cs[i - 1]))) {
+            for k in TODO {
+                let end = i + k.len();
+                if end > cs.len() || cs[i..end].iter().collect::<String>() != k {
+                    continue;
+                }
+                let colon = match cs.get(end) {
+                    Some(':') => end,
+                    Some('(') => match cs[end..].iter().position(|&c| c == ')') {
+                        Some(p) if cs.get(end + p + 1) == Some(&':') => end + p + 1,
+                        _ => continue,
+                    },
+                    _ => continue,
+                };
+                if colon < range.end {
+                    return Some(i..colon + 1);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// SYN-1: the looks of the rows of an editor frame. `digits` is the width of its line numbers,
 /// `text(l)` the buffer's line `l` and `spans(l)` the syntax spans of it, if they are known.
 /// The line of a row is read from its gutter, and a wrapped line goes on in the rows below it.
@@ -1057,7 +1096,7 @@ pub fn colors<'a>(
     let (mut out, mut md) =
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, false);
-    let (mut lui, mut trail) = (LineUi::default(), 0);
+    let (mut lui, mut trail, mut badge) = (LineUi::default(), 0, 0..0);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         let starts = number(row, digits).and_then(|n| n.checked_sub(1));
@@ -1072,6 +1111,10 @@ pub fn colors<'a>(
             md[i].lang = lang.map(|s| cs[s.0.clone()].iter().collect());
             lui = ui.map_or_else(LineUi::default, |f| f(l));
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
+            badge = sp
+                .filter(|_| ui.is_some())
+                .and_then(|s| todo_badge(&cs.iter().collect::<String>(), s))
+                .unwrap_or(0..0);
         }
         // (a row with no text and no number is past the end of the file, not the rest of a line)
         md[i].band = band && (starts.is_some() || len > 0);
@@ -1084,6 +1127,14 @@ pub fn colors<'a>(
                 md[i]
                     .glyph
                     .push(Glyph { idx: gutter + used, ch: '▌', col: 0, tone: Tone::Plain });
+            }
+            // UI-7: the cells of a TODO badge, merged where they touch.
+            if badge.contains(&ci) {
+                let cols = (gutter + col) as u16..(gutter + col + w) as u16;
+                match md[i].badge.last_mut() {
+                    Some(b) if b.end == cols.start => b.end = cols.end,
+                    _ => md[i].badge.push(cols),
+                }
             }
             // UI-6: the whitespace marks of `listchars`: a tab as `»-` to its width, a trailing blank
             // as `-`, a no-break space as `%`, all dim; an indent guide, drawn after, wins a blank.
