@@ -13,6 +13,7 @@ pub mod indent;
 pub mod io;
 pub mod keys;
 pub mod layout;
+pub mod lie;
 pub mod marks;
 pub mod md;
 pub mod paint;

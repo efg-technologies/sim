@@ -2777,4 +2777,35 @@ git_5_space_g_i_says_again_what_the_guard_did() {
   wait_for "git: turned off the repository's core.fsmonitor, filter.canary"
 }
 
+# MD-10: a definition in a block quote, a link of raw HTML, a link in a fence and a link whose text goes over
+# lines are marked like the rest, a badge (an image in a link) is not; and a line of a megabyte of brackets
+# does not hang sim, nor does it take the marks of the other lines away.
+md_10_a_definition_in_a_quote_raw_html_and_a_line_of_a_megabyte() {
+  {
+    printf 'Go to [good.example][1], or <a href="https://evil.example/h">good.example</a>.\n\n> [1]: https://evil.example/q\n\n'
+    printf '```\n[good.example](https://evil.example/c)\n```\n\n[![badge](https://img.example.io/b.svg)](https://github.com/o/r)\n\n'
+    awk 'BEGIN { for (i = 0; i < 300000; i++) printf "[a]"; printf "\n" }'
+    printf '\nEnd [good.example\nofficial](https://evil.example/w).\n'
+  } > "$W/a.md"
+  markdown on
+  look depth
+  CT=truecolor
+  start a.md
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "evil.example/q"
+  marked() { screen_esc | grep -a "$1" | grep -aq "48;2;[0-9;]*m$2"; }
+  tries=100
+  while ! marked 'evil.example/q' 'https://evil.example/q' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  marked 'evil.example/q' 'https://evil.example/q' # the definition in the quote
+  marked 'Go to' '\[good.example\]' # the use that it makes lie
+  marked 'href=' 'https://evil.example/h' # the raw HTML link (its row is the second of the line)
+  marked 'evil.example/c' 'https://evil.example/c' # a link in a fence is judged like the rest
+  screen | grep -aq 'github.com/o/r'
+  if marked 'github.com/o/r' 'https://github.com/o/r'; then false; fi # a badge says no address
+  keys j
+  keys j
+  keys j
+  wait_for "NORMAL" # (sim answers with the line of a megabyte under the cursor)
+}
+
 main "$@"

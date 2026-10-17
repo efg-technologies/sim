@@ -21,13 +21,13 @@ use crate::keys;
 use crate::layout::{
     self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin, Tick,
 };
+use crate::lie;
 use crate::marks::{Git, Marks};
-use crate::md;
 use crate::paint::{Layer, LayerKind, Look, Paint, Role, Screen};
 use crate::pick;
 use crate::rank::History;
 use crate::search::Matcher;
-use crate::syn::Spans;
+use crate::syn::{self, Spans};
 use crate::tabs::{self, Tab};
 use crate::tree::{Entry, Row as TreeRow, Tree};
 use crossterm::event::MouseEvent;
@@ -356,7 +356,7 @@ pub struct Sim {
     /// GIT-5: why git was not run (the message of its first refusal), for `<Space>gi`.
     why: Option<String>,
     /// MD-10: the reference links of the Markdown file shown, for the file and the version of its text.
-    refs: RefCell<Option<(Id, u64, Arc<md::Refs>)>>,
+    refs: RefCell<Option<(Id, u64, Arc<lie::Refs>)>>,
     disk: HashSet<PathBuf>,
     marks: Marks,
     no_repo: bool,
@@ -992,14 +992,14 @@ impl Sim {
 
     /// MD-10: the reference links of the file `b`, resolved over its text (looked through once for a
     /// version of it).
-    fn refs_of(&self, b: &Buf) -> Arc<md::Refs> {
+    fn refs_of(&self, b: &Buf) -> Arc<lie::Refs> {
         let (buf, ver) = (&b.app.buf, b.app.buf.version());
         if let Some((id, v, r)) = &*self.refs.borrow()
             && (*id, *v) == (b.id, ver)
         {
             return r.clone();
         }
-        let r = Arc::new(md::Refs::new(buf.lines(), &|l| text_of(buf, l)));
+        let r = Arc::new(lie::Refs::new(buf.lines(), &|l| text_of(buf, l)));
         *self.refs.borrow_mut() = Some((b.id, ver, r.clone()));
         r
     }
@@ -1327,7 +1327,7 @@ impl Sim {
         });
         // MD-10: a Markdown file's reference links are resolved over the document (once for a version)
         let refs = || self.refs_of(b);
-        let md = is_markdown(b.app.path.as_deref());
+        let md = b.app.path.as_deref().is_some_and(|p| is_markdown(Some(p)) || syn::is_markdown(p));
         let colored = layout::colors_with(
             f,
             digits(buf),
@@ -1335,7 +1335,7 @@ impl Sim {
             &spans,
             line_ui.as_ref().map(|f| f as &dyn Fn(usize) -> LineUi),
             read,
-            md.then_some(&refs as &dyn Fn() -> Arc<md::Refs>),
+            md.then_some(&refs as &dyn Fn() -> Arc<lie::Refs>),
         );
         let win = colored.win;
         let (ver, h) = (buf.version(), usize::from(self.size.1));

@@ -6,10 +6,9 @@ use crate::changes::Stat;
 use crate::color::{Chg, Tones};
 use crate::diff::Sign;
 use crate::icons;
+use crate::lie::{Budget, Refs, line_marks};
 use crate::marks::Git;
-use crate::md::{
-    Plan, Read, Refs, Remap, crosses, deceptive_across, deceptive_targets, ref_candidate,
-};
+use crate::md::{Plan, Read, Remap};
 use crate::paint::{Cue, Look, Looks, Paint, Paints, Role};
 use crate::syn::Spans;
 use crate::tabs::Tab;
@@ -1431,20 +1430,6 @@ pub fn todo_badge(line: &str, spans: &Spans) -> Option<std::ops::Range<usize>> {
     None
 }
 
-/// MD-10: the lines of the paragraph around line `l`, as chars: up to three lines before it and two
-/// after, none blank (a link does not go over a blank line), and where `l` is among them.
-fn paragraph(text: &dyn Fn(usize) -> Option<String>, l: usize) -> (Vec<Vec<char>>, usize) {
-    let line = |k: Option<usize>| k.and_then(text).filter(|s| !s.trim().is_empty());
-    let before = (1..=3).map_while(|k| line(l.checked_sub(k)));
-    let mut lines: Vec<Vec<char>> = before.map(|s| s.chars().collect()).collect();
-    lines.reverse();
-    let at = lines.len();
-    lines.push(text(l).unwrap_or_default().chars().collect());
-    lines
-        .extend((1..=2).map_while(|k| line(Some(l + k))).map(|s| s.chars().collect::<Vec<char>>()));
-    (lines, at)
-}
-
 /// SYN-1: the looks of the rows of an editor frame. `digits` is the width of its line numbers,
 /// `text(l)` the buffer's line `l` and `spans(l)` the syntax spans of it, if they are known.
 /// The line of a row is read from its gutter, and a wrapped line goes on in the rows below it.
@@ -1484,6 +1469,7 @@ pub fn colors_with<'a>(
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, Band::None);
     let (mut lui, mut trail, mut badge, mut hk) = (LineUi::default(), 0, 0..0, 0);
     let mut lie = Vec::<Range<usize>>::new();
+    let mut budget = Budget::frame(); // (MD-10: what this frame may judge of its links)
     let (mut delim, mut framed, mut pipes, mut rule) = (false, false, (0, 0), false);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
@@ -1516,20 +1502,7 @@ pub fn colors_with<'a>(
             plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s));
             (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
             // MD-10: the targets of the links of this line that say another place
-            lie = refs.map_or(vec![], |refs| {
-                let mut lie = deceptive_targets(&cs, sp.map_or(&[][..], |s| &s[..]));
-                let prev: Vec<char> =
-                    l.checked_sub(1).and_then(text).unwrap_or_default().chars().collect();
-                if crosses(&prev, &cs) {
-                    let (para, at) = paragraph(text, l);
-                    lie.extend(deceptive_across(&para, at));
-                }
-                if ref_candidate(&cs) {
-                    let refs = refs();
-                    lie.extend(refs.uses(&cs).into_iter().chain(refs.defs_on(l)));
-                }
-                lie
-            });
+            lie = line_marks(l, &cs, sp.map_or(&[][..], |s| &s[..]), text, refs, &mut budget);
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
                 .filter(|_| ui.is_some())
