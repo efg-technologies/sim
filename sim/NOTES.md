@@ -17,8 +17,7 @@ Features we wanted but did not build yet.
 
 Found in the last bug hunt before the first release and left as they are.
 
-- Which rows have a change (LOOK-2) and which are the card's (LOOK-5) is read from the gutter, which says nothing of rows that have scrolled out of the frame: the first rows of a changed line taller than the screen, scrolled partly above it, are taken for rows of no change (no tint, and in REVIEW they fade).
-- A frame that REVIEW starts or ends in is rendered twice by `Sim::frame` (the card takes two rows of the App's frame, so the App is told its new height and renders again), and the second render keeps the scroll the first one settled on, which is not always centered on the hunk.
+- Which rows have a change (LOOK-2) is read from the gutter, which says nothing of rows that have scrolled out of the frame: the first rows of a changed line taller than the screen, scrolled partly above it, are taken for rows of no change (no tint).
 
 - A message that names several files (`no write since last change in a.rs, b.rs (:qa! to discard)`, `not saved: conflicts …`) can lose its instruction at the width when the names are long. The status lines shorten their paths from the left (si's VIS-9 rule); these messages do not yet.
 - The narrowed tree (MARK-3) can list recent files that no longer exist, and its cursor can move when the list is rebuilt.

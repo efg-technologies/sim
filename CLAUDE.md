@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md.
         ┌─┴─────────┴─┐
         │    SPEC     │  what      ~50 requirements with IDs     SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       at most 3,603 lines       src/
+      │      CODE       │  how       at most 3,425 lines       src/
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       tests/ and more
     └─────────────────────┘
@@ -41,9 +41,8 @@ src/
     vi.rs         key sequence → Command (Normal and Visual mode, the command line's editing)
     edit.rs       applies a Command to the Buffer: motions, operators, text objects, Insert mode
     ex.rs         ex commands and their ranges, `:s`, search
-    proposal.rs   diff3, word-level diff, Proposal and Hunk
-    disk.rs       what App does when the file changes on disk: reload or merge, marks, hunks
-    review.rs     `]c` `[c`, REVIEW mode (`y n Y N`), and the refusals of SAFE-7
+    merge.rs      diff3 and the word-level diff
+    disk.rs       what App does when the file changes on disk: reload or merge, marks, the conflict of SAFE-7; the result of a filter; `]c` `[c`
     view.rs       state → Frame (a grid of characters and styles), wrapping, kinsoku
     color.rs      OKLCH, APCA, color vision simulation, computing the palette
   io/
@@ -54,12 +53,12 @@ src/
     term.rs       crossterm, diffed Frame output, OSC 11 / 52, cursor shape
 ```
 
-- **Event**: `Key` `Paste` `Resize` `Opened(path, Result, seq)` `Recover(base, text, age, file, deadline)` `Disk { bytes, hash, deadline, seq }` `Saved(Result, seq)` `SaveConflict(Option<Vec<u8>>, deadline, seq)` `Notice(String)` `FilterDone` `Place(path, line, col)` `Bg(Rgb)` `Tick(time)` `Signal(i32)`. A `deadline` is the instant a diff must give up at, stamped by the shell because the core reads no clock (PROP-7); the `hash` of a `Disk` is made by the thread that read the file, so that no key waits for it (P3). A `seq` numbers a read of the disk from one counter of the shell, taken as the read starts (a save's answer: when the save is done), and App drops a read older than the newest it has taken in (PROP-1)
-- **Effect**: `Render(Frame)` `Write { path, bytes, expect_hash }` `Open(path)` `Watch(path)` `Spawn` `Kill` `Clipboard(String)` `Snapshot { path, base, text }` `Unsnapshot` `Remember { path, line, col }` `Hook(String)` `Quit(i32)`
+- **Event**: `Key` `Paste` `Resize` `Opened(path, Result, seq)` `Recover(base, text, age, file, deadline)` `Disk { bytes, hash, deadline, seq }` `Saved(Result, seq)` `SaveConflict(Option<Vec<u8>>, deadline, seq)` `Notice(String)` `Kept(Result<String, String>)` `FilterDone` `Place(path, line, col)` `Bg(Rgb)` `Tick(time)` `Signal(i32)`. A `deadline` is the instant a diff must give up at, stamped by the shell because the core reads no clock (DISK-5); the `hash` of a `Disk` is made by the thread that read the file, so that no key waits for it (P3). A `seq` numbers a read of the disk from one counter of the shell, taken as the read starts (a save's answer: when the save is done), and App drops a read older than the newest it has taken in (DISK-1)
+- **Effect**: `Render(Frame)` `Write { path, bytes, expect_hash }` `Open(path)` `Watch(path)` `Spawn` `Kill` `Clipboard(String)` `Snapshot { path, base, text }` `Unsnapshot` `Keep { path, bytes, ext }` `Remember { path, line, col }` `Hook(String)` `Quit(i32)`
 - Only the App on the main thread holds state. Other threads only send Events over mpsc. No locks
-- `Write` runs as a compare-and-swap. If the hash on disk differs from `expect_hash`, it writes nothing and returns `SaveConflict` (SAFE-5), and it checks right before the rename, looking at the file's stamp before and after the read so that a write during the read is seen too. `expect_hash: None` is `:w!`: no compare, and a file without write permission is written too (SAFE-1)
-- `Watch(path)` starts watching the file and reads it once, answering with `Event::Disk`: the new watcher's own thread does that read (never the main thread), before the debounced ones. The App asks for it when it gets a file name, after every save's answer, since what the watcher said while the save was in flight cannot be ordered against the save, and after every answer to an `:e`, since the shell silences the old watcher when that read begins, so that nothing it read of the file being left is merged into the next (PROP-1)
-- A Frame has only four styles: `Primary` `Secondary` `Change` `Deleted`. color.rs decides which real colors they map to. (The Visual selection is an underline, not a style; see VI-5)
+- `Write` runs as a compare-and-swap. If the hash on disk differs from `expect_hash`, it writes nothing and returns `SaveConflict` (SAFE-5), and it checks right before the rename, looking at the file's stamp before and after the read so that a write during the read is seen too. `expect_hash: None` is `:w!`: no compare, and a file without write permission is written too (SAFE-1). A `:w!` over a version of the disk that conflicts with mine waits for `Keep` (the disk's bytes copied to the state directory) and its answer `Kept` before it writes, and an `:e!` of a conflicting buffer copies mine the same way before it reads (SAFE-7)
+- `Watch(path)` starts watching the file and reads it once, answering with `Event::Disk`: the new watcher's own thread does that read (never the main thread), before the debounced ones. The App asks for it when it gets a file name, after every save's answer, since what the watcher said while the save was in flight cannot be ordered against the save, and after every answer to an `:e`, since the shell silences the old watcher when that read begins, so that nothing it read of the file being left is merged into the next (DISK-1)
+- A Frame has only four styles: `Primary` `Secondary` `Change` `Hidden` (a char shown in another form, SAFE-8). color.rs decides which real colors they map to. (The Visual selection is an underline, not a style; see VI-5)
 
 ### Dependencies
 
@@ -73,14 +72,14 @@ If another one is needed, first write the reason into SPEC.
 - Never panic on an I/O error. Say what happened, in words, on the status line
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
 - `[profile.release]` has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- src/ stays within 3,603 lines (blank lines and lines that are only a `//` comment don't count). If it is about to go over, propose features to cut
+- src/ stays within 3,425 lines (blank lines and lines that are only a `//` comment don't count). If it is about to go over, propose features to cut
 - Code, comments, messages, docs and commit messages are in English
 
 ## Tests
 
 The tests form a pyramid too. Roughly: unit and property 70%, integration 25%, E2E 5%.
 
-- **Unit/property** (inside core/): proptest checks diff3 (PROP-4), the save round trip (SAFE-3), undo, and wrapping with kinsoku (VIS-7)
+- **Unit/property** (inside core/): proptest checks diff3 (DISK-4), the save round trip (SAFE-3), undo, and wrapping with kinsoku (VIS-7)
 - **Integration** (tests/): feed a sequence of Events to App, then check the Effects and the state. No terminal and no clock are involved, so the results are deterministic. Concurrency, such as editing while a filter runs or an external change right before a save, is reproduced here as well
 - **Golden**: turn a Frame into text made of characters and style symbols, and compare it with tests/golden/. `SI_BLESS=1` updates them
 - **Fault injection**: each step of the save in io/file.rs can be made to fail (`cfg(test)` only: the `#[cfg(test)]` module at the end of io/file.rs sets a thread-local step number, and `step()` fails that one). Check that wherever it fails, either the old or the new version is fully intact
@@ -97,7 +96,7 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 2. `cargo clippy --all-targets -- -D warnings`
 3. `cargo test`
 4. scripts/trace.sh
-5. src/ has at most 3,603 lines
+5. src/ has at most 3,425 lines
 6. the release binary is at most 2 MB
 
 scripts/trace.sh checks these three things, and prints a table with one row per ID (ID, milestone, number of tests, implemented or not).
@@ -113,7 +112,7 @@ The `[M?]` in SPEC decides which milestone each ID belongs to. When a milestone 
 - **M0**: the repository skeleton, check.sh, trace.sh, `.milestone` (M0)
 - **M1**: buffer, vi, rendering, atomic save, CLI. The change color may still be stood in for by reverse video
 - **M2**: snapshots and recovery. Try it as `$EDITOR` for git commit and for Claude Code's prompt editing
-- **M3**: external changes, 3-way merge, REVIEW mode
-- **M4**: filters, AI-1, IME support
+- **M3**: external changes, 3-way merge, marks and conflicts
+- **M4**: filters, IME support
 - **M5**: the visual finish (APCA palette, color vision simulation, kinsoku)
 - **M6**: the perception benchmark (optional)

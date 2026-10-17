@@ -30,14 +30,14 @@ sim/
     marks.rs       git status and on-disk changes → marks for files and directories (pure)
     sim/ptr.rs     the mouse: clicks, drags and the wheel in the panel and the text (pure)
     syn.rs         syntect (bat's syntaxes) → colored spans per line (markdown's looks too, UI-8), with cached parse states
-    color.rs       what si's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, the tones of the looks (green, red, tints, card, shadow, lines, the interface's six accents, their blocks and its neutral surfaces: OKLab mixes) and the fade, and the terminal's replies put together out of the keys (pure)
+    color.rs       what si's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, the tones of the looks (green, red, tints, the card's surface, shadow, lines, the interface's six accents, their blocks and its neutral surfaces: OKLab mixes) and the fade, and the terminal's replies put together out of the keys (pure)
     paint.rs       the looks beyond si's four styles, the paints (a background, a color of its own, a fade for a run of cells), the Screen, the Painter that writes it, the mouse modes on and off
-    layout.rs      the panel and the editor composed into one Screen: marks, search, colors; the three looks (calm, flat, depth): geometry, green and red, tints, boxes, ruler, card, fog; the char under a point (pure)
+    layout.rs      the panel and the editor composed into one Screen: marks, search, colors; the three looks (calm, flat, depth): geometry, green and red, tints, boxes, ruler, fog; the char under a point (pure)
     io.rs          directory reads, git, the file list, the history and look files, the threads, the content search (rg or the built-in reader) and the preview's read (the impure parts)
 ```
 
 - Functional core, imperative shell, as in si: the pure modules never touch the file system, processes, clocks or the terminal
-- Each open file is one `si::core::app::App`. sim never reaches into an App's internals beyond its public API; when sim needs something si doesn't offer, add the smallest extension point to si (and keep si within its own 3,600 lines and its SPEC; when si is at its cap, only a visibility may change there)
+- Each open file is one `si::core::app::App`. sim never reaches into an App's internals beyond its public API; when sim needs something si doesn't offer, add the smallest extension point to si (and keep si within its own 3,425 lines and its SPEC; when si is at its cap, only a visibility may change there)
 - Colors: the four styles are si's palette (`Event::Bg`, given to every App; `term::sgr` paints them); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2)
 - Dependencies: si, syntect and two-face (bat's syntaxes; pure-Rust regex backend), ropey. Anything else needs a reason in SPEC first
 - sim/src stays within 7,000 lines (counted like si's; the reason it is not 3,000 any more is in CONCEPT.md). Rules from si's CLAUDE.md (edition 2024, `#![forbid(unsafe_code)]`, clippy denies unwrap/expect/panic, no panics on I/O errors, `//!` ID headers, English everywhere) apply
