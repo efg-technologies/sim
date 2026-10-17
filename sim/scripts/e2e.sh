@@ -1468,14 +1468,14 @@ ui_8_markdown_is_colored_and_every_char_of_the_file_is_on_the_screen() {
   start a.md
   wait_for "a.md"
   reply '11;rgb:1e1e/1e1e/1e1e'
-  wait_esc '1m.*38;2;[0-9;]*m Title' # a heading: bold, in the color of its level
+  wait_esc '1m.*38;2;230;230;230m Title' # a heading: bold, in the text's own color (no hue of its level)
   # Nothing is hidden: the markers and the url are drawn, only dimmer.
   screen | grep -F -q '# Title'
   screen | grep -F -q 'Some `code` and **bold** here.'
   screen | grep -F -q '▌ quoted' # the quote's bar, in the cell of its `>`
   ! screen | grep -F -q '> quoted'
   screen | grep -F -q '```bash'
-  screen | grep -F 'bash' | grep -q 'bash  *bash' # the language again, at the right
+  screen | grep -F 'bash' | grep -q 'bash↲  *bash' # the language again, at the right
   wait_esc '48;2;[0-9;]*m`' # inline code is on a surface, its backtick too
   # Calm draws no surface and no bar: the file's own chars, colored like syntax.
   typed zl
@@ -1484,7 +1484,7 @@ ui_8_markdown_is_colored_and_every_char_of_the_file_is_on_the_screen() {
   wait_for "look: calm"
   screen | grep -F -q '> quoted'
   ! screen_esc | grep -q '48;2;'
-  wait_esc '1m.*38;2;[0-9;]*m Title'
+  wait_esc '1m.*38;2;230;230;230m Title'
 }
 
 ui_8_the_colors_of_a_fenced_block_far_from_the_cursor_reach_the_screen_through_tmux() {
@@ -1552,7 +1552,7 @@ ui_5_the_numbers_are_relative_the_cursors_line_is_lit_and_insert_mode_has_a_surf
   screen | grep -F -q "  4   line 4" # the cursor's line: its own number, left-aligned
   screen | grep -F -q "    1 line 3" # the others: the distance
   screen | grep -F -q "    3 line 1"
-  wait_esc '1m.*38;2;[0-9;]*m4  ' # amber and bold
+  wait_esc '1m4  ' # primary and bold
   ! screen_esc | grep -a 'line' | grep -q '48;2;' # Normal mode: no surface on the line (the tab has one)
   typed i
   wait_for "INSERT"

@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -7,8 +7,8 @@ mod live;
 mod panel;
 mod ptr;
 
-use crate::bar::{self, Bar};
-use crate::color::{Accent, Syntax, Tones};
+use crate::bar::{self, Bar, Block as BarBlock};
+use crate::color::{Syntax, Tones};
 use crate::diff::{Diff, Sign};
 use crate::grep;
 use crate::icons;
@@ -18,7 +18,7 @@ use crate::layout::{
     self, Chrome, Colored, Deck, Ed, Extra, Fade, Geo, Kind, Line, LineUi, Mark, Skin,
 };
 use crate::marks::{Git, Marks};
-use crate::paint::{Looks, Screen};
+use crate::paint::{Looks, Paint, Screen};
 use crate::rank::History;
 use crate::syn::Spans;
 use crate::tabs::{self, Tab};
@@ -199,6 +199,9 @@ pub struct Buf {
     /// UI-10: the language server's state for this file (` rust-analyzer · sandboxed`), which the
     /// code of the server's own sets and the status line shows as it is; sim never writes it.
     pub lsp: Option<String>,
+    /// UI-10: whether what `lsp` says is an alert (a server running with no sandbox), which the
+    /// slot draws in the alert's color; set by the server's code.
+    pub lsp_alert: bool,
     /// UI-4: the language server's errors and warnings for the file, which the tab shows (`✘ 2 ▲ 1`);
     /// set by the server's own code, never by sim.
     pub diag: (usize, usize),
@@ -804,6 +807,7 @@ impl Sim {
             crow: 0,
             diff: None,
             lsp: None,
+            lsp_alert: false,
             diag: (0, 0),
             indent: Indent::default(),
         });
@@ -1098,7 +1102,11 @@ impl Sim {
             None => {
                 rows.push(Row { text: layout::fit(&status, usize::from(w)).0, ..Row::default() });
                 looks.push(vec![]);
-                paints.push(vec![]);
+                // What says that git was not run, for safety, is the alert's (UI-1): hidden, and
+                // dangerous if it were not so.
+                let alert = tones.as_ref().filter(|_| ui && status.starts_with(GIT_SKIPPED));
+                let ink = |t: &Tones| Paint { fg: Some(t.alert_fg()), ..Paint::default() };
+                paints.push(alert.map(|t| vec![(0..w, ink(t))]).unwrap_or_default());
             }
         }
         let frame = Frame { width: w, height: h, rows, cursor, shape, pal: self.pal };
@@ -1127,7 +1135,7 @@ impl Sim {
             let bar = Bar {
                 icons,
                 mode: "TREE",
-                accent: Some(Accent::Blue),
+                block: BarBlock::Accent,
                 branch,
                 counts: None,
                 icon: None,
@@ -1147,15 +1155,16 @@ impl Sim {
         let a = &b.app;
         let (buf, name) = (&a.buf, a.path.as_deref().unwrap_or("[no name]"));
         let (line, col) = (buf.line_of(buf.cursor), buf.col());
-        let (mode, accent) = match a.vi.mode {
-            Mode::Insert => ("INSERT".to_string(), Accent::Green),
-            Mode::Visual => ("VISUAL".into(), Accent::Purple),
-            Mode::VLine => ("V-LINE".into(), Accent::Purple),
+        // The mode's block is neutral in Normal mode and the accent in any other (UI-1).
+        let (mode, block) = match a.vi.mode {
+            Mode::Insert => ("INSERT".to_string(), BarBlock::Accent),
+            Mode::Visual => ("VISUAL".into(), BarBlock::Accent),
+            Mode::VLine => ("V-LINE".into(), BarBlock::Accent),
             Mode::Review => {
-                (format!("REVIEW {}/{}", a.current() + 1, buf.hunks.len()), Accent::Amber)
+                (format!("REVIEW {}/{}", a.current() + 1, buf.hunks.len()), BarBlock::Accent)
             }
             Mode::Cmd => return None,
-            Mode::Normal => ("NORMAL".into(), Accent::Blue),
+            Mode::Normal => ("NORMAL".into(), BarBlock::Gray),
         };
         let mut notes = state_words(si_status, line + 1, col + 1);
         if self.bufs.len() > 1 && self.geo().head == 0 {
@@ -1173,17 +1182,19 @@ impl Sim {
         };
         let pos = format!("{}:{}", line + 1, col + 1);
         let file = Path::new(name).file_name().map_or(name.into(), |n| n.to_string_lossy());
+        // What is hidden or dangerous is the alert's (magenta): an untrusted root, a server that
+        // runs with no sandbox (the server's code says so); the rest of the slot is neutral.
         let slot = match (&b.lsp, self.trust) {
-            (Some(l), _) => Some((l.trim().to_string(), Accent::Teal)),
-            (None, Some(true)) => Some(("trusted".to_string(), Accent::Green)),
-            (None, Some(false)) => Some(("untrusted".to_string(), Accent::Amber)),
+            (Some(l), _) => Some((l.trim().to_string(), b.lsp_alert)),
+            (None, Some(true)) => Some(("trusted".to_string(), false)),
+            (None, Some(false)) => Some(("untrusted".to_string(), true)),
             _ => None,
         };
         let slot = slot.map(|(s, c)| (if icons { format!("\u{f132} {s}") } else { s }, c));
         let bar = Bar {
             icons,
             mode: &mode,
-            accent: Some(accent),
+            block,
             branch,
             counts,
             icon: Some(icons::of(&file, false, false)),

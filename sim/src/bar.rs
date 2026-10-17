@@ -1,10 +1,10 @@
-//! UI-10
+//! UI-10, COLOR-1
 //! The status line of the interface (pure): one bar across the width, lualine's sections with
 //! powerline separators when icons are on: the mode in a block of its color, the branch and the
 //! changes against HEAD, the file with its icon and a dot when modified, and on the right the
 //! security slot, the encoding, the line ending, the file type, the progress and the position.
 //! What does not fit is dropped from the right, least important first.
-use crate::color::{Accent, Tones};
+use crate::color::{Chg, Tones};
 use crate::layout::{Line, fit, short};
 use crate::paint::Paint;
 use si::core::color::Rgb;
@@ -14,23 +14,31 @@ const LEFT: &str = "\u{e0b0}";
 const RIGHT: &str = "\u{e0b2}";
 const BRANCH: &str = "\u{e0a0}";
 
+/// The color of the mode's block, and of the position's after it: neutral gray in Normal mode (the
+/// word says the mode), the accent in any other (UI-1: blue is "here, where you act").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Block {
+    Gray,
+    Accent,
+}
+
 /// What the bar shows. `None` and empty are left out.
 pub struct Bar<'a> {
     pub icons: bool,
-    /// The mode's word, and the block's color: an accent, or none for gray.
     pub mode: &'a str,
-    pub accent: Option<Accent>,
+    pub block: Block,
     pub branch: Option<&'a str>,
     /// Lines added, changed and deleted against HEAD.
     pub counts: Option<(usize, usize, usize)>,
     /// The file: its icon (a glyph and its accent), its path and whether it is modified; and si's
     /// state words after it (`2 changes on disk`).
-    pub icon: Option<(char, Option<Accent>)>,
+    pub icon: Option<char>,
     pub path: &'a str,
     pub modified: bool,
     pub notes: &'a str,
-    /// The security slot: the language server's state and whether the root is trusted.
-    pub slot: Option<(&'a str, Accent)>,
+    /// The security slot: the language server's state or whether the root is trusted, and whether
+    /// what it says is an alert (what is hidden or dangerous: magenta).
+    pub slot: Option<(&'a str, bool)>,
     pub encoding: Option<&'a str>,
     pub eol: Option<&'a str>,
     pub ftype: Option<&'a str>,
@@ -75,14 +83,14 @@ fn seg(text: impl Into<String>, fg: Option<Rgb>, bold: bool) -> Seg {
 
 /// The sections of the left and of the right side for what is kept, the path as long as `room`.
 fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) {
-    let (p, ink) = (t.primary, |a| t.fg(a));
-    let block = |a: Option<Accent>| a.map_or(t.card, |a| t.block(a));
-    let on = |a: Option<Accent>| a.map_or(p, |a| t.on(a));
+    let p = t.primary;
+    let (back, on) = match b.block {
+        Block::Gray => (t.gray, t.gray_on),
+        Block::Accent => t.accent_block(),
+    };
     // A: the mode.
-    let mut left = vec![Sect {
-        bg: block(b.accent),
-        segs: vec![seg(format!(" {} ", b.mode), Some(on(b.accent)), true)],
-    }];
+    let mut left =
+        vec![Sect { bg: back, segs: vec![seg(format!(" {} ", b.mode), Some(on), true)] }];
     // B: the branch and the changes.
     let mut parts = vec![];
     if let (true, Some(name)) = (k.branch, b.branch) {
@@ -90,13 +98,13 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
         parts.push(seg(format!(" {icon}{name}"), Some(p), false));
     }
     if let (true, Some((a, c, d))) = (k.counts, b.counts) {
-        let mut put = |n: usize, mark: &str, acc: Accent| {
+        let mut put = |n: usize, mark: &str, chg: Chg| {
             let text = if n > 0 { format!(" {mark}{n}") } else { String::new() };
-            parts.push(seg(text, Some(ink(acc)), false));
+            parts.push(seg(text, Some(t.change_fg(chg)), false));
         };
-        put(a, "+", Accent::Green);
-        put(c, "~", Accent::Amber);
-        put(d, "-", Accent::Red);
+        put(a, "+", Chg::Add);
+        put(c, "~", Chg::Mod);
+        put(d, "-", Chg::Del);
     }
     if !parts.is_empty() {
         parts.push(seg(" ", None, false));
@@ -104,12 +112,12 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
     }
     // C: the file.
     let mut file = vec![seg(" ", None, false)];
-    if let (true, Some((glyph, accent))) = (b.icons, b.icon) {
-        file.push(seg(format!("{glyph} "), Some(accent.map_or(t.focus, ink)), false));
+    if let (true, Some(glyph)) = (b.icons, b.icon) {
+        file.push(seg(format!("{glyph} "), Some(t.focus), false)); // (monochrome)
     }
     file.push(seg(short(b.path, room), Some(p), false));
     if b.modified {
-        file.push(seg(" ●", Some(ink(Accent::Amber)), false));
+        file.push(seg(" ●", Some(p), true)); // unsaved: weight, not a color
     }
     if let (true, false) = (k.notes, b.notes.is_empty()) {
         file.push(seg(format!("  {}", b.notes), Some(p), false));
@@ -119,8 +127,8 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
     // X: the slot, the encoding, the line ending, the file type.
     let mut right = vec![];
     let mut x = vec![];
-    if let (true, Some((text, a))) = (k.slot, b.slot) {
-        x.push(seg(format!(" {text}"), Some(ink(a)), false));
+    if let (true, Some((text, alert))) = (k.slot, b.slot) {
+        x.push(seg(format!(" {text}"), Some(if alert { t.alert_fg() } else { p }), alert));
     }
     if let (true, Some(e)) = (k.enc, b.encoding) {
         x.push(seg(format!(" {e}"), Some(p), false));
@@ -129,8 +137,7 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
         x.push(seg(format!(" {e}"), Some(p), false));
     }
     if let (true, Some(ft)) = (k.ftype, b.ftype) {
-        let icon = b.icon.filter(|_| b.icons).map(|(g, a)| (g, a.map_or(t.focus, ink)));
-        x.extend(icon.map(|(g, c)| seg(format!(" {g}"), Some(c), false)));
+        x.extend(b.icon.filter(|_| b.icons).map(|g| seg(format!(" {g}"), Some(t.focus), false)));
         x.push(seg(format!(" {ft}"), Some(p), false));
     }
     if !x.is_empty() {
@@ -141,10 +148,7 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
     if let (true, Some(pr)) = (k.progress, b.progress) {
         right.push(Sect { bg: t.card, segs: vec![seg(format!(" {pr} "), Some(p), false)] });
     }
-    right.push(Sect {
-        bg: block(b.accent),
-        segs: vec![seg(format!(" {} ", b.pos), Some(on(b.accent)), true)],
-    });
+    right.push(Sect { bg: back, segs: vec![seg(format!(" {} ", b.pos), Some(on), true)] });
     (left, right)
 }
 

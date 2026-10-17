@@ -6,7 +6,7 @@ mod common;
 use common::*;
 use si::core::app::Event;
 use si::core::color::{Rgb, apca, palette};
-use sim::bar::{Bar, render};
+use sim::bar::{Bar, Block, render};
 use sim::color::{Accent, Syntax, Tones};
 use sim::layout::Skin;
 use sim::sim::SimEvent;
@@ -29,14 +29,14 @@ fn bar(icons: bool) -> Bar<'static> {
     Bar {
         icons,
         mode: "NORMAL",
-        accent: Some(Accent::Blue),
+        block: Block::Accent,
         branch: Some("main"),
         counts: Some((18, 3, 2)),
-        icon: Some(('\u{e7a8}', Some(Accent::Amber))),
+        icon: Some('\u{e7a8}'),
         path: "src/layout.rs",
         modified: true,
         notes: "2 changes on disk",
-        slot: Some(("rust-analyzer · sandboxed", Accent::Teal)),
+        slot: Some(("rust-analyzer · sandboxed", false)),
         encoding: Some("utf-8"),
         eol: Some("LF"),
         ftype: Some("rust"),
@@ -147,9 +147,9 @@ fn ui_12_the_text_of_the_bar_reads_on_its_sections_on_every_background() {
                 .take(usize::from(range.end - range.start))
                 .collect();
             if text.trim().is_empty()
-                || text.chars().all(|c| ('\u{e000}'..='\u{f8ff}').contains(&c))
+                || text.trim().chars().all(|c| ('\u{e000}'..='\u{f8ff}').contains(&c))
             {
-                continue; // blanks and separators are not text
+                continue; // blanks, separators and icons are not text
             }
             let lc = apca(fg, back).abs();
             assert!(lc >= 75.0, "{bg:?}: {text:?} |Lc| {lc:.1} ({fg:?} on {back:?})");
@@ -203,10 +203,10 @@ fn ui_10_the_bar_says_the_mode_the_branch_the_changes_the_file_and_the_position(
         assert!(text.contains("NORMAL") && text.contains("Bot"), "{skin:?}: {text}");
         r.keys("v");
         assert!(last(&r).contains("VISUAL"), "{skin:?}");
-        // The mode block's color is the mode's: purple for Visual, green for Insert, blue else.
+        // The mode block is the accent's in any mode but Normal, where it is neutral.
         let t = Tones::new(&palette(BG));
         let at = r.shot.paints.last().unwrap().iter().find(|(c, _)| c.contains(&3)).unwrap().1.bg;
-        assert_eq!(at, Some(t.block(Accent::Purple)), "{skin:?}");
+        assert_eq!(at, Some(t.accent_block().0), "{skin:?}: Visual mode's block is the accent's");
     }
 }
 

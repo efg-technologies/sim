@@ -1,60 +1,59 @@
 //! UI-2, UI-10, SYN-4
 //! The Nerd Font icon of a tree row (pure): a closed or an open folder, and a file by its whole
-//! name or its extension, from a table of about forty entries, with the accent it is drawn in.
-use crate::color::Accent::{self, Amber, Blue, Green, Purple, Red, Teal};
+//! name or its extension, from a table of about forty entries; the glyph only, for icons have no color.
 
 /// The folder, closed and open.
 pub const CLOSED: char = '\u{f07b}';
 pub const OPEN: char = '\u{f07c}';
 const FILE: char = '\u{f15b}';
 
-/// The names (lower case, whole) and the extensions that have an icon of their own. `None` is the
-/// secondary gray.
-const NAMES: &[(&str, char, Option<Accent>)] = &[
-    ("dockerfile", '\u{f308}', Some(Blue)),
-    ("makefile", '\u{e779}', None),
-    (".gitignore", '\u{e702}', Some(Red)),
-    (".gitattributes", '\u{e702}', Some(Red)),
-    (".gitconfig", '\u{e702}', Some(Red)),
-    (".zshrc", '\u{e795}', Some(Green)),
-    (".zshenv", '\u{e795}', Some(Green)),
-    (".bashrc", '\u{e795}', Some(Green)),
-    (".profile", '\u{e795}', Some(Green)),
-    (".editorconfig", '\u{e615}', None),
-    ("license", '\u{e60a}', Some(Amber)),
+/// The names (lower case, whole) and the extensions that have an icon of their own. Icons are
+/// monochrome (UI-1): the secondary gray, whatever the type.
+const NAMES: &[(&str, char)] = &[
+    ("dockerfile", '\u{f308}'),
+    ("makefile", '\u{e779}'),
+    (".gitignore", '\u{e702}'),
+    (".gitattributes", '\u{e702}'),
+    (".gitconfig", '\u{e702}'),
+    (".zshrc", '\u{e795}'),
+    (".zshenv", '\u{e795}'),
+    (".bashrc", '\u{e795}'),
+    (".profile", '\u{e795}'),
+    (".editorconfig", '\u{e615}'),
+    ("license", '\u{e60a}'),
 ];
 
-const EXTS: &[(&str, char, Option<Accent>)] = &[
-    ("rs", '\u{e7a8}', Some(Amber)),
-    ("md", '\u{e73e}', Some(Blue)),
-    ("toml", '\u{e615}', Some(Teal)),
-    ("json", '\u{e60b}', Some(Amber)),
-    ("yaml", '\u{e6a8}', Some(Purple)),
-    ("yml", '\u{e6a8}', Some(Purple)),
-    ("sh", '\u{e795}', Some(Green)),
-    ("zsh", '\u{e795}', Some(Green)),
-    ("bash", '\u{e795}', Some(Green)),
-    ("lua", '\u{e620}', Some(Blue)),
-    ("py", '\u{e73c}', Some(Amber)),
-    ("js", '\u{e781}', Some(Amber)),
-    ("ts", '\u{e628}', Some(Blue)),
-    ("tsx", '\u{e7ba}', Some(Teal)),
-    ("jsx", '\u{e7ba}', Some(Teal)),
-    ("go", '\u{e627}', Some(Teal)),
-    ("c", '\u{e61e}', Some(Blue)),
-    ("h", '\u{e61e}', Some(Purple)),
-    ("cpp", '\u{e61d}', Some(Blue)),
-    ("hpp", '\u{e61d}', Some(Purple)),
-    ("html", '\u{e736}', Some(Red)),
-    ("css", '\u{e749}', Some(Blue)),
-    ("scss", '\u{e74b}', Some(Purple)),
-    ("sql", '\u{e706}', Some(Amber)),
-    ("lock", '\u{f023}', None),
-    ("png", '\u{f1c5}', Some(Purple)),
-    ("jpg", '\u{f1c5}', Some(Purple)),
-    ("svg", '\u{f1c5}', Some(Purple)),
-    ("pdf", '\u{f1c1}', Some(Red)),
-    ("txt", '\u{f15c}', None),
+const EXTS: &[(&str, char)] = &[
+    ("rs", '\u{e7a8}'),
+    ("md", '\u{e73e}'),
+    ("toml", '\u{e615}'),
+    ("json", '\u{e60b}'),
+    ("yaml", '\u{e6a8}'),
+    ("yml", '\u{e6a8}'),
+    ("sh", '\u{e795}'),
+    ("zsh", '\u{e795}'),
+    ("bash", '\u{e795}'),
+    ("lua", '\u{e620}'),
+    ("py", '\u{e73c}'),
+    ("js", '\u{e781}'),
+    ("ts", '\u{e628}'),
+    ("tsx", '\u{e7ba}'),
+    ("jsx", '\u{e7ba}'),
+    ("go", '\u{e627}'),
+    ("c", '\u{e61e}'),
+    ("h", '\u{e61e}'),
+    ("cpp", '\u{e61d}'),
+    ("hpp", '\u{e61d}'),
+    ("html", '\u{e736}'),
+    ("css", '\u{e749}'),
+    ("scss", '\u{e74b}'),
+    ("sql", '\u{e706}'),
+    ("lock", '\u{f023}'),
+    ("png", '\u{f1c5}'),
+    ("jpg", '\u{f1c5}'),
+    ("svg", '\u{f1c5}'),
+    ("pdf", '\u{f1c1}'),
+    ("txt", '\u{f15c}'),
 ];
 
 /// What chezmoi's names stand for: `dot_zshrc.tmpl` is `.zshrc`. The attributes in front of a name
@@ -71,22 +70,22 @@ pub fn target(name: &str) -> String {
     n.strip_prefix("dot_").map_or(n.clone(), |r| format!(".{r}"))
 }
 
-/// The icon of a folder (open or closed) and the accent it is drawn in, or of a file by name.
-pub fn of(name: &str, is_dir: bool, open: bool) -> (char, Option<Accent>) {
+/// The icon of a folder (open or closed), or of a file by its name: the glyph only, a Nerd Font's.
+pub fn of(name: &str, is_dir: bool, open: bool) -> char {
     if is_dir {
-        return (if open { OPEN } else { CLOSED }, Some(Blue));
+        return if open { OPEN } else { CLOSED };
     }
     let n = target(name);
     if n.starts_with("readme") {
-        return ('\u{f02d}', Some(Blue));
+        return '\u{f02d}';
     }
     if n.starts_with("license") {
-        return ('\u{e60a}', Some(Amber));
+        return '\u{e60a}';
     }
     let named = NAMES.iter().find(|e| e.0 == n);
     let ext = n.rsplit_once('.').filter(|(stem, _)| !stem.is_empty()).map(|(_, e)| e);
     let by_ext = ext.and_then(|e| EXTS.iter().find(|x| x.0 == e));
-    named.or(by_ext).map_or((FILE, None), |e| (e.1, e.2))
+    named.or(by_ext).map_or(FILE, |e| e.1)
 }
 
 /// UI-10: the file type the status line names, as Neovim does (`rust`, `markdown`, `zsh`), from

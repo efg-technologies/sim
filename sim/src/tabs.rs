@@ -1,10 +1,10 @@
-//! UI-4
+//! UI-4, COLOR-1
 //! The tab bar (pure), as the author's bufferline draws it: one tab for each open file, its icon
 //! and name (with the directory above it when two open files have the same name), a dot for a
 //! file that is modified and a green one for a file that changed on disk, the counts of a language
 //! server's errors and warnings, the shown tab raised with a bar at its left, thin separators,
 //! `‹` and `›` where tabs are hidden; and where a click on it lands.
-use crate::color::{Accent, Tones};
+use crate::color::{Chg, Tones};
 use crate::icons;
 use crate::layout::{Line, fit};
 use crate::paint::Paint;
@@ -96,31 +96,30 @@ fn tab(tb: &Tab, icons_on: bool, raised: bool, max: usize, t: Option<&Tones>) ->
     let mut line = Line::default();
     let surface = t.map(|t| if raised { t.card } else { t.bar });
     let base = Paint { bg: surface, bold: raised, ..Paint::default() };
-    let ink = |a: Accent| t.map(|t| t.fg(a));
-    // The indicator: a bar at the left of the shown tab, in blue (`indicator = { icon = '▎' }`).
+    // The indicator: a bar at the left of the shown tab, in the accent (`indicator = { icon = '▎' }`).
     if raised {
-        line.put("▎", Paint { fg: ink(Accent::Blue), ..base });
+        line.put("▎", Paint { fg: t.map(|t| t.accent_fg()), ..base });
     } else {
         line.put(" ", base);
     }
     line.put(" ", base);
     if icons_on {
-        let (glyph, accent) = icons::of(&tb.name, false, false);
-        let c = t.map(|t| accent.map_or(t.focus, |a| t.fg(a)));
-        line.put(&format!("{glyph} "), Paint { fg: c, ..base });
+        let glyph = icons::of(&tb.name, false, false);
+        line.put(&format!("{glyph} "), Paint { fg: t.map(|t| t.focus), ..base }); // (monochrome)
     }
     let extra = 4 + 2 * usize::from(icons_on);
     line.put(&fit(&tb.name, max.saturating_sub(extra).max(1)).0, base);
-    for (n, shape, a) in [(tb.errors, ERROR, Accent::Red), (tb.warns, WARN, Accent::Amber)] {
+    // The counts are told by their shapes, in the text's own gray: a color is for what changed.
+    for (n, shape) in [(tb.errors, ERROR), (tb.warns, WARN)] {
         if n > 0 {
-            line.put(&format!(" {shape} {n}"), Paint { fg: ink(a), ..base });
+            line.put(&format!(" {shape} {n}"), base);
         }
     }
     if tb.dirty {
-        line.put(" ●", Paint { fg: ink(Accent::Amber), ..base });
+        line.put(" ●", Paint { bold: true, ..base }); // unsaved: weight, not a color
     }
     if tb.disk {
-        line.put(" ●", Paint { fg: ink(Accent::Green), ..base });
+        line.put(" ●", Paint { fg: t.map(|t| t.change_fg(Chg::Add)), ..base }); // changed on disk: a change
     }
     line.put(" ", base);
     line

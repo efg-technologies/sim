@@ -24,13 +24,12 @@ fn gap(a: f64, b: f64) -> f64 {
     d.min(360.0 - d)
 }
 
-const ACCENTS: [(Accent, &str, f64); 6] = [
+const ACCENTS: [(Accent, &str, f64); 5] = [
     (Accent::Red, "red", 25.0),
     (Accent::Green, "green", 145.0),
     (Accent::Amber, "amber", 85.0),
     (Accent::Blue, "blue", 250.0),
     (Accent::Purple, "purple", 320.0),
-    (Accent::Teal, "teal", 195.0),
 ];
 
 #[test]
@@ -62,6 +61,17 @@ fn ui_12_text_keeps_75_on_every_surface_and_on_its_block_on_every_background() {
                 worst_accent = worst_accent.min(lc);
             }
         }
+        // The neutral block of the mode in Normal mode: text that reads on it, and a block that
+        // stands out from the bar and the branch's surface it sits beside.
+        let lc = apca(t.gray_on, t.gray).abs();
+        assert!(lc >= 75.0, "{}: text on the gray block |Lc| {lc:.1}", hex(bg));
+        worst_block = worst_block.min(lc);
+        let gap = (to_lch(t.gray)[0] - to_lch(t.card)[0]).abs();
+        assert!(
+            gap > 0.03 || bg == (0, 0, 0),
+            "{}: the gray block is {gap:.3} of lightness from the card",
+            hex(bg)
+        );
         for (a, an, _) in ACCENTS {
             let lc = apca(t.on(a), t.block(a)).abs();
             assert!(

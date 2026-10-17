@@ -106,7 +106,6 @@ fn ui_3_a_change_on_disk_is_not_a_git_status_and_git_s_changes_are_not_on_disk()
 #[test]
 fn ui_2_the_icons_cover_the_names_and_extensions_of_the_table_and_chezmoi_s_names() {
     let default = icons::of("whatever.zzz", false, false);
-    assert_eq!(default.1, None, "the default file is in the secondary gray");
     let table = [
         "a.rs",
         "a.md",
@@ -147,8 +146,8 @@ fn ui_2_the_icons_cover_the_names_and_extensions_of_the_table_and_chezmoi_s_name
         "Cargo.lock",
     ];
     for name in table {
-        let (glyph, _) = icons::of(name, false, false);
-        assert_ne!(glyph, default.0, "{name} has an icon of its own");
+        let glyph = icons::of(name, false, false);
+        assert_ne!(glyph, default, "{name} has an icon of its own");
         assert!(
             ('\u{e000}'..='\u{f8ff}').contains(&glyph),
             "{name}: {glyph:?} is a Nerd Font glyph"
@@ -156,7 +155,7 @@ fn ui_2_the_icons_cover_the_names_and_extensions_of_the_table_and_chezmoi_s_name
     }
     // Case is ignored, and the file's own name wins over its extension.
     assert_eq!(icons::of("MAKEFILE", false, false), icons::of("Makefile", false, false));
-    assert_ne!(icons::of("Cargo.lock", false, false).0, icons::of("a.toml", false, false).0);
+    assert_ne!(icons::of("Cargo.lock", false, false), icons::of("a.toml", false, false));
     // chezmoi's decorations are taken off: `dot_zshrc.tmpl` is `.zshrc`, `run_x.sh.tmpl` is a script.
     assert_eq!(icons::of("dot_zshrc.tmpl", false, false), icons::of(".zshrc", false, false));
     assert_eq!(
@@ -164,11 +163,11 @@ fn ui_2_the_icons_cover_the_names_and_extensions_of_the_table_and_chezmoi_s_name
         icons::of(".gitignore", false, false)
     );
     assert_eq!(icons::of("executable_x.sh", false, false), icons::of("a.sh", false, false));
-    assert_ne!(icons::of("dot_zshrc.tmpl", false, false).0, default.0);
+    assert_ne!(icons::of("dot_zshrc.tmpl", false, false), default);
     // Folders: open and closed.
     let (closed, open) = (icons::of("src", true, false), icons::of("src", true, true));
-    assert_ne!(closed.0, open.0);
-    assert_ne!(closed.0, default.0);
+    assert_ne!(closed, open);
+    assert_ne!(closed, default);
 }
 
 #[test]
@@ -318,11 +317,7 @@ fn ui_2_the_first_row_of_the_panel_is_the_root_below_home_in_bold_with_the_open_
         assert!(paint(&r, head, x).bold, "{skin:?}: bold");
         assert_eq!(paint(&r, head, x).bg, Some(tones().bar), "{skin:?}: on the bar's surface");
         let folder = col(&r, head, &icons::OPEN.to_string());
-        assert_eq!(
-            paint(&r, head, folder).fg,
-            Some(tones().fg(Accent::Blue)),
-            "{skin:?}: the open folder"
-        );
+        assert_eq!(paint(&r, head, folder).fg, Some(tones().focus), "{skin:?}: the open folder");
         // The tree starts under it, and the mouse, the cursor and the pages count from there.
         let g = r.sim.geo();
         assert_eq!((g.head, usize::from(g.y0)), (1, head + 1), "{skin:?}");
@@ -356,15 +351,13 @@ fn ui_2_folders_and_files_have_their_icons_and_zi_turns_them_off_and_on() {
     let t = tones();
     let dir = row(&r, ".github");
     let line = &r.shot.frame.rows[dir].text;
-    assert!(line.contains(&format!("{} .github", icons::of(".github", true, true).0)), "{line}");
+    assert!(line.contains(&format!("{} .github", icons::of(".github", true, true))), "{line}");
     let main = row(&r, "main.rs");
-    let (glyph, accent) = icons::of("main.rs", false, false);
+    let glyph = icons::of("main.rs", false, false);
     let x = col(&r, main, &glyph.to_string());
-    assert_eq!(
-        paint(&r, main, x).fg,
-        Some(t.fg(accent.unwrap())),
-        "the icon is in the accent of its type"
-    );
+    assert_eq!(paint(&r, main, x).fg, Some(t.focus), "icons are monochrome: the secondary gray");
+    let folder = col(&r, dir, &icons::of(".github", true, true).to_string());
+    assert_eq!(paint(&r, dir, folder).fg, Some(t.focus), "folders too");
     assert!(
         !r.shot.frame.rows[dir].text.contains(".github/"),
         "no slash after a directory with an icon"
@@ -382,7 +375,7 @@ fn ui_2_folders_and_files_have_their_icons_and_zi_turns_them_off_and_on() {
         r.shot.frame.rows[dir].text
     );
     assert!(
-        !r.shot.frame.rows[file].text.contains(icons::of("ci.yml", false, false).0),
+        !r.shot.frame.rows[file].text.contains(icons::of("ci.yml", false, false)),
         "no icon on a file"
     );
     r.keys("zi");
@@ -402,7 +395,7 @@ fn ui_3_a_file_has_its_git_letter_at_the_right_edge_and_its_name_in_the_color_of
         ("main.rs", 'M', Accent::Amber),
         ("added.rs", 'A', Accent::Green),
         ("new.md", 'U', Accent::Green),
-        ("Cargo.lock2", 'R', Accent::Blue),
+        ("Cargo.lock2", 'R', Accent::Amber), // a rename is told by its letter, in the modification's color
     ] {
         let y = row(&r, name);
         let text: Vec<char> = r.shot.frame.rows[y].text.chars().collect();

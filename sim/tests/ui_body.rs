@@ -49,7 +49,7 @@ fn ui_9_si_keeps_its_72_columns() {
 
 use si::core::app::Event;
 use si::core::color::{Rgb, palette};
-use sim::color::{Accent, Syntax, Tones};
+use sim::color::{Syntax, Tones};
 use sim::paint::Paint;
 use sim::sim::SimEvent;
 
@@ -90,7 +90,7 @@ fn row_of(r: &Rig, what: &str) -> usize {
 }
 
 #[test]
-fn ui_5_the_cursor_s_line_has_its_absolute_number_in_amber_bold_and_the_others_their_distance() {
+fn ui_5_the_cursor_s_line_has_its_absolute_number_in_primary_bold_and_the_others_their_distance() {
     for skin in [Skin::Flat, Skin::Depth] {
         let mut r = body("ui5-rel", skin, &lines(12), (80, 24));
         r.keys("4j");
@@ -111,7 +111,7 @@ fn ui_5_the_cursor_s_line_has_its_absolute_number_in_amber_bold_and_the_others_t
         assert_eq!(at(far), "   4 ", "{skin:?}");
         let x = g.tx() + 1; // the number's first column
         let p = paint(&r, cur, x);
-        assert_eq!((p.fg, p.bold), (Some(t.fg(Accent::Amber)), true), "{skin:?}: amber and bold");
+        assert_eq!((p.fg, p.bold), (Some(t.primary), true), "{skin:?}: primary and bold, no hue");
         assert!(
             r.shot.frame.rows[above]
                 .spans
@@ -217,4 +217,29 @@ fn ui_5_the_view_keeps_eight_lines_around_the_cursor_as_neovim_s_scrolloff_does(
     r.keys("5k");
     let y = usize::from(r.shot.frame.cursor.1) - usize::from(g.y0);
     assert!(y >= 8 && y + 8 < rows, "{y} of {rows}");
+}
+
+#[test]
+fn ui_5_the_other_numbers_fade_with_their_distance_in_depth_as_the_text_does_and_flat_is_uniform() {
+    let mut r = body("ui5-fade", Skin::Depth, &lines(70), (80, 30));
+    let g = r.sim.geo();
+    let at = |r: &Rig, what: &str| {
+        (usize::from(g.y0)..).find(|&y| r.shot.frame.rows[y].text.contains(what)).unwrap()
+    };
+    let (near, far) = (at(&r, "line 3↲"), at(&r, "line 22↲"));
+    let (num, text) = (g.tx() + 3, g.tx() + 8);
+    assert_eq!(paint(&r, near, num).fade, 0, "next to the cursor nothing fades");
+    assert!(paint(&r, far, num).fade > 0, "a number far from the cursor fades");
+    assert_eq!(
+        paint(&r, far, num).fade,
+        paint(&r, far, text).fade,
+        "by the same curve as the text of its row"
+    );
+    r.keys("20j");
+    let (near, far) = (at(&r, "line 21↲"), usize::from(g.y0)); // (the first row shown)
+    assert_eq!(paint(&r, near, num).fade, 0);
+    assert!(paint(&r, far, num).fade > 0, "from wherever the cursor is");
+    // Flat is uniform.
+    let flat = body("ui5-nofade", Skin::Flat, &lines(70), (80, 30));
+    assert!((0..flat.shot.paints.len()).all(|y| paint(&flat, y, num).fade == 0));
 }

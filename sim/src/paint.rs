@@ -1,4 +1,4 @@
-//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8
+//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8, COLOR-1
 //! What sim draws beyond si's four styles: the looks a char can have, the Screen that carries
 //! them with si's Frame, and the Painter that writes a Screen to the terminal, row by row. The
 //! four styles are si's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
@@ -58,29 +58,31 @@ pub enum Look {
     Sel,
 }
 
-/// How a look is drawn (before a paint's colors): its SGR attributes, the syntax look whose color
-/// it takes (SGR 31-36 stands for it without a palette), and whether it is the secondary gray.
-/// The six headings are red, yellow, green, cyan, magenta and cyan again; blue is not a syntax
-/// color (SYN-1), and flat and depth paint level 5 and links blue over it (UI-8).
+/// How a look is drawn (before a paint's colors): its SGR attributes, the syntax look whose hue it
+/// takes (SGR 31-36 stands for it without a palette), and whether it is the secondary gray. Only
+/// the looks of code have a hue (SYN-1); markdown's are weight, slant, underline and grays: a
+/// heading is bold in the text's own color whatever its level, a bullet, a quote's bar, a marker
+/// and the language of a fence are secondary, a link is underlined (its blue is the accent's, laid
+/// on by `layout` in flat and depth; calm has none, P3). One hue, one meaning (UI-1).
 fn made_of(look: Look, pal: bool) -> (&'static str, Option<Look>, bool) {
     use Look::*;
     match look {
         Kw => (";1", Some(Kw), false),
         Str | Ty | Num | Fun => ("", Some(look), false),
-        H1 => (";1", Some(Kw), false),
-        H2 => (";1", Some(Ty), false),
-        Bullet => ("", Some(Ty), false),
-        H3 => (";1", Some(Str), false),
-        H4 | H5 => (";1", Some(Fun), false),
-        H6 => (";1", Some(Num), false),
-        Quote | Lang => ("", Some(Fun), false),
-        Link => (";4", Some(Fun), false),
+        H1 | H2 | H3 | H4 | H5 | H6 => (";1", None, false),
+        Bullet | Quote | Lang => ("", None, true),
+        Link => (";4", None, false),
         Com => (if pal { ";3" } else { ";2;3" }, None, true),
         Mark | Tick | Url => (if pal { "" } else { ";2" }, None, true),
         Em => (";3", None, false),
         Bold => (";1", None, false),
         Code | Band | Sel => ("", None, false),
     }
+}
+
+/// The syntax look whose hue a look is drawn in, if it has one: the looks of code only (UI-1).
+pub fn syntax_hue(look: Look) -> Option<Look> {
+    made_of(look, true).1
 }
 
 /// Column ranges of a row, in the columns of the Frame.

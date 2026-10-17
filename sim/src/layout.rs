@@ -1,8 +1,8 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
-use crate::color::{Accent, Tones};
+use crate::color::{Chg, Tones};
 use crate::diff::Sign;
 use crate::grep::PRow;
 use crate::icons;
@@ -425,13 +425,12 @@ pub fn name_col(depth: usize, chrome: bool) -> u16 {
     (2 * depth + if chrome { 3 } else { 2 }) as u16
 }
 
-/// UI-3: the accent a git status is drawn in.
-fn git_accent(g: Git) -> Accent {
+/// UI-3: the change a git status is drawn as (a rename is a modification, told by its letter).
+fn git_chg(g: Git) -> Chg {
     match g {
-        Git::Modified => Accent::Amber,
-        Git::Added | Git::Untracked => Accent::Green,
-        Git::Deleted | Git::Conflict => Accent::Red,
-        Git::Renamed => Accent::Blue,
+        Git::Modified | Git::Renamed => Chg::Mod,
+        Git::Added | Git::Untracked => Chg::Add,
+        Git::Deleted | Git::Conflict => Chg::Del,
     }
 }
 
@@ -483,14 +482,13 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
         line.put(&s, p);
     };
     let dim = (r.name.starts_with('.') || m.ignored) && m.git.is_none() && !m.change;
-    put(&mut line, if m.likely { "•" } else { " " }, ink(t.fg(Accent::Blue)));
+    put(&mut line, if m.likely { "•" } else { " " }, ink(t.focus));
     for _ in 0..r.depth {
         put(&mut line, "│ ", ink(t.line));
     }
     if icons {
-        let (glyph, accent) = icons::of(&r.name, r.is_dir, r.open);
-        let c = accent.filter(|_| !dim).map_or(t.focus, |a| t.fg(a));
-        put(&mut line, &format!("{glyph} "), ink(c));
+        let glyph = icons::of(&r.name, r.is_dir, r.open);
+        put(&mut line, &format!("{glyph} "), ink(t.focus)); // (monochrome)
     } else {
         put(
             &mut line,
@@ -513,7 +511,7 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
         line.paints.push((name.clone(), ink_of(t, false)));
     } else if let Some(g) = m.git {
         let bold = g == Git::Conflict;
-        line.paints.push((name.clone(), Paint { bold, ..ink(t.fg(git_accent(g))) }));
+        line.paints.push((name.clone(), Paint { bold, ..ink(t.change_fg(git_chg(g))) }));
         line.looks.extend((g == Git::Untracked).then_some((name.clone(), Look::Em)));
     } else if dim {
         line.row.spans.push((name.clone(), Style::Secondary));
@@ -528,10 +526,10 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
     line.put(" ", Paint::default());
     match (m.git, m.dot) {
         (Some(g), _) => {
-            let (c, bold) = (t.fg(git_accent(g)), g == Git::Conflict);
+            let (c, bold) = (t.change_fg(git_chg(g)), g == Git::Conflict);
             line.put(&g.letter().to_string(), Paint { bold, ..ink(c) });
         }
-        (_, Some(g)) => line.put("●", ink(t.fg(git_accent(g)))),
+        (_, Some(g)) => line.put("●", ink(t.change_fg(git_chg(g)))),
         _ => {}
     }
     line.pad(pw);
@@ -544,7 +542,7 @@ fn header_line(pw: u16, root: &str, icons: bool, t: &Tones) -> Line {
     let bar = Paint { bg: Some(t.bar), ..Paint::default() };
     line.put(" ", bar);
     if icons {
-        line.put(&format!("{} ", icons::OPEN), Paint { fg: Some(t.fg(Accent::Blue)), ..bar });
+        line.put(&format!("{} ", icons::OPEN), Paint { fg: Some(t.focus), ..bar });
     }
     let room = usize::from(pw).saturating_sub(usize::from(line.cols) + 1);
     line.put(&tail(root, room), Paint { bold: true, ..bar });
@@ -590,13 +588,13 @@ fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
 /// bar in its own cell, and the language a fence names, dim, at the right of its row.
 fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     let on = |bg| Paint { bg: Some(bg), ..Paint::default() };
-    let blue = Paint { fg: Some(t.fg(Accent::Blue)), ..Paint::default() };
+    let link = Paint { fg: Some(t.accent_fg()), ..Paint::default() };
     let mut paints: Paints = line
         .looks
         .iter()
         .filter_map(|(r, l)| match l {
             Look::Code | Look::Tick => Some((r.clone(), on(t.code))),
-            Look::Link | Look::H5 => Some((r.clone(), blue)),
+            Look::Link => Some((r.clone(), link)),
             _ => None,
         })
         .collect();
@@ -647,13 +645,16 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         }
         let mut s = Line::default();
         let (glyph, accent) = match sign {
-            Some(Sign::Add) => ("▎", Some(Accent::Green)),
-            Some(Sign::Change) => ("▎", Some(Accent::Amber)),
-            Some(Sign::Del) => ("▁", Some(Accent::Red)),
-            Some(Sign::DelTop) => ("▔", Some(Accent::Red)),
+            Some(Sign::Add) => ("▎", Some(Chg::Add)),
+            Some(Sign::Change) => ("▎", Some(Chg::Mod)),
+            Some(Sign::Del) => ("▁", Some(Chg::Del)),
+            Some(Sign::DelTop) => ("▔", Some(Chg::Del)),
             None => (" ", None),
         };
-        s.put(glyph, Paint { bg, fg: accent.zip(t).map(|(a, t)| t.fg(a)), ..Paint::default() });
+        s.put(
+            glyph,
+            Paint { bg, fg: accent.zip(t).map(|(a, t)| t.change_fg(a)), ..Paint::default() },
+        );
         s.add(l);
         s
     };
@@ -748,9 +749,9 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             let digits = ed.digits;
             if let Some(n) = number(e, digits) {
                 let shown = if n == cl + 1 {
-                    let accent =
-                        Paint { fg: Some(t.fg(Accent::Amber)), bold: true, ..Paint::default() };
-                    line.paints.insert(0, (1..1 + digits as u16, accent));
+                    // the cursor's line: the primary gray and weight (a color is for what changed)
+                    let lit = Paint { fg: Some(t.primary), bold: true, ..Paint::default() };
+                    line.paints.insert(0, (1..1 + digits as u16, lit));
                     format!("{n:<digits$}")
                 } else {
                     format!("{:>digits$}", n.abs_diff(cl + 1))
@@ -1048,7 +1049,10 @@ pub fn colors<'a>(
         if let Some(l) = starts {
             (cs, sp, ci) = (text(l).unwrap_or_default().chars().collect(), spans(l), 0);
             win = Some((win.map_or(l, |w: (usize, usize)| w.0), l));
-            band = sp.is_some_and(|s| s.first().is_some_and(|s| s.1 == Look::Band));
+            // a fenced block, and a first-level heading (a faint band of its own)
+            band = sp.is_some_and(|s| {
+                s.first().is_some_and(|s| s.1 == Look::Band) || s.iter().any(|s| s.1 == Look::H1)
+            });
             let lang = sp.and_then(|s| s.iter().find(|s| s.1 == Look::Lang));
             md[i].lang = lang.map(|s| cs[s.0.clone()].iter().collect());
             lui = ui.map_or_else(LineUi::default, |f| f(l));

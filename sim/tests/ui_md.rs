@@ -5,7 +5,7 @@ mod common;
 use common::*;
 use si::core::app::Event;
 use si::core::color::{Rgb, palette};
-use sim::color::{Accent, Syntax, Tones};
+use sim::color::{Syntax, Tones};
 use sim::layout::Skin;
 use sim::paint::{Look, Paint, Painter, Screen};
 use sim::sim::SimEvent;
@@ -147,7 +147,7 @@ fn ui_8_inline_code_is_on_a_surface_links_and_level_five_are_blue_in_flat_and_de
         assert_eq!(paint_at(&r, y, 3).bg, None, "{skin:?}: not the prose");
         let l = r.shot.frame.rows[y].text.find("link").unwrap() as u16;
         assert_eq!(look_at(&r, y, l), Some(Look::Link));
-        assert_eq!(paint_at(&r, y, l).fg, Some(t.fg(Accent::Blue)), "{skin:?}: a link is blue");
+        assert_eq!(paint_at(&r, y, l).fg, Some(t.accent_fg()), "{skin:?}: a link is the accent");
     }
 }
 
@@ -323,4 +323,26 @@ fn ui_8_no_sgr_sequence_is_longer_than_tmux_takes() {
         let longest = sequences(&out).iter().map(Vec::len).max().unwrap();
         assert!(longest <= 19, "{skin:?}: a sequence of {longest} parameters");
     }
+}
+
+#[test]
+fn ui_8_a_first_level_heading_is_on_a_faint_band_and_the_other_levels_are_bold_with_no_color() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let r = shown("md-h1", skin, "# One\n\n## Two\n\ntext\n");
+        let t = Tones::new(&palette(BG));
+        let (one, two, text) = (row_of(&r, "# One"), row_of(&r, "## Two"), row_of(&r, "text"));
+        let w = r.shot.frame.width;
+        assert_eq!(paint_at(&r, one, 8).bg, Some(t.band), "{skin:?}: H1's band");
+        assert_eq!(paint_at(&r, one, w - 3).bg, Some(t.band), "{skin:?}: across the pane");
+        assert_eq!(paint_at(&r, two, 8).bg, None, "{skin:?}: H2 has none");
+        assert_eq!(paint_at(&r, text, 8).bg, None);
+        // Bold in the text's own color: no hue of a level of its own.
+        for y in [one, two] {
+            let x = r.shot.frame.rows[y].text.find(['O', 'T']).unwrap() as u16;
+            assert!(matches!(look_at(&r, y, x), Some(Look::H1 | Look::H2)), "{skin:?}");
+            assert_eq!(paint_at(&r, y, x).fg, None, "{skin:?}: no color of its own");
+        }
+    }
+    let calm = shown("md-h1-calm", Skin::Calm, "# One\n");
+    assert!(calm.shot.paints.iter().all(Vec::is_empty), "calm draws no band");
 }

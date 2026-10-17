@@ -1,4 +1,4 @@
-//! SYN-1, SYN-5, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-9, UI-1, UI-12
+//! SYN-1, SYN-5, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-9, UI-1, UI-12, COLOR-1
 //! The syntax colors (pure): the terminal's own ANSI colors (OSC 4), moved in OKLCH lightness until
 //! they read against the background that si's palette is made from (`Event::Bg`, VIS-4), the
 //! selection's gray, and what puts the terminal's replies together out of the key stream. APCA,
@@ -124,7 +124,8 @@ fn text_on(primary: Rgb, c: Rgb) -> Rgb {
     contrast(primary, c, 75.5)
 }
 
-/// UI-1: the accents of the interface, in the order of `Tones::fg`.
+/// UI-1: the hues the interface has, in the order of `Tones::fg`. A hue has one meaning (see
+/// `Role`): the chrome asks for a role (`change_fg`, `accent_fg`, `alert_fg`), never for a hue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Accent {
     Red,
@@ -132,17 +133,37 @@ pub enum Accent {
     Amber,
     Blue,
     Purple,
-    Teal,
 }
 
 impl Accent {
-    pub const ALL: [Accent; 6] =
-        [Accent::Red, Accent::Green, Accent::Amber, Accent::Blue, Accent::Purple, Accent::Teal];
+    pub const ALL: [Accent; 5] =
+        [Accent::Red, Accent::Green, Accent::Amber, Accent::Blue, Accent::Purple];
 
     /// The ANSI color the terminal is asked for, and the OKLCH hue that stands in for it.
     fn class(self) -> (usize, f64) {
-        [(1, 25.0), (2, 145.0), (3, 85.0), (4, 250.0), (5, 320.0), (6, 195.0)][self as usize]
+        [(1, 25.0), (2, 145.0), (3, 85.0), (4, 250.0), (5, 320.0)][self as usize]
     }
+}
+
+/// UI-1: what a color of the interface means. Neutral (the primary, secondary and faint grays, and
+/// weight) is all structure; Change is green for what comes, amber for what changed and red for
+/// what goes, and nothing else; Accent, blue, is "here, where you act"; Alert, magenta, is only
+/// what is hidden or dangerous. One hue, one meaning, so that a change is the one thing that pops
+/// out (CONCEPT finding 8).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Neutral,
+    Change,
+    Accent,
+    Alert,
+}
+
+/// The three meanings of Change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Chg {
+    Add,
+    Mod,
+    Del,
 }
 
 /// LOOK-2 to LOOK-6, UI-1: the colors the looks add to si's palette. Green (OKLCH hue 150) is what
@@ -176,9 +197,12 @@ pub struct Tones {
     pub band: Rgb,
     pub bar: Rgb,
     pub code: Rgb,
-    fg: [Rgb; 6],
-    block: [Rgb; 6],
-    on: [Rgb; 6],
+    /// The neutral block of the mode in Normal mode (30% toward secondary) and its text.
+    pub gray: Rgb,
+    pub gray_on: Rgb,
+    fg: [Rgb; 5],
+    block: [Rgb; 5],
+    on: [Rgb; 5],
 }
 
 impl Tones {
@@ -217,13 +241,79 @@ impl Tones {
             band: by(p.secondary, 0.09),
             bar: by(p.secondary, 0.10),
             code: by(p.secondary, 0.14),
+            gray: by(p.secondary, 0.30),
+            gray_on: text_on(p.primary, by(p.secondary, 0.30)),
             fg,
             block,
             on: block.map(|b| text_on(p.primary, b)),
         }
     }
 
-    /// The text color of an accent: |Lc| >= 75.5 against the card, so against every neutral surface.
+    /// The text color of a Change: green, amber or red, |Lc| >= 75.5 against the card.
+    pub fn change_fg(&self, c: Chg) -> Rgb {
+        self.fg(match c {
+            Chg::Add => Accent::Green,
+            Chg::Mod => Accent::Amber,
+            Chg::Del => Accent::Red,
+        })
+    }
+
+    /// The Accent: blue as text, as a block and the text on the block.
+    pub fn accent_fg(&self) -> Rgb {
+        self.fg(Accent::Blue)
+    }
+
+    pub fn accent_block(&self) -> (Rgb, Rgb) {
+        (self.block(Accent::Blue), self.on(Accent::Blue))
+    }
+
+    /// The Alert: magenta, likewise.
+    pub fn alert_fg(&self) -> Rgb {
+        self.fg(Accent::Purple)
+    }
+
+    pub fn alert_block(&self) -> (Rgb, Rgb) {
+        (self.block(Accent::Purple), self.on(Accent::Purple))
+    }
+
+    /// Every color the chrome has, with the role it has (UI-1): what the budget is checked against.
+    pub fn roles(&self) -> Vec<(&'static str, Role, Rgb)> {
+        use Role::{Accent as A, Alert, Change, Neutral};
+        let (ab, ao) = self.accent_block();
+        let (lb, lo) = self.alert_block();
+        vec![
+            ("primary", Neutral, self.primary),
+            ("secondary", Neutral, self.focus),
+            ("faint", Neutral, self.dim),
+            ("lines", Neutral, self.line),
+            ("cursor line", Neutral, self.cursor),
+            ("band", Neutral, self.band),
+            ("bar", Neutral, self.bar),
+            ("code", Neutral, self.code),
+            ("hunk", Neutral, self.hunk),
+            ("card", Neutral, self.card),
+            ("shadow", Neutral, self.shadow),
+            ("gray block", Neutral, self.gray),
+            ("gray block text", Neutral, self.gray_on),
+            ("add block", Change, self.add),
+            ("add block text", Change, self.add_text),
+            ("del block", Change, self.del),
+            ("del block text", Change, self.del_text),
+            ("gain tint", Change, self.gain),
+            ("loss tint", Change, self.loss),
+            ("add text", Change, self.change_fg(Chg::Add)),
+            ("mod text", Change, self.change_fg(Chg::Mod)),
+            ("del text", Change, self.change_fg(Chg::Del)),
+            ("accent text", A, self.accent_fg()),
+            ("accent block", A, ab),
+            ("accent block text", A, ao),
+            ("alert text", Alert, self.alert_fg()),
+            ("alert block", Alert, lb),
+            ("alert block text", Alert, lo),
+        ]
+    }
+
+    /// The text color of a hue: |Lc| >= 75.5 against the card, so against every neutral surface.
     pub fn fg(&self, a: Accent) -> Rgb {
         self.fg[a as usize]
     }
