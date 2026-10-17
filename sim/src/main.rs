@@ -7,22 +7,20 @@
 //! background. The terminal is asked for its colors (the background at once, the first
 //! frame waiting for it at most 3 ms), and the mouse is reported until sim leaves, by any way.
 #![forbid(unsafe_code)]
-use signal_hook::consts::{SIGHUP, SIGTERM, SIGWINCH};
+use signal_hook::consts::{SIGHUP, SIGWINCH};
 use sim::color::{self, Input, Syntax};
 use sim::io::{self as sio};
-use sim::layout::Skin;
 use sim::paint::{MOUSE_ON, Painter, leave};
-use sim::rank::History;
-use sim::shell::{Config, Shell};
-use sim::sim::{Env, Sim, SimEvent, start};
+use sim::shell::{self, Begun, Front, Shell, World};
+use sim::sim::SimEvent;
 use sim_core::core::app::Event;
-use sim_core::io::{filter, journal, term};
+use sim_core::io::term;
 use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use std::{env, fs, thread};
+use std::{env, thread};
 
 /// How long a quit waits for the terminal to finish answering (VIS-4).
 const DRAIN: Duration = Duration::from_millis(100);
@@ -60,51 +58,33 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let cwd = env::current_dir().unwrap_or_default();
-    let here = cwd.clone();
-    let Some(mut s) = start(&args, &cwd, |f| std::path::Path::new(f).exists(), |d| d.is_dir())
-    else {
+    let Some(s) = shell::arguments(&args, &cwd) else {
         eprint!("{}", usage());
         return ExitCode::from(2);
     };
-    s.root = fs::canonicalize(&s.root).unwrap_or(s.root);
-    let late = !s.keys.is_empty(); // VIS-4: startup keys may quit; the terminal is asked once they have run
     let size = crossterm::terminal::size();
     let (Ok(size), true) = (size, io::stdout().is_terminal()) else {
         eprintln!("sim: the standard output is not a terminal");
         return ExitCode::FAILURE;
     };
     let (tx, rx) = mpsc::channel();
-    // SAFE-6: without a state directory (and unless it is private) there are no
-    // snapshots and no recovery copies; the first snapshot that cannot be written says so.
-    // STATE-1: one state directory, `sim`; what the core's held is copied into it, once.
-    let state = journal::state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
-    let moved = state.as_deref().and_then(|d| journal::migrate(d).err());
-    let history = state.clone();
+    // SAFE-6, STATE-1: the state directory and the privilege come from the system, and the rules of plain
+    // mode, of the state and of git's hooks are applied by `shell::begin`, as for every front end.
+    let world = World::here();
     // COLOR-2: without color nothing asks the terminal for any.
     let mono = sio::no_color_here();
     let truecolor = !mono && matches!(env::var("COLORTERM").as_deref(), Ok("truecolor" | "24bit"));
-    let (icons, hint) = sio::start_icons(history.as_deref(), |k| env::var(k).ok());
-    let env = Env {
-        cwd,
+    let front = Front {
         size,
-        now: sio::now_ms() / 1000,
-        history: history.as_deref().map_or_else(History::default, sio::load_history),
         syn: if mono { Syntax::mono() } else { Syntax::new(truecolor) },
+        skin: None,
+        icons: None,
+        tab_uses: None,
         hook: sio::hook(env::var("SIM_ON_NORMAL").ok(), env::var("SI_ON_NORMAL").ok()),
-        plain: sio::plain_by_default(),
-        skin: history.as_deref().map_or(Skin::Depth, sio::load_look),
         home: env::var_os("HOME").map(std::path::PathBuf::from),
-        icons,
-        hint,
-        tab_uses: history.as_deref().map_or(0, sio::load_tab_uses),
-        chrome: true,
     };
-    let (mut sim, mut fx) = Sim::new(s, env);
-    if sim.plain {
-        filter::forbid_programs(); // PLAIN-1: before anything asks for git, rg or a program
-    } else {
-        state.as_deref().iter().for_each(|d| sio::use_no_hooks(d)); // GIT-1: before git is run
-    }
+    let Begun { mut sim, mut fx, cfg, keys, moved } = shell::begin(s, &cwd, world, front);
+    let late = keys; // VIS-4: startup keys may quit; the terminal is asked once they have run
     if let Some(e) = moved {
         drop(tx.send(SimEvent::Notice(format!("cannot copy the old state directory (si): {e}"))));
     }
@@ -141,10 +121,7 @@ fn main() -> ExitCode {
         }
         let _ = t.send(SimEvent::Signal(SIGHUP)); // the terminal is gone
     });
-    if let Ok(mut signals) = signal_hook::iterator::Signals::new([SIGTERM, SIGHUP]) {
-        let t = tx.clone();
-        thread::spawn(move || signals.forever().for_each(|s| drop(t.send(SimEvent::Signal(s)))));
-    }
+    shell::signals(tx.clone()); // SAFE-6: a hangup or a termination snapshots what is unsaved, and quits
     let t = tx.clone(); // a tick every second, however busy the keys keep the loop (SAFE-6)
     thread::spawn(move || {
         for n in 1..=u64::MAX {
@@ -152,8 +129,6 @@ fn main() -> ExitCode {
             drop(t.send(SimEvent::Tick(n * 1000)));
         }
     });
-    let rg = sio::which_rg(env::var_os("PATH")).filter(|_| !sim.plain);
-    let cfg = Config { cwd: here, root: sim.root.clone(), state, history, rg };
     let mut shell = Shell::threads(cfg, tx.clone());
     let (mut painter, tmux) = (Painter::new(io::stdout()), env::var_os("TMUX").is_some());
     let mut first = true;

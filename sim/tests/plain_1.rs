@@ -141,3 +141,35 @@ fn vi_11_the_hook_is_sim_on_normal_and_si_on_normal_is_still_read_as_the_old_nam
     assert_eq!(io::hook(s(""), s("")), None);
     assert_eq!(io::hook(None, None), None);
 }
+
+/// The code of a source file: no line comments, no doc comments.
+fn code_of(path: &str) -> String {
+    let text = std::fs::read_to_string(format!("{}/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    text.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
+}
+
+/// The terminal's loop is a front end like any other: it does not decide the rules of plain mode, of the
+/// state directory or of git's hooks, nor build the sim it runs or the shell's config, nor catch the
+/// signals itself; `shell::begin` does, for it and for a window (GUI-4), and a test of the window's
+/// sources holds the same (`gui/tests/api_seam.rs`).
+#[test]
+fn plain_1_the_terminal_starts_sim_only_through_shell_begin() {
+    let main = code_of("src/main.rs");
+    for word in [
+        "Env {",
+        "Sim::new(",
+        "Config {",
+        "forbid_programs",
+        "plain_by_default",
+        "use_no_hooks",
+        "which_rg",
+        "state_dir(",
+        "migrate(",
+        "signal_hook::iterator",
+    ] {
+        assert!(!main.contains(word), "main.rs decides {word} itself");
+    }
+    for word in ["shell::arguments(", "World::here()", "shell::begin(", "shell::signals("] {
+        assert!(main.contains(word), "main.rs does not call {word}");
+    }
+}

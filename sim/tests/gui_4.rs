@@ -247,3 +247,14 @@ fn gui_4_the_threaded_shell_answers_through_its_channel_and_finishes_in_time() {
         "the journal's queue is waited for, 2 s at most"
     );
 }
+
+#[test]
+fn gui_4_a_hangup_or_a_termination_is_an_event_of_sim_s_through_the_one_thread_every_front_end_starts()
+ {
+    let (tx, rx) = mpsc::channel();
+    sim::shell::signals(tx);
+    // (the handler is in place before the thread starts: the signal cannot be lost, or end the test)
+    signal_hook::low_level::raise(signal_hook::consts::SIGHUP).unwrap();
+    let got = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(matches!(got, SimEvent::Signal(1)), "{got:?}");
+}

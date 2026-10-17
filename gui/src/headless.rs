@@ -29,15 +29,18 @@ impl Headless {
     ) -> Headless {
         // SAFE-6: sim uses a journal directory only if it is private; this one is made fresh
         let state = PrivateDir::new("sim-gui-state-").ok();
-        let cfg = Settings {
+        // An offscreen render or a test is not a privileged context: it runs on a project of its own
+        // making, in directories of its own, and must give the same screen as root or not.
+        let world = World {
+            privileged: false,
+            path: std::env::var_os("PATH"),
             state: state.as_ref().map(|d| d.path().to_path_buf()),
             history: None,
-            home: home.map(Path::to_path_buf),
-            icons,
-            size,
+            moved: None,
         };
+        let cfg = Settings { world, home: home.map(Path::to_path_buf), icons, size };
         let args: Vec<String> = args.iter().map(ToString::to_string).collect();
-        let Some((session, _)) = Session::new(&args, dir, &cfg, theme, Exec::Inline) else {
+        let Some((session, _)) = Session::new(&args, dir, cfg, theme, Exec::Inline) else {
             // a usage error of sim's command line: the caller gave arguments sim does not take
             return Headless::open(dir, home, &[], size, theme, icons);
         };

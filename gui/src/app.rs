@@ -164,16 +164,15 @@ impl App {
         let m = metrics_of(&fonts);
         let grid = m.grid_for(config.width, config.height);
 
-        let home = std::env::var_os("HOME");
-        let state_dir = (std::env::var("SIM_GUI_NO_STATE").is_err())
-            .then(|| journal::state_dir(std::env::var_os("XDG_STATE_HOME"), home.clone()))
-            .flatten();
-        // STATE-1: one state directory, `sim`: the journal and the history are in it
-        let history = state_dir.clone();
+        // PLAIN-1, SAFE-6, STATE-1: the privilege, `PATH` and the state directory are the system's, as the
+        // terminal gets them, and `begin` applies the rules (the window decides none of them)
+        let mut world = World::here();
+        if std::env::var("SIM_GUI_NO_STATE").is_ok() {
+            (world.state, world.history) = (None, None);
+        }
         let cfg = Settings {
-            state: state_dir,
-            history,
-            home: home.map(Into::into),
+            world,
+            home: std::env::var_os("HOME").map(Into::into),
             icons: fonts.has_icons && std::env::var("SIM_GUI_ICONS").map_or(true, |v| v != "0"),
             size: grid,
         };
@@ -181,7 +180,7 @@ impl App {
         let theme = Theme::from_env(system_light);
         let auto_theme = !matches!(std::env::var("SIM_GUI_THEME").as_deref(), Ok("light" | "dark"));
         let cwd = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
-        let Some((mut session, rx)) = Session::new(&self.args, &cwd, &cfg, &theme, Exec::Threads)
+        let Some((mut session, rx)) = Session::new(&self.args, &cwd, cfg, &theme, Exec::Threads)
         else {
             return Err("usage: sim-gui [+cmd] [dir | file]".into());
         };

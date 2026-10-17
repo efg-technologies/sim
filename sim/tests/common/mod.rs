@@ -130,6 +130,46 @@ pub const CHANGED_FILES: [&str; 4] = [
     "old/gone.rs=a\nb\nc\nd\n",
 ];
 
+/// What `begin_in` made: sim as a front end gets it, and the directories of its world.
+pub struct Started {
+    pub begun: sim::shell::Begun,
+    /// The world's state directory, and the one directory its `PATH` has, with an `rg` in it.
+    pub state: PathBuf,
+    pub bin: PathBuf,
+    _guards: Vec<TempDir>,
+}
+
+/// `shell::begin` as every front end calls it (PLAIN-1, GUI-4): on `args` in `dir`, in a world that is
+/// `privileged` or not, whose state directory is a private one of its own and whose `PATH` is one
+/// directory that has an `rg`; a front end that brings `hook`, the command that runs when Normal mode is
+/// entered.
+pub fn begin_in(dir: &Path, args: &[&str], privileged: bool, hook: Option<String>) -> Started {
+    let (state, bin) = (temp_dir("begin-state"), temp_dir("begin-bin"));
+    let rg = bin.0.join("rg");
+    std::fs::write(&rg, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&rg, Permissions::from_mode(0o755)).unwrap();
+    let world = sim::shell::World {
+        privileged,
+        path: Some(bin.0.clone().into_os_string()),
+        state: Some(state.0.clone()),
+        history: None,
+        moved: None,
+    };
+    let front = sim::shell::Front {
+        size: (100, 24),
+        syn: sim::color::Syntax::new(true),
+        skin: Some(sim::layout::Skin::Depth),
+        icons: Some(false),
+        tab_uses: Some(3),
+        hook,
+        home: None,
+    };
+    let args: Vec<String> = args.iter().map(ToString::to_string).collect();
+    let s = sim::shell::arguments(&args, dir).unwrap();
+    let begun = sim::shell::begin(s, dir, world, front);
+    Started { begun, state: state.0.clone(), bin: bin.0.clone(), _guards: vec![state, bin] }
+}
+
 /// ICON-1: the first private-use code point of a text (U+E000 to U+F8FF, planes 15 and 16): what
 /// only a Nerd Font draws.
 pub fn private_use(text: &str) -> Option<char> {

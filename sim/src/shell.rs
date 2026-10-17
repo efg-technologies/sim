@@ -1,4 +1,4 @@
-//! GUI-4, TREE-5, DISK-1, SAFE-6, PLAIN-1, DIFF-2, DIFF-3
+//! GUI-4, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3
 //! The shell: what is done with the Effects `Sim::update` returns, apart from the terminal: read a
 //! directory, open, save and watch a file, ask git, highlight, search, snapshot, run a filter. The
 //! terminal's loop (`main.rs`) and a window's use this one code, so a window cannot do these things
@@ -7,15 +7,25 @@
 //! gives the same screen (the offscreen renders and the tests of a window).
 //! What is the terminal's or the window's own comes back in `Out`: the last frame, the text for the
 //! clipboard, and a quit.
+//! The start has one policy too, `begin`: the rules of plain mode (PLAIN-1), of the state directory
+//! (SAFE-6, STATE-1) and of git's hooks (GIT-1) are applied in one place, which every front end goes
+//! through, so that none can start sim without them.
+use crate::color::Syntax;
 use crate::io::{self as sio, HlJob, Job, MERGE};
-use crate::sim::{DiffReq, FLASH_MS, Id, PAUSE_MS, SPIN_MS, Sim, SimEffect, SimEvent};
+use crate::layout::Skin;
+use crate::rank::History;
+use crate::sim::{
+    DiffReq, Env, FLASH_MS, Id, PAUSE_MS, SPIN_MS, Sim, SimEffect, SimEvent, Start, start,
+};
 use sim_core::core::app::{Effect, Event};
 use sim_core::core::buffer::hash;
 use sim_core::io::file::{self, read};
-use sim_core::io::filter;
 use sim_core::io::watch::watch;
+use sim_core::io::{filter, journal};
 use std::any::Any;
 use std::collections::HashMap;
+use std::env;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
@@ -36,6 +46,129 @@ pub struct Config {
     pub history: Option<PathBuf>,
     /// The `rg` to search with, if any (GREP-8).
     pub rg: Option<PathBuf>,
+}
+
+/// What the system says about the world a front end starts in (PLAIN-1, SAFE-6, STATE-1): whether it is
+/// a privileged context, where programs and the state are looked for. `World::here()` asks the system;
+/// nothing else makes one for a real start.
+#[derive(Clone)]
+pub struct World {
+    /// Root, or the editor of `sudoedit`: plain mode is the default, whatever else is asked (PLAIN-1).
+    pub privileged: bool,
+    /// `PATH`, where ripgrep is looked for (not in plain mode).
+    pub path: Option<OsString>,
+    /// The journal's directory (SAFE-6) and where the history and the choices are (STATE-1).
+    pub state: Option<PathBuf>,
+    pub history: Option<PathBuf>,
+    /// Why what the old state directory held (`si`) could not be copied into the state directory, if it
+    /// could not (STATE-1): a front end says so, once.
+    pub moved: Option<String>,
+}
+
+impl World {
+    /// The world this process is in: the privilege from the effective uid and the parent process
+    /// (`io::plain_by_default`), `PATH`, and the state directory, `$XDG_STATE_HOME/sim` or
+    /// `~/.local/state/sim`, with the old one copied into it once.
+    pub fn here() -> World {
+        let state = journal::state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
+        let moved = state.as_deref().and_then(|d| journal::migrate(d).err()).map(|e| e.to_string());
+        World {
+            privileged: sio::plain_by_default(),
+            path: env::var_os("PATH"),
+            history: state.clone(),
+            state,
+            moved,
+        }
+    }
+}
+
+/// What a front end brings of its own to the start: how it draws and what it knows.
+pub struct Front {
+    pub size: (u16, u16),
+    pub syn: Syntax,
+    /// The look to start with; none: the one remembered.
+    pub skin: Option<Skin>,
+    /// Whether the icons are on; none: the environment's and the remembered choice (ICON-1).
+    pub icons: Option<bool>,
+    /// How many times Tab was used; none: the remembered count (KEY-6).
+    pub tab_uses: Option<u8>,
+    /// The command that runs when Normal mode is entered (VI-11).
+    pub hook: Option<String>,
+    /// `$HOME`, for the root the header shows as `~/...`.
+    pub home: Option<PathBuf>,
+}
+
+/// What `begin` made: sim and what it asked for at once, and what the shell needs.
+pub struct Begun {
+    pub sim: Sim,
+    pub fx: Vec<SimEffect>,
+    pub cfg: Config,
+    /// Keys were given with the arguments (`+cmd`, `file:line`).
+    pub keys: bool,
+    pub moved: Option<String>,
+}
+
+/// TREE-1, CLI-1: the arguments of a front end (`[+cmd] [dir | file]`, and `--plain`), with the root made
+/// absolute. `None` is a usage error.
+pub fn arguments(args: &[String], cwd: &Path) -> Option<Start> {
+    let mut s = start(args, cwd, |f| Path::new(f).exists(), |d| d.is_dir())?;
+    s.root = std::fs::canonicalize(&s.root).unwrap_or(s.root);
+    Some(s)
+}
+
+/// The start of sim for every front end, and the one place that applies its rules: plain mode is on when
+/// `--plain` was given or the world is privileged, and then no program starts, from here on, not git,
+/// ripgrep, a filter or a hook (PLAIN-1: `filter::forbid_programs` before anything can ask for one, and
+/// no `rg` in the shell's `Config`); otherwise git's hooks are pointed at a private empty directory in
+/// the state directory (GIT-1). The shell the front end makes from `cfg` has the same state directory
+/// and history (SAFE-6, STATE-1).
+pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
+    let keys = !s.keys.is_empty();
+    let history = world.history.as_deref();
+    let (icons, hint) = match front.icons {
+        Some(on) => (on, false),
+        None => sio::start_icons(history, |k| env::var(k).ok()),
+    };
+    let env = Env {
+        cwd: cwd.to_path_buf(),
+        size: front.size,
+        now: sio::now_ms() / 1000,
+        history: history.map_or_else(History::default, sio::load_history),
+        syn: front.syn,
+        hook: front.hook,
+        plain: world.privileged,
+        skin: front.skin.unwrap_or_else(|| history.map_or(Skin::Depth, sio::load_look)),
+        home: front.home,
+        icons,
+        hint,
+        tab_uses: front.tab_uses.unwrap_or_else(|| history.map_or(0, sio::load_tab_uses)),
+        chrome: true,
+    };
+    let (sim, fx) = Sim::new(s, env);
+    if sim.plain {
+        filter::forbid_programs(); // PLAIN-1: before anything asks for git, rg or a program
+    } else {
+        world.state.as_deref().iter().for_each(|d| sio::use_no_hooks(d)); // GIT-1: before git is run
+    }
+    let rg = sio::which_rg(world.path).filter(|_| !sim.plain);
+    let cfg = Config {
+        cwd: cwd.to_path_buf(),
+        root: sim.root.clone(),
+        state: world.state,
+        history: world.history,
+        rg,
+    };
+    Begun { sim, fx, cfg, keys, moved: world.moved }
+}
+
+/// SAFE-6: a hangup or a termination of this process is an event of sim's, which snapshots every file with
+/// unsaved changes and quits (the same for every front end: a window that is closed by the system loses
+/// nothing a terminal would not). Where signals cannot be had, nothing is: the snapshots of the tick stay.
+pub fn signals(tx: Sender<SimEvent>) {
+    use signal_hook::consts::{SIGHUP, SIGTERM};
+    if let Ok(mut signals) = signal_hook::iterator::Signals::new([SIGTERM, SIGHUP]) {
+        thread::spawn(move || signals.forever().for_each(|s| drop(tx.send(SimEvent::Signal(s)))));
+    }
 }
 
 /// What running the Effects left for the terminal or the window to do.

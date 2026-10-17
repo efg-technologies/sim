@@ -105,3 +105,59 @@ fn gui_8_the_window_has_no_copy_of_sims_paint_rules() {
         }
     }
 }
+
+/// Whether `line` has `word` not as the end of a longer name (`Config {` is not `FontConfig {`).
+fn word_in(line: &str, word: &str) -> bool {
+    line.match_indices(word).any(|(i, _)| {
+        line[..i].chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_'))
+    })
+}
+
+/// The window is a front end like the terminal (PLAIN-1, GUI-4): its start is `begin`, which applies the
+/// rules of plain mode, of the state directory and of git's hooks once for every front end, and it decides
+/// none of them: it does not build the sim it runs or the shell's config, does not run `forbid_programs`
+/// or look for an `rg`, does not name the state directory or catch the signals itself.
+#[test]
+fn gui_8_the_window_starts_sim_only_through_the_start_every_front_end_shares() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut all = vec![];
+    rust_files(&src, &mut all);
+    all.sort();
+    let mut seen = 0;
+    for p in &all {
+        let name = p.file_name().unwrap().to_string_lossy().into_owned();
+        for (n, l) in code(p) {
+            seen += 1;
+            let at = format!("{}:{n}: {l}", p.display());
+            for word in [
+                "Env {",
+                "Sim::new(",
+                "Config {",
+                "forbid_programs",
+                "plain_by_default",
+                "privileged(",
+                "use_no_hooks",
+                "which_rg",
+                "state_dir(",
+                "migrate(",
+                "signal_hook",
+            ] {
+                assert!(!word_in(&l, word), "the window decides {word} itself: {at}");
+            }
+            // a world of its own making is for the offscreen path (a render or a test is not a privileged
+            // context); a window's is the system's, `World::here()`
+            if name != "headless.rs" && name != "api.rs" {
+                assert!(!word_in(&l, "World {"), "a world made by hand outside headless.rs: {at}");
+            }
+        }
+    }
+    assert!(seen > 1000);
+    let has = |file: &str, word: &str| code(&src.join(file)).iter().any(|(_, l)| l.contains(word));
+    assert!(
+        has("session.rs", "begin(") && has("session.rs", "arguments("),
+        "Session::new starts through begin"
+    );
+    assert!(has("session.rs", "signals("), "and catches the signals as the terminal does");
+    assert!(has("app.rs", "World::here()"), "the window's world is the system's");
+    assert!(!has("session.rs", "World::here()"), "(a session takes the world it is given)");
+}

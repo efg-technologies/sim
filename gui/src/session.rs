@@ -36,12 +36,11 @@ pub enum Exec {
 }
 
 /// What sim starts with.
-#[derive(Clone, Default)]
 pub struct Settings {
-    /// The journal's directory (snapshots, places); none: nothing is journaled.
-    pub state: Option<PathBuf>,
-    /// Where the history and the choices are kept; none: nothing is remembered.
-    pub history: Option<PathBuf>,
+    /// What the system says of the world sim starts in: the privilege, `PATH`, the state directory
+    /// (`World::here()` for a window; a tool or a test says its own).
+    pub world: World,
+    /// `$HOME`, for the root the header shows as `~/...`.
     pub home: Option<PathBuf>,
     pub icons: bool,
     pub size: (u16, u16),
@@ -60,43 +59,31 @@ pub struct Session {
 impl Session {
     /// sim started on `args` (its own command line: `[+cmd] [dir | file]`) in `cwd`, handed the
     /// theme's colors. With `Exec::Threads` the receiver is where the threads' answers arrive; the
-    /// caller gives each to `send`. None: the arguments are not sim's.
+    /// caller gives each to `send`. None: the arguments are not sim's. The start itself, with the rules of
+    /// plain mode, of the state directory and of git's hooks, is `begin`'s, which the terminal goes
+    /// through too (PLAIN-1, GUI-4): nothing here decides them.
     pub fn new(
         args: &[String],
         cwd: &Path,
-        set: &Settings,
+        set: Settings,
         theme: &Theme,
         exec: Exec,
     ) -> Option<(Session, Option<Receiver<SimEvent>>)> {
-        let mut s = start(args, cwd, |f| cwd.join(f).exists(), |d| d.is_dir())?;
-        s.root = std::fs::canonicalize(&s.root).unwrap_or(s.root);
-        let env = Env {
-            cwd: cwd.to_path_buf(),
+        let front = Front {
             size: set.size,
-            now: sio::now_ms() / 1000,
-            history: set.history.as_deref().map_or_else(History::default, sio::load_history),
             syn: Syntax::new(true),
-            skin: Skin::Depth,
-            home: set.home.clone(),
-            icons: set.icons,
-            tab_uses: 3, // (the hint of Tab is for a terminal's new user)
-            chrome: true,
-            ..Env::default()
+            skin: Some(Skin::Depth), // (the window draws depth)
+            icons: Some(set.icons),
+            tab_uses: Some(3), // (the hint of Tab is for a terminal's new user)
+            hook: None,
+            home: set.home,
         };
-        // GIT-1: the directory git's hooks are pointed at is made once, before any git command is built
-        set.state.as_deref().iter().for_each(|d| sio::use_no_hooks(d));
-        let (mut sim, fx) = Sim::new(s, env);
-        let cfg = Config {
-            cwd: cwd.to_path_buf(),
-            root: sim.root.clone(),
-            state: set.state.clone(),
-            history: set.history.clone(),
-            rg: sio::which_rg(std::env::var_os("PATH")),
-        };
+        let Begun { sim, fx, cfg, moved, .. } = begin(arguments(args, cwd)?, cwd, set.world, front);
         let (shell, rx) = match exec {
             Exec::Inline => (Shell::inline(cfg), None),
             Exec::Threads => {
                 let (tx, rx) = mpsc::channel();
+                signals(tx.clone()); // SAFE-6: as the terminal's loop does
                 (Shell::threads(cfg, tx), Some(rx))
             }
         };
@@ -106,13 +93,15 @@ impl Session {
             renders: 0,
             quit: None,
             clipboard: Box::new(MemClipboard::default()),
-            sim: Sim::default(),
+            sim,
         };
-        std::mem::swap(&mut me.sim, &mut sim);
         let out = me.shell.run(&mut me.sim, fx);
         me.apply(out);
         for ev in theme.events() {
             me.send(ev);
+        }
+        if let Some(e) = moved {
+            me.send(SimEvent::Notice(format!("cannot copy the old state directory (si): {e}")));
         }
         Some((me, rx))
     }
