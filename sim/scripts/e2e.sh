@@ -1486,7 +1486,7 @@ ui_8_markdown_is_colored_and_every_char_of_the_file_is_on_the_screen() {
   screen | grep -F -q '▌ quoted' # the quote's bar, in the cell of its `>`
   ! screen | grep -F -q '> quoted'
   screen | grep -F -q '```bash'
-  screen | grep -F 'bash' | grep -q 'bash↲  *bash' # the language again, at the right
+  screen | grep -F 'bash' | grep -q 'bash  *bash' # the language again, at the right
   wait_esc '48;2;[0-9;]*m`' # inline code is on a surface, its backtick too
   # Calm draws no surface and no bar: the file's own chars, colored like syntax.
   typed zl
@@ -1564,17 +1564,17 @@ ui_5_the_numbers_are_relative_the_cursors_line_is_lit_and_insert_mode_has_a_surf
   screen | grep -F -q "    1 line 3" # the others: the distance
   screen | grep -F -q "    3 line 1"
   wait_esc '1m4  ' # primary and bold
-  ! screen_esc | grep -a 'line' | sed 's/↲.*//' | grep -q '48;2;' # Normal mode: no surface on the line (the tab and the scrollbar's handle have one)
+  ! screen_esc | grep -a 'line' | sed 's/\(line [0-9]*\).*/\1/' | grep -q '48;2;' # Normal mode: no surface on the line (the tab and the scrollbar's handle have one)
   typed i
   wait_for "INSERT"
   tries=60
-  surfaced() { screen_esc | grep -a "$1" | sed 's/↲.*//' | grep -q '48;2;'; }
+  surfaced() { screen_esc | grep -a "$1" | sed 's/\(line [0-9]*\).*/\1/' | grep -q '48;2;'; }
   while ! surfaced 'line 4' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
   surfaced 'line 4' # Insert mode: the whole line has one
   ! surfaced 'line 5'
   keys Escape
   wait_for "NORMAL"
-  ! screen_esc | grep -a 'line' | sed 's/↲.*//' | grep -q '48;2;'
+  ! screen_esc | grep -a 'line' | sed 's/\(line [0-9]*\).*/\1/' | grep -q '48;2;'
 }
 
 ui_5_the_git_signs_of_the_file_against_head_are_in_the_sign_column() {
@@ -1676,17 +1676,17 @@ ui_6_indent_guides_are_drawn_over_the_blanks_and_the_file_is_untouched() {
   [ "$(sed -n 3p "$W/a.rs")" = "    }" ]
 }
 
-ui_6_listchars_show_tabs_trailing_blanks_and_the_end_of_every_line() {
+ui_6_whitespace_marks_show_tabs_trailing_blanks_and_nothing_at_the_end_of_a_line() {
   printf 'a  \n\tb\n\n' > "$W/a.txt"
   look flat
   CT=truecolor
   start a.txt
   reply '11;rgb:1e1e/1e1e/1e1e'
   tries=100
-  while ! screen | grep -q 'a--↲' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
-  screen | grep -q 'a--↲' # trailing blanks and the end of the line
-  screen | grep -q '»---b↲' # a tab
-  screen | grep -q '^ *2  *↲' # an empty line (the number is its distance)
+  while ! screen | grep -q 'a··' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  screen | grep -q 'a··' # trailing blanks
+  screen | grep -q '»   b' # a tab: a chevron and blanks, no dashes
+  ! screen | grep -q '↲' # nothing at the end of a line
   typed ':w'
   keys Enter
   wait_for "saved a.txt"

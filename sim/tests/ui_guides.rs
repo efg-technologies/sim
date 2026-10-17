@@ -88,7 +88,7 @@ fn row(r: &Rig, what: &str) -> String {
     let text: String =
         r.shot.frame.rows[y].text.chars().skip(usize::from(g.tx()) + digits).collect();
     // (in depth the box's border follows the blanks that fill the row)
-    text.trim_end_matches(['┃', '│', ' ', '↲', '⎺', '⎻', '⎼', '⎽']).to_string()
+    text.trim_end_matches(['┃', '│', ' ', '⎺', '⎻', '⎼', '⎽']).to_string()
 }
 
 fn y_of(r: &Rig, what: &str) -> usize {
@@ -123,7 +123,7 @@ fn ui_6_every_level_of_a_lines_indent_has_a_guide_and_the_text_is_untouched() {
 }
 
 #[test]
-fn ui_6_a_blank_line_has_the_guides_of_the_fewer_of_the_lines_around_it_from_the_first_level() {
+fn ui_6_a_blank_line_has_the_guides_of_the_fewer_of_the_lines_around_it_from_column_0() {
     let r = body("ui6-blank", Skin::Flat, CODE, (80, 24));
     let g = r.sim.geo();
     let guides_at = |y: usize| -> String {
@@ -131,10 +131,10 @@ fn ui_6_a_blank_line_has_the_guides_of_the_fewer_of_the_lines_around_it_from_the
     };
     // Lines 3, 5 around the blank line 4: indent 8 and 8, so the guide at column 4 shows.
     let blank = y_of(&r, "y();") + 1;
-    assert_eq!(guides_at(blank).trim_end(), "↲   │", "{:?}", guides_at(blank));
+    assert_eq!(guides_at(blank).trim_end(), "│   │", "{:?}", guides_at(blank));
     // Lines 6 (indent 4) and 8 (none) around the blank line 7: fewer is 0: none.
     let blank2 = y_of(&r, "│   }") + 1;
-    assert_eq!(guides_at(blank2).trim_end(), "↲");
+    assert_eq!(guides_at(blank2).trim_end(), "");
 }
 
 #[test]

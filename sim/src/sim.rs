@@ -1532,7 +1532,7 @@ impl Guides<'_> {
                 (Some(a), Some(b)) if !a.tab && !b.tab => a.cols.min(b.cols),
                 _ => 0,
             };
-            indent::guides(cols, self.width, 1, self.limit)
+            indent::guides(cols, self.width, 0, self.limit)
         } else {
             indent::guides(d.cols, self.width, 0, self.limit)
         };

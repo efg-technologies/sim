@@ -1311,22 +1311,15 @@ pub fn colors<'a>(
                     _ => md[i].badge.push(cols),
                 }
             }
-            // UI-6: the whitespace marks of `listchars`: a tab as `»-` to its width, a trailing blank
-            // as `-`, a no-break space as `%`, all dim; an indent guide, drawn after, wins a blank.
+            // UI-6: the whitespace marks, dim: a tab as `»` and blanks to its width, a trailing blank
+            // as `·`, a no-break space as `⍽`; an indent guide, drawn after, wins a blank.
             if ui.is_some() {
                 let at = (gutter + used, (gutter + col) as u16);
-                let mark = |k: usize, ch: char| Glyph {
-                    idx: at.0 + k,
-                    ch,
-                    col: at.1 + k as u16,
-                    tone: Tone::Dim,
-                };
+                let mark = |ch: char| Glyph { idx: at.0, ch, col: at.1, tone: Tone::Dim };
                 match cs[ci] {
-                    '\t' => {
-                        md[i].glyph.extend((0..n).map(|k| mark(k, if k == 0 { '»' } else { '-' })))
-                    }
-                    '\u{a0}' => md[i].glyph.push(mark(0, '%')),
-                    ' ' if ci >= trail => md[i].glyph.push(mark(0, '-')),
+                    '\t' => md[i].glyph.push(mark('»')),
+                    '\u{a0}' => md[i].glyph.push(mark('⍽')),
+                    ' ' if ci >= trail => md[i].glyph.push(mark('·')),
                     _ => {}
                 }
             }
@@ -1356,16 +1349,6 @@ pub fn colors<'a>(
                 col: c as u16,
                 tone: Tone::Mark,
             }));
-        }
-        // UI-6: `↲` after the last char of a line, where the row has a cell left for it.
-        let room = gutter + col < usize::from(f.width);
-        if let (Some(_), true, true) = (ui, room, ci == cs.len() && (starts.is_some() || len > 0)) {
-            md[i].glyph.push(Glyph {
-                idx: gutter + used,
-                ch: '↲',
-                col: (gutter + col) as u16,
-                tone: Tone::Dim,
-            });
         }
         // UI-6: a blank line has its guides past the end of its own blanks.
         if starts.is_some() && ci == cs.len() {

@@ -223,10 +223,14 @@ fn ui_5_the_view_keeps_eight_lines_around_the_cursor_as_neovim_s_scrolloff_does(
 fn ui_5_the_other_numbers_fade_with_their_distance_in_depth_as_the_text_does_and_flat_is_uniform() {
     let mut r = body("ui5-fade", Skin::Depth, &lines(70), (80, 30));
     let g = r.sim.geo();
+    // (a row that ends with `what`: `line 3` is not `line 30`; the scrollbar is after the text)
     let at = |r: &Rig, what: &str| {
-        (usize::from(g.y0)..).find(|&y| r.shot.frame.rows[y].text.contains(what)).unwrap()
+        let ends = |s: &str| {
+            s.trim_end_matches(|c: char| c == ' ' || "┃│⎺⎻⎼⎽".contains(c)).ends_with(what)
+        };
+        (usize::from(g.y0)..).find(|&y| ends(&r.shot.frame.rows[y].text)).unwrap()
     };
-    let (near, far) = (at(&r, "line 3↲"), at(&r, "line 22↲"));
+    let (near, far) = (at(&r, "line 3"), at(&r, "line 22"));
     let (num, text) = (g.tx() + 3, g.tx() + 8);
     assert_eq!(paint(&r, near, num).fade, 0, "next to the cursor nothing fades");
     assert!(paint(&r, far, num).fade > 0, "a number far from the cursor fades");
@@ -236,7 +240,7 @@ fn ui_5_the_other_numbers_fade_with_their_distance_in_depth_as_the_text_does_and
         "by the same curve as the text of its row"
     );
     r.keys("20j");
-    let (near, far) = (at(&r, "line 21↲"), usize::from(g.y0)); // (the first row shown)
+    let (near, far) = (at(&r, "line 21"), usize::from(g.y0)); // (the first row shown)
     assert_eq!(paint(&r, near, num).fade, 0);
     assert!(paint(&r, far, num).fade > 0, "from wherever the cursor is");
     // Flat is uniform.
