@@ -243,3 +243,40 @@ fn ui_5_the_other_numbers_fade_with_their_distance_in_depth_as_the_text_does_and
     let flat = body("ui5-nofade", Skin::Flat, &lines(70), (80, 30));
     assert!((0..flat.shot.paints.len()).all(|y| paint(&flat, y, num).fade == 0));
 }
+
+// ---- UI-6: the colorcolumn ----
+
+#[test]
+fn ui_6_a_pale_band_is_at_the_hundredth_column_of_the_text_where_the_pane_has_it() {
+    let long = format!("{}\n", "x".repeat(120));
+    for skin in [Skin::Flat, Skin::Depth] {
+        let mut r = body("ui6-cc", skin, &format!("short\n{long}last\n"), (140, 24));
+        let (t, g) = (Tones::new(&palette(BG)), r.sim.geo());
+        let col = g.tx() + 5 + 99; // the gutter, then column 100 of the text
+        for y in usize::from(g.y0)..usize::from(g.y0 + g.rows) {
+            assert_eq!(
+                paint(&r, y, col).bg,
+                Some(t.cc),
+                "{skin:?}: row {y}, even where the file has ended"
+            );
+            assert_eq!(paint(&r, y, col - 1).bg, None, "{skin:?}: one cell, not a bar");
+            assert_eq!(paint(&r, y, col + 1).bg, None, "{skin:?}");
+        }
+        assert_ne!(t.cc, BG, "a step from the page");
+        assert!(t.cc.0 > BG.0, "lighter on a dark page: the page times 1.18");
+        // The text is the file's: the band is a background, nothing typed.
+        assert_eq!(r.text().lines().nth(1).unwrap().len(), 120);
+        // The cursor's line in Insert mode lies over it, as the other surfaces do.
+        r.keys("ji");
+        let y = (usize::from(g.y0)..)
+            .find(|&y| r.shot.frame.rows[y].text.contains(&"x".repeat(20)))
+            .unwrap();
+        assert_eq!(paint(&r, y, col).bg, Some(t.cursor), "{skin:?}: the cursor's line wins");
+    }
+    // A narrower pane has no column 100; calm has no band.
+    let narrow = body("ui6-cc-narrow", Skin::Flat, &format!("{long}"), (100, 24));
+    let g = narrow.sim.geo();
+    assert!((0..narrow.shot.paints.len()).all(|y| paint(&narrow, y, g.tx() + 5 + 99).bg.is_none()));
+    let calm = rig_env("ui6-cc-calm", &[&format!("a.rs={long}")], &["a.rs"], (140, 24), |_| {});
+    assert!(calm.shot.paints.iter().all(Vec::is_empty));
+}

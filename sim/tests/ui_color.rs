@@ -148,3 +148,26 @@ fn ui_1_the_surfaces_are_steps_from_the_page_toward_secondary_and_none_is_above_
         assert_eq!(t.card, Tones::new(&p).card, "the card is LOOK-5's");
     }
 }
+
+#[test]
+fn ui_6_the_colorcolumn_and_the_handle_are_steps_from_the_page_the_author_s_scale_gives() {
+    use sim::color::{scale, stepped};
+    // His scale_hex: each channel times the factor, clipped (a dark page); divided on a light one.
+    assert_eq!(scale((0x16, 0x17, 0x19), 1.18), (26, 27, 30));
+    assert_eq!(scale((0x16, 0x17, 0x19), 1.8), (40, 41, 45));
+    assert_eq!(scale((250, 250, 250), 1.18), (212, 212, 212), "a light page goes darker");
+    assert_eq!(scale((250, 250, 250), 1.8), (139, 139, 139));
+    for bg in BGS {
+        let t = Tones::new(&palette(bg));
+        let l = |c: Rgb| to_lch(c)[0];
+        let (cc, thumb) = ((l(t.cc) - l(bg)).abs(), (l(t.thumb) - l(bg)).abs());
+        assert!(cc >= 0.019 && thumb >= 0.069, "{}: steps of {cc:.3} and {thumb:.3}", hex(bg));
+        assert!(thumb > cc, "{}: the handle is a bigger step than the column", hex(bg));
+        let dark = l(bg) < 0.6;
+        assert_eq!(l(t.cc) > l(bg), dark, "{}: away from the page", hex(bg));
+        assert_eq!(l(t.thumb) > l(bg), dark, "{}", hex(bg));
+    }
+    // Made of the page and the gray, so a tinted page's tint is not scaled into a hue.
+    let solarized = stepped((0x00, 0x2b, 0x36), (0x93, 0xa1, 0xa1), 1.8, 0.07);
+    assert!(to_lch(solarized)[1] <= to_lch((0x00, 0x2b, 0x36))[1] + 0.01);
+}

@@ -687,6 +687,16 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         last = if r.text.is_empty() { None } else { number(r, ed.digits).or(last) };
         owner.push(last);
     }
+    // UI-6: the colorcolumn, the author's `colorcolumn = 100`: a pale band at the hundredth column of
+    // the text on every row, where the pane is wide enough for it.
+    let cc = t.filter(|_| ed.cur_line.is_some() && usize::from(ew) >= usize::from(gutter) + 100);
+    let band = |l: &mut Line| {
+        if let Some(t) = cc {
+            l.pad(gutter + 100);
+            l.paints
+                .push((gutter + 99..gutter + 100, Paint { bg: Some(t.cc), ..Paint::default() }));
+        }
+    };
     let mut out = Vec::with_capacity(rows);
     for (i, e) in ed.frame.rows[..ed.frame.rows.len().saturating_sub(1)].iter().enumerate() {
         let cols = if e.text.is_ascii() { e.text.len() } else { fit(&e.text, usize::MAX).1 };
@@ -764,6 +774,7 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
                 sign_bg = Some(t.cursor);
             }
         }
+        band(&mut line);
         line.pad(to);
         if ed.card.as_ref().is_some_and(|c| c.start == i) {
             out.push(half("▄", None));
@@ -773,7 +784,11 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             out.push(half("▀", t.map(|t| t.shadow)));
         }
     }
-    out.resize_with(rows, || signed(Line::default(), None, None));
+    out.resize_with(rows, || {
+        let mut l = Line::default();
+        band(&mut l);
+        signed(l, None, None)
+    });
     out
 }
 

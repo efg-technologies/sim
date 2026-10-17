@@ -124,6 +124,35 @@ fn text_on(primary: Rgb, c: Rgb) -> Rgb {
     contrast(primary, c, 75.5)
 }
 
+/// The author's `scale_hex` (his `init.lua`): each channel times `f`, clipped, on a dark page; on a
+/// light one each is divided by `f`, so the result is always a step away from the page and never
+/// past it (a white page times 1.18 would be white).
+pub fn scale(c: Rgb, f: f64) -> Rgb {
+    let dark = to_lch(c)[0] < 0.6;
+    let go = |v: u8| {
+        let x = f64::from(v);
+        (if dark { x * f } else { x / f }).round().clamp(0.0, 255.0) as u8
+    };
+    (go(c.0), go(c.1), go(c.2))
+}
+
+/// A color as far from the page `bg` as the author's `scale(bg, f)` is (and at least `least` of
+/// OKLab lightness away, so that a black page has a step too), but made of the page and `to`, so
+/// that it has no more hue than the page itself: scaling a page with a tint (solarized's) scales
+/// the tint, and a blue handle would be the accent's (COLOR-1).
+pub fn stepped(bg: Rgb, to: Rgb, f: f64, least: f64) -> Rgb {
+    let (l0, goal) = (to_lch(bg)[0], to_lch(scale(bg, f))[0]);
+    let want = if goal >= l0 { goal.max(l0 + least) } else { goal.min(l0 - least) };
+    let (mut lo, mut hi) = (0.0, 1.0);
+    for _ in 0..24 {
+        let mid = (lo + hi) / 2.0;
+        let l = to_lch(mix(bg, to, mid))[0];
+        let short = if want >= l0 { l < want } else { l > want };
+        *(if short { &mut lo } else { &mut hi }) = mid;
+    }
+    mix(bg, to, hi)
+}
+
 /// UI-1: the hues the interface has, in the order of `Tones::fg`. A hue has one meaning (see
 /// `Role`): the chrome asks for a role (`change_fg`, `accent_fg`, `alert_fg`), never for a hue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,6 +229,10 @@ pub struct Tones {
     /// The neutral block of the mode in Normal mode (30% toward secondary) and its text.
     pub gray: Rgb,
     pub gray_on: Rgb,
+    /// UI-6, UI-11: the author's `ColorColumn` (the page times 1.18) and `SatelliteBar` (times 1.8):
+    /// the page's own lightness moved as far from it, made of the page and the secondary gray (`stepped`).
+    pub cc: Rgb,
+    pub thumb: Rgb,
     fg: [Rgb; 5],
     block: [Rgb; 5],
     on: [Rgb; 5],
@@ -241,6 +274,8 @@ impl Tones {
             band: by(p.secondary, 0.09),
             bar: by(p.secondary, 0.10),
             code: by(p.secondary, 0.14),
+            cc: stepped(p.bg, p.secondary, 1.18, 0.02),
+            thumb: stepped(p.bg, p.secondary, 1.8, 0.07),
             gray: by(p.secondary, 0.30),
             gray_on: text_on(p.primary, by(p.secondary, 0.30)),
             fg,
@@ -295,6 +330,8 @@ impl Tones {
             ("shadow", Neutral, self.shadow),
             ("gray block", Neutral, self.gray),
             ("gray block text", Neutral, self.gray_on),
+            ("colorcolumn", Neutral, self.cc),
+            ("scrollbar handle", Neutral, self.thumb),
             ("add block", Change, self.add),
             ("add block text", Change, self.add_text),
             ("del block", Change, self.del),
