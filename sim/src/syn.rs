@@ -215,6 +215,8 @@ impl Syn {
         // blank line in the block has no char to carry one (UI-8).
         if band {
             spans.insert(0, (0..0, Look::Band));
+        } else if self.name.starts_with("Markdown") {
+            done(line, &mut spans);
         }
         // bat's syntax numbers headings 1 and 2 only: the others are `H3` here, and the count of
         // their `#`s says the level.
@@ -223,6 +225,44 @@ impl Syn {
         spans.iter_mut().filter(|s| s.1 == Look::H3).for_each(|s| s.1 = level);
         spans
     }
+}
+
+/// UI-8: the text of a task that is done, `- [x] text` (a bullet or a number, a blank, `[x]` or
+/// `[X]` and a blank), gets `Look::Done` where no other look of the line has it (code, a link, bold
+/// keep theirs). The line is not in a fenced block.
+fn done(line: &str, spans: &mut Spans) {
+    let cs: Vec<char> = line.chars().collect();
+    let blanks = |i: usize| cs[i.min(cs.len())..].iter().take_while(|c| **c == ' ').count();
+    let mut i = cs.iter().take_while(|c| matches!(c, ' ' | '\t')).count();
+    match cs.get(i) {
+        Some('-' | '*' | '+') => i += 1,
+        Some(c) if c.is_ascii_digit() => {
+            i += cs[i..].iter().take_while(|c| c.is_ascii_digit()).count();
+            if !matches!(cs.get(i), Some('.' | ')')) {
+                return;
+            }
+            i += 1;
+        }
+        _ => return,
+    }
+    let b = blanks(i);
+    i += b;
+    if b == 0 || !matches!(cs.get(i..i + 3), Some(['[', 'x' | 'X', ']'])) || blanks(i + 3) == 0 {
+        return;
+    }
+    let start = i + 3 + blanks(i + 3);
+    let (mut at, mut gaps) = (start, vec![]);
+    for (r, _) in spans.iter().filter(|(r, _)| r.end > start) {
+        if r.start > at {
+            gaps.push((at..r.start, Look::Done));
+        }
+        at = at.max(r.end);
+    }
+    if at < cs.len() {
+        gaps.push((at..cs.len(), Look::Done));
+    }
+    spans.extend(gaps);
+    spans.sort_by_key(|s| (s.0.start, s.0.end));
 }
 
 /// How a char looks while this is the stack of scopes it is in.

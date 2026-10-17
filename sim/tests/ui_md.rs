@@ -513,3 +513,50 @@ fn ui_8_calm_and_code_keep_their_pipes() {
     assert!(r.screen.rows.iter().any(|x| x.text.contains("| grep b")), "{:?}", r.screen.rows);
     assert!(!r.screen.rows.iter().any(|x| x.text.contains('│')));
 }
+
+// ---- task lists ----
+
+const TASKS: &str = "- [x] done `c` and [l](u)\n* [X] Done\n- [ ] todo\n1. [x] numbered done\n  - [x] nested\n- [x]\n- [x] \n+ [x]no blank\n\n```\n- [x] in a fence\n```\n";
+
+#[test]
+fn ui_8_the_text_of_a_done_task_is_done_and_the_rest_of_the_list_is_as_it_was() {
+    let all = spans_of(TASKS);
+    let done = |n: usize| -> Vec<String> {
+        let line = TASKS.lines().nth(n).unwrap();
+        pieces(line, &all[n]).into_iter().filter(|p| p.1 == Look::Done).map(|p| p.0).collect()
+    };
+    // the gaps between the looks of the text (code, a link) are done; those looks stay what they were
+    assert_eq!(done(0), ["done ", " and "]);
+    assert!(
+        pieces(TASKS.lines().next().unwrap(), &all[0])
+            .iter()
+            .any(|(t, l)| t == "c" && *l == Look::Code)
+    );
+    assert_eq!(done(1), ["Done"], "`* [X]`");
+    assert!(done(2).is_empty(), "`[ ]` is as it was");
+    assert_eq!(done(3), ["numbered done"], "a number is a bullet too");
+    assert_eq!(done(4), ["nested"], "and so is a nested one");
+    assert!(done(5).is_empty() && done(6).is_empty(), "no text, nothing to do");
+    assert!(done(7).is_empty(), "the box needs a blank after it");
+    assert!(done(10).is_empty(), "code in a fence is code");
+}
+
+#[test]
+fn ui_8_a_done_task_is_drawn_in_the_secondary_gray_in_every_look() {
+    for skin in [Skin::Calm, Skin::Flat, Skin::Depth] {
+        let r = shown("md-done", skin, "- [x] finished work\n- [ ] open work\n");
+        let out = draw(r.shot.clone());
+        let p = palette(BG);
+        let gray = format!("38;2;{};{};{}", p.secondary.0, p.secondary.1, p.secondary.2);
+        assert!(
+            before(&out, "finished").join(";").contains(&gray),
+            "{skin:?}: {:?}",
+            before(&out, "finished")
+        );
+        assert!(
+            !before(&out, "open work").join(";").contains(&gray),
+            "{skin:?}: {:?}",
+            before(&out, "open work")
+        );
+    }
+}
