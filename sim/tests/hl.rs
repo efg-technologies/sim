@@ -95,9 +95,13 @@ fn syn_3_a_line_of_many_spans_is_laid_out_in_the_time_of_a_key() {
     let frame =
         Frame { width: 80, height: 24, rows, cursor: (5, 0), shape: Shape::Block, pal: None };
     let (t, line) = (std::time::Instant::now(), text.clone());
-    let colored = sim::layout::colors(&frame, digits, &|l| (l == 0).then(|| line.clone()), &|l| {
-        (l == 0).then_some(&spans)
-    });
+    let colored = sim::layout::colors(
+        &frame,
+        digits,
+        &|l| (l == 0).then(|| line.clone()),
+        &|l| (l == 0).then_some(&spans),
+        None,
+    );
     let took = t.elapsed();
     assert_eq!(colored.win, Some((0, 0)));
     assert_eq!(colored.looks[0].len(), 38, "every other char of the first row is a number");

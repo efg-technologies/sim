@@ -1645,4 +1645,23 @@ ui_4_every_open_file_has_a_tab_and_a_click_on_a_tab_shows_that_file() {
   screen | sed -n 1p | grep -q 'main.rs' # no tab is lost
 }
 
+ui_6_indent_guides_are_drawn_over_the_blanks_and_the_file_is_untouched() {
+  printf 'fn a() {\n    if x {\n        y();\n    }\n}\n' > "$W/a.rs"
+  look flat
+  CT=truecolor
+  start a.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  tries=100
+  while ! screen | grep -q '│   │   y();' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  screen | grep -q '│   │   y();'
+  screen | grep -q '│   if x {'
+  screen | grep -q '│   }'
+  # What is on the screen is the file's: its blanks are the cursor's to move over and delete.
+  typed jjwdd
+  typed ':w'
+  keys Enter
+  wait_for "saved a.rs"
+  [ "$(sed -n 3p "$W/a.rs")" = "    }" ]
+}
+
 main "$@"

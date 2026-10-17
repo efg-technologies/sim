@@ -7,6 +7,7 @@ pub mod diff;
 pub mod find;
 pub mod grep;
 pub mod icons;
+pub mod indent;
 pub mod io;
 pub mod layout;
 pub mod marks;

@@ -361,7 +361,7 @@ fn join(text: &str, words: &mut Paints, from: u16) {
 pub struct Ed<'a> {
     pub frame: &'a Frame,
     pub looks: &'a [Looks],
-    pub md: &'a [Md],
+    pub extra: &'a [Extra],
     pub digits: usize,
     pub ch: Vec<Kind>,
     pub card: Option<Range<usize>>,
@@ -380,7 +380,7 @@ impl<'a> Ed<'a> {
         Ed {
             frame,
             looks,
-            md: &[],
+            extra: &[],
             digits: 3,
             ch: vec![],
             card: None,
@@ -588,7 +588,7 @@ fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
 /// UI-8: the markdown of a row of the editor, in flat and depth: the surfaces (a fenced block
 /// across the row, inline code), blue for a link and a level-5 heading, a quote's `>` drawn as a
 /// bar in its own cell, and the language a fence names, dim, at the right of its row.
-fn md_row(line: &mut Line, m: &Md, t: &Tones, gutter: u16, ew: u16) {
+fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     let on = |bg| Paint { bg: Some(bg), ..Paint::default() };
     let blue = Paint { fg: Some(t.fg(Accent::Blue)), ..Paint::default() };
     let mut paints: Paints = line
@@ -602,8 +602,23 @@ fn md_row(line: &mut Line, m: &Md, t: &Tones, gutter: u16, ew: u16) {
         .collect();
     if !m.glyph.is_empty() {
         let mut cs: Vec<char> = line.row.text.chars().collect();
-        m.glyph.iter().for_each(|&(k, c)| cs.get_mut(k).iter_mut().for_each(|x| **x = c));
+        for g in &m.glyph {
+            if g.idx >= cs.len() {
+                cs.resize(g.idx, ' ');
+                cs.push(g.ch);
+            } else {
+                cs[g.idx] = g.ch;
+            }
+            let ink = match g.tone {
+                Tone::Plain => None,
+                Tone::Dim | Tone::Guide => Some(t.line),
+                Tone::Scope => Some(t.focus),
+            };
+            let mark = Paint { fg: ink, ..Paint::default() };
+            paints.extend(ink.map(|_| (g.col..g.col + 1, mark)));
+        }
         line.row.text = cs.into_iter().collect();
+        line.cols = fit(&line.row.text, usize::MAX).1 as u16;
     }
     let lang = m.lang.as_ref().map(|l| fit(l, usize::from(ew)));
     if let Some((lang, w)) = lang.filter(|(_, w)| line.cols + 2 + *w as u16 <= ew) {
@@ -722,8 +737,8 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
                 line.paints.push((0..ew, Paint { fade, ..Paint::default() }));
             }
         }
-        if let (Some(t), Some(m)) = (t, ed.md.get(i)) {
-            md_row(&mut line, m, t, gutter, ew);
+        if let (Some(t), Some(m)) = (t, ed.extra.get(i)) {
+            extra_row(&mut line, m, t, gutter, ew);
         }
         // UI-5: the numbers as Neovim's `number` and `relativenumber` draw them: the cursor's line
         // is absolute, left-aligned, amber and bold; the others are the distance from it. In Insert
@@ -963,24 +978,52 @@ fn shown(cs: &[char], i: usize, col: usize) -> (usize, usize) {
     )
 }
 
-/// UI-8: what a row of an editor frame has of markdown besides the looks of its chars: a line of
-/// a fenced block (a surface across the row), the chars of the row that are drawn as another (a
-/// quote's `>` as `▌`: the index in the row's text, and the char), and the language a fence names,
-/// for the right of its row.
+/// How a glyph put over a char of a row is drawn: as it is (a quote's bar has the look of its
+/// char), dim (the whitespace marks, UI-6), an indent guide, or the guide of the scope around the
+/// cursor, which is brighter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Plain,
+    Dim,
+    Guide,
+    Scope,
+}
+
+/// A char drawn in the place of a cell of a row: the index of the char it stands for in the row's
+/// text (past the end, the text is padded with blanks up to it), the column of the cell, and its tone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Glyph {
+    pub idx: usize,
+    pub ch: char,
+    pub col: u16,
+    pub tone: Tone,
+}
+
+/// UI-8, UI-6: what a row of an editor frame has besides the looks of its chars: a line of a fenced
+/// block (a surface across the row), the chars drawn as others (a quote's `>` as `▌`, the indent
+/// guides), and the language a fence names, for the right of its row.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Md {
+pub struct Extra {
     pub band: bool,
-    pub glyph: Vec<(usize, char)>,
+    pub glyph: Vec<Glyph>,
     pub lang: Option<String>,
 }
 
+/// UI-6: what the interface wants drawn on a line of the buffer: the columns of its indent guides
+/// and which of them is the scope's around the cursor.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LineUi {
+    pub guides: Vec<u16>,
+    pub scope: Option<u16>,
+}
+
 /// SYN-1: what `colors` finds in an editor frame: the looks of its rows, the first and the last
-/// line on screen, and the markdown of each row.
+/// line on screen, and the extras of each row (markdown, guides).
 #[derive(Debug, Default)]
 pub struct Colored {
     pub looks: Vec<Looks>,
     pub win: Option<(usize, usize)>,
-    pub md: Vec<Md>,
+    pub extra: Vec<Extra>,
 }
 
 /// SYN-1: the looks of the rows of an editor frame. `digits` is the width of its line numbers,
@@ -992,10 +1035,13 @@ pub fn colors<'a>(
     digits: usize,
     text: &dyn Fn(usize) -> Option<String>,
     spans: &dyn Fn(usize) -> Option<&'a Spans>,
+    ui: Option<&dyn Fn(usize) -> LineUi>,
 ) -> Colored {
     let (gutter, mut win) = (digits + 2, None);
-    let (mut out, mut md) = (vec![Looks::new(); f.rows.len()], vec![Md::default(); f.rows.len()]);
+    let (mut out, mut md) =
+        (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, false);
+    let mut lui = LineUi::default();
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         let starts = number(row, digits).and_then(|n| n.checked_sub(1));
@@ -1005,6 +1051,7 @@ pub fn colors<'a>(
             band = sp.is_some_and(|s| s.first().is_some_and(|s| s.1 == Look::Band));
             let lang = sp.and_then(|s| s.iter().find(|s| s.1 == Look::Lang));
             md[i].lang = lang.map(|s| cs[s.0.clone()].iter().collect());
+            lui = ui.map_or_else(LineUi::default, |f| f(l));
         }
         // (a row with no text and no number is past the end of the file, not the rest of a line)
         md[i].band = band && (starts.is_some() || len > 0);
@@ -1014,7 +1061,19 @@ pub fn colors<'a>(
             let look = look.filter(|s| s.0.contains(&ci) && w > 0).map(|s| s.1);
             let cols = (gutter + col) as u16..(gutter + col + w) as u16;
             if look == Some(Look::Quote) && n == 1 {
-                md[i].glyph.push((gutter + used, '▌'));
+                md[i]
+                    .glyph
+                    .push(Glyph { idx: gutter + used, ch: '▌', col: 0, tone: Tone::Plain });
+            }
+            // UI-6: an indent guide where a blank is at a guide's column.
+            if starts.is_some() && cs[ci] == ' ' && lui.guides.contains(&(col as u16)) {
+                let tone = if lui.scope == Some(col as u16) { Tone::Scope } else { Tone::Guide };
+                md[i].glyph.push(Glyph {
+                    idx: gutter + used,
+                    ch: '│',
+                    col: (gutter + col) as u16,
+                    tone,
+                });
             }
             match (look, out[i].last_mut()) {
                 (Some(k), Some((p, pk))) if *pk == k && p.end == cols.start => p.end = cols.end,
@@ -1023,8 +1082,16 @@ pub fn colors<'a>(
             }
             (used, col, ci) = (used + n, col + w, ci + 1);
         }
+        // UI-6: a blank line has its guides past the end of its own blanks.
+        if starts.is_some() && ci == cs.len() {
+            for &c in lui.guides.iter().filter(|&&c| usize::from(c) >= col) {
+                let tone = if lui.scope == Some(c) { Tone::Scope } else { Tone::Guide };
+                let at = gutter + usize::from(c) - col + used;
+                md[i].glyph.push(Glyph { idx: at, ch: '│', col: gutter as u16 + c, tone });
+            }
+        }
     }
-    Colored { looks: out, win, md }
+    Colored { looks: out, win, extra: md }
 }
 
 /// PTR-1: the char under the point `(x, row)` of an editor frame, as (line, index in the line), by

@@ -346,9 +346,13 @@ impl Sim {
                 query.zip(text_of(buf, line)).map(|(q, t)| q.ranges(&t)).unwrap_or_default();
             let bold: Spans = marks.into_iter().map(|r| (r, Look::Bold)).collect();
             let digits = buf.lines().to_string().len().max(3);
-            let looks = layout::colors(&frame, digits, &|l| text_of(buf, l), &|l| {
-                (l == line).then_some(&bold)
-            })
+            let looks = layout::colors(
+                &frame,
+                digits,
+                &|l| text_of(buf, l),
+                &|l| (l == line).then_some(&bold),
+                None,
+            )
             .looks;
             p.shown = Some((key, frame, looks));
         }

@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -12,8 +12,11 @@ use crate::color::{Accent, Syntax, Tones};
 use crate::diff::{Diff, Sign};
 use crate::grep;
 use crate::icons;
+use crate::indent::{self, Indent, Lead};
 use crate::io::GIT_SKIPPED;
-use crate::layout::{self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, Mark, Md, Skin};
+use crate::layout::{
+    self, Chrome, Colored, Deck, Ed, Extra, Fade, Geo, Kind, Line, LineUi, Mark, Skin,
+};
 use crate::marks::{Git, Marks};
 use crate::paint::{Looks, Screen};
 use crate::rank::History;
@@ -199,6 +202,9 @@ pub struct Buf {
     /// UI-4: the language server's errors and warnings for the file, which the tab shows (`✘ 2 ▲ 1`);
     /// set by the server's own code, never by sim.
     pub diag: (usize, usize),
+    /// UI-6: how the file is indented, found from its first lines when it is opened and when it
+    /// is saved or changes on disk.
+    indent: Indent,
 }
 
 #[derive(Default)]
@@ -590,6 +596,9 @@ impl Sim {
             }
             self.git(out);
             self.diff(id, out);
+            if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
+                b.indent = indent_of(&b.app.buf);
+            }
         }
     }
 
@@ -796,7 +805,11 @@ impl Sim {
             diff: None,
             lsp: None,
             diag: (0, 0),
+            indent: Indent::default(),
         });
+        if let Some(b) = self.bufs.last_mut() {
+            b.indent = indent_of(&b.app.buf);
+        }
         self.cur = self.bufs.len() - 1;
         self.refocus();
         self.run(o.id, fx, out);
@@ -813,8 +826,9 @@ impl Sim {
         let review = b.app.vi.mode == Mode::Review;
         if review && !self.deep() {
             // its rows weave mine and theirs
-            let (looks, md) = (vec![Looks::new(); f.rows.len()], vec![Md::default(); f.rows.len()]);
-            return (Colored { looks, win: None, md }, None);
+            let (looks, extra) =
+                (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
+            return (Colored { looks, win: None, extra }, None);
         }
         let buf = &b.app.buf;
         let text = |l: usize| text_of(buf, l);
@@ -830,13 +844,21 @@ impl Sim {
             };
             h.spans.get(old.checked_sub(h.from)?)
         };
-        let mut colored = layout::colors(f, digits(buf), &text, &spans);
+        let guides = self.ui().then(|| guides_of(b)).filter(|_| !review);
+        let line_ui = guides.as_ref().map(|g| move |l: usize| g.of(buf, l));
+        let mut colored = layout::colors(
+            f,
+            digits(buf),
+            &text,
+            &spans,
+            line_ui.as_ref().map(|f| f as &dyn Fn(usize) -> LineUi),
+        );
         // LOOK-6: in REVIEW a row that has a change weaves mine and theirs and has no colors; the others do.
         if review {
-            let rows = colored.looks.iter_mut().zip(&mut colored.md).zip(ch);
-            for ((looks, md), _) in rows.filter(|x| *x.1 != Kind::Plain) {
+            let rows = colored.looks.iter_mut().zip(&mut colored.extra).zip(ch);
+            for ((looks, extra), _) in rows.filter(|x| *x.1 != Kind::Plain) {
                 looks.clear();
-                *md = Md::default();
+                *extra = Extra::default();
             }
         }
         let win = colored.win;
@@ -1057,7 +1079,7 @@ impl Sim {
                     .then(|| b.app.buf.line_of(b.app.buf.cursor)),
                 insert: b.app.vi.mode == Mode::Insert,
                 signs: self.signs(b, f, ui),
-                md: &colored.md,
+                extra: &colored.extra,
                 ..Ed::new(f, &colored.looks)
             }),
             _ => None,
@@ -1208,6 +1230,100 @@ impl Sim {
             open: ui && file && open == Some(p),
         };
         (r, mark)
+    }
+}
+
+/// UI-6: the indentation of a buffer, from its first lines.
+fn indent_of(buf: &Buffer) -> Indent {
+    let lines: Vec<String> = buf.text.lines().take(indent::LOOK).map(|l| l.to_string()).collect();
+    indent::detect(lines.iter().map(String::as_str))
+}
+
+/// The leading blanks of line `l` of a buffer, read off the rope with no copy.
+fn lead_of(buf: &Buffer, l: usize) -> Lead {
+    let line = buf.text.line(l);
+    let (mut cols, mut tab, mut n) = (0u16, false, 0);
+    for c in line.chars().take_while(|c| *c != '\n') {
+        match c {
+            ' ' => cols += 1,
+            '\t' => (cols, tab) = (cols + 4 - cols % 4, true),
+            _ => return Lead { cols, tab, blank: false },
+        }
+        n += 1;
+    }
+    Lead { cols, tab, blank: n == buf.line_len(l) }
+}
+
+/// UI-6: what is known of the cursor's scope for the frame being made: the lines around the cursor
+/// whose indent is at least its line's, and the column of the innermost guide of the cursor's line.
+struct Guides {
+    width: u16,
+    scope: Option<(std::ops::RangeInclusive<usize>, u16)>,
+}
+
+/// How many lines are looked at, up and down, for a blank line's neighbors and for a scope.
+const NEAR: usize = 50;
+const SCOPE: usize = 300;
+
+fn guides_of(b: &Buf) -> Guides {
+    let (buf, width) = (&b.app.buf, b.indent.width.max(1));
+    let cur = buf.line_of(buf.cursor);
+    let nonblank = |from: usize, up: bool| -> Option<Lead> {
+        let ls: Box<dyn Iterator<Item = usize>> =
+            if up { Box::new((0..from).rev()) } else { Box::new(from + 1..buf.lines()) };
+        ls.take(NEAR).map(|l| lead_of(buf, l)).find(|d| !d.blank)
+    };
+    let own = lead_of(buf, cur);
+    let lead = if own.blank { nonblank(cur, true).unwrap_or(own) } else { own };
+    if lead.cols == 0 || lead.tab {
+        return Guides { width, scope: None };
+    }
+    let col = (lead.cols - 1) / width * width;
+    let inside = |l: usize| {
+        let d = lead_of(buf, l);
+        d.blank || (!d.tab && d.cols >= lead.cols)
+    };
+    let (mut lo, mut hi) = (cur, cur);
+    while lo > 0 && cur - lo < SCOPE && inside(lo - 1) {
+        lo -= 1;
+    }
+    while hi + 1 < buf.lines() && hi - cur < SCOPE && inside(hi + 1) {
+        hi += 1;
+    }
+    while lo < cur && lead_of(buf, lo).blank {
+        lo += 1;
+    }
+    while hi > cur && lead_of(buf, hi).blank {
+        hi -= 1;
+    }
+    Guides { width, scope: Some((lo..=hi, col)) }
+}
+
+impl Guides {
+    /// UI-6: the guides of line `l`: at 0, w, 2w, ... in front of where its text starts; none for
+    /// a line indented with a tab (the tab is drawn as the level); for a blank line those of the
+    /// fewer of the lines around it, from the first level on (the end-of-line mark is at 0).
+    fn of(&self, buf: &Buffer, l: usize) -> LineUi {
+        let d = lead_of(buf, l);
+        let guides = if d.tab {
+            vec![]
+        } else if d.blank {
+            let up = (0..l).rev().take(NEAR).map(|k| lead_of(buf, k)).find(|d| !d.blank);
+            let down = (l + 1..buf.lines()).take(NEAR).map(|k| lead_of(buf, k)).find(|d| !d.blank);
+            let cols = match (up, down) {
+                (Some(a), Some(b)) if !a.tab && !b.tab => a.cols.min(b.cols),
+                _ => 0,
+            };
+            indent::guides(cols, self.width, 1)
+        } else {
+            indent::guides(d.cols, self.width, 0)
+        };
+        let scope = self
+            .scope
+            .as_ref()
+            .filter(|(run, c)| run.contains(&l) && guides.contains(c))
+            .map(|s| s.1);
+        LineUi { guides, scope }
     }
 }
 
