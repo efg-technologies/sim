@@ -2051,9 +2051,15 @@ key_3_a_pause_on_a_prefix_shows_which_key_and_esc_closes_it() {
   start src/lib.rs
   reply '11;rgb:1e1e/1e1e/1e1e'
   wait_for "NORMAL"
+  cursor() { tm display-message -p -t "$SESSION" '#{cursor_x},#{cursor_y},#{cursor_flag}'; }
+  typed "3j2l"
+  wait_for "1:3" # the cursor is in the text, not at its start
+  at=$(cursor)
   typed " "
   wait_for "buffers" # after 200 ms
   screen | grep -F -q "╭─ <Space> "
+  [ "$(cursor)" = "$at" ] # the terminal's cursor stays in the text: the window does not take it
+  screen_esc | grep -E -q '48;2;[0-9];[0-9];[0-9]m' && return 1 # and no dark strip beside it that looks like a second one
   keys Escape
   wait_gone "buffers"
   typed "d"

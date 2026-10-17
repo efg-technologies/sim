@@ -44,9 +44,9 @@ fn key_4_the_help_is_the_picker_with_a_row_for_each_entry_of_the_table() {
     let first = list(&r);
     assert_eq!(first[0], "i inner object operator/visual", "{first:?}");
     assert_eq!(rows().len(), table().len());
-    assert!(rows()[2].1.starts_with("h/<Left>"), "{}", rows()[2].1);
+    assert!(rows()[2].1.starts_with("h / <Left>"), "{}", rows()[2].1);
     assert!(
-        first.iter().any(|t| t.starts_with("h/<Left> left normal/visual/operator")),
+        first.iter().any(|t| t.starts_with("h / <Left> left normal/visual/operator")),
         "{first:?}"
     );
     // the preview: the keys, the modes and the longer text
@@ -120,4 +120,54 @@ fn key_4_the_rows_are_cut_by_the_mode_first_and_the_help_has_no_match_to_say() {
     }
     r.keys("zzzzzzz");
     assert!(r.float().iter().any(|t| t.contains("no matches")), "{:?}", r.float());
+}
+
+#[test]
+fn key_4_no_row_or_preview_of_the_help_shows_an_escape_of_the_table() {
+    let leaks = |text: &str| {
+        let low = text.to_lowercase();
+        ["<lt>", "<gt>", "<bar>"].iter().any(|e| low.contains(e))
+    };
+    for (_, row) in rows() {
+        assert!(!leaks(row), "{row}");
+    }
+    for e in table() {
+        assert!(!leaks(&e.keys()) && !leaks(&e.desc) && !leaks(&e.long), "{}", e.keys());
+    }
+    // the angle brackets are themselves, and a `/` between two keys has blanks around it
+    let all: Vec<&str> = rows().iter().map(|r| r.1.as_str()).collect();
+    for (keys, desc) in [
+        ("i< / i>", "inner angle brackets"),
+        ("a< / a>", "around angle brackets"),
+        ("<", "outdent"),
+        ("<<", "outdent line"),
+    ] {
+        let found =
+            |t: &&str| t.starts_with(keys) && t[keys.len()..].trim_start().starts_with(desc);
+        assert!(all.iter().any(found), "{keys:?} {desc:?} not in {all:?}");
+    }
+    // keys wider than the column drop whole alternatives and say so (the preview has them all), and
+    // a row never has half of a key
+    assert!(all.iter().any(|t| t.starts_with("<Down> / <C-n> …  next result")), "{all:?}");
+    assert!(all.iter().any(|t| t.starts_with("1 … 9  ") || t.starts_with("1 … 9 ")), "{all:?}");
+    for t in &all {
+        let keys = t.chars().take(16).collect::<String>();
+        let keys = keys.trim_end();
+        assert!(!keys.ends_with(" /") && !keys.ends_with(" / <"), "half a key: {t:?}");
+    }
+    assert!(table().iter().any(|e| e.keys() == "<Down> / <C-n> / <C-j>"));
+    // on the screen: the list, the keys at the top of the preview, and nothing else
+    let mut r = rig_help("k4-escapes", Skin::Depth, (120, 40));
+    r.keys(":help\n");
+    for query in ["angle", "outdent", "operator"] {
+        r.keys("<C-u>");
+        r.keys(query);
+        assert!(!leaks(&dump(&r.screen)), "{query}: {}", dump(&r.screen));
+        let first = r.pane().into_iter().map(|t| t.trim().to_string()).find(|t| !t.is_empty());
+        assert!(!first.is_some_and(|t| leaks(&t)), "{query}: {:?}", r.pane());
+    }
+    r.keys("<C-u>angle");
+    let rows = list(&r);
+    assert!(rows.iter().any(|t| t.starts_with("i< / i> inner angle brackets")), "{rows:?}");
+    assert!(r.pane().iter().any(|t| t.contains("i< / i>")), "{:?}", r.pane());
 }

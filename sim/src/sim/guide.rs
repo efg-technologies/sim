@@ -52,7 +52,7 @@ impl Sim {
     /// KEY-3: the window which-key shows: the prefix as its title and the keys that can come next.
     pub(super) fn which_rows(&self) -> Option<(String, Vec<(String, String)>)> {
         let p = self.which.as_ref().filter(|_| self.panel.live.is_none())?;
-        Some((p.concat(), keys::next(p, self.key_mode())))
+        Some((p.iter().map(|t| keys::shown(t)).collect(), keys::next(p, self.key_mode())))
     }
 
     /// KEY-2: whether a Space is the leader here: in Normal mode with nothing typed, and in the tree

@@ -1345,12 +1345,12 @@ impl Sim {
             let at = qcols.min(usize::from(win.prompt.w).saturating_sub(5));
             (cursor, shape) = ((win.prompt.x + 3 + at as u16, win.prompt.y), Shape::Bar);
         }
-        // KEY-3: which-key, laid over the text as the picker is, while a prefix has been typed for a pause
+        // KEY-3: which-key, laid over the text as the picker is, while a prefix has been typed for a pause;
+        // with no shadow: beside a window this small it read as a second cursor
         if let Some((title, next)) = self.which_rows()
             && let Some((win, lines)) = keys::which(&title, &next, (w, h), tones.as_ref())
         {
-            let shadow = tones.as_ref().filter(|_| g.boxed);
-            pick::lay(&mut rows, &mut looks, &mut paints, w, &win, lines, shadow);
+            pick::lay(&mut rows, &mut looks, &mut paints, w, &win, lines, None);
         }
         // UI-10: the bar, unless a message, the command line or a search has the row's text.
         let tree = focus.then(|| (at.as_ref().map(|r| r.path.display().to_string()), slash));

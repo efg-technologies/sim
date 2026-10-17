@@ -4,9 +4,12 @@
 mod common;
 use common::*;
 use sim::color::Syntax;
+use sim::keys;
 use sim::layout::Skin;
+use sim::paint::{Painter, Screen};
 use sim::sim::{PAUSE_MS, SimEffect, SimEvent};
 use sim_core::core::app::Event;
+use sim_core::core::view::Frame;
 
 fn rig_wk(name: &str, skin: Skin, size: (u16, u16)) -> Rig {
     let text: String = (1..=30).map(|i| format!("line {i} of the file\n")).collect();
@@ -90,7 +93,7 @@ fn key_3_the_prefixes_of_the_core_and_of_sim_have_windows_too() {
         ("d", "d", "│ d  delete lines"),
         ("d", "d", "│ w  next word"),
         ("d", "d", "│ i  inner"),
-        ("di", "di", "│ w/W  inner word"),
+        ("di", "di", "│ w / W  inner word"),
         ("y", "y", "│ y  yank lines"),
         ("c", "c", "│ c  change lines"),
         (">", ">", "│ >  indent line"),
@@ -110,7 +113,7 @@ fn key_3_the_prefixes_of_the_core_and_of_sim_have_windows_too() {
     r.keys("vi");
     r.pause();
     let (_, rows) = window(&r).unwrap();
-    assert!(rows.iter().any(|t| norm(t).starts_with("w/W inner word")), "{rows:?}");
+    assert!(rows.iter().any(|t| norm(t).starts_with("w / W inner word")), "{rows:?}");
     r.keys("<Esc><Esc>");
     // the tree: `g`, and the leader
     r.keys("<C-n>g");
@@ -201,4 +204,112 @@ fn key_3_calm_draws_it_without_color_and_the_looks_with_the_interface_s_surface(
     d.pause();
     let ((top, _), _) = window(&d).unwrap();
     assert!(d.shot.paints[top + 1].iter().any(|(_, p)| p.bg.is_some()), "a surface");
+}
+
+/// What the Painter writes as the terminal's cursor for a frame drawn whole: the last `ESC [ row ; col H`
+/// (1-based) of its bytes, as (column, row) from 0.
+fn painted_cursor(shot: &Screen) -> (u16, u16) {
+    let mut p = Painter::new(Vec::<u8>::new());
+    p.draw(shot.clone()).unwrap();
+    let out = String::from_utf8(p.out.clone()).unwrap();
+    let goto = |piece: &str| -> Option<(u16, u16)> {
+        let body = piece.split_once('H')?.0;
+        let (row, col) = body.split_once(';')?;
+        Some((col.parse::<u16>().ok()? - 1, row.parse::<u16>().ok()? - 1))
+    };
+    out.split("\x1b[").filter_map(goto).last().unwrap() // (the Painter always writes one)
+}
+
+#[test]
+fn key_3_nothing_outside_the_window_changes_and_the_terminal_s_cursor_stays_in_the_text() {
+    // (the look, the screen, the prefix): the small window of the leader and the tall one of an operator
+    for (skin, size, keys) in [
+        (Skin::Depth, (100, 24), " "),
+        (Skin::Depth, (100, 40), "d"),
+        (Skin::Flat, (100, 24), "z"),
+        (Skin::Calm, (100, 24), " "),
+    ] {
+        let mut r = rig_wk("k3-outside", skin, size);
+        r.keys("3j2l"); // the cursor is somewhere in the text, not at its start
+        let (before, paints, at) =
+            (r.screen.clone(), r.shot.paints.clone(), painted_cursor(&r.shot));
+        r.keys(keys);
+        r.pause();
+        let ((top, left), rows) = window(&r).unwrap_or_else(|| panic!("{keys}: no window"));
+        let (w, h) = (rows[0].chars().count(), rows.len());
+        let inside = |x: usize, y: usize| x >= left && x < left + w && y >= top && y < top + h;
+        // the window is over the text, and no key of it has moved the terminal's cursor
+        assert_eq!((r.screen.cursor, r.screen.shape), (before.cursor, before.shape), "{keys}");
+        assert_eq!(painted_cursor(&r.shot), at, "{skin:?} {keys}: the Painter's cursor");
+        assert!(!inside(usize::from(at.0), usize::from(at.1)), "{skin:?} {keys}: under the window");
+        // and nothing beside it: no shadow, no second block that looks like a cursor
+        let merged = |p: &[Vec<(std::ops::Range<u16>, sim::paint::Paint)>], x: usize, y: usize| {
+            let on = p[y].iter().filter(|(c, _)| c.contains(&(x as u16))).map(|p| p.1);
+            on.fold(sim::paint::Paint::default(), |a, p| sim::paint::Paint {
+                fg: a.fg.or(p.fg),
+                bg: a.bg.or(p.bg),
+                fade: a.fade.max(p.fade),
+                bold: a.bold || p.bold,
+                soft: a.soft || p.soft,
+                sealed: a.sealed || p.sealed,
+                cue: a.cue.max(p.cue),
+            })
+        };
+        for y in 0..before.rows.len() - 1 {
+            for x in 0..usize::from(size.0) {
+                if inside(x, y) {
+                    continue;
+                }
+                let ch = |f: &Frame| f.rows[y].text.chars().nth(x).unwrap_or(' ');
+                assert_eq!(ch(&r.screen), ch(&before), "{skin:?} {keys}: text at ({x},{y})");
+                assert_eq!(
+                    merged(&r.shot.paints, x, y),
+                    merged(&paints, x, y),
+                    "{skin:?} {keys}: paint at ({x},{y})"
+                );
+            }
+        }
+    }
+}
+
+/// The names the table writes a key with that are never shown: they are escapes, and the key is itself.
+const ESCAPES: [&str; 3] = ["<lt>", "<gt>", "<bar>"];
+
+fn leaks(text: &str) -> bool {
+    let low = text.to_lowercase();
+    ESCAPES.iter().any(|e| low.contains(e))
+}
+
+#[test]
+fn key_3_no_row_or_title_of_the_window_shows_an_escape_of_the_table() {
+    // every prefix the table has: its rows and the keys of its rows
+    for e in keys::table() {
+        for seq in e.sequences() {
+            for n in 1..seq.len() {
+                let prefix: Vec<String> = seq[..n].iter().map(|t| t.to_string()).collect();
+                for mode in ['n', 'v', 't'] {
+                    for (key, desc) in keys::next(&prefix, mode) {
+                        assert!(!leaks(&key) && !leaks(&desc), "{prefix:?}: {key:?} {desc:?}");
+                    }
+                }
+            }
+        }
+    }
+    // and on the screen, the title of the prefix too: `<` is the operator, written as itself
+    let mut r = rig_wk("k3-escapes", Skin::Depth, (100, 40));
+    for (typed, title, row) in [
+        ("<", "<", "< outdent line"),
+        ("<", "<", "i inner"),
+        ("<i", "<i", "< / > inner angle brackets"),
+        ("di", "di", "< / > inner angle brackets"),
+        ("ya", "ya", "< / > around angle brackets"),
+    ] {
+        r.keys(typed);
+        r.pause();
+        let (_, rows) = window(&r).unwrap_or_else(|| panic!("{typed}: no window"));
+        assert!(rows[0].starts_with(&format!("╭─ {title} ─")), "{typed}: {rows:?}");
+        assert!(rows.iter().any(|t| norm(t).starts_with(row)), "{typed}: {row:?} not in {rows:?}");
+        assert!(!leaks(&dump(&r.screen)), "{typed}: {}", dump(&r.screen));
+        r.keys("<Esc>");
+    }
 }

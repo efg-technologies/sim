@@ -18,6 +18,18 @@ pub struct Entry {
     pub long: String,
 }
 
+/// How a token of the table is written for people: its escapes are the key itself (`<lt>` is `<`, `<Bar>`
+/// is `|`, `<gt>` is `>`); the names of keys without a char (`<Space>`, `<Tab>`, `<C-n>`) stay as the
+/// author's Neovim writes them.
+pub fn shown(token: &str) -> &str {
+    match token {
+        "<lt>" => "<",
+        "<Bar>" => "|",
+        "<gt>" => ">",
+        t => t,
+    }
+}
+
 /// The operators: what they are followed by is a motion or a text object.
 const OPERATORS: [&str; 6] = ["d", "c", "y", "<lt>", ">", "!"];
 
@@ -46,12 +58,14 @@ impl Entry {
         all
     }
 
-    /// How the keys are written: each sequence run together, `/` between them (`h/<Left>`, `<Space>bp`).
+    /// How the keys are written: each sequence run together and the escapes of the table gone (`<Space>bp`,
+    /// `i<`), ` / ` between the alternatives (`h / <Left>`, `i< / i>`).
     pub fn keys(&self) -> String {
-        let seqs: Vec<String> = self.sequences().iter().map(|q| q.concat()).collect();
+        let seqs: Vec<String> =
+            self.sequences().iter().map(|q| q.iter().map(|t| shown(t)).collect()).collect();
         match seqs.len() {
-            0..=4 => seqs.join("/"),
-            n => format!("{}/…/{}", seqs[0], seqs[n - 1]), // (`1/…/9`)
+            0..=4 => seqs.join(" / "),
+            n => format!("{} … {}", seqs[0], seqs[n - 1]), // (`1 … 9`)
         }
     }
 
@@ -71,7 +85,8 @@ impl Entry {
 }
 
 /// KEY-3: the keys that can come next after `prefix` (tokens: `d`, `<Space>`), as (key, description), in
-/// the order of the table, each key once, the alternatives of a token as one (`h/<Left>`). After an operator
+/// the order of the table, each key once, the alternatives of a token as one (`h / <Left>`), written for people
+/// (`shown`). After an operator
 /// they are the entries for `o` that follow what comes after it, and the operator's own key. `mode` is the
 /// one the prefix was typed in: `n`, `v` or `t`.
 pub fn next(prefix: &[String], mode: char) -> Vec<(String, String)> {
@@ -89,7 +104,9 @@ pub fn next(prefix: &[String], mode: char) -> Vec<(String, String)> {
             if !follows {
                 continue;
             }
-            let (key, exact) = (e.seq[head.len()].join("/"), e.seq.len() == head.len() + 1);
+            let alts = e.seq[head.len()].iter().map(|t| shown(t));
+            let (key, exact) =
+                (alts.collect::<Vec<_>>().join(" / "), e.seq.len() == head.len() + 1);
             match rows.iter_mut().find(|r| r.0 == key) {
                 Some(r) if exact && !r.2 => *r = (key, e.desc.clone(), true),
                 Some(_) => {}
@@ -105,13 +122,24 @@ pub fn rows() -> &'static [(usize, String)] {
     static ROWS: OnceLock<Vec<(usize, String)>> = OnceLock::new();
     ROWS.get_or_init(|| {
         let key = table().iter().map(|e| e.keys().chars().count()).max().unwrap_or(0).min(KEYS);
-        let line = |e: &Entry| format!("{:key$}  {}  {}", fit(&e.keys(), key).0, e.desc, e.modes());
+        let line = |e: &Entry| format!("{:key$}  {}  {}", cell(&e.keys(), key), e.desc, e.modes());
         table().iter().enumerate().map(|(i, e)| (i, line(e))).collect()
     })
 }
 
+/// The keys of a row in `max` columns: where they are longer, the alternatives that fit and ` …`
+/// (the preview has them all), never half of a key.
+fn cell(keys: &str, max: usize) -> String {
+    if keys.chars().count() <= max {
+        return keys.into();
+    }
+    let ends =
+        keys.match_indices(" / ").map(|(i, _)| i).filter(|&i| keys[..i].chars().count() + 2 <= max);
+    ends.last().map_or_else(|| fit(keys, max).0, |i| format!("{} …", &keys[..i]))
+}
+
 /// The widest keys column of the help (a row shows `keys  description  mode`).
-const KEYS: usize = 14;
+const KEYS: usize = 16;
 
 /// The most rows of a which-key window (it is a small window: a list that is longer ends in `… n more`).
 const MOST: usize = 16;
