@@ -1,12 +1,12 @@
-//! Tests for src/core/proposal.rs: PROP-3 (hand-written merges), PROP-4 (properties of diff3),
-//! PROP-7 (deadline and benchmark) and VIS-2 (word-level differences).
+//! Tests for src/core/merge.rs: DISK-3 (hand-written merges), DISK-4 (properties of diff3),
+//! DISK-5 (deadline and benchmark) and VIS-2 (word-level differences).
 
 // Expected values are written as `vec![a..b]` on purpose: a list holding one range.
 #![allow(clippy::single_range_in_vec_init)]
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use si::core::proposal::{Hunk, Mark, Merged, lines, merge3, words as words_by};
+use si::core::merge::{Mark, Merged, lines, merge3, words as words_by};
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 use std::time::{Duration, Instant};
 
@@ -15,41 +15,8 @@ fn words(old: &str, new: &str) -> (Vec<std::ops::Range<usize>>, Vec<std::ops::Ra
     words_by(old, new, None)
 }
 
-/// The text after resolving each hunk (`accept[i]` for `m.hunks[i]`): accept → theirs, reject → mine.
-/// A hunk without an answer is rejected.
-fn resolve(m: &Merged, accept: &[bool]) -> String {
-    let (ls, mut out, mut at) = (lines(&m.text), String::new(), 0);
-    for (i, h) in m.hunks.iter().enumerate() {
-        ls[at..h.mine.start].iter().for_each(|l| out.push_str(l));
-        if accept.get(i).copied().unwrap_or(false) {
-            out.push_str(&h.theirs);
-        } else {
-            ls[h.mine.clone()].iter().for_each(|l| out.push_str(l));
-        }
-        at = h.mine.end;
-    }
-    ls[at..].iter().for_each(|l| out.push_str(l));
-    out
-}
-
-fn accept_all(m: &Merged) -> String {
-    resolve(m, &vec![true; m.hunks.len()])
-}
-
-fn reject_all(m: &Merged) -> String {
-    resolve(m, &vec![false; m.hunks.len()])
-}
-
 fn disk(base: &str, mine: &str, theirs: &str) -> Merged {
-    merge3(base, mine, theirs, false, None)
-}
-
-fn all(base: &str, mine: &str, theirs: &str) -> Merged {
-    merge3(base, mine, theirs, true, None)
-}
-
-fn hunk(mine: std::ops::Range<usize>, theirs: &str) -> Hunk {
-    Hunk { mine, theirs: theirs.to_string() }
+    merge3(base, mine, theirs, None)
 }
 
 fn mark(lines: std::ops::Range<usize>, old: &str) -> Mark {
@@ -61,7 +28,7 @@ fn mark(lines: std::ops::Range<usize>, old: &str) -> Mark {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn prop_3_lines_keep_their_newlines() {
+fn disk_3_lines_keep_their_newlines() {
     assert!(lines("").is_empty());
     assert_eq!(lines("\n"), ["\n"]);
     assert_eq!(lines("a"), ["a"]);
@@ -73,74 +40,49 @@ fn prop_3_lines_keep_their_newlines() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-3: hand-written merges
+// DISK-3: hand-written merges
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn prop_3_no_change() {
+fn disk_3_no_change() {
     for t in ["", "a\n", "a\nb\n", "a\nb", "\n"] {
-        for propose_all in [false, true] {
-            let m = merge3(t, t, t, propose_all, None);
-            assert_eq!(m, Merged { text: t.to_string(), marks: vec![], hunks: vec![] });
-        }
+        assert_eq!(disk(t, t, t), Merged { text: t.to_string(), marks: vec![], conflicts: vec![] });
     }
 }
 
 #[test]
-fn prop_3_only_mine_changed() {
+fn disk_3_only_mine_changed() {
     let m = disk("a\nb\nc\n", "a\nB\nc\n", "a\nb\nc\n");
-    assert_eq!(m, Merged { text: "a\nB\nc\n".into(), marks: vec![], hunks: vec![] });
-    let m = all("a\nb\nc\n", "a\nB\nc\n", "a\nb\nc\n");
-    assert_eq!(m, Merged { text: "a\nB\nc\n".into(), marks: vec![], hunks: vec![] });
+    assert_eq!(m, Merged { text: "a\nB\nc\n".into(), marks: vec![], conflicts: vec![] });
 }
 
 #[test]
-fn prop_3_only_theirs_changed_is_marked_on_disk() {
+fn disk_3_only_theirs_changed_is_marked_on_disk() {
     let m = disk("a\nb\nc\n", "a\nb\nc\n", "a\nB\nc\n");
     assert_eq!(m.text, "a\nB\nc\n");
     assert_eq!(m.marks, [mark(1..2, "b\n")]);
-    assert!(m.hunks.is_empty());
+    assert!(m.conflicts.is_empty());
 }
 
 #[test]
-fn prop_3_only_theirs_changed_is_proposed_for_filters() {
-    let m = all("a\nb\nc\n", "a\nb\nc\n", "a\nB\nc\n");
-    assert_eq!(m.text, "a\nb\nc\n");
-    assert!(m.marks.is_empty());
-    assert_eq!(m.hunks, [hunk(1..2, "B\n")]);
-    assert_eq!(accept_all(&m), "a\nB\nc\n");
-    assert_eq!(reject_all(&m), "a\nb\nc\n");
-}
-
-#[test]
-fn prop_3_changes_that_do_not_overlap_are_both_taken() {
+fn disk_3_changes_that_do_not_overlap_are_both_taken() {
     let (b, m, t) = ("a\nb\nc\nd\ne\n", "A\nb\nc\nd\ne\n", "a\nb\nc\nd\nE\n");
     let d = disk(b, m, t);
     assert_eq!(d.text, "A\nb\nc\nd\nE\n");
     assert_eq!(d.marks, [mark(4..5, "e\n")]);
-    assert!(d.hunks.is_empty());
-    // For a filter, theirs is still only an opinion; my own edit stays.
-    let p = all(b, m, t);
-    assert_eq!(p.text, "A\nb\nc\nd\ne\n");
-    assert!(p.marks.is_empty());
-    assert_eq!(p.hunks, [hunk(4..5, "E\n")]);
-    assert_eq!(accept_all(&p), "A\nb\nc\nd\nE\n");
+    assert!(d.conflicts.is_empty());
 }
 
 #[test]
-fn prop_3_overlapping_changes_conflict() {
-    for propose_all in [false, true] {
-        let m = merge3("a\nb\nc\n", "a\nX\nc\n", "a\nY\nc\n", propose_all, None);
-        assert_eq!(m.text, "a\nX\nc\n");
-        assert!(m.marks.is_empty());
-        assert_eq!(m.hunks, [hunk(1..2, "Y\n")]);
-        assert_eq!(accept_all(&m), "a\nY\nc\n");
-        assert_eq!(reject_all(&m), "a\nX\nc\n");
-    }
+fn disk_3_overlapping_changes_conflict() {
+    let m = disk("a\nb\nc\n", "a\nX\nc\n", "a\nY\nc\n");
+    assert_eq!(m.text, "a\nX\nc\n", "mine stays");
+    assert!(m.marks.is_empty());
+    assert_eq!(m.conflicts, [1..2]);
 }
 
 #[test]
-fn prop_3_conflicts_chain_transitively() {
+fn disk_3_conflicts_chain_transitively() {
     // mine changes lines 1-2 and 4 (3 stays); theirs changes 2-4. Mine's two changes are joined by theirs.
     let base = "0\n1\n2\n3\n4\n5\n";
     let mine = "0\nM1\n3\nM4\n5\n";
@@ -148,115 +90,99 @@ fn prop_3_conflicts_chain_transitively() {
     let m = disk(base, mine, theirs);
     assert_eq!(m.text, mine);
     assert!(m.marks.is_empty());
-    // The region runs from base line 1 to 4: theirs' version of it is "1", "T".
-    assert_eq!(m.hunks, [hunk(1..4, "1\nT\n")]);
-    assert_eq!(accept_all(&m), theirs);
+    // The region runs from base line 1 to 4: mine's lines of it are 1..4 of the merged text.
+    assert_eq!(m.conflicts, [1..4]);
 }
 
 #[test]
-fn prop_3_two_separate_conflicts_stay_separate() {
+fn disk_3_two_separate_conflicts_stay_separate() {
     let base = "a\nb\nc\nd\ne\n";
     let m = disk(base, "a\nX\nc\nY\ne\n", "a\nP\nc\nQ\ne\n");
-    assert_eq!(m.hunks, [hunk(1..2, "P\n"), hunk(3..4, "Q\n")]);
-    assert_eq!(resolve(&m, &[true, false]), "a\nP\nc\nY\ne\n");
-    assert_eq!(resolve(&m, &[false, true]), "a\nX\nc\nQ\ne\n");
+    assert_eq!(m.conflicts, [1..2, 3..4]);
 }
 
 #[test]
-fn prop_3_identical_change_on_both_sides_is_taken_once() {
-    for propose_all in [false, true] {
-        let m = merge3("a\nb\nc\n", "a\nX\nc\n", "a\nX\nc\n", propose_all, None);
-        assert_eq!(m, Merged { text: "a\nX\nc\n".into(), marks: vec![], hunks: vec![] });
-    }
+fn disk_3_identical_change_on_both_sides_is_taken_once() {
+    let m = disk("a\nb\nc\n", "a\nX\nc\n", "a\nX\nc\n");
+    assert_eq!(m, Merged { text: "a\nX\nc\n".into(), marks: vec![], conflicts: vec![] });
     // Identical here, in conflict there.
     let m = disk("a\nb\nc\nd\ne\n", "A\nb\nc\nX\ne\n", "A\nb\nc\nY\ne\n");
     assert_eq!(m.text, "A\nb\nc\nX\ne\n");
     assert!(m.marks.is_empty());
-    assert_eq!(m.hunks, [hunk(3..4, "Y\n")]);
+    assert_eq!(m.conflicts, [3..4]);
 }
 
 #[test]
-fn prop_3_insertions_at_the_same_point() {
-    for propose_all in [false, true] {
-        let m = merge3("a\nc\n", "a\nb\nc\n", "a\nB\nc\n", propose_all, None);
-        assert_eq!(m.text, "a\nb\nc\n");
-        assert!(m.marks.is_empty());
-        assert_eq!(m.hunks, [hunk(1..2, "B\n")]);
-        assert_eq!(accept_all(&m), "a\nB\nc\n");
-        // The same insertion on both sides is one insertion.
-        let m = merge3("a\nc\n", "a\nb\nc\n", "a\nb\nc\n", propose_all, None);
-        assert_eq!(m, Merged { text: "a\nb\nc\n".into(), marks: vec![], hunks: vec![] });
-    }
+fn disk_3_insertions_at_the_same_point() {
+    let m = disk("a\nc\n", "a\nb\nc\n", "a\nB\nc\n");
+    assert_eq!(m.text, "a\nb\nc\n");
+    assert!(m.marks.is_empty());
+    assert_eq!(m.conflicts, [1..2]);
+    // The same insertion on both sides is one insertion.
+    let m = disk("a\nc\n", "a\nb\nc\n", "a\nb\nc\n");
+    assert_eq!(m, Merged { text: "a\nb\nc\n".into(), marks: vec![], conflicts: vec![] });
 }
 
 #[test]
-fn prop_3_insertions_at_different_points_do_not_conflict() {
+fn disk_3_insertions_at_different_points_do_not_conflict() {
     let m = disk("a\nb\n", "a\nx\nb\n", "a\nb\ny\n");
     assert_eq!(m.text, "a\nx\nb\ny\n");
     assert_eq!(m.marks, [mark(3..4, "")]);
-    assert!(m.hunks.is_empty());
+    assert!(m.conflicts.is_empty());
 }
 
 #[test]
-fn prop_3_changes_that_merely_touch_do_not_conflict() {
+fn disk_3_changes_that_merely_touch_do_not_conflict() {
     // Theirs inserts right before the line mine replaced.
     let m = disk("a\nb\nc\n", "a\nB\nc\n", "a\nx\nb\nc\n");
     assert_eq!(m.text, "a\nx\nB\nc\n");
     assert_eq!(m.marks, [mark(1..2, "")]);
-    assert!(m.hunks.is_empty());
+    assert!(m.conflicts.is_empty());
     // Theirs inserts right after it.
     let m = disk("a\nb\nc\n", "a\nB\nc\n", "a\nb\nx\nc\n");
     assert_eq!(m.text, "a\nB\nx\nc\n");
     assert_eq!(m.marks, [mark(2..3, "")]);
-    assert!(m.hunks.is_empty());
+    assert!(m.conflicts.is_empty());
     // Mine replaces line 1 and theirs replaces line 2: adjacent, no shared line.
     let m = disk("a\nb\nc\nd\n", "a\nB\nc\nd\n", "a\nb\nC\nd\n");
     assert_eq!(m.text, "a\nB\nC\nd\n");
     assert_eq!(m.marks, [mark(2..3, "c\n")]);
-    assert!(m.hunks.is_empty());
+    assert!(m.conflicts.is_empty());
 }
 
 #[test]
-fn prop_3_insertion_inside_a_replaced_region_conflicts() {
+fn disk_3_insertion_inside_a_replaced_region_conflicts() {
     let m = disk("a\nb\nc\nd\n", "a\nX\nd\n", "a\nb\nY\nc\nd\n");
     assert_eq!(m.text, "a\nX\nd\n");
     assert!(m.marks.is_empty());
-    assert_eq!(m.hunks, [hunk(1..2, "b\nY\nc\n")]);
-    assert_eq!(accept_all(&m), "a\nb\nY\nc\nd\n");
+    assert_eq!(m.conflicts, [1..2]);
 }
 
 #[test]
-fn prop_3_deletions() {
+fn disk_3_deletions() {
     let b = "a\nb\nc\n";
     // Mine deletes: nothing to take from theirs.
     let m = disk(b, "a\nc\n", b);
-    assert_eq!(m, Merged { text: "a\nc\n".into(), marks: vec![], hunks: vec![] });
-    // Theirs deletes: marked where it was (an empty range), or proposed.
+    assert_eq!(m, Merged { text: "a\nc\n".into(), marks: vec![], conflicts: vec![] });
+    // Theirs deletes: marked where it was (an empty range).
     let m = disk(b, b, "a\nc\n");
     assert_eq!(m.text, "a\nc\n");
     assert_eq!(m.marks, [mark(1..1, "b\n")]);
-    let m = all(b, b, "a\nc\n");
-    assert_eq!(m.text, b);
-    assert_eq!(m.hunks, [hunk(1..2, "")]);
-    assert_eq!(accept_all(&m), "a\nc\n");
     // Both delete the same line.
     let m = disk(b, "a\nc\n", "a\nc\n");
-    assert_eq!(m, Merged { text: "a\nc\n".into(), marks: vec![], hunks: vec![] });
-    // Mine deletes, theirs edits the same line: the hunk sits at an empty range.
+    assert_eq!(m, Merged { text: "a\nc\n".into(), marks: vec![], conflicts: vec![] });
+    // Mine deletes, theirs edits the same line: the conflict sits at an empty range.
     let m = disk(b, "a\nc\n", "a\nB\nc\n");
     assert_eq!(m.text, "a\nc\n");
-    assert_eq!(m.hunks, [hunk(1..1, "B\n")]);
-    assert_eq!(accept_all(&m), "a\nB\nc\n");
+    assert_eq!(m.conflicts, [1..1]);
     // Mine edits, theirs deletes the same line.
     let m = disk(b, "a\nB\nc\n", "a\nc\n");
     assert_eq!(m.text, "a\nB\nc\n");
-    assert_eq!(m.hunks, [hunk(1..2, "")]);
-    assert_eq!(accept_all(&m), "a\nc\n");
-    assert_eq!(reject_all(&m), "a\nB\nc\n");
+    assert_eq!(m.conflicts, [1..2]);
 }
 
 #[test]
-fn prop_3_text_without_a_final_newline() {
+fn disk_3_text_without_a_final_newline() {
     // Theirs adds the final newline: the last line is a different line.
     let m = disk("a\nb", "a\nb", "a\nb\n");
     assert_eq!(m.text, "a\nb\n");
@@ -267,55 +193,46 @@ fn prop_3_text_without_a_final_newline() {
     assert_eq!(m.marks, [mark(0..1, "a\n")]);
     // Both drop the final newline.
     let m = disk("a\nb\n", "a\nb", "a\nb");
-    assert_eq!(m, Merged { text: "a\nb".into(), marks: vec![], hunks: vec![] });
+    assert_eq!(m, Merged { text: "a\nb".into(), marks: vec![], conflicts: vec![] });
     // Both add the same final line without a newline.
     let m = disk("a\n", "a\nb", "a\nb");
-    assert_eq!(m, Merged { text: "a\nb".into(), marks: vec![], hunks: vec![] });
+    assert_eq!(m, Merged { text: "a\nb".into(), marks: vec![], conflicts: vec![] });
     // Appending to a text without a final newline.
     let m = disk("a\nb", "a\nb", "a\nb\nc\n");
     assert_eq!(m.text, "a\nb\nc\n");
-    let m = all("a\nb", "a\nb", "a\nb\nc\n");
-    assert_eq!(m.text, "a\nb");
-    assert_eq!(accept_all(&m), "a\nb\nc\n");
 }
 
 #[test]
-fn prop_3_a_last_line_without_newline_never_joins_a_line_added_after_it() {
+fn disk_3_a_last_line_without_newline_never_joins_a_line_added_after_it() {
     // Mine ends with "x" (no newline); theirs adds a line after the old last line. Applying both would
     // glue them into "xd", so these overlap.
     let m = disk("a\nb\n", "a\nx", "a\nb\nd\n");
     assert_eq!(m.text, "a\nx");
-    assert_eq!(m.hunks, [hunk(1..2, "b\nd\n")]);
-    assert_eq!(accept_all(&m), "a\nb\nd\n");
+    assert_eq!(m.conflicts, [1..2]);
     // And the other way round.
     let m = disk("a\nb\n", "a\nb\nd\n", "a\nx");
     assert_eq!(m.text, "a\nb\nd\n");
-    assert_eq!(m.hunks, [hunk(1..3, "x")]);
-    assert_eq!(accept_all(&m), "a\nx");
+    assert_eq!(m.conflicts, [1..3]);
 }
 
 #[test]
-fn prop_3_empty_texts() {
+fn disk_3_empty_texts() {
     let m = disk("", "", "");
-    assert_eq!(m, Merged { text: String::new(), marks: vec![], hunks: vec![] });
+    assert_eq!(m, Merged { text: String::new(), marks: vec![], conflicts: vec![] });
     // Only mine writes into an empty file.
     assert_eq!(disk("", "a\n", "").text, "a\n");
     // Only theirs does.
     let m = disk("", "", "b\n");
     assert_eq!(m.text, "b\n");
     assert_eq!(m.marks, [mark(0..1, "")]);
-    let m = all("", "", "b\n");
-    assert_eq!(m.text, "");
-    assert_eq!(m.hunks, [hunk(0..0, "b\n")]);
-    assert_eq!(accept_all(&m), "b\n");
     // Both write something different.
     let m = disk("", "a\n", "b\n");
     assert_eq!(m.text, "a\n");
-    assert_eq!(m.hunks, [hunk(0..1, "b\n")]);
+    assert_eq!(m.conflicts, [0..1]);
     // Mine empties the file, theirs edits it.
     let m = disk("a\n", "", "b\n");
     assert_eq!(m.text, "");
-    assert_eq!(m.hunks, [hunk(0..0, "b\n")]);
+    assert_eq!(m.conflicts, [0..0]);
     // Both empty it.
     assert_eq!(disk("a\n", "", "").text, "");
     // Theirs empties it.
@@ -325,14 +242,7 @@ fn prop_3_empty_texts() {
 }
 
 #[test]
-fn prop_3_resolve_treats_a_missing_answer_as_reject() {
-    let m = disk("a\nb\nc\nd\ne\n", "a\nX\nc\nY\ne\n", "a\nP\nc\nQ\ne\n");
-    assert_eq!(resolve(&m, &[]), m.text);
-    assert_eq!(resolve(&m, &[true]), "a\nP\nc\nY\ne\n");
-}
-
-#[test]
-fn prop_3_one_conflict_among_many_marks() {
+fn disk_3_one_conflict_among_many_marks() {
     let base: String = (0..10).map(|i| format!("l{i}\n")).collect();
     let mut mine: Vec<String> = lines(&base).iter().map(|s| s.to_string()).collect();
     let mut theirs = mine.clone();
@@ -342,7 +252,7 @@ fn prop_3_one_conflict_among_many_marks() {
     mine[7] = "mine7\n".into(); // mine only
     theirs[9] = "theirs9\n".into(); // mark
     let m = disk(&base, &mine.concat(), &theirs.concat());
-    assert_eq!(m.hunks, [hunk(1..2, "theirs1\n")]);
+    assert_eq!(m.conflicts, [1..2]);
     assert_eq!(m.marks, [mark(4..5, "l4\n"), mark(9..10, "l9\n")]);
     let expected: String = mine
         .iter()
@@ -357,7 +267,7 @@ fn prop_3_one_conflict_among_many_marks() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-4: properties
+// DISK-4: properties
 // ---------------------------------------------------------------------------------------------
 
 const LINES: [&str; 5] = ["a\n", "b\n", "c\n", "\n", "d d\n"];
@@ -425,11 +335,8 @@ fn changed<'a>(base: &[&'a str], side: &[&'a str]) -> Vec<&'a str> {
 
 fn check_well_formed(m: &Merged) -> Result<(), TestCaseError> {
     let n = lines(&m.text).len();
-    for h in &m.hunks {
-        prop_assert!(
-            h.mine.start <= h.mine.end && h.mine.end <= n,
-            "hunk out of bounds: {h:?} in {n} lines"
-        );
+    for c in &m.conflicts {
+        prop_assert!(c.start <= c.end && c.end <= n, "conflict out of bounds: {c:?} in {n} lines");
     }
     for k in &m.marks {
         prop_assert!(
@@ -441,11 +348,11 @@ fn check_well_formed(m: &Merged) -> Result<(), TestCaseError> {
             "a mark that changed nothing: {k:?}"
         );
     }
-    for w in m.hunks.windows(2) {
+    for w in m.conflicts.windows(2) {
         prop_assert!(
-            w[0].mine.end <= w[1].mine.start,
-            "hunks overlap or are unsorted: {:?}",
-            m.hunks
+            w[0].end <= w[1].start,
+            "conflicts overlap or are unsorted: {:?}",
+            m.conflicts
         );
     }
     for w in m.marks.windows(2) {
@@ -455,103 +362,76 @@ fn check_well_formed(m: &Merged) -> Result<(), TestCaseError> {
             m.marks
         );
     }
-    // A hunk is only worth showing when accepting it changes something.
-    for h in &m.hunks {
-        let mine: String = lines(&m.text)[h.mine.clone()].concat();
-        prop_assert!(mine != h.theirs, "a hunk that proposes nothing: {h:?}");
-    }
     Ok(())
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10_000))]
 
-    // 1. Every theirs change is a proposal: rejecting every hunk gives mine.
+    // 1. If mine is the base, the text is theirs and nothing conflicts.
     #[test]
-    fn prop_4_propose_all_reject_all_gives_mine((b, m, t) in trio()) {
-        let r = all(&b, &m, &t);
-        prop_assert_eq!(&r.text, &m);
-        prop_assert!(r.marks.is_empty());
-        prop_assert_eq!(reject_all(&r), m);
+    fn disk_4_the_text_is_theirs_when_mine_is_the_base((b, _m, t) in trio()) {
+        let r = disk(&b, &b, &t);
+        prop_assert_eq!(&r.text, &t);
+        prop_assert!(r.conflicts.is_empty());
     }
 
-    // 2. If mine is the base, accepting every hunk gives theirs.
+    // 2. If theirs is the base, nothing comes in: the text is mine and there is nothing left out.
     #[test]
-    fn prop_4_accept_all_gives_theirs_when_mine_is_the_base((b, _m, t) in trio()) {
-        for propose_all in [false, true] {
-            let r = merge3(&b, &b, &t, propose_all, None);
-            prop_assert_eq!(accept_all(&r), t.clone());
-            prop_assert_eq!(reject_all(&r), r.text.clone());
-        }
+    fn disk_4_nothing_comes_in_when_theirs_is_the_base((b, m, _t) in trio()) {
+        let r = disk(&b, &m, &b);
+        prop_assert_eq!(r, Merged { text: m.clone(), marks: vec![], conflicts: vec![] });
     }
 
-    // 3. If theirs is the base, nothing comes in: the text is mine and there is nothing to decide.
+    // 3. If both sides made the same text, there is nothing to take or leave out.
     #[test]
-    fn prop_4_nothing_comes_in_when_theirs_is_the_base((b, m, _t) in trio()) {
-        for propose_all in [false, true] {
-            let r = merge3(&b, &m, &b, propose_all, None);
-            prop_assert_eq!(r, Merged { text: m.clone(), marks: vec![], hunks: vec![] });
-        }
+    fn disk_4_identical_sides_leave_mine_untouched((b, m, _t) in trio()) {
+        let r = disk(&b, &m, &m);
+        prop_assert_eq!(r, Merged { text: m.clone(), marks: vec![], conflicts: vec![] });
     }
 
-    // 4. On disk, if both sides made the same text, there is nothing to take or decide.
+    // 4. What conflicts does not depend on whose side is whose: swapping the roles finds as many.
     #[test]
-    fn prop_4_identical_sides_leave_mine_untouched((b, m, _t) in trio()) {
-        for propose_all in [false, true] {
-            let r = merge3(&b, &m, &m, propose_all, None);
-            prop_assert_eq!(r, Merged { text: m.clone(), marks: vec![], hunks: vec![] });
-        }
+    fn disk_4_the_conflicts_are_the_same_with_the_roles_swapped((b, m, t) in trio()) {
+        let (a, s) = (disk(&b, &m, &t), disk(&b, &t, &m));
+        prop_assert_eq!(a.conflicts.len(), s.conflicts.len());
     }
 
-    // 5. The merge is symmetric: accepting everything equals rejecting everything with the roles swapped.
+    // 5. Nothing is lost. A line "changed" by a side is one in an inserted or replaced part of the
+    //    Myers diff from the base to that side. For every distinct line x: (a) the merged text has x
+    //    at least as often as mine changed to x; (b) when nothing conflicts, it has x at least as
+    //    often as theirs changed to x too. What conflicts is exactly what is left out of theirs, and
+    //    SAFE-7 keeps it on the disk.
     #[test]
-    fn prop_4_accept_all_equals_reject_all_with_roles_swapped((b, m, t) in trio()) {
-        let a = disk(&b, &m, &t);
-        let s = disk(&b, &t, &m);
-        prop_assert_eq!(accept_all(&a), reject_all(&s));
-        prop_assert_eq!(reject_all(&a), accept_all(&s));
-        prop_assert_eq!(a.hunks.len(), s.hunks.len());
-    }
-
-    // 6. Accepting every hunk gives the same text whether theirs' changes were applied or proposed.
-    #[test]
-    fn prop_4_accept_all_is_the_same_in_both_modes((b, m, t) in trio()) {
-        prop_assert_eq!(accept_all(&disk(&b, &m, &t)), accept_all(&all(&b, &m, &t)));
-    }
-
-    // 7. Nothing is lost. A line "changed" by a side is one in an inserted or replaced part of the
-    //    Myers diff from the base to that side. For every distinct line x:
-    //    (a) the merged text has x at least as often as mine changed to x;
-    //    (b) the merged text and the `theirs` of all hunks together have x at least as often as theirs
-    //        changed to x.
-    #[test]
-    fn prop_4_no_line_a_side_changed_is_lost((b, m, t) in trio()) {
+    fn disk_4_no_line_a_side_changed_is_lost((b, m, t) in trio()) {
         let (bl, ml, tl) = (lines(&b), lines(&m), lines(&t));
         let (cm, ct) = (changed(&bl, &ml), changed(&bl, &tl));
-        for propose_all in [false, true] {
-            let r = merge3(&b, &m, &t, propose_all, None);
-            let merged = lines(&r.text);
-            let proposed: Vec<&str> = r.hunks.iter().flat_map(|h| lines(&h.theirs)).collect();
-            for x in cm.iter().chain(&ct) {
-                prop_assert!(line_count(&cm, x) <= line_count(&merged, x),
-                    "mine's {x:?} lost (propose_all {propose_all}): {r:?}");
-                prop_assert!(line_count(&ct, x) <= line_count(&merged, x) + line_count(&proposed, x),
-                    "theirs' {x:?} lost (propose_all {propose_all}): {r:?}");
+        let r = disk(&b, &m, &t);
+        let merged = lines(&r.text);
+        for x in cm.iter().chain(&ct) {
+            prop_assert!(line_count(&cm, x) <= line_count(&merged, x), "mine's {x:?} lost: {r:?}");
+            if r.conflicts.is_empty() {
+                prop_assert!(line_count(&ct, x) <= line_count(&merged, x), "theirs' {x:?} lost: {r:?}");
             }
         }
     }
 
-    // 8. Hunks and marks are sorted, disjoint and inside the merged text.
+    // 6. A side that changed nothing never conflicts.
     #[test]
-    fn prop_4_hunks_and_marks_are_sorted_disjoint_and_in_bounds((b, m, t) in trio()) {
-        for propose_all in [false, true] {
-            check_well_formed(&merge3(&b, &m, &t, propose_all, None))?;
-        }
+    fn disk_4_a_side_that_changed_nothing_conflicts_with_nothing((b, m, t) in trio()) {
+        prop_assert!(disk(&b, &m, &b).conflicts.is_empty());
+        prop_assert!(disk(&b, &b, &t).conflicts.is_empty());
     }
 
-    // 9. Putting back what every mark replaced gives mine: marks are exactly the changes taken in.
+    // 7. Conflicts and marks are sorted, disjoint and inside the merged text.
     #[test]
-    fn prop_4_undoing_the_marks_gives_mine((b, m, t) in trio()) {
+    fn disk_4_conflicts_and_marks_are_sorted_disjoint_and_in_bounds((b, m, t) in trio()) {
+        check_well_formed(&disk(&b, &m, &t))?;
+    }
+
+    // 8. Putting back what every mark replaced gives mine: marks are exactly the changes taken in.
+    #[test]
+    fn disk_4_undoing_the_marks_gives_mine((b, m, t) in trio()) {
         let r = disk(&b, &m, &t);
         let ls = lines(&r.text);
         let (mut out, mut at) = (String::new(), 0);
@@ -566,23 +446,27 @@ proptest! {
 
     // The deadline only changes how good the diff is, never the invariants.
     #[test]
-    fn prop_4_an_expired_deadline_keeps_the_invariants((b, m, t) in trio()) {
-        let past = Some(Instant::now());
-        let r = merge3(&b, &m, &t, true, past);
-        prop_assert_eq!(reject_all(&r), m.clone());
+    fn disk_4_an_expired_deadline_keeps_the_invariants((b, m, t) in trio()) {
+        let r = merge3(&b, &m, &t, Some(Instant::now()));
         check_well_formed(&r)?;
-        let d = merge3(&b, &m, &t, false, past);
-        prop_assert_eq!(accept_all(&d), accept_all(&r));
-        check_well_formed(&d)?;
+        let ls = lines(&r.text);
+        let (mut out, mut at) = (String::new(), 0);
+        for k in &r.marks {
+            out += &ls[at..k.lines.start].concat();
+            out += &k.old;
+            at = k.lines.end;
+        }
+        out += &ls[at..].concat();
+        prop_assert_eq!(out, m);
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-7: speed
+// DISK-5: speed
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn prop_7_a_deadline_in_the_past_still_gives_a_merge() {
+fn disk_5_a_deadline_in_the_past_still_gives_a_merge() {
     let base: String = (0..2000).map(|i| format!("line {i}\n")).collect();
     let mine: String = (0..2000)
         .map(|i| if i % 50 == 3 { format!("mine {i}\n") } else { format!("line {i}\n") })
@@ -590,18 +474,16 @@ fn prop_7_a_deadline_in_the_past_still_gives_a_merge() {
     let theirs: String = (0..2000)
         .map(|i| if i % 70 == 5 { format!("theirs {i}\n") } else { format!("line {i}\n") })
         .collect();
-    let m = merge3(&base, &mine, &theirs, false, Some(Instant::now()));
+    let m = merge3(&base, &mine, &theirs, Some(Instant::now()));
     assert!(!m.text.is_empty());
-    assert!(!m.hunks.is_empty() || !m.marks.is_empty());
-    let m = merge3(&base, &mine, &theirs, true, Some(Instant::now()));
-    assert_eq!(reject_all(&m), mine);
+    assert!(!m.conflicts.is_empty() || !m.marks.is_empty());
 }
 
 /// 100,000 lines with scattered edits on both sides (replaced, deleted and inserted lines, a few
 /// of which collide), merged with a 50 ms deadline. Run: cargo test --release -- --ignored bench --nocapture
 #[test]
 #[ignore]
-fn prop_7_bench_merge_of_100k_lines_finishes_within_the_deadline() {
+fn disk_5_bench_merge_of_100k_lines_finishes_within_the_deadline() {
     const N: usize = 100_000;
     let line = |i: usize| format!("    let value_{i} = compute({i}, \"some text on the line\");\n");
     let side = |step: usize, offset: usize, tag: &str| -> String {
@@ -626,20 +508,17 @@ fn prop_7_bench_merge_of_100k_lines_finishes_within_the_deadline() {
     let mine = side(1000, 0, "mine");
     let theirs = side(997, 0, "theirs");
     let mut times = Vec::new();
-    for propose_all in [false, true] {
-        for _ in 0..5 {
-            let start = Instant::now();
-            let m =
-                merge3(&base, &mine, &theirs, propose_all, Some(start + Duration::from_millis(50)));
-            let took = start.elapsed();
-            assert!(!m.text.is_empty() && (m.hunks.len() + m.marks.len()) > 50);
-            times.push((propose_all, took));
-        }
+    for _ in 0..5 {
+        let start = Instant::now();
+        let m = merge3(&base, &mine, &theirs, Some(start + Duration::from_millis(50)));
+        let took = start.elapsed();
+        assert!(!m.text.is_empty() && (m.conflicts.len() + m.marks.len()) > 50);
+        times.push(took);
     }
-    for (propose_all, took) in &times {
-        eprintln!("bench propose_all={propose_all}: {took:?}");
+    for took in &times {
+        eprintln!("bench: {took:?}");
     }
-    let worst = times.iter().map(|t| t.1).max().unwrap_or_default();
+    let worst = times.iter().copied().max().unwrap_or_default();
     assert!(worst < Duration::from_millis(50), "merge of {N} lines took {worst:?}");
 }
 
@@ -647,7 +526,7 @@ fn prop_7_bench_merge_of_100k_lines_finishes_within_the_deadline() {
 /// shared by both diffs, so the whole merge gives up near 50 ms (a little slack for the final walk).
 #[test]
 #[ignore]
-fn prop_7_bench_hard_inputs_give_up_at_the_deadline() {
+fn disk_5_bench_hard_inputs_give_up_at_the_deadline() {
     const N: usize = 100_000;
     let text = |f: &dyn Fn(usize) -> usize| -> String {
         (0..N).map(|i| format!("alpha {}\n", f(i))).collect()
@@ -655,15 +534,12 @@ fn prop_7_bench_hard_inputs_give_up_at_the_deadline() {
     let (ordered, reversed) = (text(&|i| i), text(&|i| N - 1 - i));
     let (few, other_few) = (text(&|i| i % 50), text(&|i| (i * 7919) % 100));
     for (base, mine, theirs) in [(&ordered, &reversed, &few), (&few, &other_few, &ordered)] {
-        for propose_all in [false, true] {
-            let start = Instant::now();
-            let m =
-                merge3(base, mine, theirs, propose_all, Some(start + Duration::from_millis(50)));
-            let took = start.elapsed();
-            eprintln!("bench hard propose_all={propose_all}: {took:?}");
-            assert_eq!(reject_all(&m), m.text);
-            assert!(took < Duration::from_millis(75), "gave up too late: {took:?}");
-        }
+        let start = Instant::now();
+        let m = merge3(base, mine, theirs, Some(start + Duration::from_millis(50)));
+        let took = start.elapsed();
+        eprintln!("bench hard: {took:?}");
+        assert!(!m.text.is_empty());
+        assert!(took < Duration::from_millis(75), "gave up too late: {took:?}");
     }
 }
 
@@ -671,7 +547,7 @@ fn prop_7_bench_hard_inputs_give_up_at_the_deadline() {
 // VIS-2: words
 // ---------------------------------------------------------------------------------------------
 
-/// The deadline of PROP-7 reaches the word diff too: past it, the answer is coarse but still
+/// The deadline of DISK-5 reaches the word diff too: past it, the answer is coarse but still
 /// sound (what is not marked is the same text on both sides).
 #[test]
 fn vis_2_words_after_the_deadline_are_coarse_but_sound() {

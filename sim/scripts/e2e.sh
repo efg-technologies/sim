@@ -625,7 +625,7 @@ buf_3_qa_and_wa_respect_unresolved_conflicts_with_the_disk() {
   two_files_modified
   printf 'fn LIB() {}\n' > "$W/src/lib.new"
   mv "$W/src/lib.new" "$W/src/lib.rs" # the disk changes the line that lib.rs has changed too
-  wait_for "1 proposal"
+  wait_for "conflict"
   typed ":wa"
   keys Enter
   wait_for "not saved: conflicts with the disk in src/lib.rs"
@@ -633,7 +633,7 @@ buf_3_qa_and_wa_respect_unresolved_conflicts_with_the_disk() {
   printf 'fn LIB() {}\n' | cmp - "$W/src/lib.rs" # and this one was not
   typed ":qa"
   keys Enter
-  wait_for "unresolved proposals in src/lib.rs (]c to review, :qa! discards)"
+  wait_for "no write since last change in src/lib.rs"
   [ ! -s "$CASE_DIR/.exit_code" ]
   typed ":qa!"
   keys Enter
@@ -1418,7 +1418,7 @@ look_1_zl_cycles_the_looks_and_the_choice_is_the_next_runs() {
   wait_for "²a.txt"
 }
 
-look_5_review_raises_the_hunk_being_decided_as_a_card() {
+look_3_the_border_badges_a_conflict_with_the_disk() {
   printf 'one\ntwo\nthree\nfour\n' > "$W/a.txt"
   look depth
   CT=truecolor
@@ -1431,23 +1431,18 @@ look_5_review_raises_the_hunk_being_decided_as_a_card() {
   wait_for "●" # modified: the status line of the interface says it by its dot
   printf 'one\nTWO\nthree\nfour\n' > "$W/a.new"
   mv "$W/a.new" "$W/a.txt" # the disk changes the line that is changed here too
-  wait_for "1 proposal"
-  wait_esc '48;2;[0-9;]*m 1 proposal ' # the badge is on the change color, in the top border
-  typed "]c"
-  wait_for "REVIEW 1/1"
-  wait_for "REVIEW  y accept  n reject  Y all  N none  Esc back" # in the bottom border of the editor's box
-  screen | grep -F -q " 1/1 ─╮"
-  wait_esc '38;2;[0-9;]*m▄' # half a row above the card, in its color over the page
-  wait_esc '48;2;[0-9;]*m▀\|38;2;[0-9;]*;48;2;[0-9;]*m▀' # and below it, over the shadow
-  keys Escape
-  wait_gone "▄"
-  gone "▀"
-  gone "REVIEW"
-  typed zl
-  wait_for "look: calm"
-  typed "]c"
-  wait_for "REVIEW 1/1"
-  gone "▄" # calm has no card
+  wait_for "1 conflict with the disk"
+  wait_esc '48;2;[0-9;]*m 1 conflict with the disk ' # the badge is in the top border, on the card's surface
+  screen | grep -E -q '~2 +two!' # the line of mine is marked
+  printf 'one\nTWO\nthree\nfour\n' | cmp - "$W/a.txt" # nothing was written
+  typed ":w"
+  keys Enter
+  wait_for "not saved: the disk conflicts"
+  typed ":w!"
+  keys Enter
+  wait_for "saved a.txt; the disk's version is in"
+  gone "conflict with the disk"
+  printf 'one\ntwo!\nthree\nfour\n' | cmp - "$W/a.txt"
 }
 
 look_6_the_text_fades_with_its_distance_from_the_cursor() {

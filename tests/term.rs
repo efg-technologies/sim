@@ -100,23 +100,6 @@ fn vis_10_the_cursor_shape_shows_the_mode() {
 }
 
 #[test]
-fn vis_10_review_sends_a_steady_underline_and_the_deleted_style_is_struck_through() {
-    let mut a = doc();
-    a.buf.hunks = std::sync::Arc::new(vec![hunk(1..2, "line number TWO\n", None)]);
-    let mut t = Term::new(Vec::new(), false);
-    draw(&mut t, &screen(&mut a));
-    feed(&mut a, "]c");
-    let out = draw(&mut t, &screen(&mut a));
-    assert!(out.contains("\x1b[4 q"), "DECSCUSR 4 is a steady underline: {out:?}");
-    assert_eq!(out.matches(" q").count(), 1);
-    // The words of mine that would go are drawn faint and struck through (SGR 2;9).
-    assert!(out.contains("\x1b[0;2;9m"), "{out:?}");
-    feed(&mut a, "<Esc>");
-    let out = draw(&mut t, &screen(&mut a));
-    assert!(out.contains("\x1b[2 q"), "{out:?}");
-}
-
-#[test]
 fn vis_10_the_cursor_sits_on_the_command_line_while_typing() {
     let mut a = doc();
     feed(&mut a, ":set");

@@ -1,8 +1,7 @@
-//! PROP-9, PROP-2: marks and hunks under every kind of edit, against a line-diff reference.
+//! DISK-6: marks under every kind of edit, against a line-diff reference.
 //! Lines have unique text, so a line diff of the text before and after one key says which lines
-//! "stayed" (Equal) and where they went. PROP-9: a mark stays on a line the key left as it was and
-//! goes from a line it changed (and from the line the cursor ends on: `see()`). PROP-2: a hunk
-//! follows its lines, keeps its text and never swallows a line it does not own.
+//! "stayed" (Equal) and where they went. A mark stays on a line the key left as it was and goes
+//! from a line it changed (and from the line the cursor ends on: `see()`).
 #![allow(
     clippy::cmp_owned,
     clippy::type_complexity,
@@ -121,7 +120,7 @@ fn unique(v: &[String]) -> bool {
     s.len() == v.len() && !v.iter().any(|l| l.trim().is_empty())
 }
 
-fn setup(n: usize, marks: &[bool], hunks: &[(usize, usize)]) -> App {
+fn setup(n: usize, marks: &[bool]) -> App {
     let src: String =
         (0..n).map(|i| format!("line-{i}-abcdef-{}\n", char::from(b'p' + i as u8))).collect();
     let mut a = app_with(Some("f"), src.as_bytes(), (80, 12));
@@ -130,22 +129,12 @@ fn setup(n: usize, marks: &[bool], hunks: &[(usize, usize)]) -> App {
         .map(|line| mark(line, '~', vec![line..line + 1]))
         .collect::<Vec<_>>()
         .into();
-    a.buf.hunks = hunks
-        .iter()
-        .enumerate()
-        .map(|(k, &(s, e))| {
-            let (s, e) = (s.min(n), e.min(n));
-            let (s, e) = (s.min(e), s.max(e));
-            hunk(s..e, &format!("T{k}\n"), Some((vec![0..1], vec![0..1])))
-        })
-        .collect::<Vec<_>>()
-        .into();
     a
 }
 
-/// One event, with the checks of what it did to the marks and the hunks.
+/// One event, with the check of what it did to the marks.
 fn event(a: &mut App, ev: Event, what: &str) -> Result<(), TestCaseError> {
-    let (old, pre_marks, pre_hunks) = (lines(a), a.buf.marks.to_vec(), a.buf.hunks.to_vec());
+    let (old, pre_marks) = (lines(a), a.buf.marks.to_vec());
     a.update(ev);
     let new = lines(a);
     if !unique(&old) || !unique(&new) {
@@ -153,7 +142,7 @@ fn event(a: &mut App, ev: Event, what: &str) -> Result<(), TestCaseError> {
     }
     let k = kept(&old, &new);
     let cl = a.buf.line_of(a.buf.cursor);
-    // PROP-9: the marks are exactly those of the lines that stayed, minus the cursor's line.
+    // DISK-6: the marks are exactly those of the lines that stayed, minus the cursor's line.
     let want: Vec<(usize, usize)> = pre_marks
         .iter()
         .filter_map(|m| k[m.line].map(|j| (j, identity(m))))
@@ -169,51 +158,6 @@ fn event(a: &mut App, ev: Event, what: &str) -> Result<(), TestCaseError> {
         new,
         cl
     );
-    // PROP-2: hunks. Count and text.
-    prop_assert_eq!(a.buf.hunks.len(), pre_hunks.len(), "a hunk was dropped by {}", what);
-    for (h, p) in a.buf.hunks.iter().zip(&pre_hunks) {
-        prop_assert_eq!(&h.theirs, &p.theirs);
-        prop_assert!(
-            h.mine.start <= h.mine.end && h.mine.end <= new.len(),
-            "{:?} in {} lines after {}",
-            h.mine,
-            new.len(),
-            what
-        );
-        let mut touched = false;
-        for i in p.mine.clone() {
-            match k[i] {
-                Some(j) => prop_assert!(
-                    h.mine.contains(&j),
-                    "line {i} of {:?} stayed (now {j}) but left the hunk, now {:?}, after {what} on {old:?} -> {new:?}",
-                    p.mine,
-                    h.mine
-                ),
-                None => touched = true,
-            }
-        }
-        for (i, kj) in k.iter().enumerate() {
-            if let (false, Some(j)) = (p.mine.contains(&i), kj) {
-                prop_assert!(
-                    !h.mine.contains(j),
-                    "line {i} ({:?}) is outside the hunk {:?} but is inside {:?} after {what} on {old:?} -> {new:?}",
-                    old[i],
-                    p.mine,
-                    h.mine
-                );
-            }
-        }
-        if h.words.is_some() {
-            let before: Vec<&String> = old[p.mine.clone()].iter().collect();
-            let after: Vec<&String> = new[h.mine.clone()].iter().collect();
-            prop_assert!(
-                !touched && after.starts_with(&before),
-                "stale words kept: hunk {:?} ({before:?}) is now {:?} ({after:?}) after {what}",
-                p.mine,
-                h.mine
-            );
-        }
-    }
     Ok(())
 }
 
@@ -228,13 +172,12 @@ proptest! {
     #![proptest_config(ProptestConfig { cases: cases(1000), max_shrink_iters: 3000, failure_persistence: None, ..ProptestConfig::default() })]
 
     #[test]
-    fn prop_9_fuzz_shift_marks_and_hunks_follow_their_lines(
+    fn disk_6_fuzz_shift_marks_follow_their_lines(
         n in 1usize..8,
         marks in prop::collection::vec(any::<bool>(), 8),
-        hunks in prop::collection::vec((0usize..9, 0usize..9), 0..3),
         steps in prop::collection::vec(step(), 1..10),
     ) {
-        let mut a = setup(n, &marks, &hunks);
+        let mut a = setup(n, &marks);
         let mut tok = 0;
         for st in &steps {
             match st {
@@ -296,34 +239,14 @@ const TEXTS: &[&str] = &[
 ];
 const WITHS: &[&str] = &["", "\n", "x", "x\n", "\nx", "\n\n", "x\ny", "\nx\n", "xy", "\n\nx"];
 
-fn hunk_sets(n: usize) -> Vec<Vec<(usize, usize)>> {
-    let mut one = vec![];
-    for s in 0..=n {
-        for e in s..=n {
-            one.push((s, e));
-        }
-    }
-    let mut v = vec![vec![]];
-    v.extend(one.iter().map(|&h| vec![h]));
-    // Pairs, sorted by their first line as hunks are (they may overlap).
-    for &a in &one {
-        for &b in &one {
-            if a.0 <= b.0 {
-                v.push(vec![a, b]);
-            }
-        }
-    }
-    v
-}
-
 #[test]
-fn prop_9_every_replace_over_texts_with_empty_lines_shifts_marks_and_hunks() {
+fn disk_6_every_replace_over_texts_with_empty_lines_shifts_marks() {
     let mut bad: Vec<String> = vec![];
     let mut cases = 0usize;
     for t in TEXTS {
         let chars: Vec<char> = t.chars().collect();
         let sp = spans(&chars);
-        for hs in hunk_sets(sp.len()) {
+        {
             for s in 0..=chars.len() {
                 for e in s..=chars.len() {
                     for w in WITHS {
@@ -332,11 +255,6 @@ fn prop_9_every_replace_over_texts_with_empty_lines_shifts_marks_and_hunks() {
                         assert_eq!(b.text.to_string(), *t);
                         b.marks = (0..sp.len())
                             .map(|i| mark(i, '~', vec![i..i + 1]))
-                            .collect::<Vec<_>>()
-                            .into();
-                        b.hunks = hs
-                            .iter()
-                            .map(|&(a, z)| hunk(a..z, "T\n", None))
                             .collect::<Vec<_>>()
                             .into();
                         if s == e && w.is_empty() {
@@ -376,33 +294,10 @@ fn prop_9_every_replace_over_texts_with_empty_lines_shifts_marks_and_hunks() {
                             .map(|m| m.line)
                             .filter(|&l| nsp[l].1 > nsp[l].0)
                             .collect();
-                        let ctx = format!("text {t:?}, replace {s}..{e} by {w:?}, hunks {hs:?}");
+                        let ctx = format!("text {t:?}, replace {s}..{e} by {w:?}");
                         if got != want {
                             bad.push(format!("MARKS {ctx}: got lines {got:?}, want {want:?}"));
                             continue;
-                        }
-                        if b.hunks.windows(2).any(|w| w[0].mine.start > w[1].mine.start) {
-                            let r: Vec<_> = b.hunks.iter().map(|h| h.mine.clone()).collect();
-                            bad.push(format!("HUNKS UNSORTED {ctx}: {r:?}"));
-                        }
-                        for (h, &(a, z)) in b.hunks.iter().zip(&hs) {
-                            let r = h.mine.clone();
-                            if !(r.start <= r.end && r.end <= nsp.len()) {
-                                bad.push(format!("HUNK RANGE {ctx}: {r:?} in {} lines", nsp.len()));
-                                continue;
-                            }
-                            for i in 0..sp.len() {
-                                if let Some(j) = surv[i] {
-                                    let inside = (a..z).contains(&i);
-                                    if inside != r.contains(&j) {
-                                        bad.push(format!(
-                                            "HUNK {ctx}: line {i} (now {j}) was {} the hunk {a}..{z}, is {} {r:?}",
-                                            if inside { "in" } else { "outside" },
-                                            if r.contains(&j) { "in" } else { "outside" }
-                                        ));
-                                    }
-                                }
-                            }
                         }
                     }
                 }

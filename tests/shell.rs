@@ -1,4 +1,4 @@
-//! PROP-1: the real pieces (App, notify watcher, save thread, an outside process writing the file)
+//! DISK-1: the real pieces (App, notify watcher, save thread, an outside process writing the file)
 //! wired the way src/main.rs wires them, with random timing. At the end, when everything has
 //! settled: a clean buffer is the file; the words the outside process wrote last are in the file,
 //! in the buffer or in a hunk. `SI_FUZZ_CASES` is the number of rounds (20 by default).
@@ -228,9 +228,6 @@ fn round(seed: u64) -> Result<(), String> {
             }
             let mut have = words(&Buffer::decode(d).text.to_string());
             have.extend(words(&text(&app)));
-            for h in app.buf.hunks.iter() {
-                have.extend(words(&h.theirs));
-            }
             for w in &ext_last {
                 if !have.contains(w) {
                     return Err(format!(
@@ -248,7 +245,7 @@ fn round(seed: u64) -> Result<(), String> {
 
 #[test]
 #[ignore]
-fn prop_1_shell_real_threads_real_watcher_random_timing() {
+fn disk_1_shell_real_threads_real_watcher_random_timing() {
     let rounds = u64::from(cases(20));
     let mut bad = vec![];
     for seed in 1..=rounds {

@@ -220,10 +220,10 @@ pub struct Tones {
     /// (30% toward red).
     pub gain: Rgb,
     pub loss: Rgb,
-    /// The tint of a hunk, which has both: neutral, 12% toward secondary; the card's is 18%.
-    pub hunk: Rgb,
+    /// The neutral raised surface of the interface (badges, the picker, the tab bar's open tab):
+    /// 18% toward secondary.
     pub card: Rgb,
-    /// Under the card: 55% toward black.
+    /// Under the picker's window: 55% toward black.
     pub shadow: Rgb,
     /// The lines of a box, 45% from the page toward secondary; the focused box has `focus`.
     pub line: Rgb,
@@ -288,7 +288,6 @@ impl Tones {
             del_text: text_on(p.primary, del),
             gain: by(add, 0.30),
             loss: by(del, 0.30),
-            hunk: by(p.secondary, 0.12),
             card,
             shadow: by((0, 0, 0), 0.55),
             line: by(p.secondary, 0.45),
@@ -361,7 +360,6 @@ impl Tones {
             ("band", Neutral, self.band),
             ("bar", Neutral, self.bar),
             ("code", Neutral, self.code),
-            ("hunk", Neutral, self.hunk),
             ("card", Neutral, self.card),
             ("shadow", Neutral, self.shadow),
             ("gray block", Neutral, self.gray),

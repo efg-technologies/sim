@@ -752,7 +752,7 @@ enum Step {
     /// The file on disk now holds this (the watcher's read).
     Disk(&'static str),
     /// The filter that was started (if any) ends: upper-cased, unchanged, empty, failed, killed, not
-    /// text (PROP-6); with none running the answer comes unasked and must be ignored.
+    /// text (FILT-2); with none running the answer comes unasked and must be ignored.
     Filter(u8),
     /// The place the file was left at, arriving after the file (CLI-6).
     Place(usize, usize),
@@ -797,10 +797,6 @@ fn steps() -> impl Strategy<Value = Vec<Step>> {
         "<C-c>",
         "y",
         "n",
-        "Y",
-        "N",
-        "<Esc>]cy",
-        "<Esc>]cn",
         ":q!<CR>",
         "ZQ",
     ]);
@@ -840,9 +836,6 @@ fn event_session(bytes: &[u8], steps: &[Step]) -> Result<(), String> {
                 Effect::Open(p) => opens.push((p.clone(), a.buf.version())),
                 Effect::Quit(0) if a.buf.dirty() && !discarded => {
                     return Err(format!("{what}: Quit(0) with unsaved changes"));
-                }
-                Effect::Quit(0) if !a.buf.hunks.is_empty() && !discarded => {
-                    return Err(format!("{what}: Quit(0) with {} hunks open", a.buf.hunks.len()));
                 }
                 _ => {}
             }
@@ -927,7 +920,10 @@ fn event_session(bytes: &[u8], steps: &[Step]) -> Result<(), String> {
                     _ => (Some(0), vec![0xff, b'\n']),
                 };
                 let fx = a.update(Event::FilterDone(status, out, b"err\n".to_vec(), far()));
-                if (text(&a), a.buf.version(), a.buf.marks.len()) != (before, version, marks) {
+                // A failed, cancelled or unusable result changes nothing; a good one may (FILT-2).
+                let same =
+                    (text(&a), a.buf.version(), a.buf.marks.len()) == (before, version, marks);
+                if *k >= 3 && !same {
                     return Err(format!("{what}: a filter's result changed the text"));
                 }
                 fx
@@ -970,7 +966,7 @@ proptest! {
     }
 }
 
-// ---- filters (PROP-6) -----------------------------------------------------------------------------
+// ---- filters (FILT-2) -----------------------------------------------------------------------------
 
 fn small_lines(max: usize) -> impl Strategy<Value = Vec<String>> {
     prop::collection::vec("[a-c ]{0,4}", 0..max)
@@ -1003,11 +999,10 @@ fn filtered(lines: &[String], lo: usize, hi: usize, out: &str) -> App {
 proptest! {
     #![proptest_config(ProptestConfig { failure_persistence: None, ..ProptestConfig::with_cases(cases(3000)) })]
 
-    /// With no edit in between, accepting every proposal of a filter gives the buffer with the
-    /// lines of its range replaced by the output, and rejecting them gives the buffer back; the
-    /// result itself leaves the buffer unmodified. (PROP-4 for filters.)
+    /// With no edit in between, the output takes the place of the lines of the range, as one undo
+    /// step: `u` gives the buffer back, clean.
     #[test]
-    fn prop_6_fuzz_accept_all_is_the_output_in_place_of_the_range(
+    fn filt_2_fuzz_the_output_is_the_range_replaced_and_undo_gives_the_buffer_back(
         lines in small_lines(8).prop_filter("a line", |l| !l.is_empty()),
         (x, y) in (0usize..8, 0usize..8),
         out in small_lines(8),
@@ -1020,25 +1015,19 @@ proptest! {
         want.extend(lines[hi + 1..].iter().cloned());
         let before = lines.join("\n");
         let mut a = filtered(&lines, lo, hi, &out_text);
-        prop_assert_eq!(text(&a), before.clone());
-        prop_assert!(!a.buf.dirty());
-        prop_assert!(a.buf.hunks.iter().all(|h| !h.disk && h.mine.end <= a.buf.lines()));
-        prop_assert!(a.buf.hunks.windows(2).all(|w| w[0].mine.start <= w[1].mine.start));
-        if a.buf.hunks.is_empty() {
-            prop_assert_eq!(want.join("\n"), before.clone(), "no change: the output is the input");
-        } else {
-            let mut n = filtered(&lines, lo, hi, &out_text);
-            feed(&mut a, "gg]cY");
-            prop_assert_eq!(text(&a), want.join("\n"), "accept all");
-            feed(&mut n, "gg]cN");
-            prop_assert_eq!((text(&n), n.buf.dirty()), (before, false), "reject all");
+        let changed = want.join("\n") != before;
+        prop_assert_eq!(text(&a), want.join("\n"));
+        prop_assert_eq!(a.buf.dirty(), changed, "modified iff the output differs from the lines");
+        if changed {
+            feed(&mut a, "u");
+            prop_assert_eq!((text(&a), a.buf.dirty()), (before, false), "u gives the buffer back");
         }
     }
 
-    /// With edits in between, a result changes only the proposals, rejecting them all gives back
-    /// mine, and accepting them all brings in every line of the output that is new.
+    /// With edits in between the output is applied whole (every line of it is in the text, and
+    /// `u` gives mine back) or not at all (mine is as it was, and nothing is lost).
     #[test]
-    fn prop_6_fuzz_edits_meanwhile_are_kept_and_the_new_lines_can_all_be_accepted(
+    fn filt_2_fuzz_edits_meanwhile_are_kept_and_the_output_comes_in_whole_or_not_at_all(
         lines in small_lines(8).prop_filter("a line", |l| !l.is_empty()),
         (x, y) in (0usize..8, 0usize..8),
         out in small_lines(8),
@@ -1051,29 +1040,20 @@ proptest! {
             feed(&mut a, e);
         }
         feed(&mut a, "<Esc>");
-        let (mine, version, dirty) = (text(&a), a.buf.version(), a.buf.dirty());
+        let mine = text(&a);
         let out_text = printed(&out, true);
         a.update(Event::FilterDone(Some(0), out_text.into(), vec![], far()));
-        prop_assert_eq!((text(&a), a.buf.version(), a.buf.dirty()), (mine.clone(), version, dirty));
-        prop_assert!(a.buf.hunks.iter().all(|h| !h.disk && h.mine.end <= a.buf.lines()));
-        let mut n = a_clone(&a);
-        feed(&mut a, "gg]cY");
         let after = text(&a);
-        let have: Vec<&str> = after.split('\n').collect();
-        let input = &lines[lo..=hi];
-        for l in out.iter().filter(|l| !input.contains(l)) {
-            prop_assert!(have.contains(&l.as_str()), "{l:?} of the output is lost: {after:?}");
+        if after != mine {
+            let have: Vec<&str> = after.split('\n').collect();
+            let input = &lines[lo..=hi];
+            for l in out.iter().filter(|l| !input.contains(l)) {
+                prop_assert!(have.contains(&l.as_str()), "{l:?} of the output is lost: {after:?}");
+            }
+            feed(&mut a, "u");
+            prop_assert_eq!(text(&a), mine, "u gives mine back");
         }
-        feed(&mut n, "gg]cN");
-        prop_assert_eq!(text(&n), mine, "reject all gives mine back");
     }
-}
-
-/// A second App in the state of `a`, by replaying nothing: tests build both the same way.
-fn a_clone(a: &App) -> App {
-    let mut n = app_with(a.path.as_deref(), a.buf.encode().as_slice(), a.size);
-    n.buf.hunks = a.buf.hunks.clone();
-    n
 }
 
 // ---- the command line ----------------------------------------------------------------------------
@@ -1135,64 +1115,34 @@ proptest! {
     }
 }
 
-// ---- hunks: any hunk, drawn in REVIEW and out of it, under any keys ------------------------------
-
-/// A hunk over some lines of `a` with theirs from the alphabet that matters, with no word diff, a
-/// true one, or a made-up one (ranges that overrun the text or run backwards, as a stale diff could).
-fn hunk_from(
-    a: &App,
-    s: usize,
-    len: usize,
-    theirs: String,
-    words: u8,
-    junk: &[(usize, usize)],
-) -> si::core::buffer::Hunk {
-    let n = a.buf.lines();
-    let (s, e) = (s.min(n), (s + len).min(n));
-    let mine: String = (s..e)
-        .map(|l| format!("{}\n", a.buf.text.line(l).to_string().trim_end_matches('\n')))
-        .collect();
-    let words = match words % 3 {
-        0 => None,
-        1 => Some(si::core::proposal::words(&mine, &theirs, None)),
-        _ => {
-            let r = junk.iter().map(|&(x, y)| x..y).collect::<Vec<_>>();
-            Some((r.clone(), r.into_iter().rev().collect()))
-        }
-    };
-    si::core::buffer::Hunk {
-        mine: s..e,
-        theirs: theirs.as_str().into(),
-        disk: true,
-        words: words.map(std::sync::Arc::new),
-    }
-}
+// ---- marks: any mark, drawn under any keys ------------------------------------------------------
 
 proptest! {
     #![proptest_config(ProptestConfig { failure_persistence: None, ..ProptestConfig::with_cases(cases(1500)) })]
 
-    /// REVIEW draws any hunk (wide chars, controls, tabs, a diff that does not fit) on any screen:
-    /// nothing panics or spins, no row is wider than the screen, nothing dangerous reaches it raw,
-    /// and the cursor stays on the screen.
+    /// Marks that no longer fit the text (made-up columns that overrun it or run backwards, as a
+    /// stale diff could) are drawn on any screen: nothing panics or spins, no row is wider than the
+    /// screen, nothing dangerous reaches it raw, and the cursor stays on the screen.
     #[test]
-    fn vis_3_fuzz_review_frames_fit_any_screen(
+    fn vis_3_fuzz_marked_frames_fit_any_screen(
         bytes in file_bytes(),
-        specs in prop::collection::vec((0usize..6, 0usize..4, gen_text(), 0u8..3, prop::collection::vec((0usize..90, 0usize..90), 0..5)), 1..4),
+        specs in prop::collection::vec((0usize..6, prop::sample::select(vec!['+', '~', '-']), prop::option::of(prop::collection::vec((0usize..90, 0usize..90), 0..4))), 1..5),
         keys in prop::collection::vec(prop::sample::select(vec![
-            "]c", "[c", "y", "n", "Y", "N", "j", "k", "gg", "G", "u", "<C-r>", "<Esc>", "x", "dd", "p", "o<Esc>", "zz",
+            "]c", "[c", "j", "k", "gg", "G", "u", "<C-r>", "<Esc>", "x", "dd", "p", "o<Esc>", "zz",
             "<C-d>", "<C-u>", "J", "V", "i", "ix<Esc>", ":s/a/b/<CR>", "]c]c", "[c[c",
         ]), 0..25),
         w in 1u16..60, h in 2u16..14,
     ) {
         let mut a = app_with(Some("f.rs"), &bytes, (w, h));
-        let mut hs: Vec<_> = specs.iter().map(|(s, l, t, m, j)| hunk_from(&a, *s, *l, t.clone(), *m, j)).collect();
-        hs.sort_by_key(|x| x.mine.start);
-        a.buf.hunks = std::sync::Arc::new(hs);
-        let screen_ok = |a: &mut App| -> Result<(), String> {
-            let f = screen(a);
-            check_frame(a, &f, false)
-        };
-        screen_ok(&mut a).map_err(TestCaseError::fail)?;
+        let n = a.buf.lines();
+        let mut ms: Vec<_> = specs.iter().map(|(l, k, ws)| {
+            let ws = ws.as_ref().map(|v| v.iter().map(|&(x, y)| x..y).collect::<Vec<_>>());
+            mark(*l.min(&(n - 1)), *k, ws.unwrap_or_default())
+        }).collect();
+        ms.sort_by_key(|m| m.line);
+        ms.dedup_by_key(|m| m.line);
+        a.buf.marks = std::sync::Arc::new(ms);
+        screen(&mut a);
         for k in &keys {
             feed(&mut a, k);
             let f = screen(&mut a);
@@ -1200,10 +1150,6 @@ proptest! {
                 prop_assert!(false, "after {k:?}: {e}\ntext {:?}", text(&a));
             }
             prop_assert!(a.buf.cursor <= a.buf.text.len_chars());
-            if a.vi.mode == Mode::Review {
-                prop_assert!(!a.buf.hunks.is_empty());
-                prop_assert_eq!(f.shape, si::core::view::Shape::Underline);
-            }
         }
     }
 }

@@ -189,7 +189,7 @@ fn ui_6_a_file_that_indents_by_two_and_one_that_indents_by_tabs() {
 }
 
 #[test]
-fn ui_6_a_guide_is_no_char_for_the_mouse_and_calm_and_review_draw_none() {
+fn ui_6_a_guide_is_no_char_for_the_mouse_and_calm_draws_none() {
     let mut r = body("ui6-click", Skin::Flat, CODE, (80, 24));
     let g = r.sim.geo();
     let y = y_of(&r, "y();") as u16;

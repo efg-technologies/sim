@@ -28,8 +28,7 @@ fn look_9_primary_text_reads_on_every_tint_and_on_the_card_on_every_background()
     let mut worst = f64::INFINITY;
     for bg in BGS {
         let (p, t) = (palette(bg), Tones::new(&palette(bg)));
-        for (name, tint) in [("gain", t.gain), ("loss", t.loss), ("hunk", t.hunk), ("card", t.card)]
-        {
+        for (name, tint) in [("gain", t.gain), ("loss", t.loss), ("card", t.card)] {
             let lc = apca(p.primary, tint).abs();
             assert!(lc >= 75.0, "{}: primary on the {name} tint |Lc| {lc:.1}", hex(bg));
             worst = worst.min(lc);
@@ -64,11 +63,6 @@ fn look_2_green_and_red_are_found_like_si_s_change_color_and_the_text_on_them_re
         assert_ne!(t.add, t.del);
         assert!(apca(t.gain, bg).abs() < apca(t.add, bg).abs(), "{}", hex(bg));
         // (on black both are as near to the page as APCA tells apart: 0 and 0)
-        assert!(
-            apca(t.hunk, bg).abs() <= apca(t.card, bg).abs(),
-            "{}: the card is raised over the tint",
-            hex(bg)
-        );
     }
 }
 
@@ -82,8 +76,7 @@ fn look_2_the_tones_are_oklab_mixes_from_the_pages_colors() {
     assert_eq!((t.del, t.del_text), ((168, 0, 25), (237, 237, 237)), "red, hue 25");
     assert_eq!(t.gain, (32, 51, 36), "30% toward green");
     assert_eq!(t.loss, (71, 34, 32), "30% toward red");
-    assert_eq!(t.hunk, (46, 46, 46), "12% toward secondary");
-    assert_eq!(t.card, (54, 54, 54), "18% toward it");
+    assert_eq!(t.card, (54, 54, 54), "18% toward secondary");
     assert_eq!(t.shadow, (4, 4, 4), "55% toward black");
     assert_eq!(t.line, (92, 92, 92), "45% toward secondary");
     assert_eq!(t.dim, (123, 123, 123), "secondary, 35% toward the page");
@@ -91,10 +84,7 @@ fn look_2_the_tones_are_oklab_mixes_from_the_pages_colors() {
     let t = Tones::new(&palette((255, 255, 255)));
     assert_eq!((t.add, t.add_text), ((58, 255, 129), (64, 64, 64)));
     assert_eq!((t.del, t.del_text), ((255, 214, 210), (62, 62, 62)));
-    assert_eq!(
-        (t.gain, t.loss, t.hunk, t.card),
-        ((212, 255, 219), (255, 243, 241), (241, 241, 241), (234, 234, 234))
-    );
+    assert_eq!((t.gain, t.loss, t.card), ((212, 255, 219), (255, 243, 241), (234, 234, 234)));
     assert_eq!((t.shadow, t.line, t.dim), ((85, 85, 85), (203, 203, 203), (180, 180, 180)));
     assert_eq!(mix(DARK, (0, 94, 164), 0.0), DARK);
     assert_eq!(mix(DARK, (0, 94, 164), 1.0), (0, 94, 164));
@@ -191,7 +181,7 @@ fn look_2_the_painter_lays_the_tint_and_the_inks_over_the_cells_the_first_paint_
     let red = Paint { bg: Some(t.del), ..Paint::default() };
     // As `layout` makes them: the words' own paints ahead of the tint of the row.
     let paints = vec![(1..2, green), (3..4, red), (0..5, tint)];
-    let s = screen("ab cd", vec![(1..2, Style::Change), (3..4, Style::Deleted)], paints);
+    let s = screen("ab cd", vec![(1..2, Style::Change)], paints);
     let out = draw(s);
     let on = |c: Rgb| format!(";48;2;{}", rgb(c));
     assert!(sgr_before(&out, 'a').contains(&on(t.gain)), "a plain cell: the tint");
@@ -200,10 +190,10 @@ fn look_2_the_painter_lays_the_tint_and_the_inks_over_the_cells_the_first_paint_
     let b = sgr_before(&out, 'b');
     assert!(b.contains(&on(t.add)) && b.contains(&format!(";38;2;{}", rgb(t.add_text))), "{b}");
     assert!(!b.contains(&on(t.gain)), "{b}");
-    // A Deleted word keeps its dim, struck text and gets red behind it.
+    // A word of the plain style with red behind it keeps its own text color.
     let c = sgr_before(&out, 'c');
-    let dim = format!("38;2;{}", rgb(palette(DARK).secondary));
-    assert!(c.contains(&on(t.del)) && c.contains(";9") && c.contains(&dim), "{c}");
+    let ink = format!("38;2;{}", rgb(palette(DARK).primary));
+    assert!(c.contains(&on(t.del)) && c.contains(&ink), "{c}");
     assert!(sgr_before(&out, 'd').contains(&on(t.gain)), "the tint is behind the rest");
 }
 

@@ -1,4 +1,4 @@
-//! PROP-5, PROP-6: `sh -c` runs asynchronously, collects everything, and can be cancelled whole.
+//! FILT-1, FILT-2: `sh -c` runs asynchronously, collects everything, and can be cancelled whole.
 // Helpers outside `#[test]` fns are not covered by clippy.toml, so allow it for the file.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use si::io::filter::{Output, cancel, spawn};
@@ -69,7 +69,7 @@ fn big(n: usize) -> Vec<u8> {
 }
 
 #[test]
-fn prop_5_tr_round_trip() {
+fn filt_1_tr_round_trip() {
     let out = run("tr a-z A-Z", b"hello, world\n".to_vec());
     assert_eq!(out.stdout, b"HELLO, WORLD\n");
     assert_eq!(out.stderr, b"");
@@ -77,7 +77,7 @@ fn prop_5_tr_round_trip() {
 }
 
 #[test]
-fn prop_5_ten_megabytes_through_cat_do_not_deadlock() {
+fn filt_1_ten_megabytes_through_cat_do_not_deadlock() {
     let input = big(10 * 1024 * 1024);
     let out = run("cat", input.clone());
     assert_eq!(out.status, Some(0));
@@ -85,27 +85,27 @@ fn prop_5_ten_megabytes_through_cat_do_not_deadlock() {
 }
 
 #[test]
-fn prop_5_large_stdout_and_stderr_are_read_at_the_same_time() {
+fn filt_1_large_stdout_and_stderr_are_read_at_the_same_time() {
     // Written one after the other: reading stdout to the end first would block the child on stderr.
     let out = run("head -c 2000000 /dev/zero >&2; head -c 3000000 /dev/zero", vec![]);
     assert_eq!((out.stderr.len(), out.stdout.len()), (2_000_000, 3_000_000));
 }
 
 #[test]
-fn prop_5_a_command_that_ignores_its_stdin_is_not_a_problem() {
+fn filt_1_a_command_that_ignores_its_stdin_is_not_a_problem() {
     let out = run("echo done", big(5 * 1024 * 1024));
     assert_eq!((out.status, out.stdout), (Some(0), b"done\n".to_vec()));
 }
 
 #[test]
-fn prop_5_stdin_is_closed_after_the_input() {
+fn filt_1_stdin_is_closed_after_the_input() {
     // `cat` and `wc -c` only finish at EOF. Empty input must work the same.
     assert_eq!(run("wc -c", vec![]).stdout.trim_ascii(), b"0");
     assert_eq!(run("wc -c", b"abc".to_vec()).stdout.trim_ascii(), b"3");
 }
 
 #[test]
-fn prop_5_returns_the_process_group_id_and_the_group_has_its_own() {
+fn filt_1_returns_the_process_group_id_and_the_group_has_its_own() {
     let (pgid, rx) = start("echo $$", vec![]);
     let out = rx.recv_timeout(PATIENCE).unwrap();
     // The shell is the leader of a new group, so the group id is its pid.
@@ -114,7 +114,7 @@ fn prop_5_returns_the_process_group_id_and_the_group_has_its_own() {
 }
 
 #[test]
-fn prop_5_done_is_called_exactly_once() {
+fn filt_1_done_is_called_exactly_once() {
     let calls = std::sync::Arc::new(AtomicUsize::new(0));
     let (tx, rx) = mpsc::channel();
     let c = calls.clone();
@@ -129,7 +129,7 @@ fn prop_5_done_is_called_exactly_once() {
 }
 
 #[test]
-fn prop_5_the_child_is_reaped() {
+fn filt_1_the_child_is_reaped() {
     if !cfg!(target_os = "linux") {
         return;
     }
@@ -140,13 +140,13 @@ fn prop_5_the_child_is_reaped() {
 }
 
 #[test]
-fn prop_5_a_command_that_cannot_be_spawned_is_an_error() {
+fn filt_1_a_command_that_cannot_be_spawned_is_an_error() {
     // A NUL byte cannot be passed to exec.
     assert!(spawn("echo \0", vec![], |_| {}).is_err());
 }
 
 #[test]
-fn prop_5_cancel_stops_the_whole_process_group_including_background_children() {
+fn filt_1_cancel_stops_the_whole_process_group_including_background_children() {
     let dir = Tmp::new();
     let pidfile = dir.0.join("bg.pid");
     let cmd = format!("sleep 30 & echo $! > '{}'; sleep 30; wait", pidfile.display());
@@ -169,7 +169,7 @@ fn prop_5_cancel_stops_the_whole_process_group_including_background_children() {
 }
 
 #[test]
-fn prop_5_a_child_left_behind_with_the_pipes_open_does_not_hold_the_filter() {
+fn filt_1_a_child_left_behind_with_the_pipes_open_does_not_hold_the_filter() {
     // The shell is done at once; `sleep` keeps stdout and stderr open for 20 s, as a daemon that a
     // filter started would. The filter ends with what the shell printed.
     let started = Instant::now();
@@ -185,14 +185,14 @@ fn prop_5_a_child_left_behind_with_the_pipes_open_does_not_hold_the_filter() {
 }
 
 #[test]
-fn prop_5_cancel_of_a_finished_or_unknown_group_does_nothing() {
+fn filt_1_cancel_of_a_finished_or_unknown_group_does_nothing() {
     cancel(u32::MAX / 2); // no such group; must not panic or hurt anything
     let out = run("echo still fine", vec![]);
     assert_eq!(out.stdout, b"still fine\n");
 }
 
 #[test]
-fn prop_6_nonzero_exit_code_and_stderr_are_captured() {
+fn filt_2_nonzero_exit_code_and_stderr_are_captured() {
     let out = run("echo oops >&2; echo partial; exit 3", vec![]);
     assert_eq!(out.status, Some(3));
     assert_eq!(out.stderr, b"oops\n");
@@ -200,6 +200,6 @@ fn prop_6_nonzero_exit_code_and_stderr_are_captured() {
 }
 
 #[test]
-fn prop_6_a_signal_death_has_no_status() {
+fn filt_2_a_signal_death_has_no_status() {
     assert_eq!(run("kill -KILL $$", vec![]).status, None);
 }

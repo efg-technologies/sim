@@ -131,7 +131,7 @@ fn vi_7_s_in_a_read_only_buffer_is_refused() {
 }
 
 #[test]
-fn vi_7_filter_and_ref_take_ranges_like_the_other_commands() {
+fn vi_7_filter_takes_a_range_like_the_other_commands() {
     for (keys, cmd, input) in [
         (":!sort\n", "sort", "a\n"),
         (":%!sort\n", "sort", "a\nb\nc\n"),
@@ -147,17 +147,6 @@ fn vi_7_filter_and_ref_take_ranges_like_the_other_commands() {
         });
         assert_eq!(spawn, Some((cmd, input.as_bytes())), "{keys}");
         assert_eq!(text(&a), "a\nb\nc", "the filter changes nothing by itself");
-    }
-    for (keys, said) in [
-        (":ref\n", "copied f:1-1"),
-        (":%ref\n", "copied f:1-3"),
-        (":2,3ref\n", "copied f:2-3"),
-        ("Vj<Esc>:'<,'>ref\n", "copied f:1-2"),
-        ("j:.ref\n", "copied f:2-2"),
-    ] {
-        let mut a = named("a\nb\nc\n");
-        feed(&mut a, keys);
-        assert_eq!(msg(&mut a), said, "{keys}");
     }
     assert_eq!(says("|a", ":nonsense<CR>"), "not an editor command: nonsense");
     assert_eq!(says("|a", ":5nonsense<CR>"), "not an editor command: nonsense");

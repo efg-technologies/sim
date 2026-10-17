@@ -1,6 +1,6 @@
-//! SAFE-3, SAFE-4, PROP-6, PROP-9
+//! SAFE-3, SAFE-4, DISK-6
 //! The text (ropey) and undo. Every text change goes through `Buffer::replace`, which also keeps
-//! the marks and hunks of changes from outside where they belong.
+//! the marks of changes from outside where they belong.
 use ropey::Rope;
 use std::mem::replace as swap;
 use std::ops::Range;
@@ -24,27 +24,17 @@ pub fn hash(b: &[u8]) -> u64 {
 /// BOM, CRLF and whether the file ends with a newline, as `encode` writes them.
 pub type Format = (bool, bool, Option<bool>);
 
-/// Char ranges of the words that differ: in mine, and in theirs (VIS-2).
-pub type Words = (Vec<Range<usize>>, Vec<Range<usize>>);
-
-/// A line taken in from the disk that nobody has looked at yet (PROP-9): `+` added, `~` changed,
-/// `-` something was deleted just before it. `words` are the char columns in the line to paint,
-/// `None` for the whole line. Marks and hunks are copied for every undo step, so they hold no
-/// allocation of their own: a copy costs a count, not a clone of the words (PERF-2).
+/// A line of a change from the disk that nobody has looked at yet (DISK-6): `+` added, `~` changed
+/// (or, where the disk's text is not in the buffer, differs: a conflict), `-` something was deleted
+/// just before it. `words` are the char columns in the line to paint, `None` for the whole line.
+/// Marks are copied for every undo step, so they hold no allocation of their own: a copy costs a
+/// count, not a clone of the words (PERF-2).
 #[rustfmt::skip]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mark { pub line: usize, pub kind: char, pub words: Option<Arc<[Range<usize>]>> }
 
-/// Text that would replace the lines `mine` (maybe none: an insertion point) if accepted. `theirs`
-/// has its line breaks, like a line of the merge does. `disk`: a conflict with the disk, not the
-/// output of a filter. `words`: the word diff of the two, `None` when it was too big to compute
-/// (every char of mine counts as changed).
 #[rustfmt::skip]
-#[derive(Clone, Debug, PartialEq)]
-pub struct Hunk { pub mine: Range<usize>, pub theirs: Arc<str>, pub disk: bool, pub words: Option<Arc<Words>> }
-
-#[rustfmt::skip]
-struct Snap { text: Rope, cursor: usize, version: u64, nl: Option<bool>, marks: Arc<Vec<Mark>>, hunks: Arc<Vec<Hunk>> }
+struct Snap { text: Rope, cursor: usize, version: u64, nl: Option<bool>, marks: Arc<Vec<Mark>> }
 
 #[derive(Default)]
 pub struct Buffer {
@@ -59,8 +49,6 @@ pub struct Buffer {
     pub readonly: Option<String>,
     /// Changes taken in from the disk, one per line, in line order. Part of undo, like the text.
     pub marks: Arc<Vec<Mark>>,
-    /// Proposals, in order of their first line. Part of undo too.
-    pub hunks: Arc<Vec<Hunk>>,
     bom: bool,
     crlf: bool,
     /// Whether the file ends with a newline; `None` (empty or new file): write one iff there is text.
@@ -68,7 +56,7 @@ pub struct Buffer {
     nl: Option<bool>,
     eol: Option<bool>,
     version: u64,
-    /// The version that is the file's text. `u64::MAX`: none is (the file is gone, PROP-1).
+    /// The version that is the file's text. `u64::MAX`: none is (the file is gone, DISK-1).
     pub(super) saved: u64,
     next: u64,
     undo: Vec<Snap>,
@@ -192,9 +180,8 @@ impl Buffer {
         self.nl = if self.text.len_chars() == 0 { None } else { self.nl.or(self.eol) };
     }
 
-    /// Moves marks and hunks to where an edit of `r` into `with` leaves them. A mark on a line the
-    /// edit changes is dropped (the cursor is there anyway). A hunk is never dropped, since its
-    /// `theirs` text would be lost (P1): it grows or shrinks to cover the lines the edit touched.
+    /// Moves marks to where an edit of `r` into `with` leaves them. A mark on a line the edit
+    /// changes is dropped (the cursor is there anyway).
     fn shift(&mut self, r: &Range<usize>, with: &str) {
         let (l1, l2) = (self.line_of(r.start), self.line_of(r.end));
         // The first (last) line stays as it was if the edit starts at its end (ends at its start)
@@ -212,7 +199,6 @@ impl Buffer {
             l1 + usize::from(first)..l2 + 1 - usize::from(last),
             add as isize - (l2 - l1) as isize,
         );
-        let new_end = l1 + add + 1 - usize::from(last);
         let go = |l: usize| (l as isize + d) as usize;
         let (i, j) = (
             self.marks.partition_point(|m| m.line < old.start),
@@ -225,30 +211,9 @@ impl Buffer {
             marks.drain(i..j.max(i));
             marks[i..].iter_mut().filter(|_| d != 0).for_each(|m| m.line = go(m.line));
         }
-        let to = |h: &Hunk| {
-            let a = if h.mine.start >= old.end {
-                go(h.mine.start)
-            } else {
-                h.mine.start.min(old.start)
-            };
-            let b = match h.mine.end {
-                b if b >= old.end => go(b),
-                b if b > old.start => new_end,
-                b => b,
-            };
-            (a..b.max(a), h.mine.start < old.end && h.mine.end > old.start)
-        };
-        // An edit inside a hunk makes its word diff stale: its lines count as changed from now on.
-        if let Some(i) = self.hunks.iter().position(|h| to(h) != (h.mine.clone(), false)) {
-            let rest = self.hunks[i..].iter().map(|h| {
-                let (mine, touched) = to(h);
-                Hunk { mine, words: h.words.clone().filter(|_| !touched), ..h.clone() }
-            });
-            self.hunks = self.hunks[..i].iter().cloned().chain(rest).collect::<Vec<_>>().into();
-        }
     }
 
-    /// PROP-9: the cursor is on this line now, so nobody can miss its mark any more.
+    /// DISK-6: the cursor is on this line now, so nobody can miss its mark any more.
     pub fn see(&mut self) {
         let l = self.line_of(self.cursor);
         if let Ok(i) = self.marks.binary_search_by_key(&l, |m| m.line) {
@@ -256,9 +221,9 @@ impl Buffer {
         }
     }
 
-    /// Puts the text of a merge with the disk (PROP-2) in place of the text, as one undo step. `disk`
+    /// Puts the text of a merge with the disk (DISK-2) in place of the text, as one undo step. `disk`
     /// is what the file holds: its text is the new base, and so is its format. The buffer is clean
-    /// iff `clean`. The caller sets the new marks and hunks.
+    /// iff `clean`. The caller sets the new marks.
     pub fn merged(&mut self, text: &str, disk: Buffer, clean: bool) {
         self.checkpoint();
         self.record();
@@ -282,58 +247,7 @@ impl Buffer {
             version: self.version,
             nl: self.nl,
             marks: self.marks.clone(),
-            hunks: self.hunks.clone(),
         });
-    }
-
-    /// Decides hunk `which` (all of them for `None`) as one undo unit (PROP-8): accepting puts its
-    /// `theirs` in place of its lines of mine, rejecting only drops the hunk.
-    pub fn resolve(&mut self, which: Option<usize>, accept: bool) {
-        self.checkpoint();
-        for i in which.map_or(0..self.hunks.len(), |i| i..i + 1).rev() {
-            let h = self.hunks[i].clone();
-            if accept {
-                // The last line has no line break in `text`: the one after it is imagined.
-                let (n, len, t) = (self.lines(), self.text.len_chars(), &*h.theirs);
-                let at = |l: usize| if l < n { self.start(l) } else { len + 1 };
-                let (from, to) = (at(h.mine.start.min(n)), at(h.mine.end.min(n)));
-                let body = t.strip_suffix('\n').unwrap_or(t);
-                #[rustfmt::skip]
-                let (range, with) = if to <= len { (from..to, t.to_string()) }
-                    else if t.is_empty() { (from.saturating_sub(1).min(len)..len, String::new()) }
-                    else if from <= len { (from..len, body.to_string()) }
-                    else { (len..len, format!("\n{body}")) };
-                // A hunk before this one stays as it was: the edit is a decision, not typing next to it.
-                let kept: Vec<_> =
-                    (0..i).filter(|&j| self.hunks[j].mine.end <= h.mine.start).collect();
-                let kept: Vec<_> =
-                    kept.into_iter().map(|j| (j, self.hunks[j].mine.clone())).collect();
-                self.replace(range, &with);
-                let hunks = Arc::make_mut(&mut self.hunks);
-                kept.into_iter().for_each(|(j, r)| hunks[j].mine = r);
-            }
-            Arc::make_mut(&mut self.hunks).remove(i);
-        }
-        self.step();
-    }
-
-    /// Ends the undo unit that `checkpoint` began without a change of text: a step of its own.
-    fn step(&mut self) {
-        if let Some(p) = self.pending.take() {
-            self.undo.push(p);
-            self.redo.clear();
-        }
-    }
-
-    /// Adds the proposals of a filter (PROP-6) as one undo step. The text, and with it whether the
-    /// buffer is modified, stay as they are.
-    pub fn propose(&mut self, new: Vec<Hunk>) {
-        self.checkpoint();
-        let mut all = self.hunks.to_vec();
-        all.extend(new);
-        all.sort_by_key(|h| h.mine.start);
-        self.hunks = all.into();
-        self.step();
     }
 
     /// Undoes (or redoes) one unit; false if there is none.
@@ -347,7 +261,6 @@ impl Buffer {
             version: swap(&mut self.version, s.version),
             nl: swap(&mut self.nl, s.nl),
             marks: swap(&mut self.marks, s.marks),
-            hunks: swap(&mut self.hunks, s.hunks),
         });
         (self.pending, self.want) = (None, None);
         true

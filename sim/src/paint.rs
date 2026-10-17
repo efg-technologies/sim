@@ -160,7 +160,6 @@ fn sgr(
         (Some(p), Style::Primary) => fg = Some(p.primary),
         (Some(p), Style::Secondary) => fg = Some(p.secondary),
         (Some(p), Style::Change) => (bg, fg) = (Some(p.change), Some(p.change_text)),
-        (Some(p), Style::Deleted) => (fg, attrs) = (Some(p.secondary), ";9".into()),
         (Some(p), Style::Hidden) => (fg, attrs) = (Some(p.primary), ";7".into()),
     }
     attrs += [";4", ""][usize::from(!underline)];

@@ -1,4 +1,4 @@
-//! PROP-5, PROP-6
+//! FILT-1, FILT-2
 //! Running `sh -c` in its own process group, and cancelling the whole group.
 use std::io::{self, Read, Write};
 use std::os::unix::process::CommandExt;
@@ -50,7 +50,7 @@ pub fn spawn(
         bg(move || {
             let status = child.wait().ok().and_then(|s| s.code()); // also reaps it
             // The output may take a second more to end once the shell has: a child it left behind can hold the
-            // pipes open for ever (PROP-5). What the pumps sent until they are done, or `end`:
+            // pipes open for ever (FILT-1). What the pumps sent until they are done, or `end`:
             let end = Instant::now() + Duration::from_secs(1);
             let all = |rx: Receiver<Vec<u8>>| {
                 let left = || end.saturating_duration_since(Instant::now());
@@ -66,7 +66,7 @@ pub fn spawn(
     Ok(pgid)
 }
 
-/// Stops the whole process group (PROP-5 Decided): SIGTERM via `kill -TERM -- -<pgid>`
+/// Stops the whole process group (FILT-1 Decided): SIGTERM via `kill -TERM -- -<pgid>`
 /// (std::process::Command; no libc), so children such as `claude -p` stop too.
 /// Only for a group `spawn` returned whose `done` has not been called: the id may be reused after.
 pub fn cancel(pgid: u32) {

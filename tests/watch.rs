@@ -1,4 +1,4 @@
-//! PROP-1: changes on disk (in place, by rename, deletion, re-creation) reach the callback quickly.
+//! DISK-1: changes on disk (in place, by rename, deletion, re-creation) reach the callback quickly.
 // Helpers outside `#[test]` fns are not covered by clippy.toml, so allow it for the file.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use notify::RecommendedWatcher;
@@ -95,14 +95,14 @@ impl Fixture {
 }
 
 #[test]
-fn prop_1_write_in_place() {
+fn disk_1_write_in_place() {
     let f = fixture();
     fs::write(&f.file, "v1").unwrap();
     f.expect(Some(b"v1"));
 }
 
 #[test]
-fn prop_1_save_by_rename() {
+fn disk_1_save_by_rename() {
     let f = fixture();
     let tmp = f.dir.0.join(".a.txt.swp");
     fs::write(&tmp, "v2").unwrap();
@@ -111,7 +111,7 @@ fn prop_1_save_by_rename() {
 }
 
 #[test]
-fn prop_1_delete_then_recreate() {
+fn disk_1_delete_then_recreate() {
     let f = fixture();
     fs::remove_file(&f.file).unwrap();
     f.expect(None);
@@ -120,7 +120,7 @@ fn prop_1_delete_then_recreate() {
 }
 
 #[test]
-fn prop_1_a_file_that_appears_after_watching_is_seen() {
+fn disk_1_a_file_that_appears_after_watching_is_seen() {
     // `si new.txt` while another process creates the file.
     let f = fixture_with(false);
     fs::write(&f.file, "hello").unwrap();
@@ -128,7 +128,7 @@ fn prop_1_a_file_that_appears_after_watching_is_seen() {
 }
 
 #[test]
-fn prop_1_unrelated_files_in_the_directory_are_ignored() {
+fn disk_1_unrelated_files_in_the_directory_are_ignored() {
     let f = fixture();
     let other = f.dir.0.join("b.txt");
     fs::write(&other, "x").unwrap();
@@ -143,7 +143,7 @@ fn prop_1_unrelated_files_in_the_directory_are_ignored() {
 }
 
 #[test]
-fn prop_1_a_burst_of_writes_makes_few_calls_and_the_last_content_arrives() {
+fn disk_1_a_burst_of_writes_makes_few_calls_and_the_last_content_arrives() {
     let f = fixture();
     for i in 0..20 {
         fs::write(&f.file, format!("w{i}")).unwrap();
@@ -171,7 +171,7 @@ fn timer_lateness() -> Duration {
 }
 
 #[test]
-fn prop_1_latency_from_write_to_callback_is_under_100ms() {
+fn disk_1_latency_from_write_to_callback_is_under_100ms() {
     let f = fixture();
     let late = timer_lateness();
     // The median of several writes, so one scheduling hiccup doesn't fail the run.
@@ -189,21 +189,21 @@ fn prop_1_latency_from_write_to_callback_is_under_100ms() {
     took.sort();
     let median = took[took.len() / 2];
     eprintln!(
-        "PROP-1 latency: median {median:?}, all {took:?}; the machine's timers are late by {late:?}"
+        "DISK-1 latency: median {median:?}, all {took:?}; the machine's timers are late by {late:?}"
     );
-    // PROP-1's 100 ms is not relaxed: what is taken off is only what this machine adds to the one
+    // DISK-1's 100 ms is not relaxed: what is taken off is only what this machine adds to the one
     // timer in the path (measured above), which is zero on a machine with accurate timers.
     let limit = Duration::from_millis(100);
     assert!(
         median.saturating_sub(late) < limit,
-        "median latency {median:?} less the timers' lateness {late:?} is over the {limit:?} of PROP-1; all: {took:?}"
+        "median latency {median:?} less the timers' lateness {late:?} is over the {limit:?} of DISK-1; all: {took:?}"
     );
 }
 
 /// A watch can die without a word: the directory it watches is deleted and made again (`rm -rf dir`,
 /// `git checkout`), and the new one is not the one inotify knew. The file is looked at once a second.
 #[test]
-fn prop_1_a_change_is_seen_after_the_directory_was_deleted_and_made_again() {
+fn disk_1_a_change_is_seen_after_the_directory_was_deleted_and_made_again() {
     let dir = Tmp::new();
     let (sub, file) = (dir.0.join("sub"), dir.0.join("sub/a.txt"));
     fs::create_dir(&sub).unwrap();
@@ -230,14 +230,14 @@ fn prop_1_a_change_is_seen_after_the_directory_was_deleted_and_made_again() {
 }
 
 #[test]
-fn prop_1_watching_a_missing_directory_is_an_error_not_a_panic() {
+fn disk_1_watching_a_missing_directory_is_an_error_not_a_panic() {
     let dir = Tmp::new();
     let r = watch(&dir.0.join("no-such-dir").join("a.txt"), |_, _| {}, false);
     assert!(r.is_err());
 }
 
 #[test]
-fn prop_1_dropping_the_watcher_stops_the_calls() {
+fn disk_1_dropping_the_watcher_stops_the_calls() {
     let Fixture { dir: _dir, file, rx, _watcher } = fixture();
     drop(_watcher);
     fs::write(&file, "after drop").unwrap();
@@ -246,7 +246,7 @@ fn prop_1_dropping_the_watcher_stops_the_calls() {
 }
 
 #[test]
-fn prop_1_a_watcher_asked_to_read_first_reads_the_file_once_on_its_own_thread() {
+fn disk_1_a_watcher_asked_to_read_first_reads_the_file_once_on_its_own_thread() {
     let dir = Tmp::with(&[("a.txt", "v0")]);
     let file = dir.0.join("a.txt");
     let (tx, rx) = mpsc::channel();
@@ -274,7 +274,7 @@ fn prop_1_a_watcher_asked_to_read_first_reads_the_file_once_on_its_own_thread() 
 }
 
 #[test]
-fn prop_1_every_read_is_numbered_as_it_starts_from_one_counter() {
+fn disk_1_every_read_is_numbered_as_it_starts_from_one_counter() {
     let dir = Tmp::with(&[("a.txt", "v0")]);
     let file = dir.0.join("a.txt");
     let (tx, rx) = mpsc::channel();

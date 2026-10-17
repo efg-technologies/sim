@@ -1,23 +1,21 @@
-//! CLI-5, VIS-1, VIS-2, VIS-3, VIS-6, VIS-7, VIS-8, VIS-9, VIS-10, VIS-11, VIS-12, VI-5, VI-12, SAFE-8, PERF-2, PROP-5, PROP-8
+//! CLI-5, VIS-1, VIS-2, VIS-3, VIS-6, VIS-7, VIS-8, VIS-9, VIS-10, VIS-11, VIS-12, VI-5, VI-12, SAFE-8, PERF-2, FILT-1
 //! State to Frame (a grid of characters and styles), wrapping, kinsoku.
 use super::app::{App, plural};
-use super::buffer::{Buffer, Hunk};
+use super::buffer::Buffer;
 use super::color::Palette;
-use super::proposal::clip;
 use super::vi::Mode;
-use std::mem::take;
 use std::ops::Range;
 use std::path::Path;
 use unicode_width::UnicodeWidthChar;
 
 #[rustfmt::skip]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Style { Primary, Secondary, Change, Deleted, Hidden }
+pub enum Style { Primary, Secondary, Change, Hidden }
 
-/// The cursor shapes, as the numbers of DECSCUSR (steady block, underline, bar).
+/// The cursor shapes, as the numbers of DECSCUSR (steady block, bar).
 #[rustfmt::skip]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Shape { Block = 2, Underline = 4, Bar = 6 }
+pub enum Shape { Block = 2, Bar = 6 }
 
 /// One screen row. Spans and underlines are in columns; text outside every span is Primary.
 #[rustfmt::skip]
@@ -120,9 +118,6 @@ fn fit(s: &str, max: usize) -> String {
     paint(&cs, 0..cs.len(), max).0
 }
 
-/// What the status line says in REVIEW after its path, position and `REVIEW i/n` (PROP-8).
-const REVIEW_KEYS: &str = "y accept · n reject · Y all · N none · Esc back";
-
 /// The columns `s` takes once painted.
 fn cols(s: &str) -> usize {
     let cs: Vec<char> = s.chars().collect();
@@ -142,8 +137,7 @@ fn status(a: &App, w: usize) -> String {
     let b = &a.buf;
     #[rustfmt::skip]
     let mode = match a.vi.mode {
-        Mode::Insert => "INSERT".into(), Mode::Visual => "VISUAL".into(), Mode::VLine => "V-LINE".into(),
-        Mode::Review => format!("REVIEW {}/{}", a.current() + 1, b.hunks.len()), _ => "NORMAL".into(),
+        Mode::Insert => "INSERT", Mode::Visual => "VISUAL", Mode::VLine => "V-LINE", _ => "NORMAL",
     };
     // A change on disk is a run of marked lines next to each other.
     let runs = (0..b.marks.len()).filter(|&i| i == 0 || b.marks[i - 1].line + 1 < b.marks[i].line);
@@ -153,7 +147,7 @@ fn status(a: &App, w: usize) -> String {
         b.readonly.clone(),
         a.gone.then(|| "deleted on disk".into()),
         count(runs.count(), "change on disk", "changes on disk"),
-        count(b.hunks.len(), "proposal", "proposals"),
+        a.diverged().then(|| "conflicts with the disk".into()),
         a.filter
             .as_ref()
             .map(|r| format!("filter {}s · Ctrl-c cancel", a.tick.saturating_sub(r.at) / 1000)),
@@ -161,142 +155,32 @@ fn status(a: &App, w: usize) -> String {
     .into_iter()
     .flatten()
     .collect();
-    let notes = if a.vi.mode == Mode::Review {
-        format!("  {REVIEW_KEYS}")
-    } else if notes.is_empty() {
-        String::new()
-    } else {
-        format!("  {}", notes.join(" · "))
-    };
+    let notes = if notes.is_empty() { String::new() } else { format!("  {}", notes.join(" · ")) };
     let tail = format!("  {}:{}  {mode}{notes}", b.line_of(b.cursor) + 1, b.col() + 1);
     shorten(a.path.as_deref().unwrap_or("[no name]"), &tail, w) + &tail
 }
 
-/// A line as it is drawn before wrapping: its chars with a style each, the gutter symbol, and the
-/// number shown (VIS-3, VIS-11). A buffer line is one of them; in REVIEW a hunk makes several.
+/// A line as it is drawn before wrapping: its chars with a style each, and the gutter symbol
+/// (VIS-3, VIS-11).
 #[rustfmt::skip]
-struct Disp { cs: Vec<char>, sty: Vec<Style>, sym: char, num: Option<usize> }
+struct Disp { cs: Vec<char>, sty: Vec<Style>, sym: char }
 
 /// Buffer line `l` as it is drawn (VIS-2, VIS-3): the gutter symbol (a blank if nothing changed
-/// there), and the change style on the marks of changes from disk and on the words of mine that a
-/// hunk would replace. `dim`: in REVIEW a line nothing changed in is secondary.
-fn plain(b: &Buffer, hunks: &[&Hunk], l: usize, dim: bool) -> Disp {
+/// there), and the change style on the marks of changes from disk.
+fn plain(b: &Buffer, l: usize) -> Disp {
     let cs: Vec<char> = b.text.line(l).chars().take(b.line_len(l)).collect();
-    let (mut sym, mut paints) = (' ', vec![]);
+    let mut sty = vec![Style::Primary; cs.len()];
+    let mut sym = ' ';
     if let Ok(i) = b.marks.binary_search_by_key(&l, |m| m.line) {
         sym = b.marks[i].kind;
-        match &b.marks[i].words {
-            Some(w) => paints.extend(w.iter().cloned()),
-            None => paints.push(0..cs.len()),
-        }
-    }
-    for h in hunks {
-        if h.mine.contains(&l) {
-            let at = b.start(l) - b.start(h.mine.start);
-            match &h.words {
-                Some(w) => paints.extend(w.0.iter().filter_map(|r| clip(r, at, cs.len()))),
-                None => paints.push(0..cs.len()),
-            }
-            sym = '~';
-        } else if h.mine.is_empty() && h.mine.start.min(b.lines() - 1) == l {
-            sym = '~';
-        }
-    }
-    let mut sty = vec![if dim && sym == ' ' { Style::Secondary } else { Style::Primary }; cs.len()];
-    for r in paints {
-        if let Some(x) = sty.get_mut(r.start.min(cs.len())..r.end.min(cs.len())) {
-            x.fill(Style::Change);
-        }
-    }
-    Disp { cs, sty, sym, num: Some(l + 1) }
-}
-
-/// A hunk as REVIEW draws it (VIS-3): mine and theirs woven into one text by the word diff, cut
-/// into rows. Words of mine that would go are Deleted, words of theirs that would come are on the
-/// Change background, the rest is as it is. Each row comes with the line it is drawn at: a row of
-/// theirs alone has a `+` and no number, and follows the row before it. At most `cap` lines of
-/// each side are looked at (a hunk as big as the file).
-fn inline(b: &Buffer, h: &Hunk, cap: usize) -> Vec<(usize, Disp)> {
-    let s = h.mine.start;
-    let mine: Vec<char> = (s..h.mine.end.min(b.lines()).min(s.saturating_add(cap)))
-        .flat_map(|l| b.text.line(l).chars().take(b.line_len(l)).chain(['\n']))
-        .collect();
-    let theirs: Vec<char> = h.theirs.split_inclusive('\n').take(cap).flat_map(str::chars).collect();
-    // Which chars of each side the word diff calls changed (all of them without one).
-    let flags = |rs: Option<&Vec<Range<usize>>>, n: usize| {
-        let mut v = vec![rs.is_none(); n];
-        for r in rs.into_iter().flatten().take_while(|r| r.start < n) {
-            if let Some(x) = v.get_mut(r.start.min(n)..r.end.min(n)) {
-                x.fill(true);
-            }
-        }
-        v
-    };
-    let w = h.words.as_deref();
-    let (gone, come) = (flags(w.map(|w| &w.0), mine.len()), flags(w.map(|w| &w.1), theirs.len()));
-    // The weave: changed chars of mine first, then of theirs, and the chars both sides share side by
-    // side (what does not pair up counts as changed), cut into rows. `line` is the next line of mine
-    // to end, and `fresh` whether the row starts it.
-    let (mut rows, mut line, mut fresh, mut last) = (vec![], s, true, s);
-    let (mut cs, mut sty, mut has, mut p, mut q) = (vec![], vec![], false, 0, 0);
-    while p < mine.len() || q < theirs.len() {
-        let (c, y, m) = if p < mine.len() && (gone[p] || q == theirs.len()) {
-            p += 1;
-            (mine[p - 1], Style::Deleted, true)
-        } else if q < theirs.len() && (come[q] || p == mine.len()) {
-            q += 1;
-            (theirs[q - 1], Style::Change, false)
-        } else {
-            (p, q) = (p + 1, q + 1);
-            (mine[p - 1], Style::Primary, true)
-        };
-        if c != '\n' {
-            cs.push(c);
-            sty.push(y);
-            has |= m;
-            continue;
-        }
-        // A row has something of a line of mine if it holds a char of it, or is an empty one.
-        let own = has || (m && fresh);
-        let owner = if own { line } else { last };
-        #[rustfmt::skip]
-        let sym = if !own { '+' } else if fresh { '~' } else { ' ' };
-        let num = (own && fresh).then_some(line + 1);
-        rows.push((owner, Disp { cs: take(&mut cs), sty: take(&mut sty), sym, num }));
-        (last, has) = (owner, false);
-        if m {
-            (line, fresh) = (line + 1, true);
-        } else if own {
-            fresh = false;
-        }
-    }
-    rows
-}
-
-/// REVIEW (VIS-3): every hunk is drawn in place of its lines of mine, and the rows of theirs alone
-/// follow the row before them (an empty hunk's go before the line after it, or after the last one).
-fn weave(b: &Buffer, hunks: &[&Hunk], disp: &mut [Vec<Disp>], lo: usize, rows: usize) {
-    let (n, hi) = (b.lines(), lo + disp.len());
-    for h in hunks {
-        let (s, e) = (h.mine.start.min(n), h.mine.end.min(n));
-        let rs = inline(b, h, hi.saturating_sub(s) + rows);
-        if s == e {
-            if let Some(g) = s.min(n - 1).checked_sub(lo).and_then(|i| disp.get_mut(i)) {
-                let at = if s < n { 0 } else { g.len() };
-                g.splice(at..at, rs.into_iter().map(|r| r.1));
-            }
-            continue;
-        }
-        (s.max(lo)..e.min(hi)).for_each(|l| disp[l - lo].clear());
-        for (owner, d) in rs {
-            if let Some(g) = owner.checked_sub(lo).and_then(|i| disp.get_mut(i)) {
-                g.push(d);
+        let all = 0..cs.len();
+        for r in b.marks[i].words.as_deref().unwrap_or(std::slice::from_ref(&all)) {
+            if let Some(x) = sty.get_mut(r.start.min(cs.len())..r.end.min(cs.len())) {
+                x.fill(Style::Change);
             }
         }
     }
-    for (i, g) in disp.iter_mut().enumerate().filter(|(_, g)| g.is_empty()) {
-        g.push(plain(b, &[], lo + i, true));
-    }
+    Disp { cs, sty, sym }
 }
 
 /// Builds the screen and scrolls it (VIS-12). Only the lines that can be on screen together
@@ -315,23 +199,11 @@ pub fn render(a: &mut App) -> Frame {
     let cursor = peek.unwrap_or(b.cursor);
     let cl = b.line_of(cursor);
     let (lo, hi) = (cl.saturating_sub(rows), (cl + rows + 1).min(b.lines()));
-    // The hunks that can touch a row of this screen, found once: they are sorted by their first
-    // line, and there may be thousands of them.
-    let near = b.hunks.partition_point(|h| h.mine.start <= hi);
-    let hunks: Vec<&Hunk> = b.hunks[..near].iter().filter(|h| h.mine.end >= lo).collect();
-    let review = a.vi.mode == Mode::Review;
-    let shown: &[&Hunk] = if review { &[] } else { &hunks };
-    let mut disp: Vec<Vec<Disp>> = (lo..hi).map(|l| vec![plain(b, shown, l, review)]).collect();
-    if review {
-        weave(b, &hunks, &mut disp, lo, rows);
-    }
-    let wrapped = |d: Disp| (wrap(&d.cs, max), d);
-    let lay: Vec<Vec<(Vec<usize>, Disp)>> =
-        disp.into_iter().map(|g| g.into_iter().map(wrapped).collect()).collect();
-    let height = |l: usize| lay[l - lo].iter().map(|g| g.0.len()).sum::<usize>();
-    // In REVIEW the cursor stands at the start of the hunk's first row.
-    let (st, d0) = &lay[cl - lo][0];
-    let ci = if review { 0 } else { (cursor - b.start(cl)).min(d0.cs.len()) };
+    let lay: Vec<(Vec<usize>, Disp)> =
+        (lo..hi).map(|l| plain(b, l)).map(|d| (wrap(&d.cs, max), d)).collect();
+    let height = |l: usize| lay[l - lo].0.len();
+    let (st, d0) = &lay[cl - lo];
+    let ci = (cursor - b.start(cl)).min(d0.cs.len());
     let r = st.partition_point(|&s| s <= ci) - 1;
     // Keep min(8, ...) rows of context around the cursor, or centre it when asked to.
     let ctx = 8.min((rows - 1) / 2);
@@ -365,17 +237,16 @@ pub fn render(a: &mut App) -> Frame {
         if l == cl {
             cur = (gutter + paint(&d0.cs, st[r]..ci, max).1, (out.len() + r).saturating_sub(first));
         }
-        // The rows of this line, after the first `first`: its wrapped rows, or its group's in REVIEW.
-        let parts = lay[l - lo].iter().flat_map(|(st, d)| (0..st.len()).map(move |i| (st, d, i)));
-        for (st, d, i) in parts.skip(first) {
+        // The rows of this line, after the first `first`.
+        let (st, d) = &lay[l - lo];
+        for i in first..st.len() {
             let (s, e) = (st[i], st.get(i + 1).copied().unwrap_or(d.cs.len()));
             let seg = |x: usize, y: usize| paint(&d.cs, x..y, max);
             let col = |x: usize| (gutter + seg(s, x).1) as u16;
             // Only the line the cursor is on has its number in primary (VIS-11).
             #[rustfmt::skip]
-            let (head, mut spans) = match (i, d.num) {
-                (0, Some(n)) => (format!("{}{n:>digits$} ", d.sym), if n == cl + 1 { vec![] } else { vec![(1..1 + digits as u16, Style::Secondary)] }),
-                (0, None) => (format!("{}{:digits$} ", d.sym, ""), vec![]),
+            let (head, mut spans) = match i {
+                0 => (format!("{}{:>digits$} ", d.sym, l + 1), if l == cl { vec![] } else { vec![(1..1 + digits as u16, Style::Secondary)] }),
                 _ => (" ".repeat(gutter), vec![]),
             };
             if i == 0 && d.sym != ' ' {
@@ -406,7 +277,6 @@ pub fn render(a: &mut App) -> Frame {
     }
     let shape = match a.vi.mode {
         Mode::Insert | Mode::Cmd => Shape::Bar,
-        Mode::Review => Shape::Underline,
         _ => Shape::Block,
     };
     let (text, x) = if a.vi.mode == Mode::Cmd {
@@ -436,7 +306,7 @@ fn intro(out: &mut [Row], w: usize) {
     #[rustfmt::skip]
     const KEYS: [(&str, &str); 6] = [
         ("i / Esc", "type / stop typing"), ("Ctrl-s", "save"), ("ZZ", "save and quit"), ("q", "quit"),
-        ("ZQ", "quit without saving"), ("]c then y / n", "review a change: accept / reject"),
+        ("ZQ", "quit without saving"), ("]c / [c", "next / previous change"),
     ];
     let title = format!("si {}", env!("CARGO_PKG_VERSION"));
     let tagline = "A vi for reading, where only the changes light up.";

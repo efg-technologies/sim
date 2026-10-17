@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VIS-12, PROP-5, PROP-8
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VIS-12, FILT-1, DISK-6
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
 use super::buffer::Buffer;

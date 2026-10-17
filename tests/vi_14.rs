@@ -288,7 +288,7 @@ fn vi_14_an_empty_pattern_shows_the_start_and_enter_repeats_the_last_search() {
 
 #[test]
 fn vi_14_marks_of_changes_stay_on_the_lines_the_preview_passes() {
-    // PROP-9: a mark goes when the cursor enters its line. The preview does not move the cursor, so
+    // DISK-6: a mark goes when the cursor enters its line. The preview does not move the cursor, so
     // the mark of a line shown for a moment is still there, and is on the screen when it shows.
     let mut a = named("one\ntwo\nthree\nfour\n");
     a.update(Event::Disk {

@@ -5,7 +5,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-MAX_LINES=3603
+MAX_LINES=3425
 MAX_BYTES=$((2 * 1024 * 1024))
 
 step() {

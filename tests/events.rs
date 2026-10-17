@@ -1,4 +1,4 @@
-//! PROP-2, VI-2: every kind of event, in any order, with awkward text. Nothing may panic (tests run
+//! DISK-2, VI-2: every kind of event, in any order, with awkward text. Nothing may panic (tests run
 //! in debug: overflow checks are on), and the marks and hunks stay well formed; and `.` never
 //! recurses without end. `SI_FUZZ_CASES` sets the number of cases.
 #![allow(
@@ -82,7 +82,7 @@ enum Ev {
     Signal,
 }
 
-/// The number of a read of the disk (PROP-1): a few, so that older and newer ones meet.
+/// The number of a read of the disk (DISK-1): a few, so that older and newer ones meet.
 fn seq_s() -> impl Strategy<Value = u64> {
     0u64..8
 }
@@ -124,16 +124,6 @@ fn check(a: &mut App) -> Result<(), TestCaseError> {
         );
         last = Some(m.line);
     }
-    let mut prev = 0;
-    for h in b.hunks.iter() {
-        prop_assert!(
-            h.mine.start <= h.mine.end && h.mine.end <= b.lines() && prev <= h.mine.start,
-            "hunks {:?} in {} lines",
-            b.hunks.iter().map(|h| h.mine.clone()).collect::<Vec<_>>(),
-            b.lines()
-        );
-        prev = h.mine.start;
-    }
     prop_assert!(b.cursor <= b.text.len_chars());
     prop_assert!(b.lines() >= 1);
     drop(screen(a));
@@ -144,7 +134,7 @@ proptest! {
     #![proptest_config(ProptestConfig { cases: cases(500), max_shrink_iters: 5000, failure_persistence: None, ..ProptestConfig::default() })]
 
     #[test]
-    fn prop_2_fuzz_no_panic_whatever_the_events(
+    fn disk_2_fuzz_no_panic_whatever_the_events(
         named in any::<bool>(),
         start in bytes_s(),
         w in 1u16..60, h in 2u16..14,

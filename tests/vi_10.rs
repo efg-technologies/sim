@@ -164,36 +164,21 @@ fn vi_10_only_the_range_of_full_width_ascii_is_read_as_half_width() {
 }
 
 #[test]
-fn vi_10_review_keys_may_be_full_width_too() {
-    let three = || {
-        let mut a = app_with(Some("f"), b"a1\nb\na2\nc\na3\n", (80, 14));
-        feed(&mut a, "rAjjrAjjrA");
-        disk(&mut a, "X1\nb\nX2\nc\nX3\n");
-        feed(&mut a, "gg");
-        a
-    };
-    let mut a = three();
+fn vi_10_the_keys_that_walk_the_changes_may_be_full_width_too() {
+    let mut a = app_with(Some("f"), b"a1\nb\na2\nc\na3\n", (80, 14));
+    feed(&mut a, "rAjjrAjjrAgg");
+    disk(&mut a, "X1\nb\nX2\nc\nX3\n");
+    let at = |a: &App| a.buf.line_of(a.buf.cursor);
     feed(&mut a, "］ｃ");
-    assert_eq!(a.vi.mode, Mode::Review);
-    feed(&mut a, "ｙ");
-    assert_eq!((text(&a), a.buf.hunks.len()), ("X1\nb\nA2\nc\nA3".to_string(), 2));
-    feed(&mut a, "ｎ");
-    assert_eq!((text(&a), a.buf.hunks.len()), ("X1\nb\nA2\nc\nA3".to_string(), 1));
-    feed(&mut a, "ｙ");
+    assert_eq!(at(&a), 2);
+    feed(&mut a, "］ｃ");
+    assert_eq!(at(&a), 4);
+    feed(&mut a, "［ｃ");
     assert_eq!(
-        (text(&a), a.buf.hunks.len(), a.vi.mode),
-        ("X1\nb\nA2\nc\nX3".to_string(), 0, Mode::Normal)
+        a.msg.as_deref(),
+        Some("no previous change"),
+        "the marks the cursor has seen are gone"
     );
-    let mut a = three();
-    feed(&mut a, "］ｃＹ");
-    assert_eq!((text(&a), a.buf.hunks.len()), ("X1\nb\nX2\nc\nX3".to_string(), 0));
-    let mut a = three();
-    feed(&mut a, "］ｃＮ");
-    assert_eq!((text(&a), a.buf.hunks.len()), ("A1\nb\nA2\nc\nA3".to_string(), 0));
-    let mut a = three();
-    feed(&mut a, "］ｃ］ｃ［ｃ");
-    assert_eq!((a.vi.mode, a.buf.cursor), (Mode::Review, 0));
-    feed(&mut a, "<Esc>");
     assert_eq!(a.vi.mode, Mode::Normal);
 }
 
@@ -274,38 +259,6 @@ fn vi_11_it_does_not_run_for_keys_that_do_not_enter_normal_mode() {
         assert_eq!(hooks_for(&mut a, keys), 0, "{keys}");
         hooks_for(&mut a, "<Esc>");
     }
-}
-
-/// Three proposals from the disk, and the hook set; the cursor is on the first line.
-fn proposals() -> App {
-    let mut a = hooked("a1\nb\na2\nc\na3\n");
-    feed(&mut a, "rAjjrAjjrA");
-    disk(&mut a, "X1\nb\nX2\nc\nX3\n");
-    a.start("");
-    feed(&mut a, "gg");
-    a
-}
-
-#[test]
-fn vi_11_review_mode_ends_in_normal_mode_and_that_counts() {
-    let mut a = proposals();
-    assert_eq!(hooks_for(&mut a, "]c"), 0, "REVIEW is not Normal mode");
-    assert_eq!(hooks_for(&mut a, "y"), 0, "REVIEW goes on");
-    assert_eq!(hooks_for(&mut a, "n"), 0);
-    assert_eq!(hooks_for(&mut a, "y"), 1, "the last proposal ends it");
-    for (keys, mode) in [
-        ("]c<Esc>", Mode::Normal),
-        ("]cY", Mode::Normal),
-        ("]cN", Mode::Normal),
-        ("]cj", Mode::Normal),
-    ] {
-        let mut a = proposals();
-        assert_eq!(hooks_for(&mut a, keys), 1, "{keys}");
-        assert_eq!(a.vi.mode, mode);
-    }
-    let mut a = proposals();
-    feed(&mut a, "]c");
-    assert_eq!(hooks(&a.update(Event::Paste("p".into()))), 1, "a paste ends REVIEW");
 }
 
 #[test]

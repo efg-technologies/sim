@@ -1,4 +1,4 @@
-//! SAFE-6, CLI-6
+//! SAFE-6, SAFE-7, CLI-6
 //! Snapshots and recovery: one atomically written file per (path, pid) in the state directory. The
 //! places where files were last closed live there too.
 use super::file::private;
@@ -147,4 +147,27 @@ pub fn find(state: &Path, path: &str, own_pid: u32) -> Option<Snapshot> {
 /// Deletes the snapshot of (`path`, `pid`), if any.
 pub fn remove(state: &Path, path: &str, pid: u32) {
     let _ = fs::remove_file(file(state, path, pid));
+}
+
+/// SAFE-7: the copy of the version that `:w!` or `:e!` gives up, a file of `state` named after the
+/// file's own name, `{name}.{n}.{ext}` with the first `n` that is free (nothing is ever replaced),
+/// private (0600) and synced, and never deleted by si. Returns where it went.
+pub fn keep(state: &Path, path: &str, bytes: &[u8], ext: &str) -> io::Result<PathBuf> {
+    DirBuilder::new().recursive(true).mode(0o700).create(state)?;
+    private(state)?;
+    let name = Path::new(path).file_name().map_or("file".into(), |n| n.to_string_lossy());
+    let name: String = name.chars().take(50).collect(); // a name that is too long is not a copy
+    for n in 1.. {
+        let dest = state.join(format!("{name}.{n}.{ext}"));
+        match OpenOptions::new().write(true).create_new(true).mode(0o600).open(&dest) {
+            Ok(mut f) => {
+                let done = f.write_all(bytes).and_then(|()| f.sync_all());
+                let done = done.and_then(|()| File::open(state)?.sync_all());
+                return done.map(|()| dest.clone()).inspect_err(|_| drop(fs::remove_file(&dest)));
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::other("no free name"))
 }

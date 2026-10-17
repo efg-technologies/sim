@@ -1,5 +1,5 @@
-//! PROP-3, PROP-4, PROP-7, VIS-2
-//! diff3, word-level diff, Proposal and Hunk.
+//! DISK-3, DISK-4, DISK-5, VIS-2
+//! diff3 and the word-level diff.
 
 use similar::{Algorithm, DiffOp, capture_diff_slices_deadline};
 use std::{ops::Range, time::Instant};
@@ -10,14 +10,6 @@ pub fn lines(s: &str) -> Vec<&str> {
     s.split_inclusive('\n').collect()
 }
 
-/// A Proposal hunk over a merged text: lines `mine` (a line range of the merged text, maybe empty
-/// = an insertion point) would be replaced by `theirs` if accepted.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Hunk {
-    pub mine: Range<usize>,
-    pub theirs: String,
-}
-
 /// A change taken in from theirs without conflict, to be marked: lines `lines` of the merged text
 /// (empty = where something was deleted) replaced `old` (empty = pure addition).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,11 +18,14 @@ pub struct Mark {
     pub old: String,
 }
 
+/// A merged text, the changes of theirs that were taken in (to be marked), and the conflicts: for
+/// each, the lines of the merged text that are mine where theirs differs (maybe none: mine has no
+/// line there, and the range is the point between two lines).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Merged {
     pub text: String,
     pub marks: Vec<Mark>,
-    pub hunks: Vec<Hunk>,
+    pub conflicts: Vec<Range<usize>>,
 }
 
 /// A change of one side: (base lines, that side's lines) that replace each other.
@@ -68,29 +63,22 @@ fn joins(start: usize, end: usize, open: bool, r: &Range<usize>) -> bool {
     }
 }
 
-/// Three-way merge of whole texts by lines (PROP-3): two line diffs from `similar`
-/// (base→mine, base→theirs), walked together. With `propose_all` (filters, PROP-6) every theirs
-/// change becomes a hunk; otherwise (disk, PROP-2) theirs changes that don't overlap mine's are
-/// applied and marked, and only conflicts become hunks. `deadline` goes to similar (PROP-7).
+/// Three-way merge of whole texts by lines (DISK-3): two line diffs from `similar`
+/// (base→mine, base→theirs), walked together. Theirs changes that don't overlap mine's are applied
+/// and marked (DISK-2), and only conflicts are left out. `deadline` goes to similar (DISK-5).
 ///
 /// The changes of both sides are grouped into clusters: changes that overlap, chained. A cluster
 /// that only mine touches is kept; one that both made identically is taken once; one that only
-/// theirs touches is applied and marked (or proposed); otherwise it is a conflict, and the hunk
-/// proposes theirs' version of the whole cluster in place of mine's.
-pub fn merge3(
-    base: &str,
-    mine: &str,
-    theirs: &str,
-    propose_all: bool,
-    deadline: Option<Instant>,
-) -> Merged {
+/// theirs touches is applied and marked; otherwise it is a conflict, and mine's version of the
+/// whole cluster stays.
+pub fn merge3(base: &str, mine: &str, theirs: &str, deadline: Option<Instant>) -> Merged {
     let (b, sides) = (lines(base), [lines(mine), lines(theirs)]);
     let mut all: Vec<(Range<usize>, Range<usize>, usize)> = Vec::new();
     for (side, ls) in sides.iter().enumerate() {
         all.extend(changes(&b, ls, deadline).into_iter().map(|(old, new)| (old, new, side)));
     }
     all.sort_by_key(|c| (c.0.start, c.0.end));
-    let mut out = Merged { text: String::new(), marks: Vec::new(), hunks: Vec::new() };
+    let mut out = Merged { text: String::new(), marks: Vec::new(), conflicts: Vec::new() };
     let (mut text, mut done, mut off, mut i) = (Vec::new(), 0, [0isize; 2], 0);
     while i < all.len() {
         let (start, mut end, mut open) = (all[i].0.start, all[i].0.start, false);
@@ -116,12 +104,12 @@ pub fn merge3(
         let first = text.len();
         if count[1] == 0 || mine_l == theirs_l {
             text.extend_from_slice(mine_l);
-        } else if count[0] == 0 && !propose_all {
+        } else if count[0] == 0 {
             text.extend_from_slice(theirs_l);
             out.marks.push(Mark { lines: first..text.len(), old: b[start..end].concat() });
         } else {
             text.extend_from_slice(mine_l);
-            out.hunks.push(Hunk { mine: first..text.len(), theirs: theirs_l.concat() });
+            out.conflicts.push(first..text.len());
         }
     }
     text.extend_from_slice(&b[done..]);
@@ -163,7 +151,7 @@ fn tokens(s: &str) -> (Vec<&str>, Vec<usize>) {
 /// Word-level differences (VIS-2): the changed char ranges in `old` and in `new`. Tokens: a run of
 /// alphanumerics and `_` is one word; a char of display width 2 (CJK, full-width) is one word on
 /// its own; a run of whitespace is one token; any other char is one token. At the `deadline`
-/// (PROP-7) the diff gives up and what is left unmatched counts as changed: coarse, never wrong.
+/// (DISK-5) the diff gives up and what is left unmatched counts as changed: coarse, never wrong.
 pub fn words(
     old: &str,
     new: &str,

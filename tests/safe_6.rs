@@ -117,6 +117,7 @@ fn safe_6_a_successful_save_forgets_the_snapshot() {
     feed(&mut a, ":w\n");
     assert_eq!(journal(&a.update(Event::SaveConflict(Some(b"other\n".to_vec()), far(), 0))), []);
     feed(&mut a, ":w!\n");
+    a.update(Event::Kept(Ok("kept".into()))); // the conflict's copy of SAFE-7 comes first
     assert_eq!(journal(&a.update(Event::Saved(Ok((1, None)), 0))), [J::Unsnap]);
     assert_eq!(tick(&mut a, 2000), [], "clean");
 }
@@ -244,7 +245,7 @@ fn safe_6_a_snapshot_of_another_disk_state_is_merged() {
 }
 
 #[test]
-fn safe_6_a_snapshot_that_conflicts_with_the_disk_leaves_a_hunk() {
+fn safe_6_a_snapshot_that_conflicts_with_the_disk_marks_the_line_and_diverges() {
     let mut a = named("one\nTWO!\n");
     let fx = recover(&mut a, "one\ntwo", "one\nTWO?", 1000);
     assert_eq!(
@@ -252,8 +253,8 @@ fn safe_6_a_snapshot_that_conflicts_with_the_disk_leaves_a_hunk() {
         "recovered changes from 1 second ago, merged with disk · u to undo"
     );
     assert_eq!(text(&a), "one\nTWO?", "the snapshot's text stays in the buffer");
-    let h = &a.buf.hunks[0];
-    assert_eq!((h.mine.clone(), &*h.theirs, h.disk), (1..2, "TWO!\n", true));
+    assert!(a.diverged());
+    assert_eq!(a.buf.marks.iter().map(|m| (m.line, m.kind)).collect::<Vec<_>>(), [(1, '~')]);
 }
 
 #[test]

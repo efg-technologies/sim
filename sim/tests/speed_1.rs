@@ -7,7 +7,6 @@
 mod common;
 use common::*;
 use si::core::app::{Event, Key};
-use si::core::vi::Mode;
 use sim::color::Syntax;
 use sim::layout::Skin;
 use sim::paint::Painter;
@@ -197,31 +196,6 @@ fn picker(b: &mut Bench) -> Times {
     out
 }
 
-/// LOOK-5, LOOK-6: REVIEW on the big file with ten proposals around the cursor (all on a screen of 60 rows): the card
-/// is raised, the rest fades, and the App's frame is rendered two rows shorter. Each `]c` and `[c`
-/// is timed (the proposals come from the disk changing the lines that were edited here, which
-/// is not timed).
-fn reviews(b: &mut Bench) -> Times {
-    let id = b.r.sim.bufs[0].id;
-    let old = std::fs::read_to_string(b.r.cwd.join("big.rs")).unwrap();
-    let mut lines: Vec<String> = old.lines().map(str::to_string).collect();
-    for i in 0..10 {
-        b.r.keys(&format!("{}GA?<Esc>", 49_990 + 6 * i));
-        lines[49_989 + 6 * i].push('!');
-    }
-    b.r.send(SimEvent::App(id, disk((lines.join("\n") + "\n").as_bytes())));
-    assert_eq!(b.r.app().buf.hunks.len(), 10);
-    b.time("gg");
-    let mut out = vec![];
-    for _ in 0..100 {
-        out.extend(b.time("]c]c]c]c]c]c]c]c]c[c[c[c[c[c[c[c[c"));
-    }
-    assert_eq!(b.r.app().vi.mode, Mode::Review);
-    let fog = b.r.shot.paints.iter().flatten().any(|(_, p)| p.fade > 0);
-    assert_eq!(fog, b.r.sim.skin == Skin::Depth, "the fog is drawn in depth");
-    out
-}
-
 /// The mouse (PTR-1) on the big file with the panel open: clicks in the text, drags (a press, some
 /// moves, a release), the wheel in the text (three lines a notch, the cursor keeping its context)
 /// and over the panel. Each event is timed, as a key is.
@@ -276,18 +250,17 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     for skin in [Skin::Calm, Skin::Depth] {
         for size in [(80, 24), (240, 60)] {
             type Kind = fn(&mut Bench) -> Times;
-            let kinds: [(&str, Kind); 8] = [
+            let kinds: [(&str, Kind); 7] = [
                 ("motions", motions),
                 ("insert", inserts),
                 ("delete", deletes),
                 ("panel", panel),
                 ("mouse", mouse),
-                ("review", reviews),
                 ("picker", picker),
                 ("lit", lit),
             ];
             for (name, run) in kinds {
-                // `SPEED_1_ONLY=review` runs the kinds named, for a look at one of them
+                // `SPEED_1_ONLY=lit` runs the kinds named, for a look at one of them
                 if std::env::var("SPEED_1_ONLY").is_ok_and(|o| !o.split(',').any(|k| k == name)) {
                     continue;
                 }

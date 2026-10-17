@@ -21,8 +21,7 @@ fn cli_5_without_a_file_the_intro_shows_until_the_first_key() {
     let concept = include_str!("../CONCEPT.md");
     let tagline = "A vi for reading, where only the changes light up.";
     assert!(concept.contains(tagline) && shown.contains(tagline), "one line from CONCEPT");
-    for key in ["i / Esc", "Ctrl-s", "ZZ", "ZQ", "]c then y / n", "type", "save", "quit", "review"]
-    {
+    for key in ["i / Esc", "Ctrl-s", "ZZ", "ZQ", "]c / [c", "type", "save", "quit", "change"] {
         assert!(shown.contains(key), "{key}");
     }
     assert!(shown.lines().filter(|l| l.contains("quit")).count() >= 2 && shown.contains(" q "));

@@ -15,11 +15,10 @@ use crate::icons;
 use crate::indent::{self, Indent, Lead};
 use crate::io::GIT_SKIPPED;
 use crate::layout::{
-    self, Chrome, Colored, Deck, Ed, Extra, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin,
-    Tick,
+    self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin, Tick,
 };
 use crate::marks::{Git, Marks};
-use crate::paint::{Looks, Paint, Screen};
+use crate::paint::{Paint, Screen};
 use crate::pick;
 use crate::rank::History;
 use crate::search::Matcher;
@@ -39,7 +38,6 @@ use si::core::view::{self, Frame, Row, Shape};
 use si::io::journal::Snapshot;
 use std::collections::HashSet;
 use std::mem::{replace, take};
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -572,12 +570,11 @@ impl Sim {
     }
 
     /// Tells every App the size it has, so that what it renders fits next to the panel: the rows
-    /// of the body and its status line, two fewer in REVIEW while a card is shown (LOOK-5).
+    /// of the body and its status line.
     fn fit(&mut self) {
         let g = self.geo();
-        let card = g.boxed && self.tones.is_some();
         for b in &mut self.bufs {
-            b.app.size = (g.ew, g.rows + 1 - 2 * u16::from(card && b.app.vi.mode == Mode::Review));
+            b.app.size = (g.ew, g.rows + 1);
         }
     }
 
@@ -659,7 +656,6 @@ impl Sim {
         let loss = |gone: bool| if gone { Tick::Loss } else { Tick::Gain };
         let mut marks: Vec<(std::ops::Range<usize>, Tick)> =
             buf.marks.iter().map(|m| (m.line..m.line + 1, loss(m.kind == '-'))).collect();
-        marks.extend(buf.hunks.iter().map(|h| (h.mine.clone(), loss(h.theirs.is_empty()))));
         let untracked =
             self.open_path().is_some_and(|p| self.marks.git(&p) == Some(Git::Untracked));
         match (&b.diff, untracked) {
@@ -791,7 +787,7 @@ impl Sim {
     /// Gives every App but `except` an event that makes it ask for a snapshot of its unsaved text
     /// (a tick, a signal: SAFE-6), and keeps only those requests (and, for a signal, the place of
     /// its cursor, CLI-6). The frame an App makes meanwhile is kept for the screen: a tick brings
-    /// the seconds of a running filter (PROP-5).
+    /// the seconds of a running filter (FILT-1).
     fn snapshots(&mut self, except: Option<Id>, ev: impl Fn() -> Event) -> (Vec<SimEffect>, bool) {
         let (mut out, mut drawn) = (vec![], false);
         for b in self.bufs.iter_mut().filter(|b| Some(b.id) != except) {
@@ -869,36 +865,30 @@ impl Sim {
         (ids, names.join(", "))
     }
 
-    /// BUF-3: `:qa` and `:wa` hold SAFE-7 for each file. `:qa` stays while a file has a hunk
-    /// (si's `:q` says so before it says anything about a write), then while one is modified;
+    /// BUF-3: `:qa` and `:wa` hold SAFE-7 for each file. `:qa` stays while one is modified;
     /// `:wa` leaves out the files that have a conflict with the disk, naming them, and saves the rest.
     fn run_all(&mut self, (name, bang, arg): (&str, bool, &str), out: &mut Vec<SimEffect>) {
-        let (open, hunks) = self.named(|b| !b.app.buf.hunks.is_empty());
         let (modified, names) = self.named(|b| b.app.buf.dirty());
         match name {
-            "qa" | "qall" if bang || (open.is_empty() && modified.is_empty()) => {
+            "qa" | "qall" if bang || modified.is_empty() => {
                 for b in &self.bufs {
                     let fx = [Some(Effect::Unsnapshot), b.app.place()]; // CLI-6: the place is remembered
                     out.extend(fx.into_iter().flatten().map(|e| SimEffect::App(b.id, e)));
                 }
                 out.push(SimEffect::Quit(0));
             }
-            "qa" | "qall" if !open.is_empty() => {
-                self.msg =
-                    Some(format!("unresolved proposals in {hunks} (]c to review, :qa! discards)"))
-            }
             "qa" | "qall" => {
                 self.msg = Some(format!("no write since last change in {names} (:qa! to discard)"))
             }
             "wa" | "wall" if modified.is_empty() => self.msg = Some("no modified files".into()),
             "wa" | "wall" => {
-                let (stuck, stuck_names) = self.named(|b| b.app.buf.hunks.iter().any(|h| h.disk));
+                let (stuck, stuck_names) = self.named(|b| b.app.diverged());
                 for id in modified.into_iter().filter(|id| !stuck.contains(id)) {
                     self.to(id, Event::Key(Key::Ctrl('s')), out);
                 }
                 if !stuck.is_empty() {
                     self.msg = Some(format!(
-                        "not saved: conflicts with the disk in {stuck_names} (]c, :w! keeps yours)"
+                        "not saved: conflicts with the disk in {stuck_names} (:w! keeps yours, :e! takes the disk's)"
                     ));
                 }
             }
@@ -936,7 +926,7 @@ impl Sim {
         let g = self.geo();
         let mut app = App::new(Some(o.path.clone()), o.file, (g.ew, g.rows + 1));
         app.wide = true; // prose wraps at the pane's width, not at 72 columns (UI-9)
-        (app.hook, app.cwd) = (self.hook.clone(), Some(self.cwd.to_string_lossy().into_owned()));
+        app.hook = self.hook.clone();
         let mut fx = vec![];
         if let Some(Found(s, file, age, by)) = o.found {
             let v = app.buf.version();
@@ -984,14 +974,7 @@ impl Sim {
     /// thread: the last ones are used until new ones come (an edit leaves the colors of the other
     /// lines as they were for the moment), and when they do not cover what is on screen they are
     /// asked for again, a screenful above and below.
-    fn colors(&self, b: &Buf, f: &Frame, ch: &[Kind]) -> (Colored, Option<Req>) {
-        let review = b.app.vi.mode == Mode::Review;
-        if review && !self.deep() {
-            // its rows weave mine and theirs
-            let (looks, extra) =
-                (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
-            return (Colored { looks, win: None, extra }, None);
-        }
+    fn colors(&self, b: &Buf, f: &Frame) -> (Colored, Option<Req>) {
         let buf = &b.app.buf;
         let text = |l: usize| text_of(buf, l);
         // Lines inserted or removed at the cursor move the lines below it: their old spans are
@@ -1007,24 +990,15 @@ impl Sim {
             h.spans.get(old.checked_sub(h.from)?)
         };
         let lit = self.flash.as_ref().filter(|f| f.id == b.id && f.ver == buf.version());
-        let guides =
-            self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone()))).filter(|_| !review);
+        let guides = self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone())));
         let line_ui = guides.as_ref().map(|g| move |l: usize| g.of(buf, l));
-        let mut colored = layout::colors(
+        let colored = layout::colors(
             f,
             digits(buf),
             &text,
             &spans,
             line_ui.as_ref().map(|f| f as &dyn Fn(usize) -> LineUi),
         );
-        // LOOK-6: in REVIEW a row that has a change weaves mine and theirs and has no colors; the others do.
-        if review {
-            let rows = colored.looks.iter_mut().zip(&mut colored.extra).zip(ch);
-            for ((looks, extra), _) in rows.filter(|x| *x.1 != Kind::Plain) {
-                looks.clear();
-                *extra = Extra::default();
-            }
-        }
         let win = colored.win;
         let (ver, h) = (buf.version(), usize::from(self.size.1));
         let (Some((a, z)), Some(name)) = (win, b.app.path.clone()) else {
@@ -1038,20 +1012,11 @@ impl Sim {
         (colored, ask.then(|| Req { id: b.id, name, ver, text: buf.text.clone(), from, n }))
     }
 
-    /// Whether depth draws its card, fog and boxes in colors: depth on a screen big enough for its
-    /// boxes, with a palette and truecolor (LOOK-3, LOOK-8).
-    fn deep(&self) -> bool {
-        self.geo().boxed && self.tones.is_some()
-    }
-
     /// LOOK-2: what each row of the current file's frame is, when flat or depth tints them.
     fn changes(&self) -> Vec<Kind> {
         let b = self.bufs.get(self.cur).filter(|_| self.skin != Skin::Calm && self.tones.is_some());
-        b.and_then(|b| {
-            let review = b.app.vi.mode == Mode::Review;
-            Some(layout::changed(b.frame.as_ref()?, digits(&b.app.buf), review))
-        })
-        .unwrap_or_default()
+        b.and_then(|b| Some(layout::changed(b.frame.as_ref()?, digits(&b.app.buf))))
+            .unwrap_or_default()
     }
 
     /// UI-5: the git sign of each row of the frame of a file: from the last answer of git, and every
@@ -1084,15 +1049,6 @@ impl Sim {
         let path = self.cwd.join(self.bufs.get(self.cur)?.app.path.as_ref()?);
         let rel = path.strip_prefix(&self.root).ok()?;
         rel.ancestors().find_map(|a| self.view().row_of(a))
-    }
-
-    /// LOOK-5: the rows of the card in the current file's frame, while REVIEW has one (`ch` is
-    /// `changes()`).
-    fn card(&self, ch: &[Kind]) -> Option<Range<usize>> {
-        let (b, deep) = (self.bufs.get(self.cur)?, self.deep());
-        let (a, f) = (&b.app, b.frame.as_ref()?);
-        let hunk = a.buf.hunks.get(a.current()).filter(|_| deep && a.vi.mode == Mode::Review)?;
-        layout::card(f, ch, digits(&a.buf), hunk.mine.end)
     }
 
     /// The whole screen: the panel, the current file and the status line (BUF-2: `2/5` is
@@ -1182,18 +1138,12 @@ impl Sim {
             (cursor, shape) = ((x, g.y0 + i as u16), Shape::Block);
         }
         let ch = self.changes();
-        let looked =
-            self.bufs.get(self.cur).and_then(|b| Some(self.colors(b, b.frame.as_ref()?, &ch)));
+        let looked = self.bufs.get(self.cur).and_then(|b| Some(self.colors(b, b.frame.as_ref()?)));
         let (colored, ask) = looked.unwrap_or_default();
         let win = colored.win;
         if let (Some(req), Some(b)) = (ask, self.bufs.get_mut(self.cur)) {
             b.asked = Some((req.ver, req.from, req.n));
             out.push(SimEffect::Highlight(req));
-        }
-        // LOOK-5: the text's cursor goes down with the half row above the card.
-        let card = self.card(&ch);
-        if card.is_some() && !focus && !typing {
-            cursor.1 += 1;
         }
         let tones = self.tones.filter(|_| self.skin != Skin::Calm);
         let anchor = if focus { self.panel.cur } else { self.open_row().unwrap_or(self.panel.cur) };
@@ -1222,10 +1172,8 @@ impl Sim {
             Some((b, f)) => Some(Ed {
                 digits: digits(&b.app.buf),
                 ch,
-                card,
                 crow: b.crow,
-                cur_line: (ui && b.app.vi.mode != Mode::Review)
-                    .then(|| b.app.buf.line_of(b.app.buf.cursor)),
+                cur_line: ui.then(|| b.app.buf.line_of(b.app.buf.cursor)),
                 insert: b.app.vi.mode == Mode::Insert,
                 signs: self.signs(b, f, ui),
                 extra: &colored.extra,
@@ -1314,9 +1262,6 @@ impl Sim {
             Mode::Insert => ("INSERT".to_string(), BarBlock::Accent),
             Mode::Visual => ("VISUAL".into(), BarBlock::Accent),
             Mode::VLine => ("V-LINE".into(), BarBlock::Accent),
-            Mode::Review => {
-                (format!("REVIEW {}/{}", a.current() + 1, buf.hunks.len()), BarBlock::Accent)
-            }
             Mode::Cmd => return None,
             Mode::Normal => ("NORMAL".into(), BarBlock::Gray),
         };

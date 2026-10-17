@@ -172,7 +172,7 @@ fn vi_3_bang_opens_the_command_line_with_the_line_numbers() {
         assert_eq!(status(&screen(&mut a)), want, "{keys}");
         let fx = feed(&mut a, "sort<CR>");
         let runs = fx.iter().any(|e| matches!(e, Effect::Spawn { cmd, .. } if cmd == "sort"));
-        assert!(runs, "{keys}: the command runs (PROP-5)");
+        assert!(runs, "{keys}: the command runs (FILT-1)");
         assert_eq!(
             text(&a),
             before.replace('|', ""),

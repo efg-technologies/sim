@@ -232,27 +232,6 @@ fn perf_2_bench_keys_after_a_rewrite_of_every_line_have_100k_marks_to_carry() {
     assert!(moving < Duration::from_micros(500), "a key that moves the marks took {moving:?}");
 }
 
-/// Conflicts pile up (nothing is dropped, PROP-2) when a tool keeps rewriting what mine changed.
-/// The frame looks at the hunks of the screen only.
-#[test]
-#[ignore]
-fn perf_2_bench_keys_with_many_hunks_to_carry() {
-    release_only();
-    for (hunks, size) in [(3_000usize, (80u16, 24u16)), (20_000, (80, 24)), (3_000, (240, 60))] {
-        let text: String = (0..LINES).map(|i| statement(i, "value")).collect();
-        let mut r = Rig::on(&text, size);
-        r.a.buf.hunks = (0..hunks)
-            .map(|k| {
-                let start = k * (LINES / hunks);
-                hunk(start..start + 1, &format!("theirs {k}\n"), Some((vec![0..1], vec![0..1])))
-            })
-            .collect::<Vec<_>>()
-            .into();
-        let (moving, staying) = report(&format!("{hunks} hunks {}x{}", size.0, size.1), &mut r);
-        assert!(moving.max(staying) < P99, "a key took {:?}", moving.max(staying));
-    }
-}
-
 /// A long list of marks is copied by every edit that moves it, so only the last 4 undo steps
 /// keep theirs: the memory of a session stays bounded and the copies reuse what was let go. A short
 /// list is kept by every step.
@@ -276,7 +255,7 @@ fn perf_2_a_long_list_of_marks_is_kept_by_the_last_4_undo_steps_only() {
     }
 }
 
-/// One command that edits every line, on a file whose every line is marked (an AI rewrote it): the
+/// One command that edits every line, on a file whose every line is marked (another process rewrote it): the
 /// marks are moved once per edit, so each edit must not copy the whole list (that is quadratic:
 /// 100,000 lines took 3.8 s, 30,000 took 0.35 s in a release build).
 #[test]
@@ -293,7 +272,7 @@ fn perf_2_a_substitute_over_marked_lines_does_not_copy_the_marks_for_each_line()
     assert_eq!(a.msg.as_deref(), Some("30000 substitutions on 30000 lines"));
     assert!(a.buf.marks.is_empty(), "the lines the command changed lost their marks");
     assert!(took < Duration::from_secs(2), "{took:?} for {n} lines");
-    // Undo brings the marks back, but the one on the line the cursor goes to (PROP-9).
+    // Undo brings the marks back, but the one on the line the cursor goes to (DISK-6).
     feed(&mut a, "u");
     assert_eq!(a.buf.marks.len(), n - 1);
     assert!(text(&a).starts_with("line 0 beta\n"));

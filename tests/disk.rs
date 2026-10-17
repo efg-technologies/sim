@@ -1,4 +1,4 @@
-//! PROP-1, PROP-2, PROP-7, PROP-9, SAFE-5 on App: what the buffer does when the file changes on
+//! DISK-1, DISK-2, DISK-5, DISK-6, SAFE-5 on App: what the buffer does when the file changes on
 //! disk (reload, merge, marks, hunks), and how a hunk or a mark survives edits. The merge itself
 //! (diff3) is tests/proposal.rs; the watcher is tests/watch.rs; the screen is `vis_*` below.
 // Helpers may unwrap; expected values are written as `vec![a..b]` on purpose: a list holding one range.
@@ -11,7 +11,7 @@ use si::core::buffer::{ABSENT, Buffer, hash};
 use std::time::{Duration, Instant};
 
 fn named(text: &str) -> App {
-    app_with(Some("f"), text.as_bytes(), (100, 12))
+    app_with(Some("f"), text.as_bytes(), (130, 12))
 }
 
 /// The file now holds `text`.
@@ -44,27 +44,22 @@ fn marks(a: &App) -> Vec<(usize, char)> {
     a.buf.marks.iter().map(|m| (m.line, m.kind)).collect()
 }
 
-/// (lines of mine, theirs) of every hunk.
-fn hunks(a: &App) -> Vec<(std::ops::Range<usize>, String)> {
-    a.buf.hunks.iter().map(|h| (h.mine.clone(), h.theirs.to_string())).collect()
-}
-
 /// The text of the buffer with the cursor's line and column.
 fn at(a: &App) -> (String, usize, usize) {
     (text(a), a.buf.line_of(a.buf.cursor), a.buf.col())
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-2: a clean buffer reloads and marks what changed
+// DISK-2: a clean buffer reloads and marks what changed
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn prop_2_a_clean_buffer_reloads_and_marks_added_changed_and_deleted_lines() {
+fn disk_2_a_clean_buffer_reloads_and_marks_added_changed_and_deleted_lines() {
     let mut a = named("alpha\nbeta gamma\ndelta\nepsilon\nzeta\n");
     feed(&mut a, "jj");
     let fx = disk(&mut a, "alpha\nbeta GAMMA\ndelta\nzeta\neta\n");
     assert_eq!(text(&a), "alpha\nbeta GAMMA\ndelta\nzeta\neta");
-    assert!(!a.buf.dirty() && a.buf.hunks.is_empty(), "a reload is clean");
+    assert!(!a.buf.dirty() && !a.diverged(), "a reload is clean");
     assert_eq!(marks(&a), [(1, '~'), (3, '-'), (4, '+')]);
     let w = |i: usize| words(&a.buf.marks[i]);
     assert_eq!((w(0), w(1), w(2)), (Some(vec![5..10]), Some(vec![]), None), "None: the whole line");
@@ -74,7 +69,7 @@ fn prop_2_a_clean_buffer_reloads_and_marks_added_changed_and_deleted_lines() {
 }
 
 #[test]
-fn prop_2_a_run_of_added_lines_is_one_change_and_every_line_is_marked() {
+fn disk_2_a_run_of_added_lines_is_one_change_and_every_line_is_marked() {
     let mut a = named("a\nz\n");
     let fx = disk(&mut a, "a\nb\nc\nd\nz\n");
     assert_eq!(marks(&a), [(1, '+'), (2, '+'), (3, '+')]);
@@ -82,7 +77,7 @@ fn prop_2_a_run_of_added_lines_is_one_change_and_every_line_is_marked() {
 }
 
 #[test]
-fn prop_2_a_reload_is_one_undo_step_and_marks_come_back_with_redo() {
+fn disk_2_a_reload_is_one_undo_step_and_marks_come_back_with_redo() {
     let mut a = named("one\ntwo\nthree\n");
     disk(&mut a, "one\nTWO\nthree\nfour\n");
     let after = at(&a);
@@ -104,7 +99,7 @@ fn prop_2_a_reload_is_one_undo_step_and_marks_come_back_with_redo() {
 }
 
 #[test]
-fn prop_2_a_dirty_buffer_takes_in_what_does_not_conflict_and_keeps_the_cursor_on_its_text() {
+fn disk_2_a_dirty_buffer_takes_in_what_does_not_conflict_and_keeps_the_cursor_on_its_text() {
     let mut a = named("a1\nb2\nc3\nd4\ne5\n");
     feed(&mut a, "j$a mine\x1bl");
     assert_eq!(at(&a), ("a1\nb2 mine\nc3\nd4\ne5".into(), 1, 6));
@@ -113,7 +108,7 @@ fn prop_2_a_dirty_buffer_takes_in_what_does_not_conflict_and_keeps_the_cursor_on
     assert_eq!(text(&a), "x\ny\na1\nb2 mine\nc3\nD4\ne5", "both edits are there");
     assert_eq!(marks(&a), [(0, '+'), (1, '+'), (5, '~')], "only the disk's are marked");
     assert_eq!((at(&a).1, at(&a).2), (3, 6), "the cursor is still on `mine`, same column");
-    assert!(a.buf.hunks.is_empty() && a.buf.dirty());
+    assert!(!a.diverged() && a.buf.dirty());
     assert_eq!(a.buf.base.to_string(), "x\ny\na1\nb2\nc3\nD4\ne5", "the disk is the new base");
     assert_eq!(msg(&mut a), "f  4:7  NORMAL  modified · 2 changes on disk");
     // One undo step takes the merge back, and leaves the user's own edit.
@@ -126,7 +121,7 @@ fn prop_2_a_dirty_buffer_takes_in_what_does_not_conflict_and_keeps_the_cursor_on
 }
 
 #[test]
-fn prop_2_a_merge_that_leaves_the_buffer_equal_to_the_disk_is_clean() {
+fn disk_2_a_merge_that_leaves_the_buffer_equal_to_the_disk_is_clean() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "jcwTWO\x1b");
     assert!(a.buf.dirty());
@@ -137,7 +132,7 @@ fn prop_2_a_merge_that_leaves_the_buffer_equal_to_the_disk_is_clean() {
 }
 
 #[test]
-fn prop_2_a_conflict_becomes_a_hunk_and_mine_stays() {
+fn disk_2_a_conflict_leaves_mine_marks_its_lines_and_diverges_the_buffer() {
     let mut a = named("one\ntwo words here\nthree\nfour\n");
     feed(&mut a, "jwcwMINE\x1b");
     let fx = disk(&mut a, "one\ntwo THEIRS here\nthree\nFOUR\n");
@@ -146,67 +141,70 @@ fn prop_2_a_conflict_becomes_a_hunk_and_mine_stays() {
         "one\ntwo MINE here\nthree\nFOUR",
         "mine in the buffer, the rest taken in"
     );
-    assert_eq!(hunks(&a), [(1..2, "two THEIRS here\n".to_string())]);
-    let h = &a.buf.hunks[0];
-    assert!(h.disk, "a conflict with the disk, not a filter's proposal");
     assert_eq!(
-        h.words.as_deref(),
-        Some(&(vec![4..8], vec![4..10])),
-        "the words of mine and of theirs that differ"
+        marks(&a),
+        [(1, '~'), (3, '~')],
+        "the conflict's line, and the line the disk changed"
     );
-    assert_eq!(marks(&a), [(3, '~')], "the hunk's lines are not marked: they are proposals");
-    assert_eq!(status(last_frame(&fx)), "f  2:8  NORMAL  modified · 1 change on disk · 1 proposal");
-    // Nothing is lost: undo puts everything back, redo brings the hunk back.
+    assert_eq!(words(&a.buf.marks[0]), None, "the whole line: the disk's words are not here");
+    assert!(a.diverged());
+    assert_eq!(
+        status(last_frame(&fx)),
+        "f  2:8  NORMAL  modified · 2 changes on disk · conflicts with the disk"
+    );
+    // Nothing is lost: undo puts the text back and redo brings the marks back, and the disk's
+    // version is kept all the while.
     feed(&mut a, "u");
-    assert!(a.buf.hunks.is_empty());
+    assert!(a.buf.marks.is_empty() && a.diverged());
     feed(&mut a, "<C-r>");
-    assert_eq!(hunks(&a), [(1..2, "two THEIRS here\n".to_string())]);
+    assert_eq!(marks(&a), [(3, '~')], "and the one on the cursor's line is seen, as ever");
 }
 
 #[test]
-fn prop_2_several_conflicts_are_separate_hunks_in_order() {
+fn disk_2_several_conflicts_are_marked_line_by_line() {
     let mut a = named("a\nb\nc\nd\ne\nf\n");
     feed(&mut a, "rAjjrCjjrE");
     disk(&mut a, "a2\nb\nc2\nd\ne2\nf\n");
     assert_eq!(text(&a), "A\nb\nC\nd\nE\nf");
+    assert_eq!(marks(&a), [(0, '~'), (2, '~'), (4, '~')]);
     assert_eq!(
-        hunks(&a),
-        [(0..1, "a2\n".to_string()), (2..3, "c2\n".to_string()), (4..5, "e2\n".to_string())]
+        msg(&mut a),
+        "f  5:1  NORMAL  modified · 3 changes on disk · conflicts with the disk"
     );
-    assert_eq!(msg(&mut a), "f  5:1  NORMAL  modified · 3 proposals");
 }
 
 #[test]
-fn prop_2_a_deleted_line_that_mine_edited_is_a_conflict_with_an_empty_hunk_range() {
+fn disk_2_a_deleted_line_that_mine_edited_is_a_conflict_marked_on_mine() {
     let mut a = named("one\ntwo\nthree\n");
     feed(&mut a, "jx");
     disk(&mut a, "one\nthree\n");
     assert_eq!(text(&a), "one\nwo\nthree", "mine is kept");
-    assert_eq!(
-        hunks(&a),
-        [(1..2, String::new())],
-        "theirs deleted the line: accepting would remove it"
-    );
+    assert_eq!(marks(&a), [(1, '~')]);
+    assert!(a.diverged());
 }
 
 #[test]
-fn prop_2_a_second_change_moves_the_marks_and_hunks_of_the_first() {
+fn disk_2_a_second_change_moves_the_marks_of_the_first() {
     let mut a = named("a\nb\nc\nd\ne\n");
     feed(&mut a, "jjrC");
     disk(&mut a, "a\nb\nc2\nd\ne2\n");
-    assert_eq!((marks(&a), hunks(&a)), (vec![(4, '~')], vec![(2..3, "c2\n".to_string())]));
+    assert_eq!(marks(&a), [(2, '~'), (4, '~')]);
     disk(&mut a, "n1\nn2\na\nb\nc2\nd\ne2\n");
     assert_eq!(text(&a), "n1\nn2\na\nb\nC\nd\ne2");
-    assert_eq!(marks(&a), [(0, '+'), (1, '+'), (6, '~')], "the old mark moved down two lines");
-    assert_eq!(hunks(&a), [(4..5, "c2\n".to_string())], "and so did the hunk, with its text");
+    assert_eq!(
+        marks(&a),
+        [(0, '+'), (1, '+'), (4, '~'), (6, '~')],
+        "the old marks moved down two lines"
+    );
     // A change of the very line that carries a mark replaces the mark.
     disk(&mut a, "n1\nn2\na\nb\nc2\nd\ne3\n");
-    assert_eq!(marks(&a), [(0, '+'), (1, '+'), (6, '~')]);
-    assert_eq!(words(&a.buf.marks[2]), Some(vec![0..2]));
+    assert_eq!(marks(&a), [(0, '+'), (1, '+'), (4, '~'), (6, '~')]);
+    assert_eq!(words(&a.buf.marks[3]), Some(vec![0..2]));
+    assert!(a.diverged(), "the first conflict is still there");
 }
 
 #[test]
-fn prop_2_the_format_of_the_file_on_disk_is_adopted() {
+fn disk_2_the_format_of_the_file_on_disk_is_adopted() {
     let mut a = named("one\ntwo\n");
     disk(&mut a, "\u{feff}one\r\ntwo\r\nthree");
     assert_eq!(text(&a), "one\ntwo\nthree");
@@ -219,7 +217,7 @@ fn prop_2_the_format_of_the_file_on_disk_is_adopted() {
 }
 
 #[test]
-fn prop_2_a_file_that_is_no_longer_text_is_not_merged() {
+fn disk_2_a_file_that_is_no_longer_text_is_not_merged() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     let before = at(&a);
@@ -231,14 +229,21 @@ fn prop_2_a_file_that_is_no_longer_text_is_not_merged() {
     });
     assert!(status(last_frame(&fx)).starts_with("changed on disk, not as text: not merged"));
     assert_eq!(at(&a), before);
-    assert!(a.buf.marks.is_empty() && a.buf.hunks.is_empty() && a.buf.dirty());
-    // The save is still guarded: the disk was not taken as the base.
-    let fx = feed(&mut a, ":w\n");
-    assert_eq!(write(&fx).unwrap().1, Some(hash(b"one\ntwo\n")));
+    assert!(a.buf.marks.is_empty() && a.buf.dirty());
+    // The save is still guarded: the disk was not taken as the base, and what it holds is kept
+    // (SAFE-7) before a forced save writes over it.
+    assert!(a.diverged());
+    assert!(write(&feed(&mut a, ":w\n")).is_none());
+    let fx = feed(&mut a, ":w!\n");
+    let kept = fx.iter().find_map(|e| match e {
+        Effect::Keep { bytes, .. } => Some(bytes.clone()),
+        _ => None,
+    });
+    assert_eq!(kept.as_deref(), Some(&b"one\xff\x00two"[..]));
 }
 
 #[test]
-fn prop_2_a_read_only_buffer_says_so_and_stays() {
+fn disk_2_a_read_only_buffer_says_so_and_stays() {
     let mut a = app_with(Some("f"), b"a\xff\n", (60, 8));
     let before = text(&a);
     let fx = disk(&mut a, "new\n");
@@ -247,11 +252,11 @@ fn prop_2_a_read_only_buffer_says_so_and_stays() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-1: our own saves are not changes; a deleted file; asking for a watch
+// DISK-1: our own saves are not changes; a deleted file; asking for a watch
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn prop_1_an_event_with_the_hash_we_know_is_ignored() {
+fn disk_1_an_event_with_the_hash_we_know_is_ignored() {
     let mut a = named("one\ntwo\n");
     let before = a.buf.version();
     disk(&mut a, "one\ntwo\n");
@@ -264,7 +269,7 @@ fn prop_1_an_event_with_the_hash_we_know_is_ignored() {
 }
 
 #[test]
-fn prop_1_a_disk_event_brings_the_hash_of_its_content_so_that_no_key_hashes_it() {
+fn disk_1_a_disk_event_brings_the_hash_of_its_content_so_that_no_key_hashes_it() {
     let mut a = named("one\ntwo\n");
     let before = (text(&a), a.buf.version());
     // The hash is the reader's word: content that hashes to what App knows is not looked at again.
@@ -303,7 +308,7 @@ fn prop_1_a_disk_event_brings_the_hash_of_its_content_so_that_no_key_hashes_it()
 }
 
 #[test]
-fn prop_1_our_own_save_is_ignored_while_it_is_in_flight_and_after() {
+fn disk_1_our_own_save_is_ignored_while_it_is_in_flight_and_after() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     let fx = feed(&mut a, ":w\n");
@@ -311,20 +316,17 @@ fn prop_1_our_own_save_is_ignored_while_it_is_in_flight_and_after() {
     let (bytes, saved) = (bytes.to_vec(), hash(bytes));
     // The watcher can be quicker than the thread that saved.
     a.update(Event::Disk { bytes: Some(bytes.clone()), hash: None, deadline: far(), seq: 0 });
-    assert_eq!(
-        (text(&a).as_str(), a.buf.marks.is_empty(), a.buf.hunks.is_empty()),
-        ("ne\ntwo", true, true)
-    );
+    assert_eq!((text(&a).as_str(), a.buf.marks.is_empty(), a.diverged()), ("ne\ntwo", true, false));
     feed(&mut a, "ix\x1b"); // edited while it runs
     a.update(Event::Saved(Ok((saved, None)), 0));
     a.update(Event::Disk { bytes: Some(bytes), hash: None, deadline: far(), seq: 0 });
     assert_eq!(text(&a), "xne\ntwo", "and when the answer came first");
-    assert!(a.buf.marks.is_empty() && a.buf.hunks.is_empty());
+    assert!(a.buf.marks.is_empty() && !a.diverged());
     assert!(a.buf.dirty(), "only the saved text is clean");
 }
 
 #[test]
-fn prop_1_a_deleted_file_keeps_its_text_and_counts_as_modified() {
+fn disk_1_a_deleted_file_keeps_its_text_and_counts_as_modified() {
     let mut a = named("one\ntwo\n");
     assert!(!a.buf.dirty());
     let fx = a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
@@ -347,7 +349,7 @@ fn prop_1_a_deleted_file_keeps_its_text_and_counts_as_modified() {
 }
 
 #[test]
-fn prop_1_a_file_created_again_is_merged() {
+fn disk_1_a_file_created_again_is_merged() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
@@ -365,14 +367,14 @@ fn prop_1_a_file_created_again_is_merged() {
 }
 
 #[test]
-fn prop_1_a_buffer_without_a_file_ignores_the_disk() {
+fn disk_1_a_buffer_without_a_file_ignores_the_disk() {
     let mut a = app("one\n");
     disk(&mut a, "other\n");
     assert_eq!(text(&a), "one");
 }
 
 #[test]
-fn prop_1_the_app_asks_to_watch_the_file_it_has() {
+fn disk_1_the_app_asks_to_watch_the_file_it_has() {
     let watched = |fx: &[Effect]| {
         fx.iter().find_map(|e| if let Effect::Watch(p) = e { Some(p.clone()) } else { None })
     };
@@ -385,7 +387,7 @@ fn prop_1_the_app_asks_to_watch_the_file_it_has() {
     feed(&mut a, "ihi\x1b:w new.txt\n");
     let fx = a.update(Event::Saved(Ok((hash(b"hi\n"), None)), 0));
     assert_eq!(watched(&fx).as_deref(), Some("new.txt"));
-    // The shell silences the watcher when an `:e` begins to read (PROP-1), so every answer, also a
+    // The shell silences the watcher when an `:e` begins to read (DISK-1), so every answer, also a
     // refused one, is followed by a watch of the file the buffer has: here the one it keeps.
     let mut a = named("one\n");
     feed(&mut a, ":e other.txt\nx");
@@ -411,90 +413,15 @@ fn prop_1_the_app_asks_to_watch_the_file_it_has() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// A newer say of the disk on the same lines replaces the older (PROP-2)
+// A newer say of the disk on the same lines replaces the older (DISK-2)
 // ---------------------------------------------------------------------------------------------
-
-#[test]
-fn prop_2_a_new_conflict_over_the_lines_of_an_old_one_replaces_it() {
-    let mut a = named("a\nb\nc\nd\ne\n");
-    feed(&mut a, "jrXjjrY");
-    disk(&mut a, "a\nb2\nc\nd2\ne\n");
-    assert_eq!(hunks(&a), [(1..2, "b2\n".to_string()), (3..4, "d2\n".to_string())]);
-    // The AI rewrites the file again, and again: the proposals are the last ones, not a pile.
-    for round in 3..8 {
-        disk(&mut a, &format!("a\nb{round}\nc\nd{round}\ne\n"));
-        assert_eq!(
-            hunks(&a),
-            [(1..2, format!("b{round}\n")), (3..4, format!("d{round}\n"))],
-            "round {round}"
-        );
-        assert_eq!(msg(&mut a), "f  4:1  NORMAL  modified · 2 proposals");
-    }
-    assert_eq!(text(&a), "a\nX\nc\nY\ne", "mine did not move");
-    // And undo takes the last merge back to the one before it.
-    feed(&mut a, "u");
-    assert_eq!(hunks(&a), [(1..2, "b6\n".to_string()), (3..4, "d6\n".to_string())]);
-}
-
-#[test]
-fn prop_2_a_conflict_that_covers_an_old_one_in_a_bigger_block_replaces_it() {
-    let mut a = named("a\nb\nc\nd\ne\n");
-    feed(&mut a, "jrXjjrY");
-    disk(&mut a, "a\nb2\nc\nd2\ne\n");
-    assert_eq!(hunks(&a).len(), 2);
-    // The file now also changed the line between them: one cluster of lines 1..4 holds both.
-    disk(&mut a, "a\nb3\nc3\nd3\ne\n");
-    assert_eq!(hunks(&a), [(1..4, "b3\nc3\nd3\n".to_string())]);
-}
-
-#[test]
-fn prop_2_a_conflict_that_overlaps_an_old_one_only_in_part_leaves_both() {
-    let mut a = named("a\nb\nc\nd\ne\n");
-    feed(&mut a, "jcwB\x1bjcwC\x1bjcwD\x1b");
-    disk(&mut a, "a\nX1\nX2\nX3\ne\n");
-    assert_eq!(hunks(&a), [(1..4, "X1\nX2\nX3\n".to_string())]);
-    // Mine now agrees with the file on the first and the last of those lines.
-    feed(&mut a, "ggjcwX1\x1bjjcwX3\x1b");
-    assert_eq!(text(&a), "a\nX1\nC\nX3\ne");
-    assert_eq!(hunks(&a)[0].0, 1..4);
-    // The file changes the middle line again: its conflict covers that line alone.
-    disk(&mut a, "a\nX1\nY2\nX3\ne\n");
-    assert_eq!(
-        hunks(&a),
-        [(1..4, "X1\nX2\nX3\n".to_string()), (2..3, "Y2\n".to_string())],
-        "the older proposal still offers lines the newer one does not: nothing is dropped"
-    );
-}
-
-#[test]
-fn prop_2_a_proposal_that_is_not_from_the_disk_is_never_replaced() {
-    let mut a = named("a\nb\nc\n");
-    feed(&mut a, "jrX");
-    let mut h = hunk(1..2, "B\n", None);
-    h.disk = false;
-    a.buf.hunks = std::sync::Arc::new(vec![h]);
-    disk(&mut a, "a\nb2\nc\n");
-    assert_eq!(hunks(&a), [(1..2, "B\n".to_string()), (1..2, "b2\n".to_string())]);
-}
-
-#[test]
-fn prop_2_a_conflict_does_not_replace_hunks_next_to_it() {
-    let mut a = named("a\nb\nc\nd\n");
-    feed(&mut a, "jrXjrY");
-    disk(&mut a, "a\nb2\nc2\nd\n");
-    let before = hunks(&a);
-    assert_eq!(before.len(), 1, "adjacent changes of both sides are one cluster");
-    // An unrelated change elsewhere leaves the proposal alone.
-    disk(&mut a, "a0\nb2\nc2\nd\n");
-    assert_eq!(hunks(&a), before);
-}
 
 // ---------------------------------------------------------------------------------------------
 // The view follows a merge like the cursor
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn prop_2_the_view_does_not_jump_when_lines_come_in_above_it() {
+fn disk_2_the_view_does_not_jump_when_lines_come_in_above_it() {
     let text: String = (0..200).map(|i| format!("line {i}\n")).collect();
     let mut a = app_with(Some("f"), text.as_bytes(), (40, 30));
     feed(&mut a, "100Gzz");
@@ -546,53 +473,39 @@ fn safe_5_a_save_that_finds_another_file_merges_and_does_not_save() {
 #[test]
 fn safe_5_a_save_conflict_for_content_already_merged_makes_no_second_undo_step() {
     // The watcher's read comes first, the save's answer second, with the same content.
-    for (mine, theirs, tail) in [
-        ("rO", "one\ntwo\nTHREE\n", "(:w to save)"),
-        ("rO", "OTHER\ntwo\nthree\n", "· 1 conflict to review"),
+    let ways = ":w! keeps yours · :e! takes the disk's · the other is copied first";
+    for (mine, theirs, said) in [
+        (
+            "rO",
+            "one\ntwo\nTHREE\n",
+            "not saved: the file changed on disk; merged its changes (:w to save)".to_string(),
+        ),
+        (
+            "rO",
+            "OTHER\ntwo\nthree\n",
+            format!("not saved: the disk changed and conflicts · {ways}"),
+        ),
     ] {
         let mut a = named("one\ntwo\nthree\n");
         feed(&mut a, mine);
         feed(&mut a, ":w\n");
         disk(&mut a, theirs);
-        let (merged, version, marks_, hunks_) = (text(&a), a.buf.version(), marks(&a), hunks(&a));
-        let (m2, h2) = (marks_.clone(), hunks_.clone());
+        let (merged, version, marks_) = (text(&a), a.buf.version(), marks(&a));
+        let m2 = marks_.clone();
         let fx = a.update(Event::SaveConflict(Some(theirs.as_bytes().to_vec()), far(), 0));
         assert!(write(&fx).is_none() && !quits(&fx));
-        assert_eq!(
-            status(last_frame(&fx)),
-            format!("not saved: the file changed on disk; merged its changes {tail}")
-        );
+        assert_eq!(status(last_frame(&fx)), said);
         assert_eq!(a.buf.version(), version, "nothing new happened to the text");
-        assert_eq!((text(&a), marks(&a), hunks(&a)), (merged.clone(), marks_, hunks_));
+        assert_eq!((text(&a), marks(&a)), (merged.clone(), marks_));
         feed(&mut a, "u");
-        let now = (text(&a), marks(&a), hunks(&a));
         assert_ne!(
-            now,
-            (merged, m2, h2),
+            (text(&a), marks(&a)),
+            (merged, m2),
             "one u takes the merge back, not a step that did nothing"
         );
         feed(&mut a, "u");
         assert_eq!(text(&a), "one\ntwo\nthree");
     }
-}
-
-#[test]
-fn safe_5_conflicts_found_by_a_save_are_counted() {
-    let mut a = named("a\nb\nc\n");
-    feed(&mut a, "rXjjrZ:w\n");
-    let fx = a.update(Event::SaveConflict(Some(b"a2\nb\nc2\n".to_vec()), far(), 0));
-    assert_eq!(
-        status(last_frame(&fx)),
-        "not saved: the file changed on disk; merged its changes · 2 conflicts to review"
-    );
-    assert_eq!(hunks(&a).len(), 2);
-    feed(&mut a, "u");
-    feed(&mut a, ":w\n");
-    let fx = a.update(Event::SaveConflict(Some(b"a3\nb\nZ\n".to_vec()), far(), 0));
-    assert_eq!(
-        status(last_frame(&fx)),
-        "not saved: the file changed on disk; merged its changes · 1 conflict to review"
-    );
 }
 
 #[test]
@@ -622,7 +535,7 @@ fn safe_5_the_disk_content_goes_through_the_same_merge_as_a_watched_change() {
     disk(&mut x, new);
     feed(&mut y, ":w\n");
     y.update(Event::SaveConflict(Some(new.as_bytes().to_vec()), far(), 0));
-    assert_eq!((text(&x), marks(&x), hunks(&x)), (text(&y), marks(&y), hunks(&y)));
+    assert_eq!((text(&x), marks(&x), x.diverged()), (text(&y), marks(&y), y.diverged()));
     assert_eq!(text(&x), "a X c\nd\nE f g");
 }
 
@@ -636,7 +549,7 @@ fn safe_5_a_conflict_for_another_file_name_is_not_a_merge() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-9: a mark stays until the cursor enters its line
+// DISK-6: a mark stays until the cursor enters its line
 // ---------------------------------------------------------------------------------------------
 
 fn six() -> App {
@@ -647,7 +560,7 @@ fn six() -> App {
 }
 
 #[test]
-fn prop_9_a_mark_stays_until_the_cursor_enters_its_line() {
+fn disk_6_a_mark_stays_until_the_cursor_enters_its_line() {
     let mut a = six();
     feed(&mut a, "l$"); // moving along the line does not enter another one
     assert_eq!(marks(&a), [(1, '~'), (4, '~')]);
@@ -663,7 +576,7 @@ fn prop_9_a_mark_stays_until_the_cursor_enters_its_line() {
 }
 
 #[test]
-fn prop_9_a_search_a_jump_and_a_count_enter_lines_too() {
+fn disk_6_a_search_a_jump_and_a_count_enter_lines_too() {
     for keys in ["/E\n", ":5\n", "4j", "5G"] {
         let mut a = six();
         feed(&mut a, keys);
@@ -672,7 +585,7 @@ fn prop_9_a_search_a_jump_and_a_count_enter_lines_too() {
 }
 
 #[test]
-fn prop_9_a_mark_under_the_cursor_when_the_change_arrives_stays_until_the_next_key() {
+fn disk_6_a_mark_under_the_cursor_when_the_change_arrives_stays_until_the_next_key() {
     let mut a = named("a\nb\nc\n");
     feed(&mut a, "j");
     disk(&mut a, "a\nB\nc\n");
@@ -682,7 +595,7 @@ fn prop_9_a_mark_under_the_cursor_when_the_change_arrives_stays_until_the_next_k
 }
 
 #[test]
-fn prop_9_marks_move_with_edits_above_them() {
+fn disk_6_marks_move_with_edits_above_them() {
     let mut a = six();
     feed(&mut a, "ggOnew\x1b");
     assert_eq!(marks(&a), [(2, '~'), (5, '~')], "a line opened above");
@@ -705,7 +618,7 @@ fn prop_9_marks_move_with_edits_above_them() {
 }
 
 #[test]
-fn prop_9_an_edit_drops_the_marks_of_the_lines_it_changes_and_no_others() {
+fn disk_6_an_edit_drops_the_marks_of_the_lines_it_changes_and_no_others() {
     // Straight at the buffer: the cursor is not involved.
     let mut a = six();
     let b = &mut a.buf;
@@ -721,168 +634,56 @@ fn prop_9_an_edit_drops_the_marks_of_the_lines_it_changes_and_no_others() {
 }
 
 #[test]
-fn prop_9_seen_clears_all_marks_and_only_marks() {
+fn disk_6_seen_clears_all_marks_and_only_marks() {
     let mut a = named("a\nb\nc\n");
     feed(&mut a, "jrX");
     disk(&mut a, "a\nb\nC2\nD\n");
-    assert_eq!((a.buf.marks.len(), a.buf.hunks.len()), (2, 0));
+    assert_eq!(a.buf.marks.len(), 2);
     let mut b = six();
     feed(&mut b, ":seen\n");
     assert!(b.buf.marks.is_empty());
     assert_eq!(msg(&mut b), "f  1:1  NORMAL");
-    // Hunks stay: they are text that nobody has decided about.
+    // The conflict with the disk stays: the disk still holds what mine lacks.
     let mut c = named("a\nb\n");
     feed(&mut c, "rX");
     disk(&mut c, "A\nb\nc\n");
-    assert_eq!((c.buf.marks.len(), c.buf.hunks.len()), (1, 1));
+    assert_eq!((c.buf.marks.len(), c.diverged()), (2, true));
     feed(&mut c, ":seen\n");
-    assert_eq!((c.buf.marks.len(), c.buf.hunks.len()), (0, 1));
+    assert_eq!((c.buf.marks.len(), c.diverged()), (0, true));
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-2: a hunk is never lost to an edit
+// Properties: edits never misplace a mark
 // ---------------------------------------------------------------------------------------------
 
-/// "a b c d e" lines, with a hunk over lines 2..4 (`c` and `d`) proposing "C\nD\n".
-fn with_hunk() -> App {
-    let mut a = named("a\nb\nc\nd\ne\n");
-    feed(&mut a, "jjrxjrx");
-    disk(&mut a, "a\nb\nC\nD\ne\n");
-    assert_eq!(
-        (text(&a).as_str(), hunks(&a)),
-        ("a\nb\nx\nx\ne", vec![(2..4, "C\nD\n".to_string())])
-    );
-    feed(&mut a, "gg");
-    a
-}
-
-#[test]
-fn prop_2_a_hunk_follows_edits_around_it_and_grows_with_edits_inside_it() {
-    for (keys, want) in [
-        ("ggOnew\x1b", 3..5), // a line above: moved
-        ("ggdd", 1..3),       // a line removed above
-        ("Gonew\x1b", 2..4),  // below: untouched
-        ("jjonew\x1b", 2..5), // opened at the end of the hunk's last line... touches it: grows
-        ("jjOnew\x1b", 3..5), // opened above its first line: the new line is not its
-        ("jjA!\x1b", 2..4),   // inside a line
-        ("jjxjx", 2..4),
-        ("jjJ", 2..3), // two lines become one
-        ("jjdd", 2..3),
-        ("jjddu", 2..4), // and undo brings the range back
-    ] {
-        let mut a = with_hunk();
-        feed(&mut a, keys);
-        let got = hunks(&a);
-        assert_eq!(got.len(), 1, "{keys:?}: the hunk is still there");
-        assert_eq!(got[0].1, "C\nD\n", "{keys:?}: and so is its text");
-        assert_eq!(got[0].0, want, "{keys:?}: {:?}", text(&a));
-    }
-}
-
-#[test]
-fn prop_2_an_edit_inside_a_hunk_makes_its_word_diff_stale_and_an_edit_outside_does_not() {
-    for (keys, known) in [
-        ("ggOnew\x1b", true),
-        ("Gonew\x1b", true),
-        ("jjA!\x1b", false),
-        ("jjdd", false),
-        ("jjonew\x1b", false),
-    ] {
-        let mut a = with_hunk();
-        assert!(a.buf.hunks[0].words.is_some());
-        feed(&mut a, keys);
-        assert_eq!(a.buf.hunks[0].words.is_some(), known, "{keys:?}");
-    }
-}
-
-#[test]
-fn prop_2_a_hunk_survives_deleting_all_of_mine() {
-    for keys in [
-        "jjddd",
-        "jjdd",
-        "ggdG",
-        "ggdGu<C-r>",
-        ":%d\n",
-        ":%s/.*//\n",
-        "jjvjd",
-        "ggVGd",
-        "ggVGc\x1b",
-    ] {
-        let mut a = with_hunk();
-        feed(&mut a, keys);
-        assert_eq!(a.buf.hunks.len(), 1, "{keys:?}");
-        assert_eq!(&*a.buf.hunks[0].theirs, "C\nD\n", "{keys:?}");
-        let r = a.buf.hunks[0].mine.clone();
-        assert!(
-            r.start <= r.end && r.end <= a.buf.lines(),
-            "{keys:?}: {r:?} in {} lines",
-            a.buf.lines()
-        );
-    }
-    let mut a = with_hunk();
-    feed(&mut a, "ggdG");
-    assert_eq!(
-        hunks(&a),
-        [(0..1, "C\nD\n".to_string())],
-        "all of mine is gone: the empty line left is the hunk's"
-    );
-}
-
-#[test]
-fn prop_2_a_hunk_gets_mine_back_with_undo() {
-    let mut a = with_hunk();
-    feed(&mut a, "jjdd");
-    assert_eq!(hunks(&a), [(2..3, "C\nD\n".to_string())]);
-    feed(&mut a, "u");
-    assert_eq!(hunks(&a), [(2..4, "C\nD\n".to_string())]);
-    feed(&mut a, "<C-r>");
-    assert_eq!(hunks(&a), [(2..3, "C\nD\n".to_string())]);
-}
-
-// ---------------------------------------------------------------------------------------------
-// Properties: edits never misplace a mark, and never lose a hunk
-// ---------------------------------------------------------------------------------------------
-
-/// A buffer of `n` distinct lines `L0` .. `L{n-1}` with a mark on every line and hunks over given lines.
-fn marked(n: usize, hunk_lines: &[(usize, usize)]) -> Buffer {
+/// A buffer of `n` distinct lines `L0` .. `L{n-1}` with a mark on every line.
+fn marked(n: usize) -> Buffer {
     let src: String = (0..n).map(|i| format!("L{i}\n")).collect();
     let mut b = Buffer::decode(src.as_bytes());
     b.marks = (0..n).map(|line| mark(line, '~', vec![0..1])).collect::<Vec<_>>().into();
-    let hunks: Vec<_> = hunk_lines
-        .iter()
-        .map(|&(s, e)| hunk(s..e.max(s), &format!("theirs {s}\n"), None))
-        .collect();
-    b.hunks = hunks.into();
     b
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10_000))]
 
-    /// PROP-2 / PROP-9. Whatever the edit: marks stay sorted, one per line, inside the text, and
+    /// DISK-2 / DISK-6. Whatever the edit: marks stay sorted, one per line, inside the text, and
     /// each is on a line with the text it was on (an untouched line); a line the edit did not touch
-    /// keeps its mark; every hunk is still there with its text, in range.
+    /// keeps its mark.
     #[test]
-    fn prop_9_edits_never_misplace_a_mark_or_lose_a_hunk(
+    fn disk_6_edits_never_misplace_a_mark(
         n in 1usize..8,
         from in 0usize..40,
         len in 0usize..30,
         with in prop::sample::select(vec!["", "x", "\n", "x\n", "\nx", "a\nb", "\n\n", "y\nz\n"]),
-        h in prop::collection::vec((0usize..9, 0usize..9), 0..3),
     ) {
-        let h: Vec<_> = h.into_iter().map(|(a, b)| (a.min(b), a.max(b).min(n))).map(|(a, b)| (a.min(n), b)).collect();
-        let mut b = marked(n, &h);
+        let mut b = marked(n);
         let before = b.text.to_string();
         let total = b.text.len_chars();
         let (s, e) = (from.min(total), (from + len).min(total));
         b.replace(s..e, with);
         let after = b.text.to_string();
         let ls: Vec<&str> = after.split('\n').collect();
-        prop_assert_eq!(b.hunks.len(), h.len(), "no hunk is dropped");
-        for hk in b.hunks.iter() {
-            prop_assert!(hk.mine.start <= hk.mine.end && hk.mine.end <= b.lines(), "{:?} in {} lines", hk.mine, b.lines());
-            prop_assert!(hk.theirs.starts_with("theirs "), "its text is kept");
-        }
         let mut last = None;
         for m in b.marks.iter() {
             prop_assert!(last.is_none_or(|l| l < m.line) && m.line < b.lines(), "sorted, unique, in range: {:?}", b.marks);
@@ -904,16 +705,16 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(5_000))]
 
-    /// PROP-9 exactly, for edits that replace whole lines `a..b` by `k` new ones: every line that
+    /// DISK-6 exactly, for edits that replace whole lines `a..b` by `k` new ones: every line that
     /// stays keeps its mark at its new place, and no other line has one.
     #[test]
-    fn prop_9_replacing_whole_lines_keeps_exactly_the_marks_of_the_lines_that_stay(
+    fn disk_6_replacing_whole_lines_keeps_exactly_the_marks_of_the_lines_that_stay(
         n in 1usize..8, a in 0usize..8, b in 0usize..8, k in 0usize..3,
     ) {
         let (a, b) = (a.min(n), b.min(n));
         let (a, b) = (a.min(b), a.max(b));
         prop_assume!(!(a == b && k == 0));
-        let mut buf = marked(n, &[(a, b)]);
+        let mut buf = marked(n);
         let len = buf.text.len_chars();
         let news = |sep: &str| (0..k).map(|_| "N").collect::<Vec<_>>().join(sep);
         let (range, with) = if b < n {
@@ -929,9 +730,6 @@ proptest! {
         let want: Vec<usize> = (0..n).filter(|&i| i < a || i >= b).map(|i| if i < a { i } else { i - (b - a) + k }).collect();
         let got: Vec<usize> = buf.marks.iter().map(|m| m.line).collect();
         prop_assert_eq!(got, want, "lines {}..{} of {} replaced by {}", a, b, n, k);
-        prop_assert_eq!(buf.hunks.len(), 1);
-        let h = &buf.hunks[0];
-        prop_assert!(h.mine.start <= h.mine.end && h.mine.end <= buf.lines(), "{:?}", h.mine);
     }
 }
 
@@ -949,14 +747,14 @@ fn safe_6_a_notice_from_the_journal_thread_reaches_the_status_line() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-7: taking in a change on a big file
+// DISK-5: taking in a change on a big file
 // ---------------------------------------------------------------------------------------------
 
 /// 100,000 lines; mine edits one line in a thousand, the disk one in 997 (some collide). Run:
 /// cargo test --release -- --ignored bench --nocapture
 #[test]
 #[ignore]
-fn prop_7_bench_taking_in_a_change_to_100k_lines_stays_within_the_deadline() {
+fn disk_5_bench_taking_in_a_change_to_100k_lines_stays_within_the_deadline() {
     release_only();
     const N: usize = 100_000;
     let line = |i: usize| format!("    let value_{i} = compute({i}, \"some text on the line\");\n");
@@ -995,11 +793,7 @@ fn prop_7_bench_taking_in_a_change_to_100k_lines_stays_within_the_deadline() {
             });
             let took = start.elapsed();
             assert!(last_frame(&fx).rows.len() == 24 && a.buf.lines() > 90_000);
-            eprintln!(
-                "bench {what}: {took:?} ({} marks, {} hunks)",
-                a.buf.marks.len(),
-                a.buf.hunks.len()
-            );
+            eprintln!("bench {what}: {took:?} ({} marks)", a.buf.marks.len());
             worst = worst.max(took);
         }
     }
@@ -1012,7 +806,7 @@ fn prop_7_bench_taking_in_a_change_to_100k_lines_stays_within_the_deadline() {
 /// gives up at the deadline (like `hard_inputs` below, the rest must be quick: under 80 ms).
 #[test]
 #[ignore]
-fn prop_7_bench_a_second_change_on_top_of_100k_marks_and_hunks_stays_within_the_deadline() {
+fn disk_5_bench_a_second_change_on_top_of_100k_marks_stays_within_the_deadline() {
     release_only();
     const N: usize = 100_000;
     let rewrite = |tag: &str| -> String {
@@ -1033,11 +827,7 @@ fn prop_7_bench_a_second_change_on_top_of_100k_marks_and_hunks_stays_within_the_
             seq: 0,
         });
         let took = start.elapsed();
-        eprintln!(
-            "round {round}: {took:?}, {} marks, {} hunks",
-            a.buf.marks.len(),
-            a.buf.hunks.len()
-        );
+        eprintln!("round {round}: {took:?}, {} marks", a.buf.marks.len());
         worst = worst.max(took);
     }
     assert!(worst < Duration::from_millis(80), "taking in a change took {worst:?}");
@@ -1101,15 +891,15 @@ fn steps() -> impl Strategy<Value = Vec<Step>> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(3_000))]
 
-    /// Whatever happens in between: no panic, marks and hunks stay in range and in order, a hunk
-    /// never goes away, a merge leaves the buffer clean exactly when it equals the file, and undoing
-    /// everything gives the first text back.
+    /// Whatever happens in between: no panic, marks stay in range and in order, a line the disk
+    /// gained is in the buffer or kept (the buffer is diverged), a merge leaves the buffer clean
+    /// exactly when it equals the file, and undoing everything gives the first text back.
     #[test]
-    fn prop_2_random_keys_and_changes_on_disk_keep_the_buffer_consistent(base in file_text(), steps in steps()) {
+    fn disk_2_random_keys_and_changes_on_disk_keep_the_buffer_consistent(base in file_text(), steps in steps()) {
         let mut a = named(&base);
         let first = text(&a);
         let mut known = hash(base.as_bytes());
-        let mut proposals: Vec<String> = vec![];
+        let mut seen: std::collections::HashSet<String> = base.lines().map(String::from).collect();
         for step in steps {
             match &step {
                 Step::Keys(k) => drop(feed(&mut a, k)),
@@ -1121,6 +911,7 @@ proptest! {
                         // A half-typed command is cancelled first; `:w!` asks for a save even when the
                         // conflicts of an earlier one are open (the answer below is made up anyway).
                         feed(&mut a, "\x1b\x1b:w!\n");
+                        a.update(Event::Kept(Ok("kept".into()))); // (the copy of SAFE-7, if one was asked for)
                         a.update(Event::SaveConflict(Some(t.as_bytes().to_vec()), far(), 0));
                     }
                     known = hash(t.as_bytes());
@@ -1142,18 +933,16 @@ proptest! {
                 prop_assert!(last.is_none_or(|l| l < m.line) && m.line < b.lines(), "{:?}", b.marks);
                 last = Some(m.line);
             }
-            for h in b.hunks.iter() {
-                prop_assert!(h.mine.start <= h.mine.end && h.mine.end <= b.lines(), "{:?} in {} lines", h.mine, b.lines());
-            }
-            let kept: Vec<String> = b.hunks.iter().map(|h| h.theirs.to_string()).collect();
-            // A hunk never goes away. Only the disk's newer say on its lines replaces it (PROP-2).
-            let newer = match &step { Step::Disk(t) | Step::Conflict(t) => Some(t), _ => None };
-            for t in &proposals {
-                let replaced = newer.is_some_and(|n| kept.iter().any(|k| n.contains(k.as_str())));
-                prop_assert!(kept.contains(t) || replaced, "a proposal is gone: {t:?} from {kept:?}");
-            }
-            if !matches!(step, Step::Keys("<C-r>")) {
-                proposals = kept;
+            // A merge never drops a line the disk gained: it is in the buffer, or the buffer is
+            // diverged and the disk's version is kept (SAFE-7).
+            if let Step::Disk(t) | Step::Conflict(t) = &step {
+                let mine = text(&a);
+                let have: Vec<&str> = mine.split('\n').collect();
+                let new: Vec<&str> = t.lines().filter(|l| !seen.contains(*l)).collect();
+                for l in new.iter().filter(|l| !l.is_empty()) {
+                    prop_assert!(have.contains(l) || a.diverged() || a.gone, "{l:?} of the disk is neither here nor kept: {mine:?}");
+                }
+                seen.extend(t.lines().map(String::from));
             }
             prop_assert!(b.cursor <= b.text.len_chars());
             drop(screen(&mut a));
@@ -1163,7 +952,7 @@ proptest! {
             feed(&mut a, "u");
         }
         prop_assert_eq!(text(&a), first, "undo takes every step back");
-        prop_assert!(a.buf.marks.is_empty() && a.buf.hunks.is_empty());
+        prop_assert!(a.buf.marks.is_empty());
     }
 }
 
@@ -1171,7 +960,7 @@ proptest! {
 /// up at the deadline and the rest of the work is linear, so the key finishes soon after it.
 #[test]
 #[ignore]
-fn prop_7_bench_hard_inputs_through_update_give_up_at_the_deadline() {
+fn disk_5_bench_hard_inputs_through_update_give_up_at_the_deadline() {
     release_only();
     const N: usize = 100_000;
     let text = |f: &dyn Fn(usize) -> usize| -> String {
@@ -1195,17 +984,13 @@ fn prop_7_bench_hard_inputs_through_update_give_up_at_the_deadline() {
             seq: 0,
         });
         let took = start.elapsed();
-        eprintln!(
-            "bench hard: {took:?} ({} marks, {} hunks)",
-            a.buf.marks.len(),
-            a.buf.hunks.len()
-        );
+        eprintln!("bench hard: {took:?} ({} marks)", a.buf.marks.len());
         assert!(took < Duration::from_millis(80), "gave up too late: {took:?}");
     }
 }
 
 #[test]
-fn prop_2_a_merge_ends_the_visual_selection_instead_of_leaving_it_in_the_old_text() {
+fn disk_2_a_merge_ends_the_visual_selection_instead_of_leaving_it_in_the_old_text() {
     let mut a = named("a\nb\nc\nd\n");
     feed(&mut a, "jjVj");
     disk(&mut a, "a\n");

@@ -7,7 +7,6 @@ pub mod color;
 pub mod disk;
 pub mod edit;
 pub mod ex;
-pub mod proposal;
-pub mod review;
+pub mod merge;
 pub mod vi;
 pub mod view;

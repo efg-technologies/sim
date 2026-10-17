@@ -39,7 +39,7 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/si-trace.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 # Test-name families; IDs look like SAFE-1 and test names like safe_1_...
-families=${TRACE_FAMILIES:-'cli|safe|prop|vis|vi|ai|perf|val'}
+families=${TRACE_FAMILIES:-'cli|safe|disk|filt|vis|vi|perf|val'}
 
 # 1. IDs and milestones from SPEC.md, in file order. Indented sub-items are skipped.
 awk -v prefix="$prefix" '

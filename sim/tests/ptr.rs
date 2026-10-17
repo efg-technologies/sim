@@ -439,42 +439,6 @@ fn ptr_2_a_click_in_the_status_line_does_nothing() {
 }
 
 #[test]
-fn ptr_2_a_click_during_review_leaves_review_moves_the_cursor_and_decides_nothing() {
-    let mut r = rig_sized(
-        "ptr2-review",
-        &["main.rs=let a = 1;\nfn main() {}\nlast\n"],
-        &["main.rs"],
-        (50, 8),
-    );
-    r.keys("jx"); // mine: `n main() {}`
-    let id = r.sim.bufs[0].id;
-    r.send(SimEvent::App(id, disk(b"let a = 1;\nfn main() { 1 }\nlast\n")));
-    r.keys("]c");
-    assert_eq!(r.app().vi.mode, Mode::Review);
-    let (text, hunks) = (r.text(), r.app().buf.hunks.len());
-    assert_eq!(hunks, 1);
-    r.click(T + 1, 0);
-    assert_eq!(r.app().vi.mode, Mode::Normal, "like any key that is not a decision");
-    assert_eq!(
-        (r.text(), r.app().buf.hunks.len()),
-        (text.clone(), 1),
-        "nothing accepted, nothing rejected"
-    );
-    assert_eq!(r.status().split("  ").nth(1), Some("1:1"), "the line of its row");
-    // the rows of REVIEW are woven: a click there is the line of its row
-    r.keys("]c");
-    assert_eq!(r.app().vi.mode, Mode::Review);
-    r.wheel(false, T + 1, 3);
-    assert_eq!(r.app().vi.mode, Mode::Review, "the wheel only looks: REVIEW goes on");
-    assert_eq!(r.text(), text);
-    // a half-typed `]` is not a reason to stay
-    r.keys("]");
-    r.click(T + 1, 0);
-    assert_eq!(r.app().vi.mode, Mode::Normal);
-    assert_eq!(r.text(), text);
-}
-
-#[test]
 fn ptr_2_a_click_forgets_a_half_typed_command_and_leaves_the_command_line_alone() {
     let mut r = rig("ptr2-pending", &["f.txt=alpha beta gamma\n"], &["f.txt"]);
     r.keys("d");

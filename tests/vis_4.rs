@@ -10,7 +10,6 @@ use si::core::app::{App, Event, Key};
 use si::core::color::{Rgb, palette};
 use si::core::view::Frame;
 use si::io::term::{self, Reply, Term, wait_bg};
-use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -297,31 +296,30 @@ fn draw(t: &mut Term<Vec<u8>>, f: &Frame) -> String {
     String::from_utf8(t.out.clone()).unwrap()
 }
 
-/// REVIEW of one hunk on a small screen: all four styles are on it.
-fn review(bg: Option<Rgb>) -> App {
+/// A change from the disk on a small screen: the three styles are on it.
+fn changed_word(bg: Option<Rgb>) -> App {
     let mut a = app_with(Some("f.rs"), b"one\ntwo words\nthree\n", (24, 6));
-    a.buf.hunks = Arc::new(vec![hunk(1..2, "TWO words\n", None)]);
-    feed(&mut a, "]c");
+    let bytes = Some(b"one\nTWO words\nthree\n".to_vec());
+    a.update(Event::Disk { bytes, hash: None, deadline: far(), seq: 0 });
+    feed(&mut a, "G");
     bg.into_iter().for_each(|rgb| drop(a.update(Event::Bg(rgb))));
     a
 }
 
 #[test]
-fn vis_4_term_sends_the_four_styles_as_truecolor_golden() {
+fn vis_4_term_sends_the_styles_as_truecolor_golden() {
     let bg = (0x1e, 0x1e, 0x1e);
     let p = palette(bg);
-    let mut a = review(Some(bg));
+    let mut a = changed_word(Some(bg));
     let out = draw(&mut Term::new(Vec::new(), false), &screen(&mut a));
     golden("vis_4_colored_sgr", &visible(&out));
     let fg = |(r, g, b): Rgb| format!("38;2;{r};{g};{b}");
     let bgc = |(r, g, b): Rgb| format!("48;2;{r};{g};{b}");
     // Primary: its fg. Secondary: its fg. Change: its bg and the text color on it.
-    // Deleted: the secondary fg, struck through.
     for want in [
         format!("\x1b[0;{}m", fg(p.primary)),
         format!("\x1b[0;{}m", fg(p.secondary)),
         format!("\x1b[0;{};{}m", bgc(p.change), fg(p.change_text)),
-        format!("\x1b[0;{};9m", fg(p.secondary)),
     ] {
         assert!(out.contains(&want), "{want:?} missing from {out:?}");
     }
@@ -330,10 +328,10 @@ fn vis_4_term_sends_the_four_styles_as_truecolor_golden() {
 
 #[test]
 fn vis_4_without_an_answer_reverse_and_faint_stand_in() {
-    let mut a = review(None);
+    let mut a = changed_word(None);
     let out = draw(&mut Term::new(Vec::new(), false), &screen(&mut a));
-    // Secondary is faint (SGR 2), Change is reverse (7), Deleted is faint and struck through (2;9).
-    for want in ["\x1b[0;2m", "\x1b[0;7m", "\x1b[0;2;9m", "\x1b[0m"] {
+    // Secondary is faint (SGR 2), Change is reverse (7).
+    for want in ["\x1b[0;2m", "\x1b[0;7m", "\x1b[0m"] {
         assert!(out.contains(want), "{want:?} missing from {out:?}");
     }
     assert!(!out.contains("38;2") && !out.contains("48;2"), "{out:?}");

@@ -1,13 +1,14 @@
-//! PROP-1, PROP-2, PROP-5, PROP-6, PROP-8, SAFE-6, SAFE-7: a model of the shell (one event channel, a save thread, a watcher, an
+//! DISK-1, DISK-2, FILT-1, FILT-2, DISK-6, SAFE-6, SAFE-7: a model of the shell (one event channel, a save thread, a watcher, an
 //! outside process) driving `App::update` with random, interleaved events. Words are the unit of
 //! account: `b*` come from the first file, `e*` are written by the outside process, `m*` are typed
 //! by the user. `check_merge` holds what every merge must keep, `check_end` what must be true when
 //! everything has settled: nobody's words are lost, a clean buffer is the file, a deleted file is
-//! told. A filter (PROP-6) is one more thing the outside does: it starts when the user asks, ends at
-//! a random moment with a result of one of a few kinds (it upper-cases the words, changes nothing,
-//! prints nothing, fails, is cancelled), and the result must leave the text exactly as it is, with
-//! every word it brought in either in the text or in a proposal. Every read of the disk is numbered
-//! as it starts, from one counter, like the shell does (PROP-1): the watcher's read when it starts
+//! told. The journal thread makes the copies of SAFE-7 (`Effect::Keep`) and answers them. A filter
+//! (FILT-2) is one more thing the outside does: it starts when the user asks, ends at a random moment
+//! with a result of one of a few kinds (it upper-cases the words, changes nothing, prints nothing,
+//! fails, is cancelled), and the result must either leave the text exactly as it is or put every word
+//! it brought in the text, as one undo step. Every read of the disk is numbered
+//! as it starts, from one counter, like the shell does (DISK-1): the watcher's read when it starts
 //! (it may be sent long after), a load when `:e` asks, a save's answer when the save is done. A
 //! `Disk` that arrives older than something App took in must change nothing. `SI_FUZZ_CASES` sets the
 //! number of cases of every property.
@@ -21,9 +22,8 @@
 mod common;
 use common::*;
 use proptest::prelude::*;
-use si::core::app::{App, Effect, Event, Key};
-use si::core::buffer::{ABSENT, Buffer, Hunk, Mark, hash};
-use si::core::vi::Mode;
+use si::core::app::{App, Effect, Event};
+use si::core::buffer::{ABSENT, Buffer, Mark, hash};
 use std::collections::{HashSet, VecDeque};
 
 type Words = HashSet<String>;
@@ -57,11 +57,11 @@ pub enum U {
     Subst,
     EditBang,
     Paste,
-    /// REVIEW (PROP-8): `]c`, `[c`, `y`, `n`, `Y`, `N`.
-    Review(u8),
-    /// SAFE-7: `:q`, `ZZ`, `:x`, `:wq` and Ctrl-s, none of which may lose a hunk.
+    /// DISK-6: `]c` and `[c`, the hands of a person going through the marks of a conflict.
+    Walk(u8),
+    /// SAFE-7: `:q`, `ZZ`, `:x`, `:wq` and Ctrl-s, none of which may write over a conflict.
     Leave(u8),
-    /// PROP-5: `:%!f` and friends, and Ctrl-c in Normal mode (which cancels a running filter).
+    /// FILT-1: `:%!f` and friends, and Ctrl-c in Normal mode (which cancels a running filter).
     Filter(u8),
     Cancel,
 }
@@ -98,7 +98,7 @@ pub fn op(
     allow_del: bool,
     allow_undo: bool,
     allow_edit_bang: bool,
-    review: bool,
+    conflicts: bool,
     filter: bool,
 ) -> impl Strategy<Value = Op> {
     let mut us = vec![
@@ -128,11 +128,12 @@ pub fn op(
     if allow_edit_bang {
         us.push(U::EditBang);
     }
-    if review {
-        // The hands of a person going through proposals: mostly `]c` and decisions.
-        us.extend((0..10).flat_map(|k| [U::Review(k), U::Review(k)]));
+    if conflicts {
+        // The hands of a person who meets a conflict: walk the marks, try to leave, force a save
+        // (and `:e!`, which is allowed above).
+        us.extend((0..4).flat_map(|k| [U::Walk(k), U::Walk(k)]));
         us.extend((0..5).map(U::Leave));
-        us.push(U::ForceSave);
+        us.extend([U::ForceSave, U::ForceSave, U::EditBang]);
     }
     if filter {
         us.extend((0..5).map(U::Filter));
@@ -149,8 +150,8 @@ pub fn op(
         Just(E::Hit),
         Just(E::Hit),
     ];
-    // A person going through proposals waits for the screen to catch up between keys.
-    let deliver = if review { 30 } else { 8 };
+    // A person meeting a conflict waits for the screen to catch up between keys.
+    let deliver = if conflicts { 30 } else { 8 };
     let base = prop_oneof![
         10 => prop::sample::select(us).prop_map(Op::U),
         4 => es.prop_map(Op::E),
@@ -169,15 +170,14 @@ pub fn op(
 }
 
 struct Pre {
-    mode: Mode,
-    waiting: bool,
-    hunks: Vec<Hunk>,
+    diverged: bool,
     text: String,
     base: String,
     cur_line: String,
     version: u64,
     all_words: Words,
     marks: Vec<Mark>,
+    msg: Option<String>,
 }
 
 pub struct Sim {
@@ -193,7 +193,7 @@ pub struct Sim {
     forced: bool,
     /// The read the watcher holds: its number (taken as it started) and what it saw.
     held: Option<(u64, Option<Vec<u8>>)>,
-    /// The shell's one counter of reads of the disk (PROP-1).
+    /// The shell's one counter of reads of the disk (DISK-1).
     seq: u64,
     chan: VecDeque<Event>,
     job: Option<(Vec<u8>, Option<u64>)>,
@@ -205,8 +205,13 @@ pub struct Sim {
     ever: Words,
     ext_last: Words,
     user_removed: Words,
+    /// The words of every copy the journal thread made for SAFE-7, and how many it made.
+    kept: Words,
+    copies: usize,
+    /// The buffer has been diverged at some point (its marks may be on lines of mine).
+    clashed: bool,
     /// The input of the filter that runs, the input of the one that last ended, and whether Ctrl-c
-    /// has been sent to it (PROP-5).
+    /// has been sent to it (FILT-1).
     filter: Option<String>,
     last_input: Words,
     killed: bool,
@@ -218,14 +223,8 @@ fn cur_line(a: &App) -> String {
     b.text.line(b.line_of(b.cursor)).to_string().trim_end_matches('\n').to_string()
 }
 
-fn hunk_words(a: &App) -> Words {
-    a.buf.hunks.iter().flat_map(|h| h.theirs.split_whitespace().map(String::from)).collect()
-}
-
 fn all_words(a: &App) -> Words {
-    let mut w = words_of(&text(a));
-    w.extend(hunk_words(a));
-    w
+    words_of(&text(a))
 }
 
 impl Sim {
@@ -251,6 +250,9 @@ impl Sim {
             ever: lines_of(&t),
             ext_last: Words::new(),
             user_removed: Words::new(),
+            kept: Words::new(),
+            copies: 0,
+            clashed: false,
             filter: None,
             last_input: Words::new(),
             killed: false,
@@ -302,6 +304,15 @@ impl Sim {
                     self.killed = false;
                 }
                 Effect::Kill => self.killed = true,
+                // The journal thread copies the bytes (SAFE-7) and answers in its own time: the
+                // answer joins the channel.
+                Effect::Keep { bytes, .. } => {
+                    self.kept.extend(words_of(&Buffer::decode(&bytes).text.to_string()));
+                    self.copies += 1;
+                    let at = format!("/state/f.{}", self.copies);
+                    self.log.push(format!("journal keeps {at}"));
+                    self.chan.push_back(Event::Kept(Ok(at)));
+                }
                 _ => {}
             }
         }
@@ -336,11 +347,7 @@ impl Sim {
             U::Subst => "s/b/B/g\n".into(),
             U::EditBang => ":e!\n".into(),
             // (An Esc first, so that Insert mode and a half-typed command do not eat the keys.)
-            U::Review(k) => [
-                "<Esc>]c", "<Esc>[c", "y", "n", "Y", "N", "<Esc>]cy", "<Esc>]cn", "<Esc>]cY",
-                "<Esc>]cN",
-            ][usize::from(*k)]
-            .into(),
+            U::Walk(k) => ["<Esc>]c", "<Esc>[c", "<Esc>]c]c", "<Esc>[c[c"][usize::from(*k)].into(),
             U::Leave(k) => {
                 ["<Esc>:q\n", "<Esc>ZZ", "<Esc>:x\n", "<Esc>:wq\n", "<C-s>"][usize::from(*k)].into()
             }
@@ -516,17 +523,6 @@ impl Sim {
                 }
             }
         }
-        let mut prev = 0;
-        for h in b.hunks.iter() {
-            if !(h.mine.start <= h.mine.end && h.mine.end <= b.lines() && prev <= h.mine.start) {
-                return Err(format!(
-                    "hunk out of order or range: {:?} in {} lines",
-                    b.hunks.iter().map(|h| h.mine.clone()).collect::<Vec<_>>(),
-                    b.lines()
-                ));
-            }
-            prev = h.mine.start;
-        }
         if b.cursor > b.text.len_chars() {
             return Err("cursor past the end".into());
         }
@@ -536,9 +532,8 @@ impl Sim {
 
     fn pre(&self) -> Pre {
         Pre {
-            mode: self.app.vi.mode,
-            waiting: self.app.vi.waiting(),
-            hunks: self.app.buf.hunks.to_vec(),
+            diverged: self.app.diverged(),
+            msg: self.app.msg.clone(),
             text: text(&self.app),
             base: self.app.buf.base.to_string(),
             cur_line: cur_line(&self.app),
@@ -550,7 +545,7 @@ impl Sim {
 
     /// The running filter ends with a result of kind `k`: the words upper-cased, nothing changed,
     /// nothing printed, a failure, a signal, or the words upper-cased with a new one and no final
-    /// line break. The answer joins the other events in the channel (PROP-6).
+    /// line break. The answer joins the other events in the channel (FILT-2).
     fn filter_end(&mut self, k: u8) {
         let Some(input) = self.filter.take() else { return };
         self.last_input = words_of(&input);
@@ -569,47 +564,40 @@ impl Sim {
         self.chan.push_back(Event::FilterDone(status, stdout, stderr, far()));
     }
 
-    /// PROP-6: a result changes the proposals and nothing else, and every word it brings is in the
-    /// text or in a proposal (or was removed by the user meanwhile).
+    /// FILT-2: a result that fails or is cancelled changes nothing; any other leaves the text as it
+    /// is (nothing to apply, or it overlaps edits made meanwhile and says so) or puts every word it
+    /// brought in the text, in one undo step, with every word mine had added still there.
     fn check_filter(&mut self, pre: &Pre, status: Option<i32>, out: &str) -> Result<(), String> {
         let a = &self.app;
         let cancelled = std::mem::take(&mut self.killed);
-        if text(a) != pre.text
-            || a.buf.version() != pre.version
-            || a.buf.marks.to_vec() != pre.marks
-        {
-            return Err(format!(
-                "a filter's result changed the text or the marks: {:?} -> {:?}",
-                pre.text,
-                text(a)
-            ));
-        }
-        let after: Vec<_> = a.buf.hunks.iter().map(|h| (h.theirs.to_string(), h.disk)).collect();
-        for h in &pre.hunks {
-            if !after.contains(&(h.theirs.to_string(), h.disk)) {
-                return Err(format!("a filter's result dropped a proposal: {h:?}"));
-            }
-        }
+        let same = text(a) == pre.text && a.buf.marks.to_vec() == pre.marks;
         if status != Some(0) || cancelled {
-            return if a.buf.hunks.len() == pre.hunks.len() {
+            return if same && a.buf.version() == pre.version {
                 Ok(())
             } else {
                 Err(format!(
-                    "a filter that failed or was cancelled left proposals: {:?}",
-                    a.buf.hunks
+                    "a filter that failed or was cancelled changed the buffer: {:?}",
+                    text(a)
                 ))
             };
         }
-        // A word the filter only passed on is not a change, so it is not proposed: the buffer may have
-        // lost it to the disk meanwhile. A word it brought is in the text or in a proposal.
+        if same {
+            return Ok(()); // nothing to apply, or discarded because the lines changed meanwhile
+        }
+        if a.buf.version() == pre.version {
+            return Err("the text changed but the version did not".into());
+        }
         let have = all_words(a);
+        // A word the filter only passed on is not a change: the buffer may have lost it to the disk
+        // meanwhile. A word it brought is in the text.
         for w in words_of(out).difference(&self.last_input) {
-            if !have.contains(w) && !self.user_removed.contains(w) {
-                return Err(format!(
-                    "the filter's word {w:?} is neither in the text nor in a proposal: {:?} {:?}",
-                    text(a),
-                    a.buf.hunks
-                ));
+            if !have.contains(w) {
+                return Err(format!("the filter's word {w:?} is not in the text: {:?}", text(a)));
+            }
+        }
+        for w in words_of(&pre.text).difference(&self.last_input) {
+            if !have.contains(w) && !words_of(&pre.base).contains(w) {
+                return Err(format!("mine lost to a filter's result: {w:?} {:?}", text(a)));
             }
         }
         Ok(())
@@ -624,10 +612,7 @@ impl Sim {
             }
             _ => None,
         };
-        let decision = match &ev {
-            Event::Key(Key::Char(c @ ('y' | 'n' | 'Y' | 'N'))) => Some(c.to_string()),
-            _ => None,
-        };
+        let loaded = matches!(ev, Event::Opened(..));
         let fdone = match &ev {
             Event::FilterDone(status, out, ..) => {
                 Some((*status, String::from_utf8_lossy(out).to_string()))
@@ -635,7 +620,11 @@ impl Sim {
             _ => None,
         };
         let saved = matches!(ev, Event::Saved(Ok(_), _));
-        let user = matches!(ev, Event::Key(_) | Event::Paste(_) | Event::Opened(..));
+        // (A filter's result is something the user asked for: what it takes out is theirs to drop.)
+        let user = matches!(
+            ev,
+            Event::Key(_) | Event::Paste(_) | Event::Opened(..) | Event::FilterDone(..)
+        );
         self.log.push(format!("deliver {ev:?}"));
         let pre = self.pre();
         let tick = matches!(ev, Event::Tick(_));
@@ -653,34 +642,28 @@ impl Sim {
             })
             .collect();
         let unsnap = fx.iter().any(|e| matches!(e, Effect::Unsnapshot));
-        // SAFE-7: nothing goes over a conflict with the disk, and nothing quits with a hunk open.
+        // SAFE-7: nothing is written over a conflict with the disk but by a forced save, which
+        // asked for the copy first, and a plain save is refused while one is open.
         for e in &fx {
-            match e {
-                Effect::Write { path, expect_hash: Some(_), .. }
-                    if path == "f" && pre.hunks.iter().any(|h| h.disk) =>
-                {
-                    return Err(format!(
-                        "a plain save with a conflict with the disk open: {:?}",
-                        pre.hunks
-                    ));
-                }
-                Effect::Quit(0) if !self.app.buf.hunks.is_empty() => {
-                    return Err(format!("quit with hunks open: {:?}", self.app.buf.hunks));
-                }
-                _ => {}
+            if let Effect::Write { path, expect_hash: Some(_), .. } = e
+                && path == "f"
+                && pre.diverged
+            {
+                return Err("a plain save with a conflict with the disk open".into());
             }
         }
-        // PROP-8: a decision is exactly what it says.
-        if let (Some(k), Mode::Review, false) = (&decision, pre.mode, pre.waiting) {
-            let hunks = self.app.buf.hunks.to_vec();
-            check_decision(k, &pre.text, &pre.hunks, &text(&self.app), &hunks)?;
+        // SAFE-7: a forced save that is done settles the conflict, and a reload that discarded mine
+        // while it conflicted has a copy of every word of it.
+        if saved && self.forced && self.app.diverged() {
+            return Err("`:w!` is saved and the conflict with the disk is still open".into());
         }
-        // SAFE-7: a forced save that is done settles the conflicts with the disk.
-        if saved && self.forced && self.app.buf.hunks.iter().any(|h| h.disk) {
-            return Err(format!(
-                "`:w!` is saved and conflicts with the disk are still open: {:?}",
-                self.app.buf.hunks
-            ));
+        if loaded && pre.diverged && !self.app.diverged() && text(&self.app) != pre.text {
+            let theirs = words_of(&pre.base);
+            for w in words_of(&pre.text).difference(&theirs) {
+                if !self.kept.contains(w) && !self.user_removed.contains(w) && pre.msg.is_none() {
+                    return Err(format!("a reload threw away {w:?} of mine without a copy"));
+                }
+            }
         }
         if saved {
             self.forced = false;
@@ -721,6 +704,7 @@ impl Sim {
             let after = all_words(&self.app);
             self.user_removed.extend(pre.all_words.difference(&after).cloned());
         }
+        self.clashed |= self.app.diverged();
         if let (Some(d), true) = (d, self.app.buf.version() != pre.version) {
             self.check_merge(&pre, &d)?;
         }
@@ -745,11 +729,11 @@ impl Sim {
             ));
         }
         let pw = words_of(&post);
-        let hw = hunk_words(a);
         let base_w = words_of(&pre.base);
+        // Theirs: in the buffer, or the buffer is diverged and the disk's version is kept (SAFE-7).
         for w in words_of(&dtext).difference(&base_w) {
-            if !pw.contains(w) && !hw.contains(w) && !self.user_removed.contains(w) {
-                return Err(format!("THEIRS lost: {w:?} (post {post:?}, hunks {:?})", a.buf.hunks));
+            if !pw.contains(w) && !a.diverged() && !self.user_removed.contains(w) {
+                return Err(format!("THEIRS lost: {w:?} (post {post:?})"));
             }
         }
         for w in words_of(&pre.text).difference(&base_w) {
@@ -773,8 +757,9 @@ impl Sim {
                 ));
             }
         }
-        // Marks: on lines that came from a disk, and every new line from disk is marked.
-        for m in a.buf.marks.iter() {
+        // Marks: on lines that came from a disk (or, once the buffer has been diverged, on a line of
+        // mine that conflicted with it), and every new line from disk is marked.
+        for m in a.buf.marks.iter().filter(|_| !self.clashed && !a.diverged()) {
             if matches!(m.kind, '+' | '~') {
                 let l = post_lines[m.line];
                 if !l.is_empty() && !self.ever.contains(l) {
@@ -786,13 +771,11 @@ impl Sim {
         }
         let base_l = lines_of(&pre.base);
         let pre_l = lines_of(&pre.text);
-        let in_hunk = |i: usize| a.buf.hunks.iter().any(|h| h.mine.contains(&i));
         for (i, l) in post_lines.iter().enumerate() {
             if !l.is_empty()
                 && lines_of(&dtext).contains(*l)
                 && !base_l.contains(*l)
                 && !pre_l.contains(*l)
-                && !in_hunk(i)
                 && a.buf.marks.binary_search_by_key(&i, |m| m.line).is_err()
             {
                 return Err(format!(
@@ -883,6 +866,7 @@ impl Sim {
                 }
                 let mut have = words_of(&dtext);
                 have.extend(all_words(a));
+                have.extend(self.kept.iter().cloned());
                 for w in &self.ext_last {
                     if !have.contains(w) && !self.user_removed.contains(w) {
                         return Err(format!(
@@ -911,11 +895,11 @@ fn run(first: usize, ops: &[Op], atomic: bool) -> Result<(), (String, Vec<String
 }
 
 macro_rules! model {
-    ($name:ident, $atomic:expr, $del:expr, $undo:expr, $reload:expr, $review:expr, $filter:expr) => {
+    ($name:ident, $atomic:expr, $del:expr, $undo:expr, $reload:expr, $conflicts:expr, $filter:expr) => {
         proptest! {
             #![proptest_config(ProptestConfig { cases: cases(500), max_shrink_iters: 4000, failure_persistence: None, ..ProptestConfig::default() })]
             #[test]
-            fn $name(first in 1usize..5, ops in prop::collection::vec(op($del, $undo, $reload, $review, $filter), 1..(if $review || $filter { 120 } else { 40 }))) {
+            fn $name(first in 1usize..5, ops in prop::collection::vec(op($del, $undo, $reload, $conflicts, $filter), 1..(if $conflicts || $filter { 120 } else { 40 }))) {
                 if let Err((e, log)) = run(first, &ops, $atomic) {
                     return Err(TestCaseError::fail(format!("{e}\n{}", log.join("\n"))));
                 }
@@ -925,38 +909,38 @@ macro_rules! model {
 }
 
 // Appends only on the user side, no undo: no word of anyone is lost, ever.
-model!(prop_2_fuzz_model_atomic_appends_only, true, false, false, false, false, false);
-model!(prop_2_fuzz_model_atomic_with_deletes, true, true, false, false, false, false);
-model!(prop_2_fuzz_model_atomic_with_undo, true, true, true, false, false, false);
-model!(prop_2_fuzz_model_atomic_with_reload, true, true, true, true, false, false);
+model!(disk_2_fuzz_model_atomic_appends_only, true, false, false, false, false, false);
+model!(disk_2_fuzz_model_atomic_with_deletes, true, true, false, false, false, false);
+model!(disk_2_fuzz_model_atomic_with_undo, true, true, true, false, false, false);
+model!(disk_2_fuzz_model_atomic_with_reload, true, true, true, true, false, false);
 // The same, with the watcher and the save thread free to interleave.
-model!(prop_2_fuzz_model_racy_appends_only, false, false, false, false, false, false);
-model!(prop_2_fuzz_model_racy_with_deletes, false, true, false, false, false, false);
-model!(prop_2_fuzz_model_racy_with_undo, false, true, true, false, false, false);
-model!(prop_2_fuzz_model_racy_with_reload, false, true, true, true, false, false);
-// The hands of a person going through proposals (PROP-8), and the refusals of SAFE-7: nothing is
-// saved over a conflict or quit away with a hunk open, and every decision does what it says.
-model!(prop_8_fuzz_model_atomic_with_review, true, true, true, true, true, false);
-model!(prop_8_fuzz_model_racy_with_review, false, true, true, true, true, false);
-model!(prop_8_fuzz_model_atomic_review_without_undo, true, true, false, false, true, false);
-model!(prop_8_fuzz_model_racy_review_without_undo, false, true, false, false, true, false);
-// Filters (PROP-5, PROP-6): they start on request and end at any moment between the keys, the saves
-// and the disk's changes, with every kind of result; Ctrl-c cancels them. Their proposals are
-// reviewed like the disk's.
-model!(prop_6_fuzz_model_atomic_with_filters, true, true, true, true, true, true);
-model!(prop_6_fuzz_model_racy_with_filters, false, true, true, true, true, true);
-model!(prop_6_fuzz_model_atomic_filters_without_review, true, true, true, false, false, true);
-model!(prop_6_fuzz_model_racy_filters_appends_only, false, false, false, false, false, true);
+model!(disk_2_fuzz_model_racy_appends_only, false, false, false, false, false, false);
+model!(disk_2_fuzz_model_racy_with_deletes, false, true, false, false, false, false);
+model!(disk_2_fuzz_model_racy_with_undo, false, true, true, false, false, false);
+model!(disk_2_fuzz_model_racy_with_reload, false, true, true, true, false, false);
+// The hands of a person who meets a conflict (SAFE-7): nothing is written over it but by a forced
+// save that has the disk's version copied first, `:e!` copies mine first, and the words of both sides
+// are in the buffer, on the disk or in a copy at every moment.
+model!(safe_7_fuzz_model_atomic_with_conflicts, true, true, true, true, true, false);
+model!(safe_7_fuzz_model_racy_with_conflicts, false, true, true, true, true, false);
+model!(safe_7_fuzz_model_atomic_conflicts_without_undo, true, true, false, false, true, false);
+model!(safe_7_fuzz_model_racy_conflicts_without_undo, false, true, false, false, true, false);
+// Filters (FILT-1, FILT-2): they start on request and end at any moment between the keys, the saves
+// and the disk's changes, with every kind of result; Ctrl-c cancels them.
+model!(filt_2_fuzz_model_atomic_with_filters, true, true, true, true, true, true);
+model!(filt_2_fuzz_model_racy_with_filters, false, true, true, true, true, true);
+model!(filt_2_fuzz_model_atomic_filters_without_conflicts, true, true, true, false, false, true);
+model!(filt_2_fuzz_model_racy_filters_appends_only, false, false, false, false, false, true);
 
 proptest! {
     #![proptest_config(ProptestConfig { cases: cases(500), max_shrink_iters: 4000, failure_persistence: None, ..ProptestConfig::default() })]
 
-    /// A read of the watcher that is held up (PROP-1): it is taken first, the outside process writes
+    /// A read of the watcher that is held up (DISK-1): it is taken first, the outside process writes
     /// again, and everything else happens before it is sent last, and the user saves once more (ZZ): reloads,
-    /// saves, reviews, filters, newer reads. App must drop it as the older news it is. (The random
+    /// saves, conflicts, filters, newer reads. App must drop it as the older news it is. (The random
     /// models above hit this only about once in 100,000 cases, the replay below is such a case.)
     #[test]
-    fn prop_1_fuzz_model_a_read_held_across_reloads_and_saves(
+    fn disk_1_fuzz_model_a_read_held_across_reloads_and_saves(
         first in 1usize..5,
         mid in prop::collection::vec(
             op(true, true, true, true, true)
@@ -1004,8 +988,8 @@ proptest! {
     #![proptest_config(ProptestConfig { cases: cases(2000), max_shrink_iters: 4000, failure_persistence: None, ..ProptestConfig::default() })]
 
     /// A snapshot recovered over a file that is the same, changed, emptied or missing: every word
-    /// the snapshot added is in the buffer, every word the file added is in the buffer or a hunk, and
-    /// when the file is not there the buffer is the snapshot.
+    /// the snapshot added is in the buffer, every word the file added is in the buffer or the buffer
+    /// is diverged (the file keeps it), and when the file is not there the buffer is the snapshot.
     #[test]
     fn safe_6_fuzz_recover_loses_nothing(
         nb in 0usize..5,
@@ -1030,7 +1014,6 @@ proptest! {
         a.update(Event::Recover(b.clone().into_bytes(), t.clone().into_bytes(), 1000, "snap".into(), far()));
         let post = text(&a);
         let pw = words_of(&post);
-        let hw = hunk_words(&a);
         // Mine: every word the snapshot added to its base is in the buffer.
         for w in words_of(&t).difference(&words_of(&b)) {
             prop_assert!(pw.contains(w), "MINE lost: {w:?}: snapshot {t:?} base {b:?} file {file:?} -> buffer {post:?}");
@@ -1043,7 +1026,7 @@ proptest! {
             Some(f) => {
                 let ft = Buffer::decode(f).text.to_string();
                 for w in words_of(&ft).difference(&words_of(&b)) {
-                    prop_assert!(pw.contains(w) || hw.contains(w), "THEIRS lost: {w:?}: snapshot {t:?} base {b:?} file {ft:?} -> buffer {post:?}");
+                    prop_assert!(pw.contains(w) || a.diverged(), "THEIRS lost: {w:?}: snapshot {t:?} base {b:?} file {ft:?} -> buffer {post:?}");
                 }
             }
             None => {}
@@ -1065,14 +1048,14 @@ proptest! {
 /// after `:e!` has loaded the newer file and `:wq` has saved it. Without numbers App could not tell
 /// that read from a change, took it in, and the next save lost the outside words. Now the shell
 /// numbers every read of the disk as it starts, and App drops a read older than what it took in
-/// already (PROP-1); the model numbers its reads the same way.
+/// already (DISK-1); the model numbers its reads the same way.
 #[test]
-fn prop_2_model_replay_a_stale_watcher_read_after_a_reload_and_a_save() {
+fn disk_2_model_replay_a_stale_watcher_read_after_a_reload_and_a_save() {
     use Op::{Deliver, Exec, Read, Send, WSend};
     let (ext, user) = (|e| Op::E(E::Append(e)), |u| Op::U(u));
     #[rustfmt::skip]
     let ops = [
-        ext(0), Read, user(U::Visual(true)), user(U::Review(0)), user(U::EditBang), Deliver, ext(0), Deliver,
+        ext(0), Read, user(U::Visual(true)), user(U::Walk(0)), user(U::EditBang), Deliver, ext(0), Deliver,
         ext(0), Deliver, Deliver, Deliver, Deliver, Deliver, Deliver, user(U::Leave(3)), Deliver, Deliver,
         Deliver, Deliver, Deliver, Deliver, Exec, WSend, Send, user(U::Leave(1)),
     ];

@@ -1,10 +1,8 @@
-//! VI-4, VI-7, VI-14, PROP-5, PROP-9, AI-1, PERF-4, SAFE-7
-//! The command line: ex commands with their ranges, `:s`, `:ref`, filters, and search.
-use super::app::{App, Effect, Run, plural};
-use super::review::PROPOSALS;
+//! VI-4, VI-7, VI-14, FILT-1, DISK-6, PERF-4, SAFE-7
+//! The command line: ex commands with their ranges, `:s`, filters, and search.
+use super::app::{App, Effect, Resume, Run, plural};
 use super::vi::Mode;
 use regex_lite::{Captures, Regex, escape};
-use std::path::{Component, Path, PathBuf};
 use std::{borrow::Cow, ops::Range, thread};
 
 /// The replacement of `:s`: `&` and `\1`-`\9` are parts of the match, `\x` is `x`.
@@ -166,13 +164,22 @@ impl App {
             "w" => self.write(arg, bang, false),
             "wq" => self.write(arg, bang, true),
             "x" if dirty => self.write(arg, bang, true),
-            "q" | "x" if !bang && !self.buf.hunks.is_empty() => self.say(PROPOSALS),
             "q" if dirty && !bang => self.say("no write since last change (:q! to override)"),
             "x" | "q" => self.fx.push(Effect::Quit(0)),
             "cq" => self.fx.push(Effect::Quit(1)),
             "e" if dirty && !bang => self.say("no write since last change (:e! to discard)"),
-            "e" if self.saving.is_some() => self.say("a save is already running"),
+            "e" if self.saving.is_some() || self.resume.is_some() => {
+                self.say("a save is already running")
+            }
             "e" => match if arg.is_empty() { self.path.clone() } else { Some(arg.into()) } {
+                // SAFE-7: mine is conflicting with the disk's, and the reload discards it: it is
+                // copied first, and the reload follows the copy.
+                Some(path) if dirty && self.theirs.is_some() => {
+                    let (bytes, v) = (self.buf.encode(), self.buf.version());
+                    self.resume = Some(Resume::Open(path, v));
+                    let at = self.path.clone().unwrap_or_default();
+                    self.fx.push(Effect::Keep { path: at, bytes, ext: "yours" });
+                }
                 Some(path) => {
                     self.fx.extend(self.place()); // leaving this file (CLI-6)
                     self.opening.push_back(self.buf.version());
@@ -182,13 +189,12 @@ impl App {
             },
             "s" => self.subst(range.unwrap_or((line, line)), arg),
             "seen" => self.buf.marks = Default::default(),
-            "ref" => self.refer(range.unwrap_or((line, line))),
             _ => self.say(format!("not an editor command: {name}")),
         }
         self.clamp();
     }
 
-    /// `:{range}!cmd` (PROP-5): the lines go through `sh -c` without anyone waiting; `FilterDone`
+    /// `:{range}!cmd` (FILT-1): the lines go through `sh -c` without anyone waiting; `FilterDone`
     /// brings the answer. One filter runs at a time.
     fn filter(&mut self, (l1, l2): (usize, usize), cmd: &str) {
         let busy =
@@ -202,27 +208,6 @@ impl App {
         self.filter =
             Some(Run { text: b.text.clone(), lines: l1..l2 + 1, at: self.tick, killed: false });
         self.fx.push(Effect::Spawn { cmd: cmd.into(), input });
-    }
-
-    /// `:{range}ref` (AI-1): `path:start-end` for the clipboard, so an agent can be handed a place.
-    /// The path is relative to the current directory when the file is inside it, else absolute.
-    fn refer(&mut self, (l1, l2): (usize, usize)) {
-        let Some(path) = self.path.clone() else { return self.say("no file name") };
-        let shown = self.cwd.as_ref().map_or(path.clone(), |cwd| {
-            let mut abs = PathBuf::from(cwd);
-            for c in Path::new(&path).components() {
-                match c {
-                    Component::RootDir => abs = "/".into(),
-                    Component::ParentDir => drop(abs.pop()),
-                    Component::Normal(s) => abs.push(s),
-                    _ => {}
-                }
-            }
-            abs.strip_prefix(cwd).unwrap_or(abs.as_path()).display().to_string()
-        });
-        let place = format!("{shown}:{}-{}", l1 + 1, l2 + 1);
-        self.say(format!("copied {place}"));
-        self.fx.push(Effect::Clipboard(place));
     }
 
     /// VI-14: where the first match is of the pattern typed so far on a `/` or `?` line, from the

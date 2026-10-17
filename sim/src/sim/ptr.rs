@@ -18,7 +18,7 @@ const NOTCH: usize = 3;
 
 /// Puts the cursor on char `at`, as a key that moved it would leave it: a Normal-mode cursor rests
 /// on a char (the App's own `clamp`), the wanted column starts again, and the mark of the line it
-/// enters is seen (PROP-9).
+/// enters is seen (DISK-6).
 fn put(app: &mut App, at: usize) {
     let b = &mut app.buf;
     (b.cursor, b.want) = (at.min(b.text.len_chars()), None);
@@ -96,27 +96,24 @@ impl Sim {
     }
 
     /// The char of the current file under the point (`x` counted from the text's first column) of
-    /// the frame the user sees. A REVIEW frame weaves mine and theirs into its rows, so there only
-    /// the line is told, by the gutter: the point is the start of the row.
+    /// the frame the user sees.
     fn char_at(&self, x: u16, y: u16) -> Option<usize> {
         let b = self.bufs.get(self.cur)?;
-        // The half rows around a card (LOOK-5) are not rows of the frame.
-        let y = self.card(&self.changes()).map_or(y, |c| layout::unshift(y.into(), &c) as u16);
-        let (buf, x) = (&b.app.buf, if b.app.vi.mode == Mode::Review { 0 } else { usize::from(x) });
+        let (buf, x) = (&b.app.buf, usize::from(x));
         let digits = buf.lines().to_string().len().max(3);
         let (l, i) = layout::hit(b.frame.as_ref()?, digits, &|l| text_of(buf, l), (x, y.into()))?;
         Some(buf.start(l) + i.min(buf.line_len(l)))
     }
 
-    /// What a click ends before it moves the cursor, as the Esc key would, and no more: REVIEW
-    /// (nothing is decided) and a Visual selection, and a count, operator or prefix still waiting
-    /// for the rest of its command (which the pointer must not complete).
+    /// What a click ends before it moves the cursor, as the Esc key would, and no more: a Visual
+    /// selection, and a count, operator or prefix still waiting for the rest of its command (which
+    /// the pointer must not complete).
     fn settle(&mut self, id: Id, click: bool, out: Out) {
         for _ in 0..2 {
-            // (the Esc of a REVIEW with a `]` waiting only forgets the `]`)
+            // (the Esc of a Visual mode with a prefix waiting only forgets the prefix)
             let Some(b) = self.bufs.iter().find(|b| b.id == id) else { return };
-            let (vi, ends) = (&b.app.vi, |m: Mode| m == Mode::Review || m.visual());
-            if vi.mode == Mode::Normal && !vi.idle() || click && ends(vi.mode) {
+            let vi = &b.app.vi;
+            if vi.mode == Mode::Normal && !vi.idle() || click && vi.mode.visual() {
                 self.to(id, Event::Key(Key::Esc), out);
             }
         }
@@ -173,7 +170,7 @@ impl Sim {
     /// The wheel over the text scrolls it three lines a notch. The cursor keeps the context
     /// `render` gives it (VIS-12): while `render` pushes the view back to keep it, the cursor
     /// moves towards the view instead, by the lines it was pushed back, keeping its column. A scroll that moves
-    /// nothing (the end of the text) leaves the cursor too. REVIEW goes on: nothing is decided.
+    /// nothing (the end of the text) leaves the cursor too.
     fn wheel(&mut self, up: bool, out: Out) {
         let Some(b) = self.bufs.get(self.cur) else { return };
         let (id, cmd) = (b.id, b.app.vi.mode == Mode::Cmd);

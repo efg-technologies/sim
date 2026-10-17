@@ -1,4 +1,4 @@
-//! CLI-4, CLI-6, VIS-4, SAFE-6, PROP-1, PROP-5, VI-7, VI-8, VI-9, VI-11, PERF-1, PERF-5
+//! CLI-4, CLI-6, VIS-4, SAFE-6, SAFE-7, DISK-1, FILT-1, VI-7, VI-8, VI-9, VI-11, PERF-1, PERF-5
 //! The event loop, and running Effects.
 use notify::RecommendedWatcher;
 use si::core::app::{App, Effect, Event};
@@ -19,7 +19,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
-/// How long a diff may take before it gives up (PROP-7).
+/// How long a diff may take before it gives up (DISK-5).
 const MERGE: Duration = Duration::from_millis(50);
 /// How long a quit waits for the terminal to finish answering (VIS-4).
 const DRAIN: Duration = Duration::from_millis(100);
@@ -36,16 +36,16 @@ fn key(path: Option<&str>) -> String {
     path.map_or(String::new(), |p| file::resolve(p).to_string_lossy().into_owned())
 }
 
-/// Tells App the filter ended (PROP-6). The diff of its result gives up after `MERGE` (PROP-7).
+/// Tells App the filter ended (FILT-2). The diff of its result gives up after `MERGE` (DISK-5).
 fn filter_done(tx: &Sender<Event>, status: Option<i32>, out: Vec<u8>, err: Vec<u8>) {
     drop(tx.send(Event::FilterDone(status, out, err, Instant::now() + MERGE)));
 }
 
-/// A watcher, and the switch that silences it (PROP-1).
+/// A watcher, and the switch that silences it (DISK-1).
 type Watching = (RecommendedWatcher, Arc<AtomicBool>);
 
-/// Watches `path` (PROP-1) from now on. The deadline of each change is stamped when the watcher
-/// reads the file, since the core reads no clock (PROP-7). With `first`, the watcher thread also
+/// Watches `path` (DISK-1) from now on. The deadline of each change is stamped when the watcher
+/// reads the file, since the core reads no clock (DISK-5). With `first`, the watcher thread also
 /// reads the file once at the start (never the main thread, P3).
 fn watching(tx: &Sender<Event>, path: &str, first: bool) -> Option<Watching> {
     let (t, live) = (tx.clone(), Arc::new(AtomicBool::new(true)));
@@ -89,6 +89,12 @@ fn journal_thread(
                 // The place of the file `:e` opens, asked after the place of the one it leaves.
                 let at = state.as_deref().and_then(|d| journal::place(d, &key(Some(&path))));
                 at.into_iter().for_each(|(l, c)| drop(tell.send(Event::Place(path.clone(), l, c))));
+            } else if let Effect::Keep { path, bytes, ext } = job {
+                // SAFE-7: a `:w!` or an `:e!` waits for this copy, so the answer is always sent.
+                let at = state.as_deref().ok_or_else(|| io::Error::other(NO_STATE));
+                let at = at.and_then(|d| journal::keep(d, &path, &bytes, ext));
+                let at = at.map(|p| p.display().to_string()).map_err(|e| file::why(&e));
+                drop(tell.send(Event::Kept(at)));
             } else if let Effect::Snapshot { path, base, text } = job {
                 let [base, text] = [base, text].map(|r| r.to_string().into_bytes());
                 let snap =
@@ -155,7 +161,6 @@ fn main() -> ExitCode {
         held.extend((app.buf.version() != v).then_some((s.path, s.pid))); // used: ours to delete
     }
     app.hook = env::var("SI_ON_NORMAL").ok().filter(|h| !h.is_empty());
-    app.cwd = env::current_dir().ok().map(|d| d.to_string_lossy().into_owned());
     // A `+cmd` or `file:line` says where to go; otherwise it is where the file was closed (CLI-6).
     let at = state.as_deref().and_then(|d| journal::place(d, &k)).filter(|_| cli.keys.is_empty());
     if let (Some(f), Some((l, c))) = (&cli.file, at) {
@@ -235,7 +240,7 @@ fn main() -> ExitCode {
                 }
                 Effect::Open(path) => {
                     // The watcher of the file being left goes quiet before the read's number is
-                    // taken: what it says later began earlier, and App drops it (PROP-1).
+                    // taken: what it says later began earlier, and App drops it (DISK-1).
                     watcher.iter().for_each(|(_, live)| live.store(false, SeqCst));
                     let seq = file::seq(); // taken before the read starts
                     drop(tx.send(Event::Opened(path.clone(), read(&path), seq)));
@@ -266,9 +271,10 @@ fn main() -> ExitCode {
                     watcher = watching(&tx, &path, true);
                 }
                 Effect::Clipboard(text) => drop(term.clipboard(&text)),
-                Effect::Snapshot { .. } | Effect::Unsnapshot | Effect::Remember { .. } => {
-                    drop(jobs.send(e))
-                }
+                Effect::Snapshot { .. }
+                | Effect::Unsnapshot
+                | Effect::Remember { .. }
+                | Effect::Keep { .. } => drop(jobs.send(e)),
                 Effect::Quit(code) => {
                     if ask && app.pal.is_none() {
                         // The color may still be on its way: the input thread is woken (as a resize

@@ -4,7 +4,6 @@
 mod common;
 use common::*;
 use si::core::app::{Effect, Event};
-use si::core::vi::Mode;
 use si::io::journal::{self, Snapshot};
 use sim::sim::{SimEffect, SimEvent};
 use std::fs;
@@ -27,14 +26,14 @@ fn two(name: &str) -> Rig {
 }
 
 /// `two` with b.txt and then a.txt modified ("ne", and "1" in b.txt) and a conflict with the disk
-/// in a.txt: mine is "ne", the disk's is "ONE". a.txt is the current file, with one hunk open.
+/// in a.txt: mine is "ne", the disk's is "ONE". a.txt is the current file, diverged.
 fn conflicted(name: &str) -> Rig {
     let mut r = two(name);
     r.keys("x<Tab>x");
     fs::write(r.cwd.join("a.txt"), "ONE\ntwo\n").unwrap();
     let a = r.sim.bufs[0].id;
     r.send(SimEvent::App(a, disk(b"ONE\ntwo\n")));
-    assert_eq!((r.sim.cur, r.app().buf.hunks.len()), (0, 1));
+    assert_eq!((r.sim.cur, r.app().diverged()), (0, true));
     r
 }
 
@@ -240,7 +239,7 @@ fn buf_1_a_save_in_the_background_is_checked_against_the_disk_of_its_own_file() 
 
 #[test]
 fn buf_1_the_answer_of_a_save_or_a_reload_asks_for_the_watch_of_its_own_file() {
-    // PROP-1: what a watcher said while a save was in flight cannot be ordered against it, so
+    // DISK-1: what a watcher said while a save was in flight cannot be ordered against it, so
     // the shell is asked to watch (and read) the file again after the answer.
     let mut r = two("b1-watch");
     let watched = |r: &Rig| -> Vec<(usize, String)> {
@@ -551,49 +550,24 @@ fn buf_3_a_search_or_a_substitute_is_not_mistaken_for_an_all_command() {
 }
 
 #[test]
-fn buf_2_tab_and_shift_tab_do_not_switch_in_review() {
-    let mut r = conflicted("b2-review");
-    r.keys("]c");
-    assert_eq!(r.app().vi.mode, Mode::Review);
-    r.send(SimEvent::BackTab);
-    assert_eq!((r.sim.cur, r.app().vi.mode), (0, Mode::Review), "dropped, and REVIEW stays");
-    r.keys("<Tab>");
-    assert_eq!(r.sim.cur, 0, "Tab went to the App, and not to the other file");
-    assert_eq!(r.app().vi.mode, Mode::Normal, "where any key but y n Y N ends REVIEW (PROP-8)");
-    // From the panel, with the App in REVIEW: the same.
-    r.keys("]c<C-n>");
-    assert!(r.sim.panel.focus && r.app().vi.mode == Mode::Review);
-    r.keys("<Tab>");
-    r.send(SimEvent::BackTab);
-    assert_eq!((r.sim.cur, r.app().vi.mode), (0, Mode::Review));
-    // A hunk that is open does not stop Tab: only REVIEW (and a pending key) does.
-    r.keys("<Esc><Esc>");
-    assert_eq!((r.app().vi.mode, r.app().buf.hunks.len()), (Mode::Normal, 1));
-    r.keys("<Tab>");
-    assert_eq!(r.sim.cur, 1);
-    // The other file is not in REVIEW, so it switches back.
-    r.send(SimEvent::BackTab);
-    assert_eq!(r.sim.cur, 0);
-}
-
-#[test]
 fn buf_3_wa_leaves_out_a_file_with_a_conflict_with_the_disk_names_it_and_saves_the_rest() {
     let mut r = conflicted("b3-wa-conflict");
     r.keys(":wa\n");
     assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "1\nB2\n", "the rest was saved");
     assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ONE\ntwo\n", "mine was not");
+    // (the line is cut where the screen ends, with `1/2` kept at its end)
     assert_eq!(
         r.status(),
-        "not saved: conflicts with the disk in a.txt (]c, :w! keeps yours)  1/2"
+        "not saved: conflicts with the disk in a.txt (:w! keeps yours, :e! takes the  1/2"
     );
     assert!(r.sim.bufs[0].app.buf.dirty() && !r.sim.bufs[1].app.buf.dirty());
-    assert_eq!(r.sim.bufs[0].app.buf.hunks.len(), 1, "and the hunk is still there");
+    assert!(r.sim.bufs[0].app.diverged(), "and the conflict is still there");
     // Both files in conflict: both are named, in the order they are open, and nothing is saved.
     r.keys("<Tab>x");
     let b = r.sim.bufs[1].id;
     fs::write(r.cwd.join("b.txt"), "B1!\nB2\n").unwrap();
     r.send(SimEvent::App(b, disk(b"B1!\nB2\n")));
-    assert!(r.sim.bufs.iter().all(|b| b.app.buf.hunks.len() == 1));
+    assert!(r.sim.bufs.iter().all(|b| b.app.diverged()));
     r.keys(":wa\n");
     assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "B1!\nB2\n");
     assert!(r.status().starts_with("not saved: conflicts with the disk in a.txt, b.txt"));
@@ -608,18 +582,12 @@ fn buf_3_wa_leaves_out_a_file_with_a_conflict_with_the_disk_names_it_and_saves_t
 }
 
 #[test]
-fn buf_3_qa_stays_while_a_file_has_unresolved_proposals_names_them_and_qa_bang_discards() {
-    let mut r = conflicted("b3-qa-hunks");
-    r.keys(":qa\n");
-    assert!(r.quit.is_none());
-    assert_eq!(r.status(), "unresolved proposals in a.txt (]c to review, :qa! discards)  1/2");
-    // Deciding the hunk opens the door a little: what is modified is told next (SAFE-7, BUF-3).
-    r.keys("]cn");
-    assert!(r.sim.bufs.iter().all(|b| b.app.buf.hunks.is_empty()));
+fn buf_3_qa_stays_while_a_file_is_modified_conflict_or_not_names_it_and_qa_bang_discards() {
+    let mut r = conflicted("b3-qa-conflict");
     r.keys(":qa\n");
     assert!(r.quit.is_none());
     assert_eq!(r.status(), "no write since last change in a.txt, b.txt (:qa! to discard)  1/2");
-    // `:qa!` leaves with proposals open too, and writes nothing.
+    // `:qa!` leaves with the conflict open too, and writes nothing.
     let mut r = conflicted("b3-qa-bang");
     r.log.clear();
     r.keys(":qa!\n");
@@ -630,22 +598,23 @@ fn buf_3_qa_stays_while_a_file_has_unresolved_proposals_names_them_and_qa_bang_d
 }
 
 #[test]
-fn buf_3_each_file_keeps_si_s_rules_for_proposals_when_it_is_closed() {
-    let mut r = conflicted("b3-q-hunks");
+fn buf_3_each_file_keeps_si_s_rules_for_a_conflict_when_it_is_closed() {
+    let mut r = conflicted("b3-q-conflict");
     for quit in [":q\n", "q", ":x\n", "ZZ", ":wq\n"] {
         r.keys(quit);
         assert_eq!(r.open_files(), ["a.txt", "b.txt"], "{quit:?} must not close it");
     }
     assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ONE\ntwo\n", "and not save");
     r.keys(":q\n");
-    assert_eq!(
-        r.status(),
-        "unresolved proposals: ]c to review, :q! discards  1/2",
-        "said instead of `no write since last change`"
-    );
+    assert_eq!(r.status(), "no write since last change (:q! to override)  1/2");
     r.keys(":q!\n");
-    assert_eq!(r.open_files(), ["b.txt"], ":q! discards the proposals and closes only this file");
+    assert_eq!(r.open_files(), ["b.txt"], ":q! discards mine and closes only this file");
     assert!(r.quit.is_none());
+    assert_eq!(
+        fs::read_to_string(r.cwd.join("a.txt")).unwrap(),
+        "ONE\ntwo\n",
+        "the disk's is where it was"
+    );
 }
 
 // ---- on si's M4 and M5: the guarantees hold for every file ----
@@ -708,11 +677,10 @@ fn buf_3_leaving_remembers_where_each_file_was_left_in_si_s_way() {
 }
 
 #[test]
-fn buf_1_every_file_runs_the_hook_of_the_environment_and_knows_the_working_directory() {
+fn buf_1_every_file_runs_the_hook_of_the_environment() {
     let mut r =
         rig_env("b1-hook", &FILES, &[], (80, 24), |e| e.hook = Some("fcitx5-remote -c".into()));
     r.keys("<CR>");
-    assert_eq!(r.app().cwd.as_deref(), Some(r.cwd.to_string_lossy().as_ref()));
     assert_eq!(r.app().hook.as_deref(), Some("fcitx5-remote -c"));
     r.keys("<C-n>j<CR>");
     assert_eq!(r.open_files(), ["a.txt", "b.txt"]);
@@ -738,8 +706,8 @@ fn buf_1_a_filter_belongs_to_the_file_it_was_started_in() {
     // The answer finds b.txt wherever the user is, and a.txt knows nothing of it.
     let done = Event::FilterDone(Some(0), b"b1\nB2\n".to_vec(), vec![], far());
     r.send(SimEvent::App(b, done));
-    assert_eq!(r.sim.bufs[1].app.buf.hunks.len(), 1);
-    assert!(r.sim.bufs[0].app.buf.hunks.is_empty());
+    assert!(r.sim.bufs[1].app.buf.dirty());
+    assert!(!r.sim.bufs[0].app.buf.dirty());
     // An answer for a file that is not open (ids are never reused) is dropped.
     r.send(SimEvent::App(77, Event::FilterDone(Some(0), vec![], vec![], far())));
     assert_eq!(r.open_files(), ["a.txt", "b.txt"]);
@@ -747,7 +715,7 @@ fn buf_1_a_filter_belongs_to_the_file_it_was_started_in() {
 
 #[test]
 fn buf_1_a_read_of_the_disk_older_than_a_save_s_answer_is_dropped_by_that_file() {
-    // PROP-1, per file: a watcher's read that began before the save was done must not undo it, and
+    // DISK-1, per file: a watcher's read that began before the save was done must not undo it, and
     // a read that began after it is taken in.
     let mut r = two("b1-seq");
     let a = r.sim.bufs[0].id;
@@ -761,7 +729,7 @@ fn buf_1_a_read_of_the_disk_older_than_a_save_s_answer_is_dropped_by_that_file()
     };
     r.send(SimEvent::App(a, read("one\ntwo\n", began)));
     assert_eq!(r.text(), "ne\ntwo");
-    assert!(r.app().buf.marks.is_empty() && r.app().buf.hunks.is_empty() && !r.app().buf.dirty());
+    assert!(r.app().buf.marks.is_empty() && !r.app().buf.dirty());
     r.send(SimEvent::App(a, read("ne\ntwo\nthree\n", si::io::file::seq())));
     assert_eq!(r.text(), "ne\ntwo\nthree", "a newer read is a change on disk");
     assert!(!r.app().buf.marks.is_empty());

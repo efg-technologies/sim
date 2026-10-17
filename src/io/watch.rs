@@ -1,4 +1,4 @@
-//! PROP-1
+//! DISK-1
 //! notify: debounces changes to one file and hands over the disk content.
 use super::file::{opt, stamp};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError::Disconnected};
 use std::time::Duration;
 
-// The wait after the first event of a burst. Well inside the 100 ms of PROP-1.
+// The wait after the first event of a burst. Well inside the 100 ms of DISK-1.
 const DEBOUNCE: Duration = Duration::from_millis(30);
 
 /// Watches the parent directory of `path` (so saves by rename, deletion and re-creation are seen)
 /// and calls `on_change(seq, Some(bytes))` with the file's new content, or `on_change(seq, None)`
-/// when it no longer exists; `seq` is the number of the read, taken as it started (PROP-1).
+/// when it no longer exists; `seq` is the number of the read, taken as it started (DISK-1).
 /// Changes are debounced: a burst of events yields one call, and the content is read within 100 ms
 /// of the first event. With `first`, the file is also read once at the start,
 /// on the same thread, so that this read cannot overtake a later one. Keep the returned watcher
@@ -52,7 +52,7 @@ pub fn watch(
                     true
                 }
                 Err(Disconnected) => return,
-                // No event in a second: the file is as the last read saw it, or the watch is dead (PROP-1).
+                // No event in a second: the file is as the last read saw it, or the watch is dead (DISK-1).
                 Err(_) => stamp(&path).ok() != seen,
             };
         }

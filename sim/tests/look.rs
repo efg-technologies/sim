@@ -50,23 +50,15 @@ fn marked(name: &str, skin: Skin, size: (u16, u16)) -> Rig {
 }
 
 /// `a.rs` modified in two places (lines 2 and 5) and then changed on the disk in the same two: two
-/// hunks (proposals), the cursor on the first line.
+/// conflicts, marked on mine's lines, the cursor on the first line.
 fn conflicted(name: &str, skin: Skin, size: (u16, u16)) -> Rig {
     let src = format!("a.rs={SRC}");
     let mut r = looked(name, skin, &[&src], size);
-    r.keys("<CR>jx3jx");
+    r.keys("<CR>jx3jxgg");
     let id = r.sim.bufs[0].id;
     r.send(SimEvent::App(id, disk(DISK.as_bytes())));
-    assert_eq!(r.app().buf.hunks.len(), 2);
-    r.keys("gg");
-    r
-}
-
-/// `conflicted`, and REVIEW on the first hunk with `]c`.
-fn reviewing(name: &str, skin: Skin, size: (u16, u16)) -> Rig {
-    let mut r = conflicted(name, skin, size);
-    r.keys("]c");
-    assert_eq!(r.app().vi.mode, Mode::Review);
+    assert!(r.app().diverged());
+    assert_eq!(r.app().buf.marks.len(), 2);
     r
 }
 
@@ -307,12 +299,10 @@ fn look_2_what_comes_is_green_what_goes_red_and_the_gutter_says_which() {
 }
 
 #[test]
-fn look_2_a_proposal_is_like_a_mark_outside_review_and_a_neutral_hunk_in_it() {
-    // Outside REVIEW the rows of a hunk are mine, with the words a proposal would replace on the
-    // change style: green and a tint of a gain, as a mark's; in REVIEW they are a hunk's, neutral.
-    let mut r = conflicted("l2-hunk", Skin::Depth, (80, 24));
+fn look_2_a_conflict_is_marked_on_mine_as_a_change_from_disk_is() {
+    // The rows of a conflict are mine, marked whole: green and a tint of a gain, as a mark's.
+    let r = conflicted("l2-conflict", Skin::Depth, (80, 24));
     let (g, t) = (r.sim.geo(), tones());
-    assert_eq!(r.app().vi.mode, Mode::Normal);
     let y = row_of(&r, "n two()");
     assert_eq!(text(&r, y).chars().nth(usize::from(g.ex)), Some('~'));
     assert_eq!(ink_at(&r, y, g.ex).0, Some(t.add), "`~` is on green");
@@ -323,13 +313,8 @@ fn look_2_a_proposal_is_like_a_mark_outside_review_and_a_neutral_hunk_in_it() {
             && words.iter().all(|&x| ink_at(&r, y, x) == (Some(t.add), Some(t.add_text)))
     );
     assert_eq!(bg_at(&r.shot.paints[y], g.ex + g.ew - 1), Some(t.gain));
-    r.keys("]c");
-    assert_eq!(r.app().vi.mode, Mode::Review);
-    let y = usize::from(r.shot.frame.cursor.1);
-    assert_eq!(bg_at(&r.shot.paints[y], g.ex + g.ew - 1), Some(t.card), "the hunk being decided");
-    let o = row_of(&r, "FIVE");
-    assert_eq!(bg_at(&r.shot.paints[o], g.ex + g.ew - 1), Some(t.hunk), "the other one");
 }
+
 // ---- LOOK-3: the boxes ----
 
 #[test]
@@ -413,7 +398,7 @@ fn look_3_the_borders_carry_the_numbers_the_titles_and_the_badge() {
     let mut q = looked("l3-badge", Skin::Depth, &[&src], (80, 24));
     q.keys("<CR>");
     assert!(
-        !text(&q, 0).contains("change") && !text(&q, 0).contains("proposal"),
+        !text(&q, 0).contains("change") && !text(&q, 0).contains("conflict"),
         "{}",
         text(&q, 0)
     );
@@ -423,8 +408,8 @@ fn look_3_the_borders_carry_the_numbers_the_titles_and_the_badge() {
         disk(DISK.replace("FIVE", "five").replace("three", "THREE").as_bytes()),
     ));
     assert!(text(&q, 0).contains("─ 1 change on disk ─"), "{}", text(&q, 0));
-    let r = reviewing("l3-badge-hunks", Skin::Depth, (80, 24));
-    assert!(text(&r, 0).contains("─ 2 proposals ─"), "{}", text(&r, 0));
+    let r = conflicted("l3-badge-conflict", Skin::Depth, (100, 24));
+    assert!(text(&r, 0).contains("─ 1 conflict with the disk ─"), "{}", text(&r, 0));
 }
 
 #[test]
@@ -440,36 +425,15 @@ fn look_3_the_title_is_cut_to_what_the_border_has_left_by_si_s_rule() {
 }
 
 #[test]
-fn look_3_review_shows_which_hunk_and_the_keys_in_the_borders() {
-    let mut r = reviewing("l3-review", Skin::Depth, (100, 24));
-    let (g, t) = (r.sim.geo(), tones());
+fn look_3_the_border_has_a_badge_while_the_disk_conflicts_and_its_bottom_is_plain() {
+    let r = conflicted("l3-conflict", Skin::Depth, (100, 24));
     let top = text(&r, 0).to_string();
-    assert!(top.trim_end().ends_with("─ 1/2 ─╮"), "{top}");
-    let bottom = text(&r, 22).to_string();
     assert!(
-        bottom.contains("╰─ REVIEW  y accept  n reject  Y all  N none  Esc back ─"),
-        "{bottom}"
+        top.contains("─ 2 changes on disk ─") && top.contains("─ 1 conflict with the disk ─"),
+        "{top}"
     );
-    // Letters are primary and bold (no color of their own), words secondary.
-    let col = |s: &str| bottom.find(s).map(|i| bottom[..i].chars().count() as u16).unwrap();
-    let (y, accept) = (col(" y accept"), col(" accept"));
-    assert_eq!(paint_at(&r.shot.paints[22], y + 1), Paint { bold: true, ..Paint::default() });
-    assert_eq!(
-        paint_at(&r.shot.paints[22], accept + 1),
-        Paint { fg: Some(t.focus), ..Paint::default() }
-    );
-    assert_eq!(paint_at(&r.shot.paints[22], g.ex).fg, Some(t.focus));
-    // i is the hunk REVIEW is on.
-    r.keys("]c");
-    assert!(text(&r, 0).trim_end().ends_with("─ 2/2 ─╮"), "{}", text(&r, 0));
-    // Normal mode: the bottom border is plain, si's status line below says the rest.
-    r.keys("<Esc>");
-    assert!(
-        !text(&r, 22).contains("REVIEW") && text(&r, 22).starts_with("╰──"),
-        "{}",
-        text(&r, 22)
-    );
-    assert!(text(&r, 23).contains("NORMAL"));
+    assert!(text(&r, 22).starts_with("╰──"), "{}", text(&r, 22));
+    assert!(text(&r, 23).contains("conflicts with the disk"), "si's status line says it too");
 }
 
 #[test]
@@ -544,11 +508,7 @@ fn look_3_every_look_at_every_size_draws_a_whole_screen_within_its_columns() {
                     "{at}"
                 );
                 assert_eq!(r.shot.paints.len(), r.shot.looks.len(), "{at}");
-                assert_eq!(
-                    r.app().size,
-                    (g.ew, g.rows + 1 - 2 * u16::from(r.app().vi.mode == Mode::Review && g.boxed)),
-                    "{at}"
-                );
+                assert_eq!(r.app().size, (g.ew, g.rows + 1), "{at}");
                 for row in &f.rows {
                     assert!(width(&row.text) <= usize::from(w), "{at}: {:?}", row.text);
                 }
@@ -615,146 +575,14 @@ fn look_4_the_right_border_of_the_editor_shows_the_changes_and_the_screen() {
     assert_eq!(at(&r, 1 + 11), ('┃', Some(t.line)));
     assert_eq!(at(&r, 1 + 2), ('│', Some(t.focus)));
 }
-// ---- LOOK-5, LOOK-6: the card and the fog ----
+// ---- LOOK-6: the fog ----
 
 #[test]
-fn look_5_review_raises_the_hunk_being_decided_as_a_card() {
-    let r = reviewing("l5-card", Skin::Depth, (80, 24));
-    let (g, t) = (r.sim.geo(), tones());
-    let y = usize::from(r.shot.frame.cursor.1);
-    let text0 = g.ex + 5;
-    assert!(text(&r, y).contains("TWO"), "the cursor is on the card's first row: {}", text(&r, y));
-    // The card's rows: a neutral raised surface over the text columns, with the words on their
-    // colors (what would go on red, what would come on green); the half rows around it.
-    let rows_of = |y: usize| &r.shot.paints[y];
-    let raised = (text0..g.ex + g.ew).filter(|&x| bg_at(rows_of(y), x) == Some(t.card)).count();
-    assert!(raised > usize::from(g.ew) - 15, "{:?}", rows_of(y));
-    for x in text0..g.ex + g.ew {
-        match style_at(&r, y, x) {
-            Some(Style::Change) => assert_eq!(ink_at(&r, y, x), (Some(t.add), Some(t.add_text))),
-            Some(Style::Deleted) => assert_eq!(ink_at(&r, y, x), (Some(t.del), None), "dim stays"),
-            _ => assert_eq!(bg_at(rows_of(y), x), Some(t.card)),
-        }
-    }
-    let up: String =
-        text(&r, y - 1).chars().skip(usize::from(text0)).take(usize::from(g.ew - 5)).collect();
-    assert_eq!(up, "▄".repeat(usize::from(g.ew - 5)));
-    assert!(
-        (text0..g.ex + g.ew)
-            .all(|x| paint_at(rows_of(y - 1), x) == Paint { fg: Some(t.card), ..Paint::default() })
-    );
-    let dn = text(&r, y + 1);
-    assert_eq!(
-        dn.chars().skip(usize::from(text0)).take(usize::from(g.ew - 5)).collect::<String>(),
-        "▀".repeat(usize::from(g.ew - 5))
-    );
-    assert!((text0..g.ex + g.ew).all(|x| paint_at(rows_of(y + 1), x)
-        == Paint { fg: Some(t.card), bg: Some(t.shadow), ..Paint::default() }));
-    assert!(
-        text(&r, y - 1).chars().skip(usize::from(g.ex)).take(5).all(|c| c == ' '),
-        "the gutter of a half row is blank"
-    );
-    // The other hunk keeps the flat tint (neutral too), with its words on green and red.
-    let other = row_of(&r, "FIVE");
-    assert!(
-        (text0..g.ex + g.ew)
-            .all(|x| style_at(&r, other, x).is_some() || bg_at(rows_of(other), x) == Some(t.hunk)),
-        "{:?}",
-        rows_of(other)
-    );
-    assert!((text0..g.ex + g.ew).any(|x| ink_at(&r, other, x).0 == Some(t.add)), "its new words");
-    assert!((text0..g.ex + g.ew).any(|x| ink_at(&r, other, x).0 == Some(t.del)), "its old words");
-    // The gutter bar runs over the card's rows, on green (`~`).
-    assert_eq!(bg_at(rows_of(y), g.ex), Some(t.add));
-}
-#[test]
-fn look_5_the_frame_is_two_rows_shorter_only_while_a_card_is_shown() {
-    let mut r = reviewing("l5-short", Skin::Depth, (80, 24));
-    assert_eq!(r.app().size.1, 24 - 2 - 2);
-    assert_eq!(r.shot.frame.rows.len(), 24, "with its two half rows the screen is whole");
-    r.keys("<Esc>");
-    assert_eq!((r.app().vi.mode, r.app().size.1), (Mode::Normal, 22));
-    assert!(!(1..23).any(|y| text(&r, y).contains('▄')));
-    // Flat has no card: the App has the whole height.
-    let r = reviewing("l5-flat", Skin::Flat, (80, 24));
-    assert_eq!(r.app().size.1, 24);
-    assert!(!(0..24).any(|y| text(&r, y).contains('▄')));
-    // No palette, no card: nothing to raise it with (LOOK-8).
-    let src = format!("a.rs={SRC}");
-    let mut q = rig_env("l5-nopal", &[&src], &[], (80, 24), |e| {
-        (e.skin, e.syn) = (Skin::Depth, Syntax::new(true));
-    });
-    q.keys("<CR>jx3jx");
-    let id = q.sim.bufs[0].id;
-    q.send(SimEvent::App(id, disk(DISK.as_bytes())));
-    q.keys("gg]c");
-    assert_eq!((q.app().vi.mode, q.app().size.1), (Mode::Review, 22));
-    assert!(!(0..24).any(|y| text(&q, y).contains('▄')));
-}
-
-#[test]
-fn look_5_a_click_lands_on_the_row_it_is_drawn_at_with_the_card_inserted() {
-    let g = Geo::new((80, 24), Skin::Depth, true);
-    for (what, line) in [("fn one", 0), ("fn six", 5), ("fn eight", 7), ("FIVE", 4)] {
-        let mut r = reviewing("l5-click", Skin::Depth, (80, 24));
-        let y = row_of(&r, what) as u16;
-        r.click(g.ex + 6, y);
-        assert_eq!(r.app().vi.mode, Mode::Normal, "a click leaves REVIEW (PTR-2)");
-        assert_eq!(r.app().buf.line_of(r.app().buf.cursor), line, "{what}");
-    }
-}
-
-/// The fade of a row `d` rows from the card, in percent.
-fn fog(d: usize) -> u8 {
-    (((d as f64 - 2.0) / 11.0 * 0.6).clamp(0.0, 0.6) * 100.0).round() as u8
-}
-
-#[test]
-fn look_6_rows_that_are_no_change_fade_by_their_distance_from_the_card() {
-    let src: String = (0..40).map(|i| format!("let x{i} = {i};\n")).collect();
-    let mut r = looked("l6-fog", Skin::Depth, &[&format!("a.rs={src}")], (80, 24));
-    r.keys("<CR>20Gx");
-    let id = r.sim.bufs[0].id;
-    let new: String = (0..40)
-        .map(|i| if i == 19 { "let x19 = 99;\n".into() } else { format!("let x{i} = {i};\n") })
-        .collect();
-    r.send(SimEvent::App(id, disk(new.as_bytes())));
-    r.keys("]c");
-    assert_eq!(r.app().vi.mode, Mode::Review);
-    let (g, t) = (r.sim.geo(), tones());
-    let cy = usize::from(r.shot.frame.cursor.1);
-    let card = cy..cy + 1;
-    let mut seen = vec![];
-    for y in 1..=usize::from(g.rows) {
-        let p = &r.shot.paints[y];
-        let fade = paint_at(p, g.ex + 1).fade;
-        let fade_text = paint_at(p, g.ex + 5 + 2).fade;
-        if card.contains(&y) || y == cy - 1 || y == cy + 1 {
-            assert_eq!((fade, fade_text), (0, 0), "row {y}: the card and its half rows");
-            continue;
-        }
-        let d = cy.abs_diff(y);
-        // (the half rows count: a row below the card is one further than the frame's own row)
-        let d = d - 1;
-        assert_eq!((fade, fade_text), (fog(d), fog(d)), "row {y}, d {d}: line numbers and text");
-        seen.push(fade);
-    }
-    assert!(
-        seen.contains(&0) && seen.iter().any(|&f| f >= 40),
-        "near rows are clear, far ones faded: {seen:?}"
-    );
-    // The gutter symbol and the bar of changes are never faded, nor is the tint.
-    assert_eq!(paint_at(&r.shot.paints[cy], g.ex + 1), Paint::default());
-    assert_eq!(bg_at(&r.shot.paints[cy], g.ex + g.ew - 1), Some(t.card));
-}
-
-#[test]
-fn look_6_rows_of_other_changes_never_fade_and_context_keeps_its_syntax_colors() {
-    let r = reviewing("l6-other", Skin::Depth, (80, 24));
+fn look_6_rows_of_a_change_never_fade_and_context_keeps_its_syntax_colors() {
+    let r = conflicted("l6-other", Skin::Depth, (80, 24));
     let g = r.sim.geo();
-    let other = row_of(&r, "FIVE");
+    let other = row_of(&r, "n five");
     assert!(r.shot.paints[other].iter().all(|(_, p)| p.fade == 0), "{:?}", r.shot.paints[other]);
-    assert!(r.shot.looks[other].is_empty(), "a row of a change has no syntax colors in REVIEW");
     let y = row_of(&r, "fn seven");
     assert!(r.shot.paints[y].iter().any(|(_, p)| p.fade > 0));
     assert!(
@@ -762,12 +590,6 @@ fn look_6_rows_of_other_changes_never_fade_and_context_keeps_its_syntax_colors()
         "the keyword `fn` keeps its look: {:?}",
         r.shot.looks[y]
     );
-    // Flat and calm: REVIEW has no syntax colors, as SYN-1 says.
-    for skin in [Skin::Flat, Skin::Calm] {
-        let r = reviewing("l6-nosyn", skin, (80, 24));
-        assert!(r.shot.looks.iter().all(Vec::is_empty), "{skin:?}");
-        assert!(r.shot.paints.iter().flatten().all(|(_, p)| p.fade == 0), "{skin:?}");
-    }
 }
 
 #[test]
@@ -1058,26 +880,6 @@ fn look_2_golden_flat() {
 fn look_3_golden_depth() {
     let r = marked("l3-golden", Skin::Depth, (64, 14));
     golden("look_3_depth", &dump_look(&r.shot, &tones()));
-}
-
-#[test]
-fn look_5_golden_review() {
-    let src: String = (0..30).map(|i| format!("let x{i} = {i};\n")).collect();
-    let mut r = looked("l5-golden", Skin::Depth, &[&format!("a.rs={src}")], (64, 24));
-    r.keys("<CR>15Gx");
-    let id = r.sim.bufs[0].id;
-    let new: String = (0..30)
-        .map(|i| {
-            if i == 14 || i == 8 {
-                format!("let x{i} = 99;\n")
-            } else {
-                format!("let x{i} = {i};\n")
-            }
-        })
-        .collect();
-    r.send(SimEvent::App(id, disk(new.as_bytes())));
-    r.keys("]c");
-    golden("look_5_review", &dump_look(&r.shot, &tones()));
 }
 
 #[test]

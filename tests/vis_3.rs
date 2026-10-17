@@ -102,49 +102,34 @@ fn vis_2_wide_and_wrapped_text_is_painted_where_it_is() {
 }
 
 #[test]
-fn vis_3_a_hunk_outside_review_shows_a_tilde_and_the_words_of_mine_it_would_replace_golden() {
+fn vis_3_a_conflict_marks_the_whole_line_of_mine_with_a_tilde_golden() {
     let mut a = named("f.rs", "one\ntwo words here\nthree\n", (30, 7));
-    feed(&mut a, "jwcwMINE\x1b");
+    feed(&mut a, "jwcwMINE\x1bgg");
     disk(&mut a, "one\ntwo THEIRS here\nthree\n");
-    feed(&mut a, "gg");
     let f = screen(&mut a);
-    golden("vis_3_hunk_outside_review", &dump(&f));
+    golden("vis_3_conflict_marks_the_line", &dump(&f));
     assert_eq!(f.rows[1].text, "~  2 two MINE here");
     assert_eq!(
         changed(&f, 1),
-        [0, 9, 10, 11, 12],
-        "the marker and `MINE`, the word it would replace"
+        (0..18).filter(|c| !(1..5).contains(c)).collect::<Vec<u16>>(),
+        "the marker and the whole line: the disk's words are not in the buffer to be told apart"
     );
     assert!(changed(&f, 0).is_empty() && changed(&f, 2).is_empty());
 }
 
 #[test]
-fn vis_3_a_hunk_whose_word_diff_is_unknown_paints_the_whole_line_of_mine() {
+fn vis_3_a_conflict_where_mine_has_no_line_marks_the_line_after_it() {
     let mut a = named("f.rs", "one\ntwo\nthree\n", (30, 7));
-    feed(&mut a, "jrX");
+    feed(&mut a, "jddgg"); // mine drops line 2 while the disk changes it
     disk(&mut a, "one\ntwo!\nthree\n");
-    // The word diff is gone for any reason (here: cleared by hand): every char of mine counts.
-    std::sync::Arc::make_mut(&mut a.buf.hunks)[0].words = None;
-    feed(&mut a, "gg");
     let f = screen(&mut a);
-    assert_eq!(changed(&f, 1), [0, 5, 6, 7]);
-}
-
-#[test]
-fn vis_3_an_empty_hunk_range_marks_the_line_after_it() {
-    let mut a = named("f.rs", "one\ntwo\nthree\n", (30, 7));
-    feed(&mut a, "jx");
-    disk(&mut a, "one\nthree\n");
-    feed(&mut a, "dd"); // delete what is left of mine: the hunk has no line of its own any more
-    assert_eq!(a.buf.hunks[0].mine, 1..1);
-    let f = screen(&mut a);
-    assert_eq!(f.rows[1].text.chars().next(), Some('~'));
+    assert_eq!(f.rows[1].text.chars().next(), Some('-'));
     assert_eq!(changed(&f, 1), [0], "just the marker: there is nothing of mine to paint");
 }
 
 #[test]
-fn vis_9_the_status_line_counts_changes_on_disk_and_proposals() {
-    let mut a = named("f", "a\nb\nc\nd\ne\n", (80, 4));
+fn vis_9_the_status_line_counts_changes_on_disk_and_says_when_one_conflicts() {
+    let mut a = named("f", "a\nb\nc\nd\ne\n", (100, 4));
     assert_eq!(status(&screen(&mut a)), "f  1:1  NORMAL");
     disk(&mut a, "a\nB\nc\nd\nE\n");
     assert_eq!(status(&screen(&mut a)), "f  1:1  NORMAL  2 changes on disk");
@@ -156,12 +141,18 @@ fn vis_9_the_status_line_counts_changes_on_disk_and_proposals() {
     );
     feed(&mut a, "jjrXjjrY");
     assert_eq!(status(&screen(&mut a)), "f  5:1  NORMAL  modified · 1 change on disk");
-    let mut a = named("f", "a\nb\n", (80, 4));
+    let mut a = named("f", "a\nb\n", (100, 4));
     feed(&mut a, "rX");
     disk(&mut a, "A\nb\n");
-    assert_eq!(status(&screen(&mut a)), "f  1:1  NORMAL  modified · 1 proposal");
+    assert_eq!(
+        status(&screen(&mut a)),
+        "f  1:1  NORMAL  modified · 1 change on disk · conflicts with the disk"
+    );
     a.update(Event::Disk { bytes: None, hash: None, deadline: far(), seq: 0 });
-    assert_eq!(status(&screen(&mut a)), "f  1:1  NORMAL  modified · deleted on disk · 1 proposal");
+    assert_eq!(
+        status(&screen(&mut a)),
+        "f  1:1  NORMAL  modified · deleted on disk · 1 change on disk · conflicts with the disk"
+    );
 }
 
 #[test]

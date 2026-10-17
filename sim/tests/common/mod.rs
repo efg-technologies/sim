@@ -297,6 +297,11 @@ impl Rig {
                         };
                         self.queue.push_back(SimEvent::App(id, ev));
                     }
+                    SimEffect::App(id, Effect::Keep { path, bytes, ext }) => {
+                        let at = si::io::journal::keep(&self.state, &path, &bytes, ext);
+                        let at = at.map(|p| p.display().to_string()).map_err(|e| e.to_string());
+                        self.queue.push_back(SimEvent::App(id, Event::Kept(at)));
+                    }
                     SimEffect::App(id, Effect::Open(p)) => {
                         let seq = si::io::file::seq();
                         let read = si::io::file::read(&self.cwd.join(&p).to_string_lossy());
@@ -524,9 +529,9 @@ pub fn dump_screen(s: &Screen) -> String {
 
 /// A Screen of the looks as text (LOOK-2 to LOOK-7): `dump_screen`'s rows, and under each row that
 /// has paints one more line with a symbol per column: backgrounds `g` the tint of a gain, `r` of a
-/// loss, `h` of a hunk, `k` the card, `w` the shadow, `A` green and `D` red (words, the bar, the
+/// loss, `k` the card, `w` the shadow, `A` green and `D` red (words, the bar, the
 /// badge); colors of text `l` the lines of a box, `d` the dimmed title, `f` the secondary gray, `a`
-/// green and `e` red (the ruler), `u` the card's color on the page (a half row), `p` primary; a
+/// green and `e` red (the ruler), `u` the card's color on the page, `p` primary; a
 /// digit the tens of a fade in percent (`4` is 45); `.` where there is none.
 pub fn dump_look(s: &Screen, t: &Tones) -> String {
     dump_rows(&s.frame, &s.looks, &s.paints, Some(t))
@@ -539,7 +544,6 @@ fn paint_symbols(p: &Paints, t: &Tones, width: u16) -> String {
             Some(x) => match (x.bg, x.fg, x.fade) {
                 (Some(c), ..) if c == t.gain => 'g',
                 (Some(c), ..) if c == t.loss => 'r',
-                (Some(c), ..) if c == t.hunk => 'h',
                 (Some(c), ..) if c == t.card => 'k',
                 (Some(c), ..) if c == t.shadow => 'w',
                 (Some(c), ..) if c == t.add => 'A',
@@ -573,7 +577,6 @@ fn dump_rows(f: &Frame, looks: &[Looks], paints: &[Paints], t: Option<&Tones>) -
                     (_, Style::Primary) => '.',
                     (_, Style::Secondary) => '-',
                     (_, Style::Change) => '#',
-                    (_, Style::Deleted) => 'x',
                     (_, Style::Hidden) => 'h',
                 });
             }

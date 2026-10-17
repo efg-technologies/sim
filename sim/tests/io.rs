@@ -289,7 +289,7 @@ fn buf_1_a_directory_that_others_can_enter_or_that_is_a_link_is_never_used() {
 
 #[test]
 fn buf_1_the_save_thread_numbers_each_answer_when_its_save_is_done() {
-    // PROP-1: a read of the disk takes its number as it starts, a save's answer when the save is
+    // DISK-1: a read of the disk takes its number as it starts, a save's answer when the save is
     // done, from one counter for every thread; a read that began before the answer is older.
     let d = temp_dir("save-seq");
     let (tx, rx) = mpsc::channel();

@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
-/// How long a diff may take before it gives up (PROP-7).
+/// How long a diff may take before it gives up (DISK-5).
 pub const MERGE: Duration = Duration::from_millis(50);
 
 pub fn now_ms() -> u64 {
@@ -126,6 +126,13 @@ pub fn journal_thread(
                         drop(tell.send(SimEvent::App(id, Event::Place(path, l, c))));
                     }
                 }
+                Job::App(id, Effect::Keep { path, bytes, ext }) => {
+                    // SAFE-7: a `:w!` or an `:e!` waits for this copy, so the answer is always sent.
+                    let at = state.as_deref().ok_or_else(|| io::Error::other(NO_STATE));
+                    let at = at.and_then(|d| journal::keep(d, &path, &bytes, ext));
+                    let at = at.map(|p| p.display().to_string()).map_err(|e| why(&e));
+                    drop(tell.send(SimEvent::App(id, Event::Kept(at))));
+                }
                 Job::App(id, Effect::Snapshot { path, base, text }) => {
                     let [base, text] = [base, text].map(|r| r.to_string().into_bytes());
                     let path = path.map_or(String::new(), |p| key(Path::new(&p)));
@@ -154,7 +161,7 @@ pub fn save_thread(state: Option<PathBuf>, answers: Sender<SimEvent>) -> Sender<
     let (jobs, rx) = mpsc::channel::<Save>();
     thread::spawn(move || {
         for (id, path, bytes, expect) in rx {
-            // The answer is numbered when the save is done (PROP-1), as in si's main.
+            // The answer is numbered when the save is done (DISK-1), as in si's main.
             let ev = match file::save(&path, &bytes, expect, state.as_deref()) {
                 Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn)), file::seq()),
                 Ok(Saved::Conflict(disk)) => {

@@ -1,7 +1,7 @@
 //! Races between the shell and the App, and the other ways a late or unexpected event can bite:
-//! a watcher read that cannot be ordered against a save's answer (PROP-1), a merge across undo
-//! and across a Visual selection (PROP-2), `Opened` answers (VI-7), the snapshot of a file that is
-//! gone (SAFE-6), and the marks of joined lines (PROP-9). Each test reproduces one defect found by
+//! a watcher read that cannot be ordered against a save's answer (DISK-1), a merge across undo
+//! and across a Visual selection (DISK-2), `Opened` answers (VI-7), the snapshot of a file that is
+//! gone (SAFE-6), and the marks of joined lines (DISK-6). Each test reproduces one defect found by
 //! review; the random versions are tests/model.rs and tests/shift.rs.
 #![allow(clippy::unwrap_used, clippy::single_range_in_vec_init)]
 mod common;
@@ -38,14 +38,14 @@ fn disk(a: &mut App, text: &str) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-1: what the watcher says while a save is in flight cannot be ordered against the save
+// DISK-1: what the watcher says while a save is in flight cannot be ordered against the save
 // ---------------------------------------------------------------------------------------------
 
 /// The file is deleted right after our rename. The watcher's read (`None`) reaches the App before
 /// the save thread's answer, and the answer then says the file is saved. The App asks for a fresh
 /// read, which says `None` again: the text is in the buffer only, and `:q` must not lose it.
 #[test]
-fn prop_1_a_deletion_seen_during_a_save_is_not_forgotten_by_the_answer() {
+fn disk_1_a_deletion_seen_during_a_save_is_not_forgotten_by_the_answer() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
@@ -60,7 +60,7 @@ fn prop_1_a_deletion_seen_during_a_save_is_not_forgotten_by_the_answer() {
 /// Somebody reverts the file to the content we knew before the save. The event hashes like the
 /// known disk content and is dropped; the answer of the save then replaces what we know.
 #[test]
-fn prop_1_a_revert_seen_during_a_save_is_not_swallowed_by_the_hash_check() {
+fn disk_1_a_revert_seen_during_a_save_is_not_swallowed_by_the_hash_check() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
@@ -78,7 +78,7 @@ fn prop_1_a_revert_seen_during_a_save_is_not_swallowed_by_the_hash_check() {
 }
 
 #[test]
-fn prop_1_every_answer_of_a_save_is_followed_by_a_fresh_read() {
+fn disk_1_every_answer_of_a_save_is_followed_by_a_fresh_read() {
     let mut a = named("one\n");
     feed(&mut a, "x");
     write(&feed(&mut a, ":w\n")).unwrap();
@@ -92,7 +92,7 @@ fn prop_1_every_answer_of_a_save_is_followed_by_a_fresh_read() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-1: every read of the disk is numbered as it starts; a read older than what App took in is
+// DISK-1: every read of the disk is numbered as it starts; a read older than what App took in is
 // dropped
 // ---------------------------------------------------------------------------------------------
 
@@ -104,7 +104,7 @@ fn disk_n(a: &mut App, text: &str, seq: u64) {
 /// The race of the model's replay: a watcher read taken before an `:e!` loaded the newer file
 /// arrives after the load. Without numbers it was taken for a change and put the old text back.
 #[test]
-fn prop_1_a_read_older_than_a_load_is_dropped() {
+fn disk_1_a_read_older_than_a_load_is_dropped() {
     let mut a = named("one\n");
     assert!(feed(&mut a, ":e!\n").iter().any(|e| matches!(e, Effect::Open(_))));
     a.update(Event::Opened("f".into(), Ok(Some(b"two\n".to_vec())), 5));
@@ -115,7 +115,7 @@ fn prop_1_a_read_older_than_a_load_is_dropped() {
 }
 
 #[test]
-fn prop_1_a_read_older_than_a_saves_answer_is_dropped() {
+fn disk_1_a_read_older_than_a_saves_answer_is_dropped() {
     let mut a = named("one\n");
     feed(&mut a, "x");
     let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
@@ -127,7 +127,7 @@ fn prop_1_a_read_older_than_a_saves_answer_is_dropped() {
 }
 
 #[test]
-fn prop_1_a_read_older_than_a_newer_read_is_dropped_and_an_equal_one_is_not() {
+fn disk_1_a_read_older_than_a_newer_read_is_dropped_and_an_equal_one_is_not() {
     let mut a = named("one\n");
     disk_n(&mut a, "one\ntwo\n", 9);
     disk_n(&mut a, "one\nTWO\n", 8);
@@ -139,7 +139,7 @@ fn prop_1_a_read_older_than_a_newer_read_is_dropped_and_an_equal_one_is_not() {
 
 /// A save's answer is never dropped: the save happened. But what was read before it is older.
 #[test]
-fn prop_1_a_save_answer_is_taken_in_even_when_a_newer_read_came_first() {
+fn disk_1_a_save_answer_is_taken_in_even_when_a_newer_read_came_first() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
@@ -153,7 +153,7 @@ fn prop_1_a_save_answer_is_taken_in_even_when_a_newer_read_came_first() {
 }
 
 #[test]
-fn prop_1_a_conflict_older_than_a_read_taken_in_merges_nothing() {
+fn disk_1_a_conflict_older_than_a_read_taken_in_merges_nothing() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     write(&feed(&mut a, ":w\n")).unwrap();
@@ -168,7 +168,7 @@ fn prop_1_a_conflict_older_than_a_read_taken_in_merges_nothing() {
 }
 
 #[test]
-fn prop_1_a_load_older_than_a_newer_read_of_the_same_file_is_refused_and_another_file_loads() {
+fn disk_1_a_load_older_than_a_newer_read_of_the_same_file_is_refused_and_another_file_loads() {
     let mut a = named("one\n");
     feed(&mut a, ":e!\n");
     // The file was read for the load, then written back to what the buffer has, then read again:
@@ -188,11 +188,11 @@ fn prop_1_a_load_older_than_a_newer_read_of_the_same_file_is_refused_and_another
 }
 
 // ---------------------------------------------------------------------------------------------
-// PROP-2: a merge, undo, the Visual selection and hunks
+// DISK-2: a merge, undo and the Visual selection
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn prop_2_undo_across_a_dirty_merge_does_not_make_the_buffer_clean() {
+fn disk_2_undo_across_a_dirty_merge_does_not_make_the_buffer_clean() {
     let mut a = named("b0\n");
     feed(&mut a, "A m1\x1b");
     disk(&mut a, "e2\nb0\n");
@@ -211,7 +211,7 @@ fn prop_2_undo_across_a_dirty_merge_does_not_make_the_buffer_clean() {
 /// in, and undo goes back to the text that was saved: but that text is not what the file holds
 /// any more, in the format a save would write, so the buffer is not clean.
 #[test]
-fn prop_2_undo_across_a_merge_that_changed_only_the_format_does_not_make_the_buffer_clean() {
+fn disk_2_undo_across_a_merge_that_changed_only_the_format_does_not_make_the_buffer_clean() {
     let mut a = named("b0\n");
     feed(&mut a, "yyp");
     a.update(Event::Disk { bytes: Some(b"b0".to_vec()), hash: None, deadline: far(), seq: 0 });
@@ -229,7 +229,7 @@ fn prop_2_undo_across_a_merge_that_changed_only_the_format_does_not_make_the_buf
 /// merged (format adopted: BOM). The file now holds what the save wrote, without BOM, so the
 /// buffer must not write a BOM from then on.
 #[test]
-fn prop_2_the_format_of_a_finished_save_is_the_format_of_the_file() {
+fn disk_2_the_format_of_a_finished_save_is_the_format_of_the_file() {
     let mut a = named("b0\n");
     feed(&mut a, "A x\x1b");
     let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
@@ -266,7 +266,7 @@ fn prop_2_the_format_of_a_finished_save_is_the_format_of_the_file() {
 /// The text is deleted while a save is running: the file ends as it was written, but the buffer
 /// is empty, and saving that writes an empty file, not a line break (SAFE-3).
 #[test]
-fn prop_2_a_finished_save_leaves_an_emptied_buffer_empty() {
+fn disk_2_a_finished_save_leaves_an_emptied_buffer_empty() {
     let mut a = named("abc\n");
     feed(&mut a, "x");
     let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
@@ -277,11 +277,11 @@ fn prop_2_a_finished_save_leaves_an_emptied_buffer_empty() {
     assert_eq!(write(&feed(&mut a, ":w\n")).unwrap().0, b"");
 }
 
-/// The selection ends when a merge comes in (PROP-2) and its lines are kept for `:'<,'>`. They are
+/// The selection ends when a merge comes in (DISK-2) and its lines are kept for `:'<,'>`. They are
 /// lines of the new text: after three lines come in above, `:'<,'>s/./X/` changes the lines that
 /// were selected, not the ones that are now at those numbers.
 #[test]
-fn prop_2_the_lines_of_the_last_selection_follow_a_merge() {
+fn disk_2_the_lines_of_the_last_selection_follow_a_merge() {
     let mut a = named("a1\nb2\nc3\nd4\ne5\nf6\n");
     feed(&mut a, "jVj:"); // b2 and c3 are selected; the command line starts with `:'<,'>`
     disk(&mut a, "x\ny\nz\na1\nb2\nc3\nd4\ne5\nf6\n");
@@ -295,47 +295,15 @@ fn prop_2_the_lines_of_the_last_selection_follow_a_merge() {
     assert_eq!(text(&a), "x\na1\nX2\nX3\nd4");
 }
 
-/// Edits inside a hunk make its word diff stale (VIS-3 Decided). A change that comes in from disk
-/// and replaces a line inside the hunk's range does the same: the char offsets of the lines after
-/// the replaced one are wrong, and the painted words would not be the words that differ.
-#[test]
-fn prop_2_a_merge_inside_a_hunk_makes_its_word_diff_stale() {
-    let mut a = named("a\nbb\nccc\ndd\ne\n");
-    a.buf.hunks = vec![hunk(1..4, "BB\nCCC\nDD\n", Some((vec![3..5, 6..9], vec![0..2])))].into();
-    // The disk replaces line 2 (inside the hunk) by two longer lines; mine has not touched it.
-    disk(&mut a, "a\nbb\nxxxxxxxx\nyyyy\ndd\ne\n");
-    let h = &a.buf.hunks[0];
-    assert!(h.mine.len() > 3, "the hunk covers the new lines: {:?}", h.mine);
-    assert!(h.words.is_none(), "word offsets were computed for the old text of lines 1..4");
-    // A change elsewhere leaves the word diff alone.
-    let mut a = named("a\nbb\nccc\ndd\ne\n");
-    a.buf.hunks = vec![hunk(1..3, "BB\nCCC\n", Some((vec![0..2], vec![0..2])))].into();
-    disk(&mut a, "a\nbb\nccc\ndd\nE\n");
-    assert!(a.buf.hunks[0].words.is_some());
-}
-
-#[test]
-fn prop_2_deleting_everything_keeps_the_hunks_in_order() {
-    let mut b = Buffer::decode(b"\n\n\n");
-    b.hunks = vec![hunk(1..1, "T\n", None), hunk(2..2, "T\n", None)].into();
-    b.replace(0..2, "");
-    let r: Vec<_> = b.hunks.iter().map(|h| h.mine.clone()).collect();
-    assert!(
-        r.windows(2).all(|w| w[0].start <= w[1].start),
-        "{r:?} not in order of their first line"
-    );
-    assert!(r.iter().all(|r| r.end <= b.lines()), "{r:?} in {} lines", b.lines());
-}
-
 // ---------------------------------------------------------------------------------------------
-// PROP-9: marks
+// DISK-6: marks
 // ---------------------------------------------------------------------------------------------
 
 /// `J` on an empty line followed by an empty line: the edit reads as "the first line stays" and as
-/// "the second line stays" at once, and one line is left. PROP-9 has one mark per line, and the
+/// "the second line stays" at once, and one line is left. DISK-6 has one mark per line, and the
 /// mark of the cursor's line is gone after a key.
 #[test]
-fn prop_9_joining_two_empty_lines_leaves_one_mark_not_two() {
+fn disk_6_joining_two_empty_lines_leaves_one_mark_not_two() {
     let mut a = named("a\n\n\nb\n");
     a.buf.marks = (1..3).map(|line| mark(line, '+', vec![0..0])).collect::<Vec<_>>().into();
     a.buf.cursor = a.buf.start(1);
@@ -351,10 +319,10 @@ fn prop_9_joining_two_empty_lines_leaves_one_mark_not_two() {
     assert_eq!(lines, [1], "{lines:?}");
 }
 
-/// PROP-9 Decided: undo brings back the marks as they were before the undone step, including
+/// DISK-6 Decided: undo brings back the marks as they were before the undone step, including
 /// ones the cursor had already entered. Showing a change again errs on the safe side.
 #[test]
-fn prop_9_undo_brings_back_a_mark_that_was_seen() {
+fn disk_6_undo_brings_back_a_mark_that_was_seen() {
     let mut a = named("a\nb\nc\nd\n");
     disk(&mut a, "a\nb\nC\nd\n");
     assert_eq!(a.buf.marks.len(), 1);
@@ -445,7 +413,7 @@ fn vi_7_an_answer_after_a_load_is_for_the_buffer_that_was_loaded() {
 // SAFE-6: recovery
 // ---------------------------------------------------------------------------------------------
 
-/// The file was deleted from outside while si held its text (PROP-1: the text stays, the buffer
+/// The file was deleted from outside while si held its text (DISK-1: the text stays, the buffer
 /// counts as modified, so it is snapshotted). si dies; the file is still gone. Opening it again
 /// offers the snapshot, whose text equals its base: a merge would take the missing file for a
 /// deletion of every line, apply it, make the buffer clean, and `Unsnapshot` would delete the only

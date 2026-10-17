@@ -445,7 +445,7 @@ safe_6_a_file_changed_meanwhile_is_merged_with_the_snapshot() {
 }
 
 # Another process rewrites the open file the way an AI does: a new file moved over the old one.
-prop_1_an_external_edit_appears_and_is_marked() {
+disk_1_an_external_edit_appears_and_is_marked() {
   printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
@@ -465,7 +465,7 @@ prop_1_an_external_edit_appears_and_is_marked() {
   t3=$(now_ms)
   late=$(timer_lateness_ms)
   echo "key to screen: $((t1 - t0)) ms, rename to marked: $((t3 - t2)) ms, timers late by $late ms"
-  # PROP-1: 100 ms from the rename to the callback (the 30 ms debounce, the read, the merge and the
+  # DISK-1: 100 ms from the rename to the callback (the 30 ms debounce, the read, the merge and the
   # draw come out of it). Each look at the screen lands anywhere in a 50 ms step of wait_for, so the
   # two times can differ by one more step than the watcher took. Two timers are in the path, si's
   # debounce and that step's `sleep`, and each may be late by what this machine's timers are
@@ -473,13 +473,13 @@ prop_1_an_external_edit_appears_and_is_marked() {
   [ $(((t3 - t2) - (t1 - t0))) -le $((150 + 2 * late)) ]
   screen | grep -F -q "~  2 TWO"
   gone modified
-  # PROP-9: the mark stays until the cursor enters its line.
+  # DISK-6: the mark stays until the cursor enters its line.
   typed j
   wait_for "   2 TWO"
   gone "1 change on disk"
 }
 
-prop_1_a_file_left_by_e_is_not_merged_into_the_one_opened() {
+disk_1_a_file_left_by_e_is_not_merged_into_the_one_opened() {
   printf 'one\ntwo\n' > "$CASE_DIR/f"
   printf 'other\nfile\n' > "$CASE_DIR/g"
   start f
@@ -504,7 +504,7 @@ prop_1_a_file_left_by_e_is_not_merged_into_the_one_opened() {
   wait "$writer"
 }
 
-prop_2_a_conflicting_external_edit_becomes_a_proposal_and_loses_nothing() {
+disk_2_a_conflicting_external_edit_is_marked_and_loses_nothing() {
   printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
@@ -513,100 +513,69 @@ prop_2_a_conflicting_external_edit_becomes_a_proposal_and_loses_nothing() {
   wait_for "modified"
   printf 'one\ntwo!\nthree\n' > "$CASE_DIR/f.new"
   mv "$CASE_DIR/f.new" "$CASE_DIR/f"
-  wait_for "1 proposal"
+  wait_for "conflicts with the disk"
   screen | grep -F -q "~  2 MINE"
   printf 'one\ntwo!\nthree\n' | cmp - "$CASE_DIR/f" # si wrote nothing
 }
 
-# Mine has three edits and the file is rewritten under them: three proposals. Going through them
-# with ]c, y, n and u, :w is refused until they are decided, and :w! keeps mine.
-prop_8_review_accepts_and_rejects_hunks() {
-  printf 'a1\nb\na2\nc\na3\n' > "$CASE_DIR/f"
+# The disk and mine conflict: :w is refused and writes nothing; :w! keeps mine and has copied the
+# disk's version into the state directory before it wrote.
+safe_7_w_is_refused_and_w_bang_keeps_mine_after_copying_the_disks_version() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
-  typed "rAjjrAjjrAgg"
+  typed "jcwMINE"
+  keys Escape
   wait_for "modified"
-  printf 'X1\nb\nX2\nc\nX3\n' > "$CASE_DIR/f.new"
+  printf 'one\ntwo!\nthree\n' > "$CASE_DIR/f.new"
   mv "$CASE_DIR/f.new" "$CASE_DIR/f"
-  wait_for "3 proposals"
-  # :w is refused and writes nothing.
+  wait_for "conflicts with the disk"
   typed ":w"
   keys Enter
-  wait_for "unresolved conflicts with the disk: ]c to review, :w! keeps yours"
-  printf 'X1\nb\nX2\nc\nX3\n' | cmp - "$CASE_DIR/f"
-  # ]c starts REVIEW on the first proposal: mine and theirs are woven into one line.
-  typed "]c"
-  wait_for "f  1:1  REVIEW 1/3  y accept · n reject · Y all · N none · Esc back"
-  screen | grep -F -q "~  1 A1X1"
-  screen | grep -F -q "   2 b"
-  # y accepts it and goes on to the next; n rejects that one.
-  typed y
-  wait_for "REVIEW 1/2"
-  screen | grep -F -q "   1 X1"
-  typed n
-  wait_for "REVIEW 1/1"
-  screen | grep -F -q "   3 A2"
-  # u leaves REVIEW and brings the rejected proposal back.
-  typed u
-  wait_for "2 proposals"
-  gone REVIEW
-  typed ":w"
-  keys Enter
-  wait_for "unresolved conflicts with the disk"
-  printf 'X1\nb\nX2\nc\nX3\n' | cmp - "$CASE_DIR/f"
-  # :w! saves mine as it is (X1 accepted, the others mine) and settles the rest.
+  wait_for "not saved: the disk conflicts"
+  printf 'one\ntwo!\nthree\n' | cmp - "$CASE_DIR/f"
   typed ":w!"
   keys Enter
-  wait_for "saved f"
-  printf 'X1\nb\nA2\nc\nA3\n' | cmp - "$CASE_DIR/f"
-  gone "proposal"
+  wait_for "saved f; the disk's version is in"
+  printf 'one\nMINE\nthree\n' | cmp - "$CASE_DIR/f"
+  set -- "$XDG_STATE_HOME"/si/f.*.disk
+  [ -f "$1" ]
+  printf 'one\ntwo!\nthree\n' | cmp - "$1"
+  gone "conflicts with the disk"
 }
 
-# Y accepts every proposal, and then :w works like any save.
-prop_8_capital_y_accepts_all_and_the_file_can_be_saved() {
-  printf 'a1\nb\na2\n' > "$CASE_DIR/f"
+# :e! takes the disk's version and has copied mine first; a plain :e! (no conflict) copies nothing.
+safe_7_e_bang_takes_the_disks_version_after_copying_mine() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
-  typed "rAjjrA"
+  typed "jcwMINE"
+  keys Escape
   wait_for "modified"
-  printf 'X1\nb\nX2\n' > "$CASE_DIR/f.new"
+  printf 'one\ntwo!\nthree\n' > "$CASE_DIR/f.new"
   mv "$CASE_DIR/f.new" "$CASE_DIR/f"
-  wait_for "2 proposals"
-  typed "ggjjgg]cY"
-  wait_for "2 proposals accepted"
-  typed ":w"
+  wait_for "conflicts with the disk"
+  typed ":e!"
   keys Enter
-  wait_for "saved f"
-  printf 'X1\nb\nX2\n' | cmp - "$CASE_DIR/f"
+  wait_for "loaded f; yours is in"
+  screen | grep -F -q "  2 two!"
+  gone modified
+  printf 'one\ntwo!\nthree\n' | cmp - "$CASE_DIR/f"
+  set -- "$XDG_STATE_HOME"/si/f.*.yours
+  [ -f "$1" ]
+  printf 'one\nMINE\nthree\n' | cmp - "$1"
+  # Without a conflict nothing is copied.
+  typed "x"
+  wait_for "modified"
+  typed ":e!"
+  keys Enter
+  gone modified
+  set -- "$XDG_STATE_HOME"/si/f.*.yours
+  [ "$#" = 1 ]
 }
 
-# Quitting with a proposal open is refused; :q! discards it.
-safe_7_quit_is_refused_with_open_proposals() {
-  printf 'a1\nb\n' > "$CASE_DIR/f"
-  start f
-  wait_for "f  1:1  NORMAL"
-  typed "rA"
-  wait_for "modified"
-  printf 'X1\nb\n' > "$CASE_DIR/f.new"
-  mv "$CASE_DIR/f.new" "$CASE_DIR/f"
-  wait_for "1 proposal"
-  typed "q"
-  wait_for "unresolved proposals: ]c to review, :q! discards"
-  typed ":q"
-  keys Enter
-  wait_for "unresolved proposals: ]c to review, :q! discards"
-  typed "ZZ"
-  wait_for "unresolved conflicts with the disk: ]c to review, :w! keeps yours"
-  [ ! -s "$CASE_DIR/.exit_code" ] # still running
-  printf 'X1\nb\n' | cmp - "$CASE_DIR/f"
-  typed ":q!"
-  keys Enter
-  wait_exit
-  [ "$(exit_code)" = 0 ]
-  printf 'X1\nb\n' | cmp - "$CASE_DIR/f"
-}
 
-prop_1_a_deleted_file_is_told_and_save_makes_it_again() {
+disk_1_a_deleted_file_is_told_and_save_makes_it_again() {
   printf 'one\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
@@ -747,7 +716,7 @@ vi_13_zz_saves_and_quits() {
 cli_5_the_intro_shows_until_the_first_key() {
   start
   wait_for "A vi for reading, where only the changes light up."
-  for k in "si 0." "i / Esc" "Ctrl-s" "ZZ" "ZQ" "]c then y / n"; do
+  for k in "si 0." "i / Esc" "Ctrl-s" "ZZ" "ZQ" "]c / [c"; do
     screen | grep -F -q -- "$k"
   done
   [ "$(screen | grep -c .)" -le 12 ]
@@ -858,7 +827,7 @@ alive() { ps -A -o args= | grep -c "^sleep $1" || true; }
 
 # `sleep` is started twice in one process group (one in the background): Ctrl-c on the filter stops
 # both, and si goes on, with the text as it was. A number only this case uses names the sleeps.
-prop_5_a_filter_runs_while_you_edit_and_can_be_cancelled() {
+filt_1_a_filter_runs_while_you_edit_and_can_be_cancelled() {
   printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
@@ -883,92 +852,51 @@ prop_5_a_filter_runs_while_you_edit_and_can_be_cancelled() {
   [ "$(alive "$n")" = 0 ]
   # Nothing came of it but the edit: the text is mine, and the file is as it was.
   screen | grep -F -q "   2 wo"
-  gone "proposal"
   printf 'one\ntwo\nthree\n' | cmp - "$CASE_DIR/f"
   # Ctrl-c with nothing to cancel says what it always said.
   keys C-c
   wait_for "q to quit"
 }
 
-# Upper-casing the letters of a range comes back as three proposals, reviewed with ]c y n.
-prop_6_a_filter_result_becomes_proposals() {
-  printf 'one\n1\ntwo\n2\nthree\n' > "$CASE_DIR/f"
-  start f
-  wait_for "f  1:1  NORMAL"
-  typed ":%!tr a-z A-Z"
-  keys Enter
-  wait_for "3 proposals from the filter"
-  gone modified
-  screen | grep -F -q "~  1 one"
-  typed ":q"
-  keys Enter
-  wait_for "unresolved proposals: ]c to review, :q! discards"
-  typed "]c"
-  wait_for "f  1:1  REVIEW 1/3  y accept"
-  screen | grep -F -q "~  1 oneONE"
-  typed y
-  wait_for "REVIEW 1/2"
-  screen | grep -F -q "   1 ONE"
-  typed n
-  wait_for "REVIEW 1/1"
-  typed y
-  wait_for "1 proposal accepted"
-  screen | grep -F -q "   5 THREE"
-  screen | grep -F -q "   3 two" # rejected
-  # The file is untouched until the user saves.
-  printf 'one\n1\ntwo\n2\nthree\n' | cmp - "$CASE_DIR/f"
-  typed ":w"
-  keys Enter
-  wait_for "saved f"
-  printf 'ONE\n1\ntwo\n2\nTHREE\n' | cmp - "$CASE_DIR/f"
-}
-
 # A filter that fails shows the first line of its stderr and changes nothing.
-prop_6_a_failing_filter_shows_its_stderr() {
+filt_2_a_failing_filter_shows_its_stderr() {
   printf 'one\ntwo\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
   typed ":%!echo boom >&2; echo ignored; exit 3"
   keys Enter
   wait_for "boom"
-  gone "proposal"
   gone modified
   typed ":%!nosuchcommand_si_e2e"
   keys Enter
   wait_for "nosuchcommand_si_e2e"
-  gone "proposal"
+  gone modified
 }
 
-ai_1_ref_copies_the_location() {
-  printf 'one\ntwo\nthree\nfour\n' > "$CASE_DIR/f"
-  tm_clip() { tm show-buffer 2> /dev/null; }
+# Upper-casing the letters of a range replaces them as one undo step; the file is untouched until
+# the user saves.
+filt_2_a_filter_result_replaces_its_lines_and_u_takes_it_back() {
+  printf 'one\n1\ntwo\n2\nthree\n' > "$CASE_DIR/f"
   start f
   wait_for "f  1:1  NORMAL"
-  tm set-option -sg set-clipboard on
-  typed ":2,3ref"
+  typed ":%!tr a-z A-Z"
   keys Enter
-  wait_for "copied f:2-3"
-  want_clip "f:2-3"
-  typed "jVjj:ref"
+  wait_for "lines from the filter · u to undo"
+  screen | grep -F -q "   1 ONE"
+  screen | grep -F -q "   5 THREE"
+  typed j
+  wait_for "modified"
+  printf 'one\n1\ntwo\n2\nthree\n' | cmp - "$CASE_DIR/f"
+  typed u
+  wait_for "   1 one"
+  gone modified
+  typed ":%!tr a-z A-Z"
   keys Enter
-  wait_for "copied f:2-4"
-  want_clip "f:2-4"
-  typed "gg:ref"
+  wait_for "lines from the filter"
+  typed ":w"
   keys Enter
-  wait_for "copied f:1-1"
-  want_clip "f:1-1"
-  # A file outside the current directory is given by its absolute path.
-  restart
-  outside=$(mktemp -d /tmp/si-e2e-out.XXXXXX) # short, like $CASE_DIR
-  printf 'x\ny\n' > "$outside/g"
-  start "$outside/g"
-  wait_for "g  1:1  NORMAL"
-  tm set-option -sg set-clipboard on
-  typed ":ref"
-  keys Enter
-  wait_for "copied $outside/g:1-1"
-  want_clip "$outside/g:1-1"
-  rm -rf "$outside"
+  wait_for "saved f"
+  printf 'ONE\n1\nTWO\n2\nTHREE\n' | cmp - "$CASE_DIR/f"
 }
 
 # Waits until tmux's paste buffer holds TEXT.

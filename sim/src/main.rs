@@ -34,11 +34,11 @@ const DRAIN: Duration = Duration::from_millis(100);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 const USAGE: &str = "usage: sim [+cmd] [dir | file]\n       sim [+cmd] -- file";
 
-/// A watcher, kept alive by holding it, and the switch that silences it (PROP-1).
+/// A watcher, kept alive by holding it, and the switch that silences it (DISK-1).
 type Held = (Box<dyn Any>, Arc<AtomicBool>);
 
-/// Watches `path` for file `id` (PROP-1), as si's main does for its one file. The deadline of each
-/// change is stamped when the watcher reads the file, since the core reads no clock (PROP-7), and
+/// Watches `path` for file `id` (DISK-1), as si's main does for its one file. The deadline of each
+/// change is stamped when the watcher reads the file, since the core reads no clock (DISK-5), and
 /// its hash is made there too, so that no key waits for it (P3). With `first`, the watcher's thread
 /// also reads the file once at the start, ordered before the debounced reads.
 fn watching(tx: &Sender<SimEvent>, id: Id, path: &str, first: bool) -> Option<(Id, Held)> {
@@ -55,8 +55,8 @@ fn watching(tx: &Sender<SimEvent>, id: Id, path: &str, first: bool) -> Option<(I
         .map(|w| (id, (Box::new(w) as Box<dyn Any>, live)))
 }
 
-/// Tells file `id`'s App that its filter ended (PROP-6). The diff of its result gives up after
-/// `MERGE` (PROP-7).
+/// Tells file `id`'s App that its filter ended (FILT-2). The diff of its result gives up after
+/// `MERGE` (DISK-5).
 fn filter_done(tx: &Sender<SimEvent>, id: Id, status: Option<i32>, out: Vec<u8>, err: Vec<u8>) {
     let ev = Event::FilterDone(status, out, err, Instant::now() + MERGE);
     drop(tx.send(SimEvent::App(id, ev)));
@@ -225,12 +225,12 @@ fn main() -> ExitCode {
                         }
                         Effect::Open(path) => {
                             // The watcher of the file being left goes quiet before the read's number
-                            // is taken: what it says later began earlier, and App drops it (PROP-1).
+                            // is taken: what it says later began earlier, and App drops it (DISK-1).
                             watchers
                                 .get(&id)
                                 .iter()
                                 .for_each(|(_, live)| live.store(false, SeqCst));
-                            let seq = file::seq(); // taken before the read starts (PROP-1)
+                            let seq = file::seq(); // taken before the read starts (DISK-1)
                             let opened = Event::Opened(path.clone(), read(&path), seq);
                             local.push(SimEvent::App(id, opened));
                             drop(jobs.send(Job::App(id, Effect::Open(path))));
@@ -243,9 +243,10 @@ fn main() -> ExitCode {
                         Effect::Clipboard(text) => {
                             drop(painter.write(&term::clipboard(&text, tmux)))
                         }
-                        Effect::Snapshot { .. } | Effect::Unsnapshot | Effect::Remember { .. } => {
-                            drop(jobs.send(Job::App(id, e)))
-                        }
+                        Effect::Snapshot { .. }
+                        | Effect::Unsnapshot
+                        | Effect::Remember { .. }
+                        | Effect::Keep { .. } => drop(jobs.send(Job::App(id, e))),
                         Effect::Spawn { cmd, input } => {
                             let t = tx.clone();
                             let done = move |o: filter::Output| {

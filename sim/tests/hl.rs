@@ -109,21 +109,16 @@ fn syn_3_a_line_of_many_spans_is_laid_out_in_the_time_of_a_key() {
 }
 
 #[test]
-fn syn_1_review_weaves_mine_and_theirs_into_its_rows_so_it_has_no_syntax_colors() {
+fn syn_1_a_conflict_marks_the_text_and_the_colors_stay_as_the_text_is_the_buffers() {
     let mut r =
-        rig_sized("hl-review", &["main.rs=let a = 1;\nfn main() {}\n"], &["main.rs"], (50, 8));
+        rig_sized("hl-conflict", &["main.rs=let a = 1;\nfn main() {}\n"], &["main.rs"], (50, 8));
     assert!(colored(&r, Look::Kw) == 2, "colored before: {:?}", r.shot.looks);
     r.keys("jx"); // mine: `n main() {}`
     let id = r.sim.bufs[0].id;
     r.send(SimEvent::App(id, disk(b"let a = 1;\nfn main() { 1 }\n")));
-    assert_eq!(r.app().buf.hunks.len(), 1, "a conflict");
-    assert!(colored(&r, Look::Kw) >= 1, "outside REVIEW the text is the buffer's: still colored");
-    r.keys("]c");
-    assert_eq!(r.app().vi.mode, si::core::vi::Mode::Review);
-    assert!(!any_color(&r), "no color in REVIEW: {:?}", r.shot.looks);
+    assert!(r.app().diverged(), "a conflict");
+    assert!(colored(&r, Look::Kw) >= 1, "the text is the buffer's: still colored");
     assert!(r.screen.rows.iter().any(|row| row.spans.iter().any(|s| s.1 == Style::Change)));
-    r.keys("<Esc>");
-    assert!(colored(&r, Look::Kw) >= 1, "and back when it ends");
 }
 
 #[test]

@@ -1,7 +1,8 @@
-//! SAFE-6: snapshots survive a crash, never collide between sessions, and never leak a live one.
+//! SAFE-6, SAFE-7: snapshots survive a crash, never collide between sessions, and never leak a live
+//! one; the copy of the version that a `:w!` or an `:e!` gives up is a private, synced file.
 // Helpers outside `#[test]` fns are not covered by clippy.toml, so allow it for the file.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use si::io::journal::{Snapshot, find, remove, state_dir, write};
+use si::io::journal::{Snapshot, find, keep, remove, state_dir, write};
 use std::ffi::OsString;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
@@ -338,4 +339,51 @@ fn safe_6_without_xdg_state_home_and_home_there_is_no_state_dir() {
     assert_eq!(state_dir(os("/x"), os("/h")), Some(PathBuf::from("/x/si")));
     assert_eq!(state_dir(None, os("/h")), Some(PathBuf::from("/h/.local/state/si")));
     assert_eq!(state_dir(os(""), os("/h")), Some(PathBuf::from("/h/.local/state/si")));
+}
+
+#[test]
+fn safe_7_a_kept_version_is_a_private_file_named_after_the_file_with_its_bytes() {
+    let t = Tmp::new();
+    let state = t.state();
+    let bytes = b"\x00 binary \xff and text\n";
+    let at = keep(&state, "/work/src/main.rs", bytes, "disk").unwrap();
+    assert_eq!(at.parent(), Some(state.as_path()), "it goes into the state directory");
+    let name = at.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with("main.rs.") && name.ends_with(".disk"), "{name}");
+    assert_eq!(fs::read(&at).unwrap(), bytes);
+    assert_eq!(fs::metadata(&at).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(files(&state), [at], "no temp file is left");
+}
+
+#[test]
+fn safe_7_two_copies_of_one_file_never_share_a_name_and_none_is_replaced() {
+    let t = Tmp::new();
+    let state = t.state();
+    let a = keep(&state, "f", b"one", "disk").unwrap();
+    let b = keep(&state, "f", b"two", "disk").unwrap();
+    let c = keep(&state, "f", b"three", "yours").unwrap();
+    assert!(a != b && b != c);
+    assert_eq!(
+        [&a, &b, &c].map(|p| fs::read(p).unwrap()),
+        [b"one".to_vec(), b"two".to_vec(), b"three".to_vec()]
+    );
+}
+
+#[test]
+fn safe_7_a_name_with_a_slash_or_dots_cannot_leave_the_state_directory() {
+    let t = Tmp::new();
+    let state = t.state();
+    for path in ["/", "..", "a/..", "", "x\0y"] {
+        let Ok(at) = keep(&state, path, b"z", "disk") else { continue };
+        assert_eq!(at.parent(), Some(state.as_path()), "{path:?}");
+    }
+}
+
+#[test]
+fn safe_7_a_state_directory_that_others_can_use_keeps_nothing() {
+    let t = Tmp::new();
+    let state = state_with_mode(&t, 0o755);
+    assert!(keep(&state, "f", b"x", "disk").is_err());
+    assert_eq!(files(&state).len(), 1, "nothing was written");
 }

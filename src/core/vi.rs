@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, PROP-8
+//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13
 //! Key sequence to Command: counts, operators and prefixes in Normal and Visual mode, and the
 //! editing of the command line.
 use super::app::Key;
@@ -12,8 +12,6 @@ pub enum Mode {
     /// The command line of `:`, `/` and `?`.
     Cmd,
     Visual, VLine,
-    /// Reviewing the proposals (PROP-8): Normal mode where `y n Y N` decide them.
-    Review,
 }
 
 impl Mode {

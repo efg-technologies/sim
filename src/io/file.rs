@@ -1,4 +1,4 @@
-//! SAFE-1, SAFE-2, SAFE-3, SAFE-4, SAFE-5, SAFE-6, PROP-1
+//! SAFE-1, SAFE-2, SAFE-3, SAFE-4, SAFE-5, SAFE-6, DISK-1
 //! Reading a file, atomic save, comparison by hash right before the rename, keeping attributes.
 use super::journal::NO_STATE;
 use crate::core::app::Read;
@@ -21,7 +21,7 @@ pub enum Saved {
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 static READS: AtomicU64 = AtomicU64::new(0);
 
-/// The number of a read of the disk, one counter for every thread (PROP-1). A read takes it as it
+/// The number of a read of the disk, one counter for every thread (DISK-1). A read takes it as it
 /// starts, so a later number never belongs to something that began earlier. The answer of a save
 /// takes it when the save is done.
 pub fn seq() -> u64 {

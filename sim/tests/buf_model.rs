@@ -115,7 +115,7 @@ const DISCARD: [&str; 4] =
 
 static CASE: AtomicUsize = AtomicUsize::new(0);
 /// Coverage: cases, cases with two buffers at once, saves done, conflicts, closes, recovered words,
-/// cases with open proposals, exits by code (0, 1, 143), cases that ended with a mouse click used.
+/// cases with a conflict with the disk open, exits by code (0, 1, 143), cases that ended with a mouse click used.
 static STAT: [AtomicUsize; 10] = [const { AtomicUsize::new(0) }; 10];
 fn stat(i: usize) {
     STAT[i].fetch_add(1, Ordering::Relaxed);
@@ -223,11 +223,7 @@ fn words(s: &str) -> HashSet<String> {
 }
 
 fn buf_words(b: &sim::sim::Buf) -> HashSet<String> {
-    let mut w = words(&b.app.buf.text.to_string());
-    for h in b.app.buf.hunks.iter() {
-        w.extend(words(&h.theirs));
-    }
-    w
+    words(&b.app.buf.text.to_string())
 }
 
 fn hostile(c: char) -> bool {
@@ -475,6 +471,11 @@ impl W {
                                 self.chan.push_back(SimEvent::App(id, ev));
                             }
                         }
+                        Effect::Keep { path, bytes, ext } => {
+                            let at = si::io::journal::keep(&self.state, &path, &bytes, ext);
+                            let at = at.map(|p| p.display().to_string()).map_err(|e| e.to_string());
+                            local.push(SimEvent::App(id, Event::Kept(at)));
+                        }
                         Effect::Clipboard(_) | Effect::Hook(_) => {}
                         Effect::Render(_) | Effect::Quit(_) => {}
                     },
@@ -503,7 +504,9 @@ impl W {
             .sim
             .bufs
             .iter()
-            .map(|b| (b.id, b.app.buf.text.to_string(), b.app.buf.dirty(), b.app.buf.hunks.len()))
+            .map(|b| {
+                (b.id, b.app.buf.text.to_string(), b.app.buf.dirty(), usize::from(b.app.diverged()))
+            })
             .collect();
         let fx = self.sim.update(ev);
         if mouse {
@@ -511,7 +514,10 @@ impl W {
                 match e {
                     SimEffect::App(
                         _,
-                        Effect::Write { .. } | Effect::Spawn { .. } | Effect::Clipboard(_),
+                        Effect::Write { .. }
+                        | Effect::Keep { .. }
+                        | Effect::Spawn { .. }
+                        | Effect::Clipboard(_),
                     )
                     | SimEffect::Quit(_) => panic!("PTR-2: the mouse caused {e:?}"),
                     _ => {}
@@ -521,7 +527,7 @@ impl W {
                 if let Some(b) = self.sim.bufs.iter().find(|b| b.id == id) {
                     assert_eq!(b.app.buf.text.to_string(), text, "PTR-2: the mouse edited {id}");
                     assert_eq!(
-                        (b.app.buf.dirty(), b.app.buf.hunks.len()),
+                        (b.app.buf.dirty(), usize::from(b.app.diverged())),
                         (dirty, hunks),
                         "PTR-2: the mouse changed the state of {id}"
                     );
@@ -575,7 +581,7 @@ impl W {
         if self.sim.bufs.len() >= 2 {
             self.two = true;
         }
-        if self.sim.bufs.iter().any(|b| !b.app.buf.hunks.is_empty()) {
+        if self.sim.bufs.iter().any(|b| b.app.diverged()) {
             self.hunks = true;
         }
         // closed buffers
@@ -910,17 +916,12 @@ impl W {
         }
     }
 
-    /// Quiet: a buffer that is clean and has no proposal is its file.
+    /// Quiet: a buffer that is clean and does not conflict with its file is its file.
     fn check_settled(&self) -> Result<(), String> {
         for b in &self.sim.bufs {
             let fid = self.fid(&b.key);
             let a = &b.app;
-            if fid == 1
-                || a.buf.dirty()
-                || !a.buf.hunks.is_empty()
-                || a.gone
-                || a.buf.readonly.is_some()
-            {
+            if fid == 1 || a.buf.dirty() || a.diverged() || a.gone || a.buf.readonly.is_some() {
                 continue;
             }
             let Some(path) = &a.path else { continue };
