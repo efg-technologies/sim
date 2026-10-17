@@ -629,7 +629,7 @@ fn vis_2_words_mixed_scripts_and_char_indexes() {
     assert_eq!(words("é x", "é y"), (vec![2..3], vec![2..3]));
     assert_eq!(words("abc日本def", "abc日本語def"), (vec![], vec![5..6]));
     assert_eq!(words("abc日本def", "abc日本ghi"), (vec![5..8], vec![5..8]));
-    assert_eq!(words("名前: tsuyoshi", "名前: tsuyoshi2"), (vec![4..12], vec![4..13]));
+    assert_eq!(words("名前: alice", "名前: alice2"), (vec![4..9], vec![4..10]));
     // Accented letters and other alphabets are letters, so they stay in the word.
     assert_eq!(words("café au lait", "cafe au lait"), (vec![0..4], vec![0..4]));
     assert_eq!(words("привет мир", "привет всем"), (vec![7..10], vec![7..11]));
