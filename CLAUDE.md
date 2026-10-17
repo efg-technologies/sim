@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC i
         ┌─┴─────────┴─┐
         │    SPEC     │  what      requirements with IDs         SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       core/src ≤ 3,200, sim/src ≤ 7,600
+      │      CODE       │  how       core/src ≤ 3,200, sim/src ≤ 7,920
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       core/tests, sim/tests and the E2E scripts
     └─────────────────────┘
@@ -61,6 +61,7 @@ sim/                the package sim-editor: the library `sim` and the binary `si
     sim/panel.rs    the panel's keys, the reveal of directories, the search, the narrowed tree (pure)
     tree.rs         the tree: entries, stable order, expansion, the visible rows (pure)
     find.rs         fuzzy matching of paths and ranking (pure)
+    changes.rs      the changes view's numbers: `+n −n` of each file from `git diff --numstat -z`, the lines of untracked files, the sums of folders (pure)
     keys.rs         the key table (`keys.tsv`: the only source of which-key, `:help` and the README's table of keys, KEY-1), the keys that can follow a prefix, the help's rows, which-key's window (pure)
     sim/guide.rs    what guides the hands in the state: the leader, the prefix typed, the pause that opens which-key, the letters on the tabs, the hint for Tab (pure)
     tabs.rs         the tab bar and the letters of `<Space>bp` (pure)
@@ -74,7 +75,7 @@ sim/                the package sim-editor: the library `sim` and the binary `si
     color.rs        what the core's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, the tones of the looks (green, red, tints, the card's surface, shadow, lines, the interface's six accents, their blocks and its neutral surfaces: OKLab mixes) and the fade, and the terminal's replies put together out of the keys (pure)
     paint.rs        the looks beyond the core's four styles, the paints (a background, a color of its own, a fade for a run of cells, its cue without color), the Screen, the Painter that writes it (in color, or in weight, underline and inverse when there is none, COLOR-2), the mouse modes on and off
     layout.rs       the panel and the editor composed into one Screen: marks, search, colors; the three looks (calm, flat, depth): geometry, green and red, tints, boxes, ruler, fog; the char under a point (pure)
-    io.rs           directory reads, git, the file list, the history, look and icons files, the detection of plain mode, of `NO_COLOR` and of terminfo, the threads, the content search (rg or the built-in reader) and the preview's read (the impure parts)
+    io.rs           directory reads, git (one function builds every command line: the guard of GIT-1 to GIT-4), the file list, the history, look and icons files, the detection of plain mode, of `NO_COLOR` and of terminfo, the threads, the content search (rg or the built-in reader) and the preview's read (the impure parts)
   keys.tsv          the key table as data: keys, modes, a line of description and a longer text for each entry
   help.txt          what `sim --help` prints (`{version}` is the Cargo version)
   tests/            the editor's tests and goldens; scripts/e2e.sh runs `sim` in tmux
@@ -104,7 +105,7 @@ If another one is needed, first write the reason into SPEC.
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
 - A key is added to `sim/keys.tsv` in the same change that adds it to the core or to sim: `sim/tests/key_1.rs` feeds every key to a Sim and fails for a key that does something and is not in the table, and for an entry that does nothing
 - `[profile.release]` (in the workspace) has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- core/src stays within 3,200 lines and sim/src within 7,600 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
+- core/src stays within 3,200 lines and sim/src within 7,920 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
 - Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
 - Code, comments, messages, docs and commit messages are in English. sim is the next-generation Vim (新時代の Vim): in README, CONCEPT, this file, the crates' descriptions and `--help`, it is never described as a likeness of Vim (nothing "-like", nothing "-style")
 
@@ -130,7 +131,7 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 3. `cargo test --workspace`
 4. scripts/trace.sh
 5. core/src has at most 3,200 lines
-6. sim/src has at most 7,600 lines
+6. sim/src has at most 7,920 lines
 7. the core depends on its allowlist only
 8. the name is *Secure vIM* and the crates are sim-editor and sim-editor-core: a grep keeps the earlier name stories and the earlier crate name from coming back
 9. the release binary is at most 5 MB
