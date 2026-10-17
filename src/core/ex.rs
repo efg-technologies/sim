@@ -63,7 +63,7 @@ fn literal(pat: &str) -> String {
 
 /// Whether a search ignores case: smartcase, which looks at letters only, so an escape such as
 /// `\W` or `\x4A` does not count (VI-4). `cs`: it was asked to be case-sensitive.
-fn folds(pat: &str, cs: bool) -> bool {
+pub fn folds(pat: &str, cs: bool) -> bool {
     let mut it = pat.chars();
     while let Some(c) = it.next() {
         if c == '\\'

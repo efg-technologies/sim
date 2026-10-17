@@ -179,6 +179,12 @@ fn panel(b: &mut Bench) -> Times {
     out
 }
 
+/// UI-14: the motions of `motions` with the matches of a search lit in every line on screen.
+fn lit(b: &mut Bench) -> Times {
+    b.r.keys("/let\n");
+    motions(b)
+}
+
 /// PICK-1 to PICK-5: the picker open over the big file: Ctrl-p's finder typed into, moved in and
 /// cleared, and Ctrl-f's search of contents (over the 300 files and the big one), with the previews
 /// that come, their colors and the batches of results.
@@ -270,7 +276,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     for skin in [Skin::Calm, Skin::Depth] {
         for size in [(80, 24), (240, 60)] {
             type Kind = fn(&mut Bench) -> Times;
-            let kinds: [(&str, Kind); 7] = [
+            let kinds: [(&str, Kind); 8] = [
                 ("motions", motions),
                 ("insert", inserts),
                 ("delete", deletes),
@@ -278,6 +284,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
                 ("mouse", mouse),
                 ("review", reviews),
                 ("picker", picker),
+                ("lit", lit),
             ];
             for (name, run) in kinds {
                 // `SPEED_1_ONLY=review` runs the kinds named, for a look at one of them

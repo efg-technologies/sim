@@ -14,6 +14,8 @@ si = { path = ".." }
 crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste"] }
 signal-hook = "0.3"
 unicode-width = { version = "0.2", default-features = false }
+# UI-14: the regex si searches with (it is in the build already), to light the matches of a search.
+regex-lite = "0.1"
 # SYN-3: the highlighter's thread is given a clone of the buffer's rope (O(1)), never a copy of the text.
 ropey = { version = "1.6", default-features = false, features = ["simd"] }
 # syntect and its syntaxes, trimmed to what sim uses (SYN-1, SYN-4):

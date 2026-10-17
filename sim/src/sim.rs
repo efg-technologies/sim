@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14
 //! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -22,6 +22,7 @@ use crate::marks::{Git, Marks};
 use crate::paint::{Looks, Paint, Screen};
 use crate::pick;
 use crate::rank::History;
+use crate::search::Matcher;
 use crate::syn::Spans;
 use crate::tabs::{self, Tab};
 use crate::tree::{Entry, Row as TreeRow, Tree};
@@ -234,6 +235,17 @@ pub struct Buf {
     /// UI-11: the lines the last search matches, for the scrollbar, found for a pattern and a
     /// version of the text.
     hits: Option<Hits>,
+    /// UI-14: whether the matches of the last search are lit (a search, `n` `N` `*` `#` light them;
+    /// `:noh` and Esc in Normal mode put them out), and the matcher of the pattern.
+    lit: bool,
+    finder: Option<Finder>,
+}
+
+/// UI-14: the pattern (and whether it was asked to be case-sensitive) a matcher was made for; none
+/// if the pattern does not compile.
+struct Finder {
+    key: (String, bool),
+    m: Option<Matcher>,
 }
 
 /// The lines a search matches, and what they were found for: the pattern, whether it was asked to be
@@ -607,7 +619,8 @@ impl Sim {
         if matches!(mode, Mode::Insert | Mode::Cmd) {
             return; // the marks of the text as it was stay while it is typed
         }
-        let want = b.app.search.clone().filter(|(p, ..)| plain(p) && buf.lines() <= HIT_LINES);
+        let want =
+            b.app.search.clone().filter(|(p, ..)| b.lit && plain(p) && buf.lines() <= HIT_LINES);
         let Some((pat, cs, _)) = want else { return b.hits = None };
         let key = (pat.clone(), cs, buf.version());
         if b.hits.as_ref().is_some_and(|h| h.key == key) {
@@ -623,6 +636,18 @@ impl Sim {
         };
         let lines = (0..buf.lines()).filter(|&l| has(l)).collect();
         b.hits = Some(Hits { key, lines });
+    }
+
+    /// UI-14: the matcher of the last search of the current file, made again when the pattern changes
+    /// (and dropped when the matches are not lit).
+    fn refresh_finder(&mut self) {
+        let Some(b) = self.bufs.get_mut(self.cur) else { return };
+        let Some((pat, cs, _)) = b.app.search.clone().filter(|_| b.lit) else {
+            return b.finder = None;
+        };
+        if b.finder.as_ref().is_none_or(|f| f.key != (pat.clone(), cs)) {
+            b.finder = Some(Finder { m: Matcher::new(&pat, cs), key: (pat, cs) });
+        }
     }
 
     /// UI-11: the scrollbar's rows for the current file: the marks of changes on disk, the git signs
@@ -695,7 +720,16 @@ impl Sim {
     fn to(&mut self, id: Id, ev: Event, out: &mut Vec<SimEffect>) {
         let changed = matches!(ev, Event::Disk { .. } | Event::Saved(Ok(_), _));
         let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) else { return };
+        // UI-14: what a key may light or put out is decided from the state before and after it.
+        let pre = match &ev {
+            Event::Key(k) => Some((*k, b.app.vi.mode, b.app.vi.idle(), b.app.search.clone())),
+            _ => None,
+        };
+        let slash = b.app.vi.line.starts_with(['/', '?']);
         let (fx, path) = (b.app.update(ev), b.app.path.clone());
+        if let Some((k, mode, idle, was)) = pre {
+            b.lit = lit_after(b.lit, (k, mode, idle, slash), &was, &b.app.search);
+        }
         let (yank, ver) = (yanked(&b.app, &fx), b.app.buf.version());
         self.run(id, fx, out);
         if let Some(chars) = yank {
@@ -791,6 +825,14 @@ impl Sim {
         };
         let submit = k == Key::Enter && b.app.vi.mode == Mode::Cmd;
         let (id, line) = (b.id, if submit { b.app.vi.line.clone() } else { String::new() });
+        if noh(&line) {
+            // UI-14: `:noh` is ours (si has no such command): the command line closes, as for `:qa`.
+            self.to(id, Event::Key(Key::Esc), out);
+            if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
+                b.lit = false;
+            }
+            return;
+        }
         if let Some(cmd) = all(&line) {
             self.to(id, Event::Key(Key::Esc), out); // the command line is ours: close it
             return self.run_all(cmd, out);
@@ -924,6 +966,8 @@ impl Sim {
             diag: (0, 0),
             indent: Indent::default(),
             hits: None,
+            lit: false,
+            finder: None,
         });
         if let Some(b) = self.bufs.last_mut() {
             b.indent = indent_of(&b.app.buf);
@@ -1057,6 +1101,7 @@ impl Sim {
         self.fit();
         self.scroll();
         self.live_prepare(out);
+        self.refresh_finder();
         let ((w, h), g) = (self.size, self.geo());
         let focus = self.panel.open && self.panel.focus;
         let rows =
@@ -1374,6 +1419,29 @@ fn plain(pat: &str) -> bool {
         && !pat.contains(['\\', '.', '+', '*', '?', '(', ')', '|', '[', ']', '{', '}', '^', '$'])
 }
 
+/// UI-14: whether the matches of the search are lit after a key: a search lights them (the pattern
+/// changed, or `/` `?` was submitted with none typed, or `n` `N` `*` `#` in Normal mode with
+/// nothing pending), Esc in Normal mode with nothing pending puts them out. `key` is the key, the
+/// mode before it, whether the App was idle and whether its command line was a search.
+fn lit_after(
+    lit: bool,
+    (k, mode, idle, slash): (Key, Mode, bool, bool),
+    was: &Option<(String, bool, bool)>,
+    now: &Option<(String, bool, bool)>,
+) -> bool {
+    let searched = now != was
+        || (mode == Mode::Cmd && k == Key::Enter && slash && now.is_some())
+        || (idle && matches!(k, Key::Char('n' | 'N' | '*' | '#')) && now.is_some());
+    searched || (lit && !(k == Key::Esc && mode == Mode::Normal && idle))
+}
+
+/// UI-14: whether a command line is `:noh`, `:nohl`, ... `:nohlsearch`.
+fn noh(line: &str) -> bool {
+    line.strip_prefix(':')
+        .map(str::trim)
+        .is_some_and(|n| n.len() >= 3 && "nohlsearch".starts_with(n))
+}
+
 /// UI-6: the indentation of a buffer, from its first lines.
 fn indent_of(buf: &Buffer) -> Indent {
     let lines: Vec<String> = buf.text.lines().take(indent::LOOK).map(|l| l.to_string()).collect();
@@ -1397,9 +1465,12 @@ fn lead_of(buf: &Buffer, l: usize) -> Lead {
 
 /// UI-6: what is known of the cursor's scope for the frame being made: the lines around the cursor
 /// whose indent is at least its line's, and the column of the innermost guide of the cursor's line.
-struct Guides {
+struct Guides<'a> {
     /// UI-13: the chars of the buffer that a yank has just taken.
     flash: Option<std::ops::Range<usize>>,
+    /// UI-14: the matcher of the search being lit, and the line and the char the cursor is at.
+    finder: Option<&'a Matcher>,
+    at: (usize, usize),
     width: u16,
     /// The width of the pane: no guide is made further right.
     limit: u16,
@@ -1410,9 +1481,11 @@ struct Guides {
 const NEAR: usize = 50;
 const SCOPE: usize = 300;
 
-fn guides_of(b: &Buf, flash: Option<std::ops::Range<usize>>) -> Guides {
+fn guides_of(b: &Buf, flash: Option<std::ops::Range<usize>>) -> Guides<'_> {
     let (buf, width, limit) = (&b.app.buf, b.indent.width.max(1), b.app.size.0);
     let cur = buf.line_of(buf.cursor);
+    let finder = b.finder.as_ref().and_then(|f| f.m.as_ref());
+    let at = (cur, buf.cursor - buf.start(cur));
     let nonblank = |from: usize, up: bool| -> Option<Lead> {
         let ls: Box<dyn Iterator<Item = usize>> =
             if up { Box::new((0..from).rev()) } else { Box::new(from + 1..buf.lines()) };
@@ -1421,7 +1494,7 @@ fn guides_of(b: &Buf, flash: Option<std::ops::Range<usize>>) -> Guides {
     let own = lead_of(buf, cur);
     let lead = if own.blank { nonblank(cur, true).unwrap_or(own) } else { own };
     if lead.cols == 0 || lead.tab {
-        return Guides { flash, width, limit, scope: None };
+        return Guides { flash, finder, at, width, limit, scope: None };
     }
     let col = (lead.cols - 1) / width * width;
     let inside = |l: usize| {
@@ -1441,10 +1514,10 @@ fn guides_of(b: &Buf, flash: Option<std::ops::Range<usize>>) -> Guides {
     while hi > cur && lead_of(buf, hi).blank {
         hi -= 1;
     }
-    Guides { flash, width, limit, scope: Some((lo..=hi, col)) }
+    Guides { flash, finder, at, width, limit, scope: Some((lo..=hi, col)) }
 }
 
-impl Guides {
+impl Guides<'_> {
     /// UI-6: the guides of line `l`: at 0, w, 2w, ... in front of where its text starts; none for
     /// a line indented with a tab (the tab is drawn as the level); for a blank line those of the
     /// fewer of the lines around it, from the first level on (the end-of-line mark is at 0).
@@ -1473,7 +1546,11 @@ impl Guides {
             let (lo, hi) = (r.start.max(from), r.end.min(from + len));
             (lo < hi).then(|| lo - from..hi - from)
         });
-        LineUi { guides, scope, flash }
+        // UI-14: the matches of the search in this line, and the one the cursor is on.
+        let hits = self.finder.and_then(|m| Some(m.ranges(&text_of(buf, l)?))).unwrap_or_default();
+        let now =
+            (self.at.0 == l).then(|| hits.iter().position(|r| r.contains(&self.at.1))).flatten();
+        LineUi { guides, scope, flash, hits, now }
     }
 }
 

@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -670,10 +670,16 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     // UI-7: one style for every keyword: bold primary on the card's surface.
     let badge = Paint { bg: Some(t.card), fg: Some(t.primary), bold: true, ..Paint::default() };
     paints.extend(m.badge.iter().map(|r| (r.clone(), badge)));
-    // UI-13: the yank, lit in the accent's block, over everything else of the cell.
+    // UI-13, UI-14: the yank, lit in the accent's block, and the matches of a search, the current
+    // one on the accent's solid color, over everything else of the cell.
     let (back, text) = t.accent_block();
+    let (solid, ink) = t.accent_solid();
     let flash = Paint { bg: Some(back), fg: Some(text), ..Paint::default() };
-    paints.splice(0..0, m.flash.iter().map(|r| (r.clone(), flash)));
+    let now = Paint { bg: Some(solid), fg: Some(ink), ..Paint::default() };
+    let hit = Paint { bg: Some(back), ..Paint::default() };
+    let lit = m.flash.iter().map(|r| (r.clone(), flash));
+    let lit = lit.chain(m.now.iter().map(|r| (r.clone(), now)));
+    paints.splice(0..0, lit.chain(m.hit.iter().map(|r| (r.clone(), hit))).collect::<Vec<_>>());
     if !m.glyph.is_empty() {
         let mut cs: Vec<char> = line.row.text.chars().collect();
         for g in &m.glyph {
@@ -1100,6 +1106,9 @@ pub struct Extra {
     pub badge: Vec<std::ops::Range<u16>>,
     /// UI-13: the columns of the text a yank has just taken, in this row.
     pub flash: Vec<std::ops::Range<u16>>,
+    /// UI-14: the columns of the matches of a search in this row, and of the current one.
+    pub hit: Vec<std::ops::Range<u16>>,
+    pub now: Vec<std::ops::Range<u16>>,
 }
 
 /// UI-6: what the interface wants drawn on a line of the buffer: the columns of its indent guides
@@ -1110,6 +1119,9 @@ pub struct LineUi {
     pub scope: Option<u16>,
     /// UI-13: the chars of the line a yank has just taken.
     pub flash: Option<std::ops::Range<usize>>,
+    /// UI-14: the chars of the line that a search matches, and which of them is the current one.
+    pub hits: Vec<std::ops::Range<usize>>,
+    pub now: Option<usize>,
 }
 
 /// SYN-1: what `colors` finds in an editor frame: the looks of its rows, the first and the last
@@ -1170,7 +1182,7 @@ pub fn colors<'a>(
     let (mut out, mut md) =
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, false);
-    let (mut lui, mut trail, mut badge) = (LineUi::default(), 0, 0..0);
+    let (mut lui, mut trail, mut badge, mut hk) = (LineUi::default(), 0, 0..0, 0);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
         let starts = number(row, digits).and_then(|n| n.checked_sub(1));
@@ -1183,7 +1195,7 @@ pub fn colors<'a>(
             });
             let lang = sp.and_then(|s| s.iter().find(|s| s.1 == Look::Lang));
             md[i].lang = lang.map(|s| cs[s.0.clone()].iter().collect());
-            lui = ui.map_or_else(LineUi::default, |f| f(l));
+            (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
                 .filter(|_| ui.is_some())
@@ -1208,6 +1220,18 @@ pub fn colors<'a>(
                 match md[i].flash.last_mut() {
                     Some(b) if b.end == cols.start => b.end = cols.end,
                     _ => md[i].flash.push(cols),
+                }
+            }
+            // UI-14: the cells of a match of a search, the current one apart, merged where they touch.
+            while lui.hits.get(hk).is_some_and(|h| h.end <= ci) {
+                hk += 1;
+            }
+            if lui.hits.get(hk).is_some_and(|h| h.contains(&ci)) {
+                let cols = (gutter + col) as u16..(gutter + col + w) as u16;
+                let to = if lui.now == Some(hk) { &mut md[i].now } else { &mut md[i].hit };
+                match to.last_mut() {
+                    Some(b) if b.end == cols.start => b.end = cols.end,
+                    _ => to.push(cols),
                 }
             }
             // UI-7: the cells of a TODO badge, merged where they touch.

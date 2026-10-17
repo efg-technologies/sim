@@ -1824,4 +1824,30 @@ pick_5_the_count_and_a_spinner_while_the_search_runs() {
   wait_for "src/main.rs  1:1  NORMAL"
 }
 
+ui_14_the_matches_of_a_search_are_lit_until_noh_or_esc() {
+  printf 'alpha beta alpha\nsecond\n' > "$W/a.txt"
+  look flat
+  CT=truecolor
+  start a.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "alpha beta"
+  # Lit: a background before an `alpha` (the scrollbar's handle is after the text)
+  lit() { screen_esc | grep -a 'alpha' | grep -q '48;2;[^a]*alpha'; }
+  # (the state changes when the screen does: wait for it to, and fail if it does not)
+  becomes() { tries=60; while [ "$tries" -gt 0 ]; do if "$@"; then return 0; fi; sleep 0.05; tries=$((tries - 1)); done; return 1; }
+  unlit() { ! lit; }
+  unlit
+  typed /alpha
+  keys Enter
+  becomes lit
+  typed :noh
+  keys Enter
+  becomes unlit
+  typed n
+  becomes lit
+  keys Escape
+  becomes unlit
+  [ "$(cat "$W/a.txt")" = "$(printf 'alpha beta alpha\nsecond')" ]
+}
+
 main "$@"
