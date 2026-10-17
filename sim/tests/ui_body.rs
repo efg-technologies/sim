@@ -33,8 +33,8 @@ fn ui_9_prose_wraps_at_the_panes_width_in_every_look_and_a_narrow_pane_wraps_at_
 
 #[test]
 fn ui_9_si_keeps_its_72_columns() {
-    use si::core::app::App;
-    use si::core::view::render;
+    use sim_core::core::app::App;
+    use sim_core::core::view::render;
     let file = format!("{LINE}\n").into_bytes();
     let mut app = App::new(Some("a.md".into()), Ok(Some(file)), (200, 12));
     assert!(!app.wide, "si's default");
@@ -47,11 +47,11 @@ fn ui_9_si_keeps_its_72_columns() {
 
 // ---- UI-5: the numbers, the cursor's line and the sign column ----
 
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
 use sim::color::{Syntax, Tones};
 use sim::paint::Paint;
 use sim::sim::SimEvent;
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 
@@ -81,6 +81,7 @@ fn paint(r: &Rig, y: usize, x: u16) -> Paint {
         bold: a.bold || p.bold,
         soft: a.soft || p.soft,
         sealed: a.sealed || p.sealed,
+        cue: a.cue.max(p.cue),
     })
 }
 
@@ -118,7 +119,7 @@ fn ui_5_the_cursor_s_line_has_its_absolute_number_in_primary_bold_and_the_others
             r.shot.frame.rows[above]
                 .spans
                 .iter()
-                .any(|(c, s)| c.contains(&x) && *s == si::core::view::Style::Secondary),
+                .any(|(c, s)| c.contains(&x) && *s == sim_core::core::view::Style::Secondary),
             "{skin:?}: the others are secondary"
         );
         assert_eq!(paint(&r, above, x).fg, None, "{skin:?}: no accent on the others");

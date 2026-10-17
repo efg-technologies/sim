@@ -483,8 +483,8 @@ fn tree_5_listings_come_back_in_any_order_and_for_unknown_directories_nothing_ha
 
 #[test]
 fn tree_1_a_new_size_lays_the_panel_and_the_file_out_again() {
-    use si::core::app::Event;
     use sim::sim::SimEvent;
+    use sim_core::core::app::Event;
     let mut r = rig_sized("t1-resize", &["f.txt=one\n"], &["f.txt"], (90, 12));
     r.keys("<C-n>");
     assert_eq!((r.sim.widths(), r.app().size), ((30, 59), (59, 12)));
@@ -497,8 +497,8 @@ fn tree_1_a_new_size_lays_the_panel_and_the_file_out_again() {
 
 #[test]
 fn tree_2_a_paste_goes_to_the_text_and_is_ignored_by_the_panel() {
-    use si::core::app::Event;
     use sim::sim::SimEvent;
+    use sim_core::core::app::Event;
     let mut r = rig("t2-paste", &["f.txt=one\n"], &["f.txt"]);
     r.send(SimEvent::Term(Event::Paste("abc".into())));
     assert_eq!(r.text(), "abcone");

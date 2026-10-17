@@ -3,7 +3,7 @@
 //! directories leading to matches, and the ranking.
 //!
 //! A path matches when the query's chars occur in it in order; the query is case-insensitive
-//! unless it has an uppercase letter (smartcase, as in si). The match is taken in the file name
+//! unless it has an uppercase letter (smartcase, as in the core's search). The match is taken in the file name
 //! if the query occurs there, else in the whole path: the tightest one that ends first (the
 //! earliest end, then the latest chars before it). That is a heuristic, not the best alignment,
 //! which costs a table a path, too slow for 100,000 paths a key. Its score follows fzf's scale

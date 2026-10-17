@@ -34,6 +34,11 @@
 #   $W                 sim's working directory, $CASE_DIR/work: the project a case makes
 #   $CT                set it (CT=truecolor) before `start` to run sim with COLORTERM=$CT; otherwise sim
 #                      runs without COLORTERM, whatever the user's terminal sets
+#   $NOCOLOR           set it before `start` to run sim with NO_COLOR=$NOCOLOR (COLOR-2); otherwise it is unset
+#   $TP                set it before `start` to run sim with TERM_PROGRAM=$TP (ghostty brings Nerd Font symbols,
+#                      ICON-1); otherwise the terminal is not known to bring any, whatever the user's is
+#   $HINTED            set it before `start` to see the hint of ICON-1; otherwise the hint counts as given
+#   $ICONS_ON          set it in a case that draws icons: no other screen may have a private-use code point
 #   $SIM_PATH          set it before `start` to run sim with that PATH (for a fake or a missing rg)
 #   look WORD          make the look the next `start` begins with (calm, flat, depth, or none for no file:
 #                      LOOK-1); a case that does not say gets calm, so that the looks of the other cases stay what they were written for
@@ -58,14 +63,17 @@ shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # LOOK-1: the look is remembered in sim's state directory, and the first run is depth; the cases are
 # written for calm unless they say otherwise.
 look() {
-  mkdir -p "$XDG_STATE_HOME/sim"
+  mkdir -p -m 700 "$XDG_STATE_HOME/sim"
   if [ "$1" = none ]; then rm -f "$XDG_STATE_HOME/sim/look"; else echo "$1" > "$XDG_STATE_HOME/sim/look"; fi
   LOOKED=1
 }
 
 start() {
   [ -n "${LOOKED:-}" ] || [ -e "$XDG_STATE_HOME/sim/look" ] || look calm
-  cmd="cd $(shq "$W") && env -u COLORTERM HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") ${CT:+COLORTERM=$CT} ${SIM_PATH:+PATH=$(shq "$SIM_PATH")} $(shq "$SIM_BIN")"
+  # ICON-1: the icons start off in tmux (no Nerd Font is known), once with a hint on the status line;
+  # the cases are written without that hint, so it is taken as given unless a case wants to see it.
+  [ -n "${HINTED:-}" ] || [ -e "$XDG_STATE_HOME/sim/icons-hint" ] || { mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"; }
+  cmd="cd $(shq "$W") && env -u COLORTERM -u NO_COLOR -u TERM_PROGRAM -u GHOSTTY_RESOURCES_DIR -u KITTY_PID -u WEZTERM_PANE HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") ${CT:+COLORTERM=$CT} ${NOCOLOR:+NO_COLOR=$NOCOLOR} ${TP:+TERM_PROGRAM=$TP} ${SIM_PATH:+PATH=$(shq "$SIM_PATH")} $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
   # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after sim exits.
@@ -89,10 +97,21 @@ wheel() { mouse "$1" "$2" "$3" M; } # wheel 65 COL ROW is down, 64 up
 # Which mouse modes the application in the pane has switched on: any, SGR coding, button events.
 mouse_flags() { tm display-message -p -t "$SESSION" '#{mouse_any_flag}#{mouse_sgr_flag}#{mouse_button_flag}'; }
 
+# ICON-1: without icons no screen of any case has a private-use code point (U+E000-F8FF, planes 15
+# and 16: what only a Nerd Font draws). Every wait_for that succeeds looks (a case with icons on
+# sets ICONS_ON).
+no_private_use() {
+  [ -n "${ICONS_ON:-}" ] && return 0
+  if screen 2> /dev/null | perl -CS -ne 'exit 1 if /[\x{E000}-\x{F8FF}\x{F0000}-\x{10FFFF}]/'; then return 0; fi
+  echo "a private-use code point is on the screen, and the icons are off:" >&2
+  screen >&2
+  return 1
+}
+
 wait_for() {
   tries=$((${2:-5} * 20))
   while [ "$tries" -gt 0 ]; do
-    if screen 2> /dev/null | grep -F -q -- "$1"; then return 0; fi
+    if screen 2> /dev/null | grep -F -q -- "$1"; then no_private_use; return; fi
     sleep 0.05
     tries=$((tries - 1))
   done
@@ -225,7 +244,7 @@ main() {
   done
 
   cd "$ROOT"
-  cargo build --quiet -p sim
+  cargo build --quiet -p sim-editor
   SIM_BIN=${CARGO_TARGET_DIR:-$ROOT/target}/debug/sim
   export SIM_BIN
 
@@ -300,7 +319,9 @@ restart() {
 gone() { ! screen | grep -F -q -- "$1"; }
 
 # What is left in si's state directory but the places where files were closed (CLI-6, which stay).
-journal_left() { ls -A "$XDG_STATE_HOME/si" 2> /dev/null | grep -v '^positions$' || true; }
+# What the journal left in the state directory: not the places, and not the choices sim keeps beside it
+# (`look`, `history`, `icons`, and the marker of the hint, STATE-1).
+journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|\.migrated)$' || true; }
 
 # After sim is gone: the normal screen is back and the tty is in cooked mode again.
 terminal_restored() {
@@ -897,7 +918,7 @@ grep_4_the_pane_previews_the_result_enter_opens_it_there_and_esc_puts_the_tree_b
   gone "line 57"
   keys Up
   wait_for " 57 line 57"
-  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -v '^look$')" ] # not an open: no history yet (`look` is the seeded look)
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(look|icons-hint)$')" ] # not an open: no history yet (`look` is the seeded look)
   keys Enter
   wait_for "big.txt  60:5  NORMAL" # the line, and the column of the match
   screen | grep -F -q "▸ src/" # the tree is as it was
@@ -1259,16 +1280,18 @@ syn_5_the_selection_is_underlined_without_truecolor_and_gray_with_it() {
 
 buf_1_snapshots_are_off_when_the_state_directory_is_not_private() {
   project
-  mkdir -p "$XDG_STATE_HOME/si"
-  chmod 755 "$XDG_STATE_HOME/si"
+  mkdir -p -m 700 "$XDG_STATE_HOME/sim"
+  chmod 755 "$XDG_STATE_HOME/sim"
   start src/lib.rs
+  wait_for "history: $XDG_STATE_HOME/sim is not private" # sim's own choices follow the same rule (STATE-1)
+  typed j
   wait_for "src/lib.rs  1:1  NORMAL"
   typed x
-  wait_for "cannot write snapshots: $XDG_STATE_HOME/si is not private" # the first tick says so, once
+  wait_for "cannot write snapshots: $XDG_STATE_HOME/sim is not private" # the first tick says so, once
   typed ":w"
   keys Enter
   wait_content "$W/src/lib.rs" "n lib() {}" # saving works all the same
-  [ -z "$(ls -A "$XDG_STATE_HOME/si")" ] # and nothing was written there
+  [ -z "$(ls -A "$XDG_STATE_HOME/sim" | grep -Ev '^(look|icons-hint)$')" ] # and nothing was written there (the case's own files aside)
 }
 
 # ---- S4: the mouse ----
@@ -1517,13 +1540,15 @@ ui_3_the_tree_shows_the_home_relative_root_icons_git_letters_and_zi_turns_icons_
   printf 'new\n' > "$W/docs/new.md"
   look depth
   CT=truecolor
+  ICONS_ON=1 # the choice `zi` remembers beats the default (ICON-1)
+  mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo on > "$XDG_STATE_HOME/sim/icons"
   start
   reply '11;rgb:1e1e/1e1e/1e1e' # the palette makes the interface
   wait_for "~/work" # the root, below $HOME (the case's)
   closed=$(printf '\357\201\273') # U+F07B, the closed folder of Nerd Fonts
   screen | grep -F 'docs' | grep -q "$closed"
-  screen | grep -F 'docs' | grep -q '● *│' # something below it is new
-  screen | grep -F 'src' | grep -q '● *│'
+  screen | grep -F 'docs' | grep -q 'U *│' # something below it is new: the letter of the strongest status
+  screen | grep -F 'src' | grep -q 'M *│'
   typed l # docs/ opens
   wait_for "new.md"
   screen | grep -F 'new.md' | grep -q 'U *│' # the letter of git at the right edge of the panel
@@ -1582,10 +1607,11 @@ ui_5_the_git_signs_of_the_file_against_head_are_in_the_sign_column() {
   start src/lib.rs
   reply '11;rgb:1e1e/1e1e/1e1e'
   wait_for "changed "
-  # The first cell of the sign column: a bar in amber for the changed line, in green for the added.
+  # The first cell of the sign column: a dotted bar in amber for the changed line, a solid one in green
+  # for the added (COLOR-3: two shapes, so that the colors are not needed to tell them apart).
   tries=100
-  while ! screen | grep -F 'changed ' | grep -q '^▎' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
-  screen | grep -F 'changed ' | grep -q '^▎'
+  while ! screen | grep -F 'changed ' | grep -q '^┆' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  screen | grep -F 'changed ' | grep -q '^┆'
   screen | grep -F 'added line' | grep -q '^▎'
   screen_esc | grep -a 'added line' | sed 's/▎.*//' | grep -q '38;2;[0-9;]*m' # a color on the bar
 }
@@ -1595,6 +1621,8 @@ ui_10_the_status_line_is_a_bar_with_the_mode_the_branch_the_file_and_the_positio
   sed -i '1s/^/changed /' "$W/src/lib.rs"
   look depth
   CT=truecolor
+  ICONS_ON=1 # powerline's separators are icons (ICON-1): the choice `zi` remembers is on
+  mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo on > "$XDG_STATE_HOME/sim/icons"
   start src/lib.rs
   reply '11;rgb:1e1e/1e1e/1e1e'
   branch=$(git -C "$W" symbolic-ref --short HEAD)
@@ -1882,6 +1910,113 @@ ui_15_a_hidden_char_is_the_alert_s_and_the_same_text_typed_is_not() {
   typed zl
   wait_for "look: calm"
   screen_esc | grep -a 'end' | grep -aq '[;[]7[;m][^m]*m*^\['
+}
+
+# COLOR-2: with NO_COLOR set (and not empty) sim writes no color at all, not even where the terminal
+# says it has truecolor, and does not ask the terminal for its colors (OSC 11 and 4); the interface
+# is still drawn, in weight, underline and inverse video. What sim writes is read from the pane's
+# output (pipe-pane), the pane is only let go once it is being recorded.
+color_2_no_color_writes_none_and_asks_for_none() {
+  project
+  look depth
+  mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint" # (the hint is not what is looked at)
+  cmd="cd $(shq "$W") && while [ ! -e $(shq "$CASE_DIR/go") ]; do sleep 0.02; done; env -u TERM_PROGRAM -u GHOSTTY_RESOURCES_DIR -u KITTY_PID -u WEZTERM_PANE HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") COLORTERM=truecolor NO_COLOR=1 $(shq "$SIM_BIN") src/lib.rs; echo \$? > $(shq "$CASE_DIR/.exit_code")"
+  tm new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" "exec sh -c $(shq "$cmd")" \; set-option -w -t "$SESSION" remain-on-exit on \; set-option -sg escape-time 0
+  tm pipe-pane -O -t "$SESSION" "cat > $(shq "$CASE_DIR/out")"
+  touch "$CASE_DIR/go"
+  wait_for "NORMAL"
+  typed "A // x"
+  keys Escape
+  wait_for "●" # modified
+  typed "ggvl"
+  wait_for "VISUAL"
+  keys Escape
+  typed ":q!"
+  keys Enter
+  wait_exit
+  esc=$(printf '\033')
+  if grep -a -F -q "$esc]11;?" "$CASE_DIR/out"; then fail "sim asked for the background color"; fi
+  if grep -a -F -q "$esc]4;" "$CASE_DIR/out"; then fail "sim asked for the colors of the palette"; fi
+  # every SGR sequence it wrote has weight, underline and inverse only: no 30-38, 40-48, 90-97, 100-107
+  LC_ALL=C grep -a -o "$esc\[[0-9;]*m" "$CASE_DIR/out" > "$CASE_DIR/sgr"
+  [ -s "$CASE_DIR/sgr" ]
+  if grep -E '(\[|;)(3[0-8]|4[0-8]|9[0-7]|10[0-7])(;|m)' "$CASE_DIR/sgr" > /dev/null; then
+    fail "a color was written: $(grep -E '(\[|;)(3[0-8]|4[0-8]|9[0-7]|10[0-7])(;|m)' "$CASE_DIR/sgr" | head -3 | tr '\033' E)"
+  fi
+  grep -F -q "[0;7m" "$CASE_DIR/sgr" || grep -F -q ";7m" "$CASE_DIR/sgr" # inverse video is there
+}
+
+# COLOR-2: a terminal of fewer than 8 colors is the same: TERM=vt100 is no color at all.
+color_2_a_terminal_that_cannot_do_8_colors_gets_none_either() {
+  project
+  look depth
+  mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"
+  cmd="cd $(shq "$W") && while [ ! -e $(shq "$CASE_DIR/go") ]; do sleep 0.02; done; env -u TERM_PROGRAM -u GHOSTTY_RESOURCES_DIR -u KITTY_PID -u WEZTERM_PANE -u NO_COLOR HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") COLORTERM=truecolor TERM=vt100 $(shq "$SIM_BIN") src/lib.rs; echo \$? > $(shq "$CASE_DIR/.exit_code")"
+  tm new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" "exec sh -c $(shq "$cmd")" \; set-option -w -t "$SESSION" remain-on-exit on \; set-option -sg escape-time 0
+  tm pipe-pane -O -t "$SESSION" "cat > $(shq "$CASE_DIR/out")"
+  touch "$CASE_DIR/go"
+  wait_for "NORMAL"
+  typed ":q"
+  keys Enter
+  wait_exit
+  esc=$(printf '\033')
+  if grep -a -F -q "$esc]11;?" "$CASE_DIR/out"; then fail "sim asked for the background color"; fi
+  LC_ALL=C grep -a -o "$esc\[[0-9;]*m" "$CASE_DIR/out" > "$CASE_DIR/sgr"
+  if grep -E '(\[|;)(3[0-8]|4[0-8]|9[0-7]|10[0-7])(;|m)' "$CASE_DIR/sgr" > /dev/null; then fail "a color was written"; fi
+}
+
+# ICON-1: in a terminal that is not known to bring Nerd Font symbols the icons start off, and the status
+# line says once how to turn them on; what `zi` chose last wins over what the terminal is known for.
+icon_1_the_icons_start_off_with_a_hint_once_and_the_remembered_choice_wins() {
+  project
+  look depth
+  CT=truecolor
+  HINTED=1 # (this case wants to see the hint)
+  start src/lib.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "zi: icons (needs a Nerd Font)"
+  typed j
+  wait_for "NORMAL  src/lib.rs" # a key puts it out (and no screen so far had an icon in it)
+  typed ":q"
+  keys Enter
+  wait_exit
+  [ -e "$XDG_STATE_HOME/sim/icons-hint" ]
+  restart
+  start src/lib.rs
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "NORMAL  src/lib.rs"
+  sleep 0.3
+  if screen | grep -F -q "Nerd Font"; then fail "the hint came twice"; fi
+  typed ":q"
+  keys Enter
+  wait_exit
+  restart
+  # a terminal known to bring the symbols: on at once, and `zi` off is remembered over the terminal
+  rm -f "$XDG_STATE_HOME/sim/icons-hint"
+  TP=ghostty
+  ICONS_ON=1
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  closed=$(printf '\357\201\273') # U+F07B, the closed folder of Nerd Fonts
+  wait_for "src" # (a name with its icon has no slash)
+  screen | grep -F 'src' | grep -q "$closed"
+  if screen | grep -F -q "Nerd Font"; then fail "a hint where the icons are on"; fi
+  [ ! -e "$XDG_STATE_HOME/sim/icons" ] # (nothing was chosen)
+  typed jjj # README.md
+  keys Enter
+  wait_for "NORMAL"
+  typed "zi"
+  wait_for "icons off"
+  [ "$(cat "$XDG_STATE_HOME/sim/icons")" = off ]
+  typed ":qa"
+  keys Enter
+  wait_exit
+  restart
+  ICONS_ON=
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "src/" # (and wait_for sees no icon: the remembered off wins over ghostty)
+  if screen | grep -F 'src' | grep -q "$closed"; then fail "ghostty beat what zi chose"; fi
 }
 
 main "$@"

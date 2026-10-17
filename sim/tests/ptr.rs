@@ -5,10 +5,10 @@
 mod common;
 use common::*;
 use crossterm::event::{MouseButton as B, MouseEventKind as K};
-use si::core::app::Effect;
-use si::core::vi::Mode;
 use sim::paint::{MOUSE_OFF, MOUSE_ON};
 use sim::sim::{SimEffect, SimEvent};
+use sim_core::core::app::Effect;
+use sim_core::core::vi::Mode;
 
 /// The column of the text.
 const T: u16 = 5;
@@ -141,7 +141,7 @@ fn ptr_1_a_click_lands_on_the_char_shown_under_the_pointer() {
     for (y, row) in rows.iter().enumerate().take(13) {
         let (mut col, cs) = (0u16, row.text.chars().collect::<Vec<_>>());
         for (i, &drawn) in cs.iter().enumerate() {
-            let w = si::core::view::width(&cs, i, usize::from(col)) as u16;
+            let w = sim_core::core::view::width(&cs, i, usize::from(col)) as u16;
             if col >= T && w > 0 {
                 // the char drawn under the pointer is the char under the cursor, but for what is
                 // drawn for another: blanks for a tab, `^A` or `<U+202E>` for a control char
@@ -353,7 +353,7 @@ fn ptr_1_the_mouse_reporting_sequences_are_each_others_reverse() {
     sim::paint::leave(&mut out);
     let out = String::from_utf8(out).unwrap();
     assert!(out.starts_with(&off), "the mouse is let go first: {out:?}");
-    assert!(out.ends_with(&String::from_utf8(si::io::term::LEAVE.to_vec()).unwrap()));
+    assert!(out.ends_with(&String::from_utf8(sim_core::io::term::LEAVE.to_vec()).unwrap()));
 }
 
 // ---- PTR-2: the mouse never edits ----
@@ -500,7 +500,7 @@ fn fuzz(seed: u64, size: (u16, u16), skin: sim::layout::Skin) {
     let mut r = rig_env(&format!("ptr2-fuzz{seed}"), &files, &["f.txt"], size, |e| {
         (e.skin, e.syn) = (skin, sim::color::Syntax::new(true));
     });
-    r.send(SimEvent::Term(si::core::app::Event::Bg((0x1e, 0x1e, 0x1e))));
+    r.send(SimEvent::Term(sim_core::core::app::Event::Bg((0x1e, 0x1e, 0x1e))));
     r.keys("<C-n><Esc>:e 日本語.txt\n");
     let text = r.sim.bufs.iter().map(|b| b.app.buf.text.to_string()).collect::<Vec<_>>();
     let mut rng = Rng(0x2545_f491_4f6c_dd1d ^ seed);

@@ -6,11 +6,11 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::{Event, Key};
 use sim::color::Syntax;
 use sim::layout::Skin;
 use sim::paint::Painter;
 use sim::sim::{SimEffect, SimEvent};
+use sim_core::core::app::{Event, Key};
 use std::time::{Duration, Instant};
 
 const P99: Duration = Duration::from_millis(1);

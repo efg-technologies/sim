@@ -1,17 +1,17 @@
-//! SYN-1, SYN-5, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-9, UI-1, UI-12, COLOR-1
+//! SYN-1, SYN-5, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-9, UI-1, UI-12, COLOR-1, COLOR-2
 //! The syntax colors (pure): the terminal's own ANSI colors (OSC 4), moved in OKLCH lightness until
-//! they read against the background that si's palette is made from (`Event::Bg`, VIS-4), the
+//! they read against the background that the core's palette is made from (`Event::Bg`, VIS-4), the
 //! selection's gray, and what puts the terminal's replies together out of the key stream. APCA,
-//! OKLCH to sRGB and the parsing of a reply are si's (`core::color`).
+//! OKLCH to sRGB and the parsing of a reply are the core's (`core::color`).
 use crate::paint::Look;
 use crate::sim::SimEvent;
 use crossterm::event::{Event as Ev, KeyCode, KeyModifiers};
-use si::core::color::{Palette, Rgb, apca, oklch, parse_osc11};
-use si::io::term::Reply;
+use sim_core::core::color::{Palette, Rgb, apca, oklch, parse_osc11};
+use sim_core::io::term::Reply;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-/// What is asked of the terminal besides its background (which si's `term::enter` asks, VIS-4): the
+/// What is asked of the terminal besides its background (which the core's `term::enter` asks, VIS-4): the
 /// five ANSI colors that carry syntax or are the interface's (red, green, yellow, magenta for the
 /// alert, cyan), each ended with ST.
 pub const QUERY: &str =
@@ -115,7 +115,7 @@ fn most_chromatic(l: f64, hue: f64) -> Option<Rgb> {
     oklch(l, lo, hue)
 }
 
-/// LOOK-2: a background of `hue` for the page `bg`, found the way si finds its change color (VIS-4):
+/// LOOK-2: a background of `hue` for the page `bg`, found the way the core finds its change color (VIS-4):
 /// of the most chromatic colors of that hue, the nearest to `bg` that is at least |Lc| 15 (and a
 /// margin of 0.5) away from it, or the farthest when none is. The owner of sim asked for green and
 /// red here and let color vision go, so these two are not checked under the simulations.
@@ -126,7 +126,7 @@ fn hued(bg: Rgb, hue: f64) -> Rgb {
     far.or_else(|| all().max_by(|a, b| lc(a).total_cmp(&lc(b)))).unwrap_or(bg)
 }
 
-/// The text on `c`, as si's `change_text`: the gray nearest to `primary`, on its side of the page,
+/// The text on `c`, as the core's `change_text`: the gray nearest to `primary`, on its side of the page,
 /// with |Lc| 75 (and the margin) against `c`; black or white, whichever reads better, if that is
 /// out of reach.
 fn text_on(primary: Rgb, c: Rgb) -> Rgb {
@@ -206,12 +206,15 @@ pub enum Chg {
     Del,
 }
 
-/// LOOK-2 to LOOK-6, UI-1: the colors the looks add to si's palette. Green (OKLCH hue 150) is what
+/// LOOK-2 to LOOK-6, UI-1: the colors the looks add to the core's palette. Green (OKLCH hue 150) is what
 /// comes and red (hue 25) what goes, each with its own text gray; the tints, the card and the
 /// shadow are mixed in OKLab from the page's background. The interface has six accents (text
 /// that reads on every neutral surface), a block of each with its text, and neutral surfaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tones {
+    /// COLOR-2: nothing of these colors is written; what only a surface said (the open file's row)
+    /// is said in weight.
+    pub mono: bool,
     pub add: Rgb,
     pub add_text: Rgb,
     pub del: Rgb,
@@ -282,6 +285,7 @@ impl Tones {
         let t1 = 0.18f64.min(step / (to_lch(cyan)[0] - page).abs().max(1e-6));
         let (head1, head2) = (by(cyan, t1), by(cyan, t1 / 2.0));
         Tones {
+            mono: syn.mono,
             add,
             add_text: text_on(p.primary, add),
             del,
@@ -404,7 +408,7 @@ impl Tones {
     }
 }
 
-/// OKLCH to sRGB (si's `oklch`). A color outside the gamut loses chroma until it fits, keeping
+/// OKLCH to sRGB (the core's `oklch`). A color outside the gamut loses chroma until it fits, keeping
 /// hue and lightness; a lightness past the ends is black or white.
 fn from_lch([l, c, h]: [f64; 3]) -> Rgb {
     let mut shrinking = (0..).map(|i| c * 0.95f64.powi(i)).take_while(|&c| c > 1e-4);
@@ -424,11 +428,14 @@ pub fn contrast(c: Rgb, bg: Rgb, min: f64) -> Rgb {
     out
 }
 
-/// The colors sim derives from what the terminal told (SYN-1, SYN-5), beside si's palette. Without
+/// The colors sim derives from what the terminal told (SYN-1, SYN-5), beside the core's palette. Without
 /// `truecolor` (the COLORTERM variable) nothing is derived: SGR 31-36 and underline stand in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Syntax {
     pub truecolor: bool,
+    /// COLOR-2: no color at all (`NO_COLOR`, a terminal of fewer than 8 colors): the terminal is not
+    /// asked, and the Painter writes weight, underline, slant and inverse only.
+    pub mono: bool,
     bg: Option<Rgb>,
     ansi: [Option<Rgb>; 8],
     /// Red, green, yellow, cyan, moved until |Lc| >= 75 against the background.
@@ -442,7 +449,11 @@ impl Syntax {
         Syntax { truecolor, ..Syntax::default() }
     }
 
-    /// The terminal's background (si's `Event::Bg`).
+    pub fn mono() -> Syntax {
+        Syntax { mono: true, ..Syntax::default() }
+    }
+
+    /// The terminal's background (the core's `Event::Bg`).
     pub fn bg(&mut self, bg: Rgb) {
         self.bg = Some(bg);
         self.derive();
@@ -511,14 +522,14 @@ impl Syntax {
     }
 }
 
-/// What the terminal sends, as sim's events. si's `Reply` puts together the answer to the
+/// What the terminal sends, as sim's events. The core's `Reply` puts together the answer to the
 /// background query (OSC 11); the answers to OSC 4 are put together here, ahead of it: an Alt+`]`
 /// is held until the next key says which it is. crossterm reads `ESC ]` as Alt+`]`, the payload as
 /// plain keys, and `ESC \` or BEL as Alt+`\` or Ctrl-g. While replies are still to come (the
 /// five that `QUERY` asks for, however late: over a slow link they take seconds, and a reply that
 /// is not put together here is typed into the text); a key that does not belong to a reply goes on
-/// as a key, in order (si's `Reply` holds an Alt+`]` for the answer to OSC 11 just as long). Mouse
-/// events and Shift-Tab, which si has no key for, are sim's.
+/// as a key, in order (the core's `Reply` holds an Alt+`]` for the answer to OSC 11 just as long). Mouse
+/// events and Shift-Tab, which the core has no key for, are sim's.
 pub struct Input {
     reply: Reply,
     held: Option<Ev>,
@@ -537,7 +548,7 @@ impl Input {
         }
     }
 
-    /// Keys on to si's `Reply`, which turns them into keys and the answer to OSC 11.
+    /// Keys on to the core's `Reply`, which turns them into keys and the answer to OSC 11.
     fn pass(&mut self, evs: impl IntoIterator<Item = Ev>) -> Vec<SimEvent> {
         evs.into_iter().flat_map(|e| self.reply.feed(e)).map(SimEvent::Term).collect()
     }

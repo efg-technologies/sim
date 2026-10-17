@@ -3,11 +3,11 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::{Event, Key};
-use si::core::view::Style;
 use sim::io;
 use sim::paint::Look;
 use sim::sim::{Env, Sim, SimEffect, SimEvent, start};
+use sim_core::core::app::{Event, Key};
+use sim_core::core::view::Style;
 use std::path::PathBuf;
 
 const FILES: [&str; 8] = [

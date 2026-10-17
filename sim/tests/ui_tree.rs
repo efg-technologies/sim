@@ -5,15 +5,15 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
-use si::core::view::Style;
 use sim::color::{Accent, Syntax, Tones};
 use sim::icons;
 use sim::layout::Skin;
 use sim::marks::{Git, Marks};
 use sim::paint::{Look, Paint};
 use sim::sim::{SimEffect, SimEvent, tilde};
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
+use sim_core::core::view::Style;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -190,14 +190,14 @@ fn ui_2_the_root_is_shown_below_the_home_directory_as_tilde() {
 #[test]
 fn ui_2_the_choice_of_icons_is_remembered_in_the_state_directory() {
     let dir = temp_dir("ui2-iconfile");
-    assert!(sim::io::load_icons(&dir.0), "on at the first run");
+    assert_eq!(sim::io::load_icons(&dir.0), None, "no choice yet: ICON-1 decides");
     sim::io::save_icons(&dir.0, false).unwrap();
-    assert!(!sim::io::load_icons(&dir.0));
+    assert_eq!(sim::io::load_icons(&dir.0), Some(false));
     sim::io::save_icons(&dir.0, true).unwrap();
-    assert!(sim::io::load_icons(&dir.0));
+    assert_eq!(sim::io::load_icons(&dir.0), Some(true));
     for junk in ["", "maybe\n", "OFF\n"] {
         std::fs::write(dir.0.join("icons"), junk).unwrap();
-        assert!(sim::io::load_icons(&dir.0), "{junk:?}: only `off` turns them off");
+        assert_eq!(sim::io::load_icons(&dir.0), None, "{junk:?}: not a choice");
     }
 }
 
@@ -268,6 +268,7 @@ fn paint(r: &Rig, y: usize, x: u16) -> Paint {
         bold: a.bold || p.bold,
         soft: a.soft || p.soft,
         sealed: a.sealed || p.sealed,
+        cue: a.cue.max(p.cue),
     })
 }
 
@@ -421,7 +422,7 @@ fn ui_3_a_file_has_its_git_letter_at_the_right_edge_and_its_name_in_the_color_of
 }
 
 #[test]
-fn ui_3_a_conflict_is_bold_red_and_a_deleted_file_s_directory_has_the_red_dot() {
+fn ui_3_a_conflict_is_bold_red_and_a_deleted_file_s_directory_has_the_red_letter() {
     let mut r = rig_env("ui3-conflict", &["a.rs", "b.rs", "d/x.rs"], &[], (80, 20), |e| {
         git(&e.cwd, &["init", "-q"]);
         git(&e.cwd, &["add", "-A"]);
@@ -455,26 +456,23 @@ fn ui_3_a_conflict_is_bold_red_and_a_deleted_file_s_directory_has_the_red_dot() 
     assert!(p.bold && q.bold, "bold");
     assert_eq!((p.fg, q.fg), (Some(t.fg(Accent::Red)), Some(t.fg(Accent::Red))));
     let y = row(&r, "d/");
-    let dot = col(&r, y, "●");
-    assert_eq!(paint(&r, y, dot).fg, Some(t.fg(Accent::Red)), "something below it was deleted");
+    assert_eq!(r.shot.frame.rows[y].text.chars().nth(usize::from(end)), Some('D'));
+    assert_eq!(paint(&r, y, end).fg, Some(t.fg(Accent::Red)), "something below it was deleted");
 }
 
 #[test]
-fn ui_3_a_directory_has_a_dot_in_the_color_of_the_strongest_status_below_it_closed_or_open() {
+fn ui_3_a_directory_has_the_letter_of_the_strongest_status_below_it_closed_or_open() {
     let r = git_rig("ui3-dots", Skin::Depth, (100, 30));
     let (t, pw) = (tones(), r.sim.widths().0);
-    let end = r.sim.geo().px + pw - 2; // the edge has a blank, then the letter: the dot is on the letter's cell
-    let end = end + 1;
-    for (dir, accent) in [("docs/", Accent::Green), ("src/", Accent::Amber), ("old/", Accent::Red)]
+    let end = r.sim.geo().px + pw - 1; // the edge has a blank, then the letter
+    // Closed: the directories, with the letter of the strongest of what is in them (COLOR-3: a
+    // letter, not a dot, so that it needs no color).
+    for (name, accent, letter) in
+        [("docs", Accent::Green, 'U'), ("src", Accent::Amber, 'M'), ("old", Accent::Red, 'D')]
     {
-        let _ = dir;
-        let _ = accent;
-    }
-    // Closed: the directories, with the strongest of what is in them.
-    for (name, accent) in [("docs", Accent::Green), ("src", Accent::Amber), ("old", Accent::Red)] {
         let y = row(&r, name);
         let text: Vec<char> = r.shot.frame.rows[y].text.chars().collect();
-        assert_eq!(text[usize::from(end)], '●', "{name}: {}", r.shot.frame.rows[y].text);
+        assert_eq!(text[usize::from(end)], letter, "{name}: {}", r.shot.frame.rows[y].text);
         assert_eq!(paint(&r, y, end).fg, Some(t.fg(accent)), "{name}");
     }
     let y = row(&r, ".github");
@@ -483,7 +481,7 @@ fn ui_3_a_directory_has_a_dot_in_the_color_of_the_strongest_status_below_it_clos
         Some(' '),
         "a clean one has none"
     );
-    // A dot is news: it never fades, and no `~` is drawn in the interface.
+    // A letter is news: it never fades, and no `~` is drawn in the interface.
     assert!(paint(&r, row(&r, "src"), end).fade == 0);
     let head = usize::from(r.sim.geo().y0) - 1;
     let tildes =

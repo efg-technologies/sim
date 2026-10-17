@@ -3,11 +3,11 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::{Effect, Event};
-use si::io::journal::{self, Snapshot};
 use sim::io;
 use sim::sim::SimEvent;
 use sim::tree::Entry;
+use sim_core::core::app::{Effect, Event};
+use sim_core::io::journal::{self, Snapshot};
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::Path;
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -162,7 +162,7 @@ const WAIT: Duration = Duration::from_secs(5);
 
 /// The journal key of a file: its canonical path.
 fn key_of(p: &Path) -> String {
-    si::io::file::resolve(&p.to_string_lossy()).to_string_lossy().into_owned()
+    sim_core::io::file::resolve(&p.to_string_lossy()).to_string_lossy().into_owned()
 }
 
 fn mode(p: &Path, m: u32) {
@@ -189,11 +189,14 @@ fn journal(state: Option<&Path>, jobs: Vec<io::Job>) -> Vec<String> {
 }
 
 #[test]
-fn buf_1_the_snapshot_directory_is_si_s_and_it_is_made_private() {
+fn buf_1_the_snapshot_directory_is_the_one_state_directory_and_it_is_made_private() {
     let d = temp_dir("snap-ok");
     let state = journal::state_dir(Some(d.0.clone().into()), None).unwrap();
-    assert_eq!(state, d.0.join("si"), "the directory of si, so that si and sim recover each other");
-    assert_eq!(io::state_dir(Some(d.0.clone().into()), None), Some(d.0.join("sim")), "the history");
+    assert_eq!(
+        state,
+        d.0.join("sim"),
+        "one directory for the snapshots, the places and the history"
+    );
     assert!(journal(Some(&state), vec![snapshot("a.txt", "x")]).is_empty());
     assert_eq!(std::fs::metadata(&state).unwrap().mode() & 0o777, 0o700, "made 0700");
     let key = key_of(Path::new("a.txt"));
@@ -206,7 +209,6 @@ fn buf_1_without_a_state_directory_there_are_no_snapshots_and_never_a_shared_fal
     // si's rule, which sim calls: no absolute $XDG_STATE_HOME or $HOME, no directory.
     for (xdg, home) in [(None, None), (Some("rel/state"), Some("rel/home")), (Some(""), Some(""))] {
         assert_eq!(journal::state_dir(xdg.map(Into::into), home.map(Into::into)), None);
-        assert_eq!(io::state_dir(xdg.map(Into::into), home.map(Into::into)), None);
     }
     // The journal thread tells it once, however many snapshots it is asked for, and writes nothing.
     let told = journal(None, vec![snapshot("a.txt", "x"), snapshot("a.txt", "y")]);
@@ -227,8 +229,8 @@ fn buf_1_without_a_state_directory_there_are_no_snapshots_and_never_a_shared_fal
     let answers: Vec<_> = (0..2).map(|_| rx.recv_timeout(WAIT).unwrap()).collect();
     match &answers[..] {
         [
-            SimEvent::App(1, si::core::app::Event::Saved(Ok(_), _)),
-            SimEvent::App(2, si::core::app::Event::Saved(Err(e), _)),
+            SimEvent::App(1, sim_core::core::app::Event::Saved(Ok(_), _)),
+            SimEvent::App(2, sim_core::core::app::Event::Saved(Err(e), _)),
         ] => {
             assert!(e.contains("no recovery copy possible"), "{e}");
         }
@@ -270,7 +272,7 @@ fn buf_1_a_directory_that_others_can_enter_or_that_is_a_link_is_never_used() {
         std::fs::hard_link(&f, &other).unwrap();
         saves.send((1, f.to_string_lossy().into_owned(), b"new\n".to_vec(), None)).unwrap();
         match rx.recv_timeout(WAIT).unwrap() {
-            SimEvent::App(1, si::core::app::Event::Saved(Err(e), _)) => {
+            SimEvent::App(1, sim_core::core::app::Event::Saved(Err(e), _)) => {
                 assert!(e.contains("no recovery copy possible"), "{m:o}: {e}");
             }
             e => panic!("{m:o}: {e:?}"),
@@ -296,7 +298,7 @@ fn buf_1_the_save_thread_numbers_each_answer_when_its_save_is_done() {
     let saves = io::save_thread(Some(d.0.join("state")), tx);
     let f = d.0.join("f.txt");
     std::fs::write(&f, "old\n").unwrap();
-    let began = si::io::file::seq(); // a watcher's read that starts before the save
+    let began = sim_core::io::file::seq(); // a watcher's read that starts before the save
     saves.send((1, f.to_string_lossy().into_owned(), b"new\n".to_vec(), None)).unwrap();
     saves.send((2, f.to_string_lossy().into_owned(), b"newer\n".to_vec(), Some(0))).unwrap(); // refused
     let seq = |e: SimEvent| match e {
@@ -306,7 +308,7 @@ fn buf_1_the_save_thread_numbers_each_answer_when_its_save_is_done() {
     let (first, second) =
         (seq(rx.recv_timeout(WAIT).unwrap()), seq(rx.recv_timeout(WAIT).unwrap()));
     assert!(began < first && first < second, "{began} < {first} < {second}");
-    assert!(second < si::io::file::seq(), "and the counter goes on from there");
+    assert!(second < sim_core::io::file::seq(), "and the counter goes on from there");
 }
 
 #[test]
@@ -340,4 +342,22 @@ fn buf_1_the_journal_thread_remembers_where_a_file_was_closed_and_answers_a_relo
         SimEvent::Opened(o) => assert_eq!(o.place, Some((4, 2))),
         e => panic!("{e:?}"),
     }
+}
+
+/// STATE-1: the journal's directory is the one the choices are kept in, so they follow its rule: a
+/// directory that is not private is not used, and not made private either (what is in it may have
+/// been readable by others).
+#[test]
+fn state_1_a_choice_is_not_saved_into_a_directory_that_others_can_enter() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = temp_dir("state1-open");
+    std::fs::set_permissions(&dir.0, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let err = sim::io::save_icons(&dir.0, true).unwrap_err();
+    assert!(err.contains("not private"), "{err}");
+    assert!(err.starts_with("icons: "), "{err}");
+    assert!(!dir.0.join("icons").exists());
+    let mode = std::fs::metadata(&dir.0).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o755, "left as it was");
+    std::fs::set_permissions(&dir.0, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(sim::io::save_icons(&dir.0, true).is_ok());
 }

@@ -1,41 +1,8 @@
-[package]
-name = "si"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.88" # `let` chains
-publish = false
-description = "si (SIght): a vi for reading, where only the changes light up"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/efg-technologies/sim"
-
-# sim is built on si and lives in sim/. A bare `cargo test` or `cargo clippy` here still checks si
-# alone (the root package is the default member); sim has its own sim/scripts/check.sh.
+# sim is one product in two crates: the core (sim-core, core/) holds what must never lose text and
+# has its own line cap and dependency allowlist; the editor (sim-editor, sim/) is the binary `sim`.
 [workspace]
-members = [".", "sim"]
-
-# Features are trimmed to what si uses (CLAUDE.md: the binary stays <= 2 MB):
-# - ropey: only LF ends a line (SAFE-3 keeps a lone `\r` as a character)
-# - unicode-width: no CJK-ambiguous widths; terminals draw ambiguous width as 1
-# - crossterm: events and bracketed paste only
-[dependencies]
-ropey = { version = "1.6", default-features = false, features = ["simd"] }
-crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste"] }
-notify = "8.2"
-similar = "3.2"
-unicode-width = { version = "0.2", default-features = false }
-regex-lite = "0.1"
-signal-hook = "0.3"
-
-[dev-dependencies]
-proptest = "1"
-
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
+members = ["core", "sim"]
+resolver = "3"
 
 [profile.release]
 lto = true

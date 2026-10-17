@@ -8,7 +8,7 @@
 //! typed into one file must never show up in another (ids never cross), a word must never be lost
 //! (it is on the disk, in a snapshot, or was discarded on purpose), and the screen must stay whole.
 //! One test per property because the property changes the process's directory (the real shell
-//! resolves relative names against it). `SI_FUZZ_CASES` sets the number of cases.
+//! resolves relative names against it). `SIM_FUZZ_CASES` sets the number of cases.
 #![allow(
     clippy::panic, // the model fails by panicking, with the log of what led there
     clippy::needless_range_loop,
@@ -24,13 +24,13 @@ mod common;
 use common::{NOW, far, keys, temp_dir};
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use proptest::prelude::*;
-use si::core::app::{Effect, Event};
-use si::core::buffer::hash;
-use si::io::file::{self, Saved};
-use si::io::journal::{self, Snapshot};
 use sim::io::{self, Job};
 use sim::layout::Skin;
 use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, start};
+use sim_core::core::app::{Effect, Event};
+use sim_core::core::buffer::hash;
+use sim_core::io::file::{self, Saved};
+use sim_core::io::journal::{self, Snapshot};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::Write;
@@ -472,7 +472,7 @@ impl W {
                             }
                         }
                         Effect::Keep { path, bytes, ext } => {
-                            let at = si::io::journal::keep(&self.state, &path, &bytes, ext);
+                            let at = sim_core::io::journal::keep(&self.state, &path, &bytes, ext);
                             let at = at.map(|p| p.display().to_string()).map_err(|e| e.to_string());
                             local.push(SimEvent::App(id, Event::Kept(at)));
                         }
@@ -622,7 +622,7 @@ impl W {
                 let mut cols = 0;
                 for (k, &c) in cs.iter().enumerate() {
                     assert!(!hostile(c), "row {i} has a hostile char {c:?}: {:?}", r.text);
-                    cols += si::core::view::width(&cs, k, cols);
+                    cols += sim_core::core::view::width(&cs, k, cols);
                 }
                 assert!(
                     cols <= usize::from(f.width),
@@ -926,7 +926,7 @@ impl W {
             }
             let Some(path) = &a.path else { continue };
             let disk = fs::read(self.dir.join(path)).ok();
-            let want = disk.map(|d| si::core::buffer::Buffer::decode(&d).text.to_string());
+            let want = disk.map(|d| sim_core::core::buffer::Buffer::decode(&d).text.to_string());
             if want.is_some_and(|w| w != a.buf.text.to_string()) {
                 return Err(format!(
                     "a clean buffer {} ({path}) is not its file: buffer {:?} disk {:?}",
@@ -1035,7 +1035,7 @@ impl Drop for W {
 }
 
 fn cases() -> u32 {
-    std::env::var("SI_FUZZ_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(2000)
+    std::env::var("SIM_FUZZ_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(2000)
 }
 
 fn run(rec: u8, size: (u16, u16), ops: &[Op]) -> Result<(), String> {

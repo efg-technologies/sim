@@ -4,12 +4,12 @@
 #![allow(clippy::unwrap_used, clippy::panic, clippy::single_range_in_vec_init)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
 use sim::color::{Syntax, Tones};
 use sim::layout::Skin;
 use sim::search::Matcher;
 use sim::sim::SimEvent;
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 
@@ -124,7 +124,7 @@ fn ui_14_noh_and_esc_in_normal_mode_clear_them_and_a_search_lights_them_again() 
     assert!(lit_cells(&r) > 0);
     r.keys(":noh\n");
     assert_eq!(lit_cells(&r), 0, ":noh");
-    assert_eq!(r.app().vi.mode, si::core::vi::Mode::Normal);
+    assert_eq!(r.app().vi.mode, sim_core::core::vi::Mode::Normal);
     r.keys("n");
     assert!(lit_cells(&r) > 0, "n lights them again");
     r.keys("<Esc>");

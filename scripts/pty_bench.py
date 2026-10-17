@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmarks of the real si binary, which needs a terminal: every run gets its own pty, and the
+"""Benchmarks of the real sim binary, which needs a terminal: every run gets its own pty, and the
 script plays the terminal on the other side of it (class Terminal).
 
   pty_bench.py startup BIN FILE [N]   wall time of `BIN +q FILE` (PERF-1), N runs (default 200), and
@@ -30,12 +30,13 @@ script plays the terminal on the other side of it (class Terminal).
                                       `:q` to the last answer that was due (what a quit has to wait for)
 
 Prints key=value lines (times in ms, memory in kB) after a readable summary on stderr.
-Used by scripts/bench.sh, tests/perf_1.rs, tests/perf_5.rs and tests/vis_4.rs. Standard library only.
+Used by scripts/bench.sh and sim/tests/{perf_1,perf_5,pty,hl}.rs. Standard library only.
 """
 import atexit
 import fcntl
 import os
 import select
+import shlex
 import signal
 import statistics
 import shutil
@@ -48,7 +49,7 @@ import time
 
 
 # si's places and snapshots (SAFE-6, CLI-6) go to a directory of its own, never to the user's.
-STATE = tempfile.mkdtemp(prefix="si-bench-state.")
+STATE = tempfile.mkdtemp(prefix="sim-bench-state.")
 ENV = dict(os.environ, HOME=STATE, XDG_STATE_HOME=STATE)
 atexit.register(shutil.rmtree, STATE, True)
 
@@ -127,6 +128,12 @@ def median_ms(argv, runs, warmup=10):
     return statistics.median(times), times[0], times[int(len(times) * 0.9)]
 
 
+def cmd(binary):
+    """`binary` may be a command with arguments (`sim --plain`): its argv, the program's path made absolute."""
+    parts = shlex.split(binary)
+    return [os.path.abspath(parts[0]), *parts[1:]]
+
+
 def session(binary, path, **terminal):
     """Runs `binary path` against a Terminal until its first frame, types `:q` at once and waits for
     the exit. Gives back the seconds to the first frame, the seconds from `:q` to the exit, and the
@@ -135,7 +142,7 @@ def session(binary, path, **terminal):
     where, name = os.path.split(os.path.abspath(path))
     start = time.perf_counter()
     proc = subprocess.Popen(
-        [os.path.abspath(binary), name], cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV
+        [*cmd(binary), name], cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV
     )
     term = Terminal(master, **terminal)
     try:
@@ -172,10 +179,10 @@ def frames(binary, path, runs, **terminal):
 
 
 def startup(binary, path, runs):
-    si = median_ms([binary, "+q", path], runs)
+    si = median_ms([*cmd(binary), "+q", path], runs)
     base = median_ms(["/bin/true"], runs)
     print(
-        f"startup: si +q median {si[0]:.2f} ms (min {si[1]:.2f}, p90 {si[2]:.2f}); /bin/true "
+        f"startup: sim +q median {si[0]:.2f} ms (min {si[1]:.2f}, p90 {si[2]:.2f}); /bin/true "
         f"baseline median {base[0]:.2f} ms (min {base[1]:.2f}, p90 {base[2]:.2f}); N={runs}",
         file=sys.stderr,
     )
@@ -207,7 +214,7 @@ def asks(binary, path):
     where, name = os.path.split(os.path.abspath(path))
     try:
         proc = subprocess.Popen(
-            [os.path.abspath(binary), "+q", name],
+            [*cmd(binary), "+q", name],
             cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV,
         )
         term = Terminal(master)
@@ -258,7 +265,7 @@ def rss(binary, path):
     # Run next to the file, so that its short name leaves room for NORMAL on the status line.
     where, name = os.path.split(os.path.abspath(path))
     proc = subprocess.Popen(
-        [os.path.abspath(binary), name], cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV
+        [*cmd(binary), name], cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV
     )
     try:
         seen, deadline = b"", time.time() + 10
@@ -273,7 +280,7 @@ def rss(binary, path):
         vm = {k: int(status[k].split()[0]) for k in ("VmRSS", "VmHWM")}
         os.write(master, b":q\r")
         if proc.wait(timeout=10) != 0:
-            sys.exit("pty_bench: si did not quit with :q")
+            sys.exit("pty_bench: sim did not quit with :q")
     finally:
         if proc.poll() is None:
             proc.kill()
@@ -301,7 +308,7 @@ def firstframe(binary, path):
         os.write(master, ANSWER)
         where, name = os.path.split(os.path.abspath(path))
         proc = subprocess.Popen(
-            [os.path.abspath(binary), name], cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV
+            [*cmd(binary), name], cwd=where, stdin=slave, stdout=slave, stderr=slave, env=ENV
         )
         try:
             seen, deadline = b"", time.time() + 10
@@ -336,6 +343,9 @@ def main(argv):
         firstframe(argv[2], argv[3])
     elif len(argv) == 4 and argv[1] == "asks":
         asks(argv[2], argv[3])
+    elif len(argv) == 4 and argv[1] == "quitnow":
+        # `+q` on a pty nobody answers: it was never asked anything, so nothing is waited for (VIS-4)
+        print(f"quitnow_ms={median_ms([*cmd(argv[2]), '+q', argv[3]], 7, warmup=2)[0]:.3f}")
     elif len(argv) == 5 and argv[1] == "quit":
         kinds = {"answering": {}, "no_osc": {"osc": False}, "silent": {"silent": True}}
         print(f"quit_ms={frames(argv[2], argv[3], 3, **kinds[argv[4]])[1]:.3f}")

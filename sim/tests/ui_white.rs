@@ -4,12 +4,12 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
 use sim::color::{Syntax, Tones};
 use sim::layout::Skin;
 use sim::paint::Paint;
 use sim::sim::SimEvent;
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
 use unicode_width::UnicodeWidthChar;
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
@@ -42,6 +42,7 @@ fn paint(r: &Rig, y: usize, x: u16) -> Paint {
         bold: a.bold || p.bold,
         soft: a.soft || p.soft,
         sealed: a.sealed || p.sealed,
+        cue: a.cue.max(p.cue),
     })
 }
 

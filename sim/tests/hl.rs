@@ -6,13 +6,13 @@ mod common;
 use common::*;
 use crossterm::event::{Event as Ev, KeyCode, KeyEvent, KeyModifiers};
 use proptest::prelude::*;
-use si::core::app::{Event, Key};
-use si::core::color::{apca, palette as si_palette, parse_osc11};
-use si::core::view::{Frame, Row, Shape, Style};
 use sim::color::{self, Input, Syntax};
 use sim::io::{Highlighter, HlJob};
 use sim::paint::{Look, Painter, Screen};
 use sim::sim::{Env, Req, SimEvent};
+use sim_core::core::app::{Event, Key};
+use sim_core::core::color::{apca, palette as si_palette, parse_osc11};
+use sim_core::core::view::{Frame, Row, Shape, Style};
 
 const RUST: &str = "fn main() {\n    let s = \"a\";\n    f(1); // c\n}\n";
 
@@ -61,7 +61,7 @@ fn syn_1_emoji_sequences_and_every_bidirectional_control_keep_the_colors_in_plac
     let text = format!("let s = \"{s}\"; let n = 1;\n");
     let r = rig_sized("hl-emoji", &[&format!("main.rs={text}")], &["main.rs"], (70, 4));
     let row: Vec<char> = r.screen.rows[0].text.chars().collect();
-    let col = |at: usize| (0..at).fold(0, |col, i| col + si::core::view::width(&row, i, col));
+    let col = |at: usize| (0..at).fold(0, |col, i| col + sim_core::core::view::width(&row, i, col));
     let quotes: Vec<usize> = (0..row.len()).filter(|&i| row[i] == '"').collect();
     let strings: Vec<_> = r.shot.looks[0].iter().filter(|l| l.1 == Look::Str).collect();
     let want = col(quotes[0])..col(quotes[1]) + 1;
@@ -196,7 +196,8 @@ fn syn_1_the_painter_counts_columns_by_si_s_rule_so_spans_stay_on_their_chars() 
     // own terminal output starts them.
     let text = "a\u{2764}\u{fe0f}b \u{1f468}\u{200d}\u{1f469}c";
     let cs: Vec<char> = text.chars().collect();
-    let col = |at: usize| (0..at).fold(0, |col, i| col + si::core::view::width(&cs, i, col)) as u16;
+    let col =
+        |at: usize| (0..at).fold(0, |col, i| col + sim_core::core::view::width(&cs, i, col)) as u16;
     let (b, c) = (col(cs.iter().position(|&x| x == 'b').unwrap()), col(cs.len() - 1));
     assert_eq!(b, 3, "a is 1, the sequence 2");
     let row = Row { text: text.into(), spans: vec![(b..b + 1, Style::Change)], ..Row::default() };

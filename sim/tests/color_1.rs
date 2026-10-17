@@ -7,12 +7,12 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
 use sim::color::{Role, Syntax, Tones, to_lch};
 use sim::layout::Skin;
 use sim::paint::{Look, syntax_hue};
 use sim::sim::SimEvent;
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 const BGS: [Rgb; 8] = [
@@ -276,7 +276,7 @@ fn walk(r: &Rig, what: &str, normal: bool, alert: bool, lit: bool) {
                             || ruler
                             || (in_text && flagged && c == bg.unwrap_or((1, 2, 3)))
                             || (y == last && "+~-0123456789".contains(ch))
-                            || (y == head && x >= g.ex && ch == '●')
+                            || (y == head && x >= g.ex && (ch == '↯' || ch == '●'))
                     }
                     Role::Accent => {
                         (lit && in_text && c == bg.unwrap_or((1, 2, 3)))

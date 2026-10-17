@@ -1,16 +1,11 @@
-//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13, PICK-5
-//! The event loop: several si Apps, the panel, the threads, running Effects. It is si's main.rs
-//! for many files: one save thread and one journal thread for all of them, a watcher and a
-//! filter for each, and every job and answer tagged with the id of its file. The file list, git's
+//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13, PICK-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, VIS-4, PERF-1, PERF-5
+//! The event loop: several core Apps, the panel, the threads, running Effects: one save thread and
+//! one journal thread for all of them, a watcher and a filter for each, and every job and answer
+//! tagged with the id of its file. The file list, git's
 //! status, the history, the highlighter and the searches of file contents each run in the
-//! background. The terminal is asked for its colors as si asks (the background at once, the first
+//! background. The terminal is asked for its colors (the background at once, the first
 //! frame waiting for it at most 3 ms), and the mouse is reported until sim leaves, by any way.
 #![forbid(unsafe_code)]
-use si::core::app::{Effect, Event};
-use si::core::buffer::hash;
-use si::io::file::{self, read};
-use si::io::watch::watch;
-use si::io::{filter, journal, term};
 use signal_hook::consts::{SIGHUP, SIGTERM, SIGWINCH};
 use sim::color::{self, Input, Syntax};
 use sim::io::{self as sio, HlJob, Job, MERGE};
@@ -18,6 +13,11 @@ use sim::layout::Skin;
 use sim::paint::{MOUSE_ON, Painter, leave};
 use sim::rank::History;
 use sim::sim::{Env, Id, Sim, SimEffect, SimEvent, start};
+use sim_core::core::app::{Effect, Event};
+use sim_core::core::buffer::hash;
+use sim_core::io::file::{self, read};
+use sim_core::io::watch::watch;
+use sim_core::io::{filter, journal, term};
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::{self, IsTerminal, Write};
@@ -37,7 +37,7 @@ const USAGE: &str = "usage: sim [+cmd] [dir | file]\n       sim [+cmd] -- file";
 /// A watcher, kept alive by holding it, and the switch that silences it (DISK-1).
 type Held = (Box<dyn Any>, Arc<AtomicBool>);
 
-/// Watches `path` for file `id` (DISK-1), as si's main does for its one file. The deadline of each
+/// Watches `path` for file `id` (DISK-1), as the core's main does for its one file. The deadline of each
 /// change is stamped when the watcher reads the file, since the core reads no clock (DISK-5), and
 /// its hash is made there too, so that no key waits for it (P3). With `first`, the watcher's thread
 /// also reads the file once at the start, ordered before the debounced reads.
@@ -85,46 +85,60 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     s.root = fs::canonicalize(&s.root).unwrap_or(s.root);
+    let late = !s.keys.is_empty(); // VIS-4: startup keys may quit; the terminal is asked once they have run
     let size = crossterm::terminal::size();
     let (Ok(size), true) = (size, io::stdout().is_terminal()) else {
         eprintln!("sim: the standard output is not a terminal");
         return ExitCode::FAILURE;
     };
     let (tx, rx) = mpsc::channel();
-    // SAFE-6, as in si: without a state directory (and unless it is private) there are no
+    // SAFE-6: without a state directory (and unless it is private) there are no
     // snapshots and no recovery copies; the first snapshot that cannot be written says so.
+    // STATE-1: one state directory, `sim`; what the core's held is copied into it, once.
     let state = journal::state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
-    let history = sio::state_dir(env::var_os("XDG_STATE_HOME"), env::var_os("HOME"));
-    let truecolor = matches!(env::var("COLORTERM").as_deref(), Ok("truecolor" | "24bit"));
+    let moved = state.as_deref().and_then(|d| journal::migrate(d).err());
+    let history = state.clone();
+    // COLOR-2: without color nothing asks the terminal for any.
+    let mono = sio::no_color_here();
+    let truecolor = !mono && matches!(env::var("COLORTERM").as_deref(), Ok("truecolor" | "24bit"));
+    let (icons, hint) = sio::start_icons(history.as_deref(), |k| env::var(k).ok());
     let env = Env {
         cwd,
         size,
         now: sio::now_ms() / 1000,
         history: history.as_deref().map_or_else(History::default, sio::load_history),
-        syn: Syntax::new(truecolor),
-        hook: env::var("SI_ON_NORMAL").ok().filter(|h| !h.is_empty()),
+        syn: if mono { Syntax::mono() } else { Syntax::new(truecolor) },
+        hook: sio::hook(env::var("SIM_ON_NORMAL").ok(), env::var("SI_ON_NORMAL").ok()),
+        plain: sio::plain_by_default(),
         skin: history.as_deref().map_or(Skin::Depth, sio::load_look),
         home: env::var_os("HOME").map(std::path::PathBuf::from),
-        icons: history.as_deref().is_none_or(sio::load_icons),
+        icons,
+        hint,
         chrome: true,
     };
     let (mut sim, mut fx) = Sim::new(s, env);
+    if sim.plain {
+        filter::forbid_programs(); // PLAIN-1: before anything asks for git, rg or a program
+    }
+    if let Some(e) = moved {
+        drop(tx.send(SimEvent::Notice(format!("cannot copy the old state directory (si): {e}"))));
+    }
 
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         leave(&mut io::stdout());
         prev(info);
     }));
-    // VIS-4: the background is asked for right after the screen is switched (si's `enter`), the
+    // VIS-4: the background is asked for right after the screen is switched (the core's `enter`), the
     // mouse is reported from here on (PTR-1).
-    let entered = term::enter(&mut io::stdout(), true);
+    let entered = term::enter(&mut io::stdout(), !mono && !late);
     let mouse = |out: &mut io::Stdout| out.write_all(MOUSE_ON).and_then(|()| out.flush());
     if entered.and_then(|()| mouse(&mut io::stdout())).is_err() {
         leave(&mut io::stdout());
         eprintln!("sim: cannot set up the terminal");
         return ExitCode::FAILURE;
     }
-    let asked = Instant::now(); // the query for the background color went out with `enter`
+    let mut asked = Instant::now(); // the query for the background color went out with `enter`
     let (t, (settled, drained)) = (tx.clone(), mpsc::channel());
     thread::spawn(move || {
         let mut input = Input::new(truecolor); // the terminal's replies arrive as keys
@@ -157,14 +171,17 @@ fn main() -> ExitCode {
     let saves = sio::save_thread(state.clone(), tx.clone());
     let highlights = sio::highlight_thread(tx.clone());
     let diffs = sio::diff_thread(tx.clone(), here); // UI-5: the diffs against HEAD, off the main thread
-    let greps = sio::Greps::new(tx.clone(), sio::which_rg(env::var_os("PATH")));
+    let rg = sio::which_rg(env::var_os("PATH")).filter(|_| !sim.plain);
+    let greps = sio::Greps::new(tx.clone(), rg);
     let (r1, r2) = (sim.root.clone(), sim.root.clone());
     let files = sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1)));
     let git = sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2)));
     let reads = sio::Reads::default();
     let (mut painter, tmux) = (Painter::new(io::stdout()), env::var_os("TMUX").is_some());
     let (mut watchers, mut local, mut first) = (HashMap::<Id, Held>::new(), vec![], true);
-    let (mut pgids, mut waiting) = (HashMap::<Id, u32>::new(), true);
+    // `queried`: whether the terminal was asked for anything (a quit before that leaves nothing to wait for)
+    let (mut pgids, mut waiting, mut late) = (HashMap::<Id, u32>::new(), !mono, late && !mono);
+    let mut queried = !mono && !late;
     loop {
         let mut frame = None;
         loop {
@@ -209,7 +226,8 @@ fn main() -> ExitCode {
                     }
                     SimEffect::Open(id, path) => {
                         // Watching starts before the file is read, so that no change slips in between.
-                        watchers.extend(watching(&tx, id, &path, false));
+                        watchers
+                            .extend(watching(&tx, id, &path, false).filter(|_| !path.is_empty()));
                         let at = std::path::Path::new(&path);
                         local.push(sio::open(state.as_deref(), id, &path, at));
                     }
@@ -237,7 +255,7 @@ fn main() -> ExitCode {
                         }
                         Effect::Watch(path) => {
                             drop(watchers.remove(&id)); // the old watcher's thread ends before the new one starts
-                            // Its first read is ordered after everything sent so far (see si's main).
+                            // Its first read is ordered after everything sent so far (see the core's main).
                             watchers.extend(watching(&tx, id, &path, true));
                         }
                         Effect::Clipboard(text) => {
@@ -267,7 +285,7 @@ fn main() -> ExitCode {
                         Effect::Render(_) | Effect::Quit(_) => {}
                     },
                     SimEffect::Quit(code) => {
-                        if sim.asking() {
+                        if queried && sim.asking() {
                             // An answer may still be on its way: the input thread is woken (as a
                             // resize would) to wait for it, since a late one would be typed into the shell
                             QUITTING.store(true, SeqCst);
@@ -287,14 +305,19 @@ fn main() -> ExitCode {
             }
             fx = local.drain(..).flat_map(|ev| sim.update(ev)).collect();
         }
+        if std::mem::take(&mut late) {
+            drop(painter.write(term::ASK)); // the keys given at startup did not quit
+            (asked, queried) = (Instant::now(), true);
+        }
         // VIS-4: the first frame waits at most 3 ms for the terminal's color, which it gets as it is
         // drawn. The wait overlaps the work above. What came meanwhile is the Sim's too.
         if std::mem::take(&mut waiting) {
-            let mut early = vec![];
-            while let Some(left) =
-                (asked + Duration::from_millis(3)).checked_duration_since(Instant::now())
-                && let Ok(ev) = rx.recv_timeout(left)
-            {
+            let (mut early, until) = (vec![], asked + Duration::from_millis(3));
+            // (what is in already is taken even when the 3 ms are over)
+            while let Ok(ev) = match until.checked_duration_since(Instant::now()) {
+                Some(left) => rx.recv_timeout(left).map_err(drop),
+                None => rx.try_recv().map_err(drop),
+            } {
                 let bg = matches!(ev, SimEvent::Term(Event::Bg(_)));
                 early.push(ev);
                 if bg {

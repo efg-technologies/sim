@@ -7,9 +7,9 @@ use super::{Id, Sim, SimEffect, text_of};
 use crate::layout;
 use crate::tabs::{self, Hit};
 use crossterm::event::{MouseButton as B, MouseEvent, MouseEventKind as K};
-use si::core::app::{App, Event, Key};
-use si::core::vi::Mode;
-use si::core::view;
+use sim_core::core::app::{App, Event, Key};
+use sim_core::core::vi::Mode;
+use sim_core::core::view;
 
 type Out<'a> = &'a mut Vec<SimEffect>;
 

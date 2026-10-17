@@ -4,13 +4,13 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
 use sim::color::{Syntax, Tones};
 use sim::layout::{Skin, todo_badge};
 use sim::paint::Look;
 use sim::sim::SimEvent;
 use sim::syn::Spans;
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 

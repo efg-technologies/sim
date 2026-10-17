@@ -4,13 +4,13 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
-use si::core::view::Style;
 use sim::color::{Syntax, Tones};
 use sim::layout::Skin;
 use sim::paint::{Painter, Screen};
 use sim::sim::SimEvent;
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
+use sim_core::core::view::Style;
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 /// A control char, a bidirectional one, and the literal text of each (the file's own chars).

@@ -1,5 +1,5 @@
 //! UI-14
-//! The matches of a search, found as si finds them (pure): the regex of its pattern, with its
+//! The matches of a search, found as the core finds them (pure): the regex of its pattern, with its
 //! smartcase rule, and the char ranges of the matches in a line.
 use regex_lite::Regex;
 use std::ops::Range;
@@ -7,14 +7,14 @@ use std::ops::Range;
 /// The most matches of one line that are lit: a minified file is one line of megabytes.
 const MOST: usize = 1000;
 
-/// A pattern compiled the way si's `/` does: smartcase (`folds`), the regex of `regex-lite`.
+/// A pattern compiled the way the core's `/` does: smartcase (`folds`), the regex of `regex-lite`.
 pub struct Matcher(Regex);
 
 impl Matcher {
-    /// `cs`: the search was asked to be case-sensitive. None if the pattern does not compile (si
+    /// `cs`: the search was asked to be case-sensitive. None if the pattern does not compile (the core
     /// says so when it is searched).
     pub fn new(pat: &str, cs: bool) -> Option<Matcher> {
-        let ci = si::core::ex::folds(pat, cs);
+        let ci = sim_core::core::ex::folds(pat, cs);
         Regex::new(&if ci { format!("(?i){pat}") } else { pat.to_string() }).ok().map(Matcher)
     }
 

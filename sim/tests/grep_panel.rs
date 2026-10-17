@@ -4,11 +4,11 @@
 #![allow(clippy::unwrap_used, clippy::single_range_in_vec_init)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::view::{Shape, Style, width as cols};
 use sim::grep::{Batch, Group, Line};
 use sim::paint::{Look, Painter};
 use sim::sim::{Pv, SimEffect, SimEvent};
+use sim_core::core::app::Event;
+use sim_core::core::view::{Shape, Style, width as cols};
 
 /// The rows of the picker's list with their bold parts in `*…*`.
 fn lit(r: &Rig) -> Vec<String> {
@@ -629,7 +629,7 @@ fn grep_7_names_and_contents_with_control_chars_reach_the_terminal_only_as_safe_
     r.keys("<Up><Up>");
     assert_safe(&r, "browsing back");
     // and the query itself: typed text is cut and replaced like the rest
-    r.send(SimEvent::Term(Event::Key(si::core::app::Key::Char('\u{202e}'))));
+    r.send(SimEvent::Term(Event::Key(sim_core::core::app::Key::Char('\u{202e}'))));
     assert_safe(&r, "a query with a bidirectional control");
 }
 
@@ -650,6 +650,6 @@ fn grep_7_a_search_writes_nothing() {
     let writes = r
         .log
         .iter()
-        .filter(|e| matches!(e, SimEffect::App(_, si::core::app::Effect::Write { .. })));
+        .filter(|e| matches!(e, SimEffect::App(_, sim_core::core::app::Effect::Write { .. })));
     assert_eq!(writes.count(), 0, "no save was asked for");
 }

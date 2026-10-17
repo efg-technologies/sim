@@ -4,14 +4,14 @@
 #![allow(clippy::unwrap_used, clippy::single_range_in_vec_init)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
-use si::core::view::{Row, Shape, Style};
 use sim::color::{Syntax, Tones};
 use sim::layout::{Line, Skin};
 use sim::paint::{Look, Paint};
 use sim::pick::{self, Rect, SPIN, Win};
 use sim::sim::{SimEffect, SimEvent};
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
+use sim_core::core::view::{Row, Shape, Style};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 
@@ -177,6 +177,7 @@ fn cell(r: &Rig, y: u16, x: u16) -> Paint {
         bold: a.bold || p.bold,
         soft: a.soft || p.soft,
         sealed: a.sealed || p.sealed,
+        cue: a.cue.max(p.cue),
     })
 }
 
@@ -231,6 +232,7 @@ fn pick_1_nothing_behind_the_window_changes() {
                     bold: a.bold || p.bold,
                     soft: a.soft || p.soft,
                     sealed: a.sealed || p.sealed,
+                    cue: a.cue.max(p.cue),
                 })
             };
             assert_eq!(own(paints), own(&before.1), "paint ({x},{y})");

@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -6,13 +6,13 @@ use crate::color::{Chg, Tones};
 use crate::diff::Sign;
 use crate::icons;
 use crate::marks::Git;
-use crate::paint::{Look, Looks, Paint, Paints};
+use crate::paint::{Cue, Look, Looks, Paint, Paints};
 use crate::syn::Spans;
 use crate::tabs::Tab;
 use crate::tree;
-use si::core::app::App;
-use si::core::color::Rgb;
-use si::core::view::{Frame, Row, Style, shorten, width};
+use sim_core::core::app::App;
+use sim_core::core::color::Rgb;
+use sim_core::core::view::{Frame, Row, Style, shorten, width};
 use std::mem::take;
 use std::ops::Range;
 
@@ -26,7 +26,7 @@ fn hostile(c: char) -> bool {
         || matches!(c, '\u{61c}' | '\u{200b}' | '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
 }
 
-/// `s` cut to `max` columns, hostile chars replaced by U+FFFD, and the columns it takes: by si's
+/// `s` cut to `max` columns, hostile chars replaced by U+FFFD, and the columns it takes: by the core's
 /// own `width`, so an emoji presentation sequence takes what the editor gives it (VIS-7).
 pub fn fit(s: &str, max: usize) -> (String, usize) {
     // (printable ASCII, which nearly all of it is: one column a char and nothing to replace)
@@ -62,7 +62,7 @@ pub fn tail(s: &str, max: usize) -> String {
     format!("…{}", cs[hi..].iter().collect::<String>())
 }
 
-/// A path made to fit `max` columns, the way si's status line does it (`shorten`): `…/` and as
+/// A path made to fit `max` columns, the way the core's status line does it (`shorten`): `…/` and as
 /// many of its last components as fit, the file name at least; a file name wider than that is cut
 /// from the left (`tail`).
 pub fn short(path: &str, max: usize) -> String {
@@ -105,7 +105,7 @@ pub fn label(r: &tree::Row, m: &Mark) -> String {
     }
 }
 
-/// LOOK-1: how the screen looks. Calm is si's four styles; flat adds green and red and a tint to
+/// LOOK-1: how the screen looks. Calm is the core's four styles; flat adds green and red and a tint to
 /// the rows of changes; depth adds boxes, an overview ruler and gradients.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Skin {
@@ -359,7 +359,8 @@ fn scroll_cell(c: ScrollCell, t: &Tones, plain: Line) -> Line {
     };
     let mut l = Line::default();
     let fg = ink.or(c.cursor.map(|_| t.focus));
-    l.put(glyph, Paint { fg, bg: c.thumb.then_some(t.thumb), ..Paint::default() });
+    let cue = if glyph == " " { Cue::Solid } else { Cue::None }; // (the thumb alone: a block)
+    l.put(glyph, Paint { fg, bg: c.thumb.then_some(t.thumb), cue, ..Paint::default() });
     l
 }
 
@@ -415,7 +416,7 @@ fn join(text: &str, words: &mut Paints, from: u16) {
     words.extend(gaps);
 }
 
-/// The editor as `body` takes it: si's frame (its last row is its status line, which the screen
+/// The editor as `body` takes it: the core's frame (its last row is its status line, which the screen
 /// shows apart), the looks of its rows, the width of its line numbers, what each row is
 /// (`changed`, empty when the look draws no tint) and the row of the frame the cursor is on (LOOK-6).
 pub struct Ed<'a> {
@@ -496,7 +497,7 @@ fn git_chg(g: Git) -> Chg {
 /// the paints of the two, with their text grays.
 fn ink_of(t: &Tones, red: bool) -> Paint {
     let (bg, fg) = if red { (t.del, t.del_text) } else { (t.add, t.add_text) };
-    Paint { bg: Some(bg), fg: Some(fg), ..Paint::default() }
+    Paint { bg: Some(bg), fg: Some(fg), cue: Cue::Solid, ..Paint::default() }
 }
 
 /// A row of the panel, `pw` columns: the name with its marks (on green if the file changed), the
@@ -587,7 +588,7 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
             let (c, bold) = (t.change_fg(git_chg(g)), g == Git::Conflict);
             line.put(&g.letter().to_string(), Paint { bold, ..ink(c) });
         }
-        (_, Some(g)) => line.put("●", ink(t.change_fg(git_chg(g)))),
+        (_, Some(g)) => line.put(&g.letter().to_string(), ink(t.change_fg(git_chg(g)))),
         _ => {}
     }
     line.pad(pw);
@@ -626,7 +627,7 @@ fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
         _ => 0,
     };
     let bg = if m.change { Some(t.gain) } else { m.open.then_some(t.card) };
-    Paint { bg, fade, ..Paint::default() }
+    Paint { bg, fade, bold: t.mono && m.open, ..Paint::default() }
 }
 
 /// UI-8: the markdown of a row of the editor, in flat and depth: the surfaces (a fenced block
@@ -654,9 +655,9 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     // one on the accent's solid color, over everything else of the cell.
     let (back, text) = t.accent_block();
     let (solid, ink) = t.accent_solid();
-    let flash = Paint { bg: Some(back), fg: Some(text), ..Paint::default() };
-    let now = Paint { bg: Some(solid), fg: Some(ink), ..Paint::default() };
-    let hit = Paint { bg: Some(back), ..Paint::default() };
+    let flash = Paint { bg: Some(back), fg: Some(text), cue: Cue::Solid, ..Paint::default() };
+    let now = Paint { bg: Some(solid), fg: Some(ink), cue: Cue::Solid, ..Paint::default() };
+    let hit = Paint { bg: Some(back), cue: Cue::Under, ..Paint::default() };
     let lit = m.flash.iter().map(|r| (r.clone(), flash));
     let lit = lit.chain(m.now.iter().map(|r| (r.clone(), now)));
     paints.splice(0..0, lit.chain(m.hit.iter().map(|r| (r.clone(), hit))).collect::<Vec<_>>());
@@ -701,7 +702,7 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
 }
 
 /// The rows of the editor, `ew` columns each where something is drawn behind the blanks and as
-/// they are else: si's rows with the looks; in flat and depth (`t`) the words of the change style
+/// they are else: the core's rows with the looks; in flat and depth (`t`) the words of the change style
 /// on green or red, the tint of the rows that have a change, the joined words and the bar of the
 /// gutter; in depth the fog of the rows that are no change (LOOK-2, LOOK-6).
 fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> {
@@ -714,7 +715,7 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         let mut s = Line::default();
         let (glyph, accent) = match sign {
             Some(Sign::Add) => ("▎", Some(Chg::Add)),
-            Some(Sign::Change) => ("▎", Some(Chg::Mod)),
+            Some(Sign::Change) => ("┆", Some(Chg::Mod)),
             Some(Sign::Del) => ("▁", Some(Chg::Del)),
             Some(Sign::DelTop) => ("▔", Some(Chg::Del)),
             None => (" ", None),
@@ -884,13 +885,17 @@ fn borders(d: &Deck) -> [Line; 2] {
     let mut left = vec![];
     if let Some(a) = d.app {
         let b = &a.buf;
-        // A change on disk is a run of marked lines next to each other (si's status line counts so).
+        // A change on disk is a run of marked lines next to each other (the core's status line counts so).
         let runs =
             (0..b.marks.len()).filter(|&i| i == 0 || b.marks[i - 1].line + 1 < b.marks[i].line);
         let badge =
             |n: usize, one: &str, many: &str| format!(" {n} {} ", if n == 1 { one } else { many });
-        let surface =
-            t.map(|t| Paint { bg: Some(t.card), fg: Some(t.primary), ..Paint::default() });
+        let surface = t.map(|t| Paint {
+            bg: Some(t.card),
+            fg: Some(t.primary),
+            cue: Cue::Solid,
+            ..Paint::default()
+        });
         let notes = [
             (runs.count(), ["change on disk", "changes on disk"], t.map(|t| ink_of(t, false))),
             (
@@ -1013,7 +1018,7 @@ pub fn body(
 
 /// How `cs[i]` of the buffer is written in a row of the editor when it starts at column `col`
 /// (SAFE-8, VIS-7, VIS-8; view.rs): the chars it takes in the row's text and the columns, which
-/// are si's own `width`. A tab and a char shown as `^X` or `<U+XXXX>` take as many chars as
+/// are the core's own `width`. A tab and a char shown as `^X` or `<U+XXXX>` take as many chars as
 /// columns; a U+FE0F after one of those, or after another U+FE0F, is not written (VIS-7).
 fn shown(cs: &[char], i: usize, col: usize) -> (usize, usize) {
     let (w, token) = (width(cs, i, col), |c: char| c != '\t' && hostile(c));
@@ -1059,7 +1064,8 @@ pub struct Glyph {
 /// Where it is not called (calm) the Painter draws the style inverse, also sealed.
 pub fn alerted(row: &mut Row, paints: &mut Paints, t: &Tones) {
     let (back, text) = t.alert_block();
-    let block = Paint { bg: Some(back), fg: Some(text), sealed: true, ..Paint::default() };
+    let block =
+        Paint { bg: Some(back), fg: Some(text), sealed: true, cue: Cue::Solid, ..Paint::default() };
     let hidden: Vec<_> =
         row.spans.iter().filter(|s| s.1 == Style::Hidden).map(|s| (s.0.clone(), block)).collect();
     row.spans.retain(|s| s.1 != Style::Hidden);

@@ -3,12 +3,12 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
 use sim::color::{Chg, Syntax, Tones};
 use sim::layout::Skin;
 use sim::sim::SimEvent;
 use sim::tabs::{Hit, Tab, hit, layout, names, window};
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
 use unicode_width::UnicodeWidthStr;
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
@@ -72,7 +72,7 @@ fn ui_4_a_tab_says_if_its_file_is_modified_changed_on_disk_or_has_errors_and_the
     let (line, hits) = layout(&tabs, true, 1, 120, Some(&t));
     let text = &line.row.text;
     assert_eq!(UnicodeWidthStr::width(text.as_str()), 120);
-    for want in ["a.rs", "b.rs ●", "c.rs ●", "d.rs ✘ 2 ▲ 1"] {
+    for want in ["a.rs", "b.rs ●", "c.rs ↯", "d.rs ✘ 2 ▲ 1"] {
         assert!(text.contains(want), "{want:?} in {text:?}");
     }
     let col = |s: &str| text[..text.find(s).unwrap()].chars().count() as u16;
@@ -91,11 +91,11 @@ fn ui_4_a_tab_says_if_its_file_is_modified_changed_on_disk_or_has_errors_and_the
     assert_eq!(paint(bar).0, Some(t.accent_fg()), "in the accent");
     assert_eq!(text.matches('▎').count(), 1, "only the shown tab has it");
     assert_eq!(paint(col("a.rs")).1, Some(t.bar), "the others are on the bar");
-    // The dots: amber for modified, green for changed on disk; the counts: red and amber.
+    // The marks: a bold dot for modified, a green arrow for changed on disk (COLOR-3: a shape each).
     assert_eq!(paint(col("b.rs ●") + 5).0, None, "unsaved: no color, bold");
     assert!(paint(col("b.rs ●") + 5).2);
     assert_eq!(
-        paint(col("c.rs ●") + 5).0,
+        paint(col("c.rs ↯") + 5).0,
         Some(t.change_fg(Chg::Add)),
         "a change on disk: a change's green"
     );
@@ -196,12 +196,10 @@ fn ui_4_a_click_on_a_tab_shows_that_file_and_the_arrows_go_one_file_back_or_on()
     assert_eq!(r.app().path.as_deref(), Some("b.rs"));
     // A click is only a switch: nothing was edited, nothing saved.
     assert!(r.sim.bufs.iter().all(|b| !b.app.buf.dirty()));
-    assert!(
-        r.log.iter().all(|e| !matches!(
-            e,
-            sim::sim::SimEffect::App(_, si::core::app::Effect::Write { .. })
-        ))
-    );
+    assert!(r.log.iter().all(|e| !matches!(
+        e,
+        sim::sim::SimEffect::App(_, sim_core::core::app::Effect::Write { .. })
+    )));
     // The bar below the tabs and the text's rows are not the bar.
     r.click(at("b.rs"), y + 1);
     assert_eq!(r.app().path.as_deref(), Some("b.rs"));
@@ -220,15 +218,15 @@ fn ui_4_a_click_ends_what_the_file_it_leaves_had_pending_and_never_leaves_a_comm
     assert!(r.app().vi.mode.visual());
     r.click(first, y);
     assert_eq!(r.app().path.as_deref(), Some("a.rs"));
-    assert!(r.sim.bufs[2].app.vi.mode == si::core::vi::Mode::Normal, "the selection ended");
+    assert!(r.sim.bufs[2].app.vi.mode == sim_core::core::vi::Mode::Normal, "the selection ended");
     r.keys(":");
     r.click(first + 6, y);
-    assert_eq!(r.app().vi.mode, si::core::vi::Mode::Cmd, "the command line stays");
+    assert_eq!(r.app().vi.mode, sim_core::core::vi::Mode::Cmd, "the command line stays");
     assert_eq!(r.app().path.as_deref(), Some("a.rs"));
 }
 
 #[test]
-fn ui_4_a_tab_shows_the_dot_of_its_file_and_the_green_dot_of_a_change_on_disk() {
+fn ui_4_a_tab_shows_the_dot_of_its_file_and_the_green_arrow_of_a_change_on_disk() {
     let mut r = open3("ui4-dots", (100, 24));
     let (_, text) = bar_row(&r);
     assert!(!text.contains('●'), "{text}");
@@ -237,10 +235,10 @@ fn ui_4_a_tab_shows_the_dot_of_its_file_and_the_green_dot_of_a_change_on_disk() 
     let id = r.sim.bufs[1].id;
     r.send(SimEvent::App(id, disk(b"changed\n")));
     let t = bar_row(&r).1;
-    assert!(t.contains("b.rs ●"), "changed on disk: {t}");
+    assert!(t.contains("b.rs ↯"), "changed on disk: {t}");
     let tones = Tones::new(&palette(BG));
     let g = r.sim.geo();
-    let x = g.ex + t[..t.find("b.rs ●").unwrap()].chars().count() as u16 + 5;
+    let x = g.ex + t[..t.find("b.rs ↯").unwrap()].chars().count() as u16 + 5;
     let p = r.shot.paints[usize::from(g.y0 - 1)].iter().find(|(c, _)| c.contains(&x)).unwrap().1;
     assert_eq!(p.fg, Some(tones.change_fg(Chg::Add)));
 }

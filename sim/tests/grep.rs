@@ -855,7 +855,9 @@ fn grep_5_bench_a_batch_and_the_keys_over_1000_results_in_sim() {
     let batch = t.elapsed();
     for k in "jjjjjjjjjjkkkkkkkkkkGggnnnNNN".chars().cycle().take(3000) {
         let t = Instant::now();
-        r.sim.update(SimEvent::Term(si::core::app::Event::Key(si::core::app::Key::Char(k))));
+        r.sim.update(SimEvent::Term(sim_core::core::app::Event::Key(
+            sim_core::core::app::Key::Char(k),
+        )));
         worst = worst.max(t.elapsed());
     }
     println!("grep_5: a batch of 1000 files with 1000 lines in Sim::update: {batch:.2?}");

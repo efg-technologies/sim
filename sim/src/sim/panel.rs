@@ -5,7 +5,7 @@ use super::{Sim, SimEffect};
 use crate::find::{Found, Query};
 use crate::layout;
 use crate::tree::{self, Entry, Row as TreeRow, Tree};
-use si::core::app::Key;
+use sim_core::core::app::Key;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;

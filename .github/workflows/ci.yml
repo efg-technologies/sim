@@ -37,7 +37,7 @@ jobs:
         with:
           cache-on-failure: true
 
-      # The E2E suites drive si and sim inside tmux (each case on its own socket and no config).
+      # The E2E suites drive sim (and sim --plain, the core alone) inside tmux (each case on its own socket and no config).
       - name: Install tmux (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y tmux
@@ -46,25 +46,16 @@ jobs:
         run: command -v tmux || brew install tmux
       - run: tmux -V
 
-      # fmt, clippy -D warnings, tests, trace, line cap, release binary size.
-      - name: si - scripts/check.sh
+      # fmt, clippy -D warnings, tests, trace, both line caps, the core's dependencies, release binary size.
+      - name: scripts/check.sh
         if: ${{ !cancelled() }}
         run: sh scripts/check.sh
-      - name: sim - sim/scripts/check.sh
-        if: ${{ !cancelled() }}
-        run: sh sim/scripts/check.sh
 
       # No global or system git configuration may leak into the cases (they carry their own
       # identity through the environment). Benches are timing-sensitive and stay out of CI.
-      - name: si - scripts/e2e.sh
+      - name: scripts/e2e.sh (the core as sim --plain, then the editor)
         if: ${{ !cancelled() }}
         env:
           GIT_CONFIG_GLOBAL: /dev/null
           GIT_CONFIG_SYSTEM: /dev/null
         run: sh scripts/e2e.sh
-      - name: sim - sim/scripts/e2e.sh
-        if: ${{ !cancelled() }}
-        env:
-          GIT_CONFIG_GLOBAL: /dev/null
-          GIT_CONFIG_SYSTEM: /dev/null
-        run: sh sim/scripts/e2e.sh

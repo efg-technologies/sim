@@ -3,14 +3,14 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::{Effect, Event};
-use si::io::journal::{self, Snapshot};
 use sim::sim::{SimEffect, SimEvent};
+use sim_core::core::app::{Effect, Event};
+use sim_core::io::journal::{self, Snapshot};
 use std::fs;
 
 /// The journal key of a file: its canonical path.
 fn key_of(p: &std::path::Path) -> String {
-    si::io::file::resolve(&p.to_string_lossy()).to_string_lossy().into_owned()
+    sim_core::io::file::resolve(&p.to_string_lossy()).to_string_lossy().into_owned()
 }
 
 /// Three small files. The panel is open and has the focus at the start, on `a.txt`.
@@ -201,9 +201,9 @@ fn buf_1_a_disk_change_to_a_file_that_is_not_on_screen_is_merged_there() {
     assert!(!r.sim.bufs[0].app.buf.marks.is_empty(), "and marked it");
     // Nothing on screen moved; the only news is the change color on a.txt in the panel (MARK-1).
     let mut after = r.screen.rows.clone();
-    after[0].spans.retain(|s| s.1 != si::core::view::Style::Change);
+    after[0].spans.retain(|s| s.1 != sim_core::core::view::Style::Change);
     assert_eq!(after, before.rows, "nothing on screen moved");
-    assert!(r.screen.rows[0].spans.iter().any(|s| s.1 == si::core::view::Style::Change));
+    assert!(r.screen.rows[0].spans.iter().any(|s| s.1 == sim_core::core::view::Style::Change));
     // A change to the file on screen merges there, and only there.
     r.send(SimEvent::App(b, disk(b"B1\nB2\nB3\n")));
     assert_eq!(r.text(), "B1\nB2\nB3");
@@ -267,7 +267,7 @@ fn buf_1_the_answer_of_a_save_or_a_reload_asks_for_the_watch_of_its_own_file() {
 #[test]
 fn buf_1_an_unsaved_snapshot_is_recovered_for_the_file_that_has_one() {
     let mut r = rig("b1-recover", &FILES, &[]);
-    let key = si::io::file::resolve(&r.cwd.join("b.txt").to_string_lossy())
+    let key = sim_core::io::file::resolve(&r.cwd.join("b.txt").to_string_lossy())
         .to_string_lossy()
         .into_owned();
     let dead = u32::MAX / 2;
@@ -644,7 +644,7 @@ fn buf_1_a_file_opens_where_it_was_closed_unless_keys_say_otherwise() {
 }
 
 fn key_of_in(r: &Rig, f: &str) -> String {
-    si::io::file::resolve(&r.cwd.join(f).to_string_lossy()).to_string_lossy().into_owned()
+    sim_core::io::file::resolve(&r.cwd.join(f).to_string_lossy()).to_string_lossy().into_owned()
 }
 
 #[test]
@@ -720,17 +720,17 @@ fn buf_1_a_read_of_the_disk_older_than_a_save_s_answer_is_dropped_by_that_file()
     let mut r = two("b1-seq");
     let a = r.sim.bufs[0].id;
     r.keys("<Tab>x"); // a.txt: "ne"
-    let began = si::io::file::seq(); // a watcher's read starts here: it sees the old file
+    let began = sim_core::io::file::seq(); // a watcher's read starts here: it sees the old file
     r.keys(":w\n");
     assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ne\ntwo\n");
     let read = |text: &str, seq| {
-        let hash = Some(si::core::buffer::hash(text.as_bytes()));
+        let hash = Some(sim_core::core::buffer::hash(text.as_bytes()));
         Event::Disk { bytes: Some(text.into()), hash, deadline: far(), seq }
     };
     r.send(SimEvent::App(a, read("one\ntwo\n", began)));
     assert_eq!(r.text(), "ne\ntwo");
     assert!(r.app().buf.marks.is_empty() && !r.app().buf.dirty());
-    r.send(SimEvent::App(a, read("ne\ntwo\nthree\n", si::io::file::seq())));
+    r.send(SimEvent::App(a, read("ne\ntwo\nthree\n", sim_core::io::file::seq())));
     assert_eq!(r.text(), "ne\ntwo\nthree", "a newer read is a change on disk");
     assert!(!r.app().buf.marks.is_empty());
 }

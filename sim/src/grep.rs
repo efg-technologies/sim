@@ -4,7 +4,7 @@
 //! threads that run a search are in io.rs, the state of one search in sim/live.rs.
 use crate::find::fold;
 use crate::layout::{fit, short};
-use si::core::view::width;
+use sim_core::core::view::width;
 use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::PathBuf;

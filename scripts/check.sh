@@ -5,46 +5,72 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-MAX_LINES=3425
-MAX_BYTES=$((2 * 1024 * 1024))
+# The core (core/src) is the part that must never lose text: its own hard cap and its own allowlist
+# of dependencies. The editor (sim/src) has a cap of its own; the reasons for both are in CONCEPT.md.
+MAX_CORE_LINES=3200
+MAX_SIM_LINES=7050
+CORE_DEPS="crossterm notify regex-lite ropey similar unicode-width"
+MAX_BYTES=$((5 * 1024 * 1024))
 
+N=8
 step() {
   n=$1
   shift
-  printf '\n[%s/6] %s\n' "$n" "$*"
+  printf '\n[%s/%s] %s\n' "$n" "$N" "$*"
   "$@" || {
     printf 'check.sh: step %s failed: %s\n' "$n" "$*" >&2
     exit 1
   }
 }
 
-step 1 cargo fmt --check
-step 2 cargo clippy --all-targets -- -D warnings
-step 3 cargo test
-step 4 sh scripts/trace.sh
-
-# 5. Size of src/: blank lines and lines that start with `//` (`///` and `//!` too) don't count.
+# Lines of Rust under $1: blank lines and lines that start with `//` (`///` and `//!` too) don't count.
 # Each file is followed by an empty line so that a missing final newline can't join two files.
-printf '\n[5/6] src/ has at most %s lines\n' "$MAX_LINES"
-lines=$(
-  find src -type f -name '*.rs' | while read -r f; do
+count() {
+  find "$1" -type f -name '*.rs' | while read -r f; do
     cat "$f"
     echo
   done | awk '!/^[ \t]*$/ && !/^[ \t]*\/\// { n++ } END { print n + 0 }'
-)
-echo "src/: $lines lines (limit $MAX_LINES)"
-if [ "$lines" -gt "$MAX_LINES" ]; then
-  echo "check.sh: step 5 failed: src/ has $lines lines; propose features to cut" >&2
+}
+
+step 1 cargo fmt --check
+step 2 cargo clippy --workspace --all-targets -- -D warnings
+# The tests that run git never read the user's git configuration (and never write it).
+step 3 env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null XDG_CONFIG_HOME=/nonexistent cargo test --workspace
+step 4 sh scripts/trace.sh
+
+printf '\n[5/%s] core/src has at most %s lines\n' "$N" "$MAX_CORE_LINES"
+lines=$(count core/src)
+echo "core/src: $lines lines (limit $MAX_CORE_LINES)"
+if [ "$lines" -gt "$MAX_CORE_LINES" ]; then
+  echo "check.sh: step 5 failed: core/src has $lines lines; propose features to cut" >&2
   exit 1
 fi
 
-# 6. Size of the release binary.
-step 6 cargo build --release
-bin=${CARGO_TARGET_DIR:-target}/release/si
+printf '\n[6/%s] sim/src has at most %s lines\n' "$N" "$MAX_SIM_LINES"
+lines=$(count sim/src)
+echo "sim/src: $lines lines (limit $MAX_SIM_LINES)"
+if [ "$lines" -gt "$MAX_SIM_LINES" ]; then
+  echo "check.sh: step 6 failed: sim/src has $lines lines; propose features to cut" >&2
+  exit 1
+fi
+
+# 7. The core depends on nothing but its allowlist (tests/safe_9.rs reads the manifest; this reads
+# what cargo resolved).
+printf '\n[7/%s] the core depends on %s only\n' "$N" "$CORE_DEPS"
+deps=$(cargo tree -p sim-editor-core -e normal --depth 1 --prefix none | awk 'NR > 1 { print $1 }' | sort -u | tr '\n' ' ' | sed 's/ $//')
+echo "core: $deps"
+if [ "$deps" != "$CORE_DEPS" ]; then
+  echo "check.sh: step 7 failed: the core depends on [$deps], not [$CORE_DEPS]; write the reason into SPEC first" >&2
+  exit 1
+fi
+
+# 8. Size of the release binary.
+step 8 cargo build --release
+bin=${CARGO_TARGET_DIR:-target}/release/sim
 bytes=$(wc -c < "$bin" | tr -d ' ')
 echo "$bin: $bytes bytes (limit $MAX_BYTES)"
 if [ "$bytes" -gt "$MAX_BYTES" ]; then
-  echo "check.sh: step 6 failed: $bin is $bytes bytes, over $MAX_BYTES" >&2
+  echo "check.sh: step 8 failed: $bin is $bytes bytes, over $MAX_BYTES" >&2
   exit 1
 fi
 

@@ -1,11 +1,11 @@
-//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8, COLOR-1
-//! What sim draws beyond si's four styles: the looks a char can have, the Screen that carries
-//! them with si's Frame, and the Painter that writes a Screen to the terminal, row by row. The
-//! four styles are si's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
+//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8, COLOR-1, COLOR-2
+//! What sim draws beyond the core's four styles: the looks a char can have, the Screen that carries
+//! them with the core's Frame, and the Painter that writes a Screen to the terminal, row by row. The
+//! four styles are the core's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
 use crate::color::{NUMBER_FLOOR, Syntax, TEXT_FLOOR, fade_to};
-use si::core::color::{Palette, Rgb};
-use si::core::view::{Frame, Shape, Style, width};
-use si::io::term::{self, sgr as base};
+use sim_core::core::color::{Palette, Rgb};
+use sim_core::core::view::{Frame, Shape, Style, width};
+use sim_core::io::term::{self, sgr as base};
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::ops::Range;
@@ -15,7 +15,7 @@ use std::ops::Range;
 pub const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 pub const MOUSE_OFF: &[u8] = b"\x1b[?1006l\x1b[?1002l\x1b[?1000l";
 
-/// Gives the terminal back (si's `term::leave`) after letting go of the mouse. Errors are ignored:
+/// Gives the terminal back (the core's `term::leave`) after letting go of the mouse. Errors are ignored:
 /// it also runs from the panic hook and after SIGHUP.
 pub fn leave(out: &mut impl Write) {
     let _ = out.write_all(MOUSE_OFF).and_then(|()| out.flush());
@@ -105,6 +105,18 @@ pub fn ansi_of(look: Look) -> Option<u8> {
 /// Column ranges of a row, in the columns of the Frame.
 pub type Looks = Vec<(Range<u16>, Look)>;
 
+/// COLOR-2: what a paint is where there is no color. `layout` says it where the paint stands for
+/// more than a surface: a solid block (a badge, the current match, a word that came) is inverse, a
+/// lit match among others is underlined; a tint, a surface, a text color alone say nothing and are
+/// dropped.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Cue {
+    #[default]
+    None,
+    Under,
+    Solid,
+}
+
 /// What a run of cells has beside its style and look (LOOK-2 to LOOK-7): colors of its own, which
 /// `layout` has worked out from the palette (a tint behind the text, the color of a box's line),
 /// how far its text fades toward the page, in percent, and whether it is bold (a title).
@@ -119,12 +131,13 @@ pub struct Paint {
     /// The last word for its cells: they are drawn with this paint and nothing else, whatever look,
     /// selection, underline, fade or other paint they have (UI-15: a hidden char).
     pub sealed: bool,
+    pub cue: Cue,
 }
 
 /// Column ranges of a row and their paints; the first range a column is in decides.
 pub type Paints = Vec<(Range<u16>, Paint)>;
 
-/// A Frame (which carries si's palette) with the looks and the paints of each of its rows (no
+/// A Frame (which carries the core's palette) with the looks and the paints of each of its rows (no
 /// paints at all in calm) and the syntax colors they are drawn with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Screen {
@@ -132,6 +145,23 @@ pub struct Screen {
     pub looks: Vec<Looks>,
     pub paints: Vec<Paints>,
     pub syn: Syntax,
+}
+
+/// COLOR-2: the SGR sequence where there is no color. The style is what it is without a palette
+/// (faint for the secondary level, reverse for the change), a look adds its weight, slant and
+/// underline (and faint for what the palette would have given the secondary gray), and the paint
+/// its cue (`Cue`): inverse for a solid block, bold too where the block is a hidden char.
+fn mono_sgr(style: Style, underline: bool, look: Option<Look>, paint: Paint) -> String {
+    let mut attrs = base(style, None);
+    let cue = paint.cue;
+    attrs += [";4", ""][usize::from(!underline && cue != Cue::Under)];
+    let (attr, _, dim) = look.map_or(("", None, false), |l| made_of(l, false));
+    attrs += attr;
+    attrs += [";1", ""][usize::from(!paint.bold && !(paint.sealed && cue == Cue::Solid))];
+    attrs += [";2", ""][usize::from(!dim || attrs.contains(";2"))];
+    let reversed = matches!(style, Style::Change | Style::Hidden);
+    attrs += [";7", ""][usize::from(reversed || cue != Cue::Solid)];
+    format!("\x1b[0{attrs}m")
 }
 
 /// The SGR sequence for a char with this style, underline and look. The change style wins: on
@@ -151,9 +181,12 @@ fn sgr(
     pal: Option<Palette>,
     syn: &Syntax,
 ) -> String {
+    if syn.mono {
+        return mono_sgr(style, underline, look, paint);
+    }
     let change = style == Style::Change;
     let rgb = |k: u8, (r, g, b): (u8, u8, u8)| format!(";{k}8;2;{r};{g};{b}");
-    // What the style gives: attributes, and with a palette the colors (si's `term::sgr`, VIS-4).
+    // What the style gives: attributes, and with a palette the colors (the core's `term::sgr`, VIS-4).
     let (mut attrs, mut fg, mut bg) = (String::new(), None, None);
     match (pal, style) {
         (None, _) => attrs += &base(style, None),
@@ -244,6 +277,7 @@ fn cells(cells: &mut Vec<Cell>, s: &Screen, i: usize, cols: usize) {
                 bold: p.bold || q.bold,
                 soft: p.soft || q.soft,
                 sealed: false,
+                cue: p.cue.max(q.cue),
             };
         };
         cells[span(r)].iter_mut().for_each(on);
@@ -265,7 +299,7 @@ fn cells(cells: &mut Vec<Cell>, s: &Screen, i: usize, cols: usize) {
 fn paint(b: &mut Vec<u8>, s: &Screen, i: usize, memo: &mut Memo, scratch: &mut Vec<Cell>) {
     let (pal, syn) = (s.frame.pal, &s.syn);
     let cs: Vec<char> = s.frame.rows[i].text.chars().collect();
-    // si's own rule for the columns of a char, as in its `Term` (VIS-7)
+    // The core's own rule for the columns of a char, as in its `Term` (VIS-7)
     let at: Vec<usize> = cs
         .iter()
         .enumerate()
@@ -299,7 +333,7 @@ fn paint(b: &mut Vec<u8>, s: &Screen, i: usize, memo: &mut Memo, scratch: &mut V
 /// and a row asks for dozens.
 type Memo = HashMap<(u8, bool, Option<u8>, Paint), String>;
 
-/// Draws Screens, rewriting only the rows that differ from the previous one (si's `Term::draw`
+/// Draws Screens, rewriting only the rows that differ from the previous one (the core's `Term::draw`
 /// with looks).
 pub struct Painter<W: Write> {
     pub out: W,

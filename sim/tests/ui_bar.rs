@@ -4,12 +4,12 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, apca, palette};
 use sim::bar::{Bar, Block, render};
 use sim::color::{Accent, Syntax, Tones};
 use sim::layout::Skin;
 use sim::sim::SimEvent;
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, apca, palette};
 use unicode_width::UnicodeWidthStr;
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);

@@ -1,4 +1,4 @@
-//! UI-4, COLOR-1
+//! UI-4, COLOR-1, COLOR-3
 //! The tab bar (pure), as the author's bufferline draws it: one tab for each open file, its icon
 //! and name (with the directory above it when two open files have the same name), a dot for a
 //! file that is modified and a green one for a file that changed on disk, the counts of a language
@@ -119,7 +119,7 @@ fn tab(tb: &Tab, icons_on: bool, raised: bool, max: usize, t: Option<&Tones>) ->
         line.put(" ●", Paint { bold: true, ..base }); // unsaved: weight, not a color
     }
     if tb.disk {
-        line.put(" ●", Paint { fg: t.map(|t| t.change_fg(Chg::Add)), ..base }); // changed on disk: a change
+        line.put(" ↯", Paint { fg: t.map(|t| t.change_fg(Chg::Add)), ..base }); // changed on disk: a change
     }
     line.put(" ", base);
     line

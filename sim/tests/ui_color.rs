@@ -1,7 +1,7 @@
 //! UI-1, UI-12: the accents, the blocks and the neutral surfaces of the interface (pure).
 #![allow(clippy::unwrap_used)] // the tests themselves may unwrap
-use si::core::color::{Rgb, apca, palette};
 use sim::color::{self, Accent, Syntax, Tones, to_lch};
+use sim_core::core::color::{Rgb, apca, palette};
 
 /// VIS-4's backgrounds.
 const BGS: [Rgb; 8] = [

@@ -1,0 +1,41 @@
+[package]
+name = "sim-editor-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88" # `let` chains
+description = "The core of sim, the next-generation Vim: the buffer, saves that lose nothing, merges with what other processes write, the terminal. No syntax, no tree, no program of its own."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/efg-technologies/sim"
+readme = "../README.md"
+
+# The package is `sim-editor-core` because `sim-core` is taken on crates.io (by an unrelated project);
+# the library keeps the name `sim_core`, and `sim-editor` depends on it under that name. The core is
+# published for the sake of `sim-editor`: cargo cannot publish a crate whose dependency is only a path.
+[lib]
+name = "sim_core"
+path = "src/lib.rs"
+
+# The core is the part of sim that holds the safety promise (P1): its own hard line cap
+# (scripts/check.sh) and its own dependency allowlist (tests/safe_9.rs). Features are trimmed to what
+# it uses (CLAUDE.md):
+# - ropey: only LF ends a line (SAFE-3 keeps a lone `\r` as a character)
+# - unicode-width: no CJK-ambiguous widths; terminals draw ambiguous width as 1
+# - crossterm: events and bracketed paste only
+[dependencies]
+ropey = { version = "1.6", default-features = false, features = ["simd"] }
+crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste"] }
+notify = "8.2"
+similar = "3.2"
+unicode-width = { version = "0.2", default-features = false }
+regex-lite = "0.1"
+
+[dev-dependencies]
+proptest = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

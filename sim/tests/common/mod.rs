@@ -16,6 +16,8 @@ pub fn temp_dir(name: &str) -> TempDir {
     let d = std::env::temp_dir().join(format!("sim-it-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
+    // private, as a state directory is (SAFE-6, STATE-1): sim keeps its choices only in such a directory
+    std::fs::set_permissions(&d, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
     TempDir(d)
 }
 
@@ -57,8 +59,20 @@ pub fn repo(dir: &Path, files: &[&str]) {
     git(dir, &["commit", "-q", "-m", "init"]);
 }
 
-/// Compares `actual` with `tests/golden/{name}.txt`; `SIM_BLESS=1` rewrites the file.
+/// ICON-1: the first private-use code point of a text (U+E000 to U+F8FF, planes 15 and 16): what
+/// only a Nerd Font draws.
+pub fn private_use(text: &str) -> Option<char> {
+    text.chars().find(|&c| matches!(c, '\u{e000}'..='\u{f8ff}' | '\u{f0000}'..='\u{10ffff}'))
+}
+
+/// Compares `actual` with `tests/golden/{name}.txt`; `SIM_BLESS=1` rewrites the file. A golden is
+/// drawn without icons: it holds no private-use code point (ICON-1).
 pub fn golden(name: &str, actual: &str) {
+    assert_eq!(
+        private_use(actual),
+        None,
+        "{name}: a private-use code point is drawn without icons"
+    );
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/golden/{name}.txt"));
     if std::env::var_os("SIM_BLESS").is_some() {
         std::fs::write(&path, actual).unwrap();
@@ -70,14 +84,14 @@ pub fn golden(name: &str, actual: &str) {
 // ---- driving Sim without threads or a terminal ----
 
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use si::core::app::{App, Effect, Event, Key};
-use si::core::view::{Frame, Style};
 use sim::color::Tones;
 use sim::grep::Request;
 use sim::io;
 use sim::paint::{Look, Looks, Paints, Screen};
 use sim::rank::History;
 use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, start};
+use sim_core::core::app::{App, Effect, Event, Key};
+use sim_core::core::view::{Frame, Style};
 use std::collections::VecDeque;
 use std::fs::Permissions;
 use std::mem::take;
@@ -205,7 +219,7 @@ pub fn rig_env(
         height: 0,
         rows: vec![],
         cursor: (0, 0),
-        shape: si::core::view::Shape::Block,
+        shape: sim_core::core::view::Shape::Block,
         pal: None,
     };
     let mut r = Rig {
@@ -244,7 +258,16 @@ impl Rig {
         loop {
             while let Some(e) = todo.pop_front() {
                 match e {
-                    SimEffect::Render(s) => (self.screen, self.shot) = (s.frame.clone(), s),
+                    SimEffect::Render(s) => {
+                        // ICON-1: without icons, every frame of every test is free of them
+                        let rows = s.frame.rows.iter().map(|r| r.text.as_str());
+                        let lit = rows.filter_map(private_use).next().filter(|_| !self.sim.icons);
+                        assert_eq!(
+                            lit, None,
+                            "a frame draws a private-use code point without icons"
+                        );
+                        (self.screen, self.shot) = (s.frame.clone(), s)
+                    }
                     SimEffect::Files => {
                         self.jobs.push("files");
                         self.queue.push_back(SimEvent::Files(io::files(&self.sim.root)));
@@ -285,12 +308,14 @@ impl Rig {
                     SimEffect::App(id, Effect::Write { path, bytes, expect_hash }) => {
                         let at = self.cwd.join(&path).to_string_lossy().into_owned();
                         let (done, seq) = (
-                            si::io::file::save(&at, &bytes, expect_hash, Some(&self.state)),
-                            si::io::file::seq(),
+                            sim_core::io::file::save(&at, &bytes, expect_hash, Some(&self.state)),
+                            sim_core::io::file::seq(),
                         );
                         let ev = match done {
-                            Ok(si::io::file::Saved::Done(h, w)) => Event::Saved(Ok((h, w)), seq),
-                            Ok(si::io::file::Saved::Conflict(d)) => {
+                            Ok(sim_core::io::file::Saved::Done(h, w)) => {
+                                Event::Saved(Ok((h, w)), seq)
+                            }
+                            Ok(sim_core::io::file::Saved::Conflict(d)) => {
                                 Event::SaveConflict(d, far(), seq)
                             }
                             Err(e) => Event::Saved(Err(e), seq),
@@ -298,13 +323,13 @@ impl Rig {
                         self.queue.push_back(SimEvent::App(id, ev));
                     }
                     SimEffect::App(id, Effect::Keep { path, bytes, ext }) => {
-                        let at = si::io::journal::keep(&self.state, &path, &bytes, ext);
+                        let at = sim_core::io::journal::keep(&self.state, &path, &bytes, ext);
                         let at = at.map(|p| p.display().to_string()).map_err(|e| e.to_string());
                         self.queue.push_back(SimEvent::App(id, Event::Kept(at)));
                     }
                     SimEffect::App(id, Effect::Open(p)) => {
-                        let seq = si::io::file::seq();
-                        let read = si::io::file::read(&self.cwd.join(&p).to_string_lossy());
+                        let seq = sim_core::io::file::seq();
+                        let read = sim_core::io::file::read(&self.cwd.join(&p).to_string_lossy());
                         let ev = Event::Opened(p.clone(), read, seq);
                         self.queue.push_back(SimEvent::App(id, ev));
                     }
@@ -626,8 +651,13 @@ fn dump_rows(f: &Frame, looks: &[Looks], paints: &[Paints], t: Option<&Tones>) -
 
 /// What the watcher's thread sends when the file now holds `bytes`: the content with its hash.
 pub fn disk(bytes: &[u8]) -> Event {
-    let hash = Some(si::core::buffer::hash(bytes));
-    Event::Disk { bytes: Some(bytes.to_vec()), hash, deadline: far(), seq: si::io::file::seq() }
+    let hash = Some(sim_core::core::buffer::hash(bytes));
+    Event::Disk {
+        bytes: Some(bytes.to_vec()),
+        hash,
+        deadline: far(),
+        seq: sim_core::io::file::seq(),
+    }
 }
 
 /// A deadline far away: a diff in a test never gives up.

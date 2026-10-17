@@ -12,8 +12,8 @@ use crate::layout::{self, Line as Cells};
 use crate::paint::{Look, Looks};
 use crate::pick::{self, Lit, Pane, SPIN, View, Win};
 use crate::syn::Spans;
-use si::core::app::{App, Event, Key};
-use si::core::view::{self, Frame};
+use sim_core::core::app::{App, Event, Key};
+use sim_core::core::view::{self, Frame};
 use std::collections::HashMap;
 use std::mem::take;
 use std::path::PathBuf;
@@ -371,7 +371,7 @@ impl Sim {
             l.top.min(total.saturating_sub(rows)).clamp((l.cur + 1).saturating_sub(rows), l.cur);
         let Some((path, no)) = l.pick().map(|(g, ln)| (g.path.clone(), ln.no)) else { return };
         if win.pane.h == 0 {
-            return; // (a window with no room for a preview: si renders no pane of no rows)
+            return; // (a window with no room for a preview: sim renders no pane of no rows)
         }
         let (kind, query) = (l.kind, l.query.clone());
         let Some(p) = l.preview.as_mut().filter(|p| p.path == path) else { return };

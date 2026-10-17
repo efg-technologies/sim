@@ -5,8 +5,8 @@
 use crate::color::Tones;
 use crate::grep::PRow;
 use crate::layout::{self, Line, border, fit, tail};
-use crate::paint::{Look, Looks, Paint, Paints};
-use si::core::view::{Frame, Row, Style, width};
+use crate::paint::{Cue, Look, Looks, Paint, Paints};
+use sim_core::core::view::{Frame, Row, Style, width};
 use std::ops::Range;
 
 /// PICK-5: the frames of the spinner.
@@ -207,7 +207,13 @@ fn pane_line(p: Option<&Pane>, k: usize, width: u16, t: Option<&Tones>) -> Line 
         if let (Some(t), Some(lit)) = (t, lit) {
             let (back, _) = t.accent_block();
             let (solid, on) = t.accent_solid();
-            let found = Paint { bg: Some(solid), fg: Some(on), bold: true, ..Paint::default() };
+            let found = Paint {
+                bg: Some(solid),
+                fg: Some(on),
+                bold: true,
+                cue: Cue::Solid,
+                ..Paint::default()
+            };
             l.paints.extend(lit.marks.iter().filter(|m| m.0 == k).map(|m| (m.1.clone(), found)));
             l.paints.push((0..width, Paint { bg: Some(back), ..Paint::default() }));
         }
@@ -220,7 +226,7 @@ fn pane_line(p: Option<&Pane>, k: usize, width: u16, t: Option<&Tones>) -> Line 
 /// first), and the columns the query takes in the prompt. `t` is none where there are no tones:
 /// the rows have no paints then.
 pub fn compose(w: &Win, v: &View, t: Option<&Tones>) -> (Vec<Line>, usize) {
-    let ink = |c: Option<si::core::color::Rgb>| Paint { fg: c, ..Paint::default() };
+    let ink = |c: Option<sim_core::core::color::Rgb>| Paint { fg: c, ..Paint::default() };
     let (frame, rule, faint) =
         (ink(t.map(|t| t.focus)), ink(t.map(|t| t.line)), ink(t.map(|t| t.dim)));
     let bold = Paint { bold: t.is_some(), ..Paint::default() }; // (calm has no paints)
@@ -359,7 +365,7 @@ fn narrow(c: char) -> bool {
 }
 
 /// The text of a row left of column `a` and right of column `z`, and the columns the left one
-/// takes, by si's `width`. A wide char the window cuts in two leaves a blank for the half that is
+/// takes, by the core's `width`. A wide char the window cuts in two leaves a blank for the half that is
 /// outside, and a combining char goes with the char it combines with.
 fn walk(text: &str, a: u16, z: u16) -> (String, String, u16) {
     let cs: Vec<char> = text.chars().collect();
@@ -410,7 +416,7 @@ fn walk(text: &str, a: u16, z: u16) -> (String, String, u16) {
 pub fn splice(row: &mut Row, looks: &mut Looks, paints: &mut Paints, x: u16, o: Line) {
     let (a, z) = (x, x + o.cols);
     // A row of chars that each take one column (nearly every row) is cut by counting chars; any
-    // other is walked with si's `width`, which knows the wide, the combining and the emoji.
+    // other is walked with the core's `width`, which knows the wide, the combining and the emoji.
     let (left, right, lw) = if row.text.chars().all(narrow) {
         let at = |n: usize| row.text.char_indices().nth(n).map_or(row.text.len(), |(i, _)| i);
         let n = row.text.chars().count();

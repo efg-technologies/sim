@@ -1,10 +1,10 @@
 //! LOOK-2, LOOK-6, LOOK-9: the colors the looks add to si's palette (pure), and how the Painter lays
 //! them on: a tint behind the cells that have the page behind them, a fade of the foreground.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
-use si::core::color::{Rgb, apca, palette};
-use si::core::view::{Frame, Row, Shape, Style};
 use sim::color::{Syntax, Tones, contrast, fade, fade_to, mix};
 use sim::paint::{Look, Paint, Painter, Screen};
+use sim_core::core::color::{Rgb, apca, palette};
+use sim_core::core::view::{Frame, Row, Shape, Style};
 
 /// VIS-4's backgrounds.
 const BGS: [Rgb; 8] = [

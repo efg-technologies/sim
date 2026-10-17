@@ -4,12 +4,12 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use si::core::app::Event;
-use si::core::color::{Rgb, palette};
 use sim::color::{Accent, Syntax, Tones};
 use sim::diff::{Diff, Sign};
 use sim::layout::Skin;
 use sim::sim::SimEvent;
+use sim_core::core::app::Event;
+use sim_core::core::color::{Rgb, palette};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 
@@ -103,7 +103,7 @@ fn ui_5_the_signs_of_the_file_against_head_are_in_the_first_cell_of_the_sign_col
         let t = Tones::new(&palette(BG));
         let (green, amber, red) =
             (Some(t.fg(Accent::Green)), Some(t.fg(Accent::Amber)), Some(t.fg(Accent::Red)));
-        assert_eq!(sign_cell(&r, "L2"), ('▎', amber), "{skin:?}: changed");
+        assert_eq!(sign_cell(&r, "L2"), ('┆', amber), "{skin:?}: changed");
         assert_eq!(sign_cell(&r, "new"), ('▎', green), "{skin:?}: added");
         assert_eq!(sign_cell(&r, "l7"), ('▁', red), "{skin:?}: lines were deleted below it");
         assert_eq!(sign_cell(&r, "l3").0, ' ', "{skin:?}: no change, no sign");

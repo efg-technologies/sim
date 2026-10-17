@@ -1,5 +1,5 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14
-//! sim's state (pure): the open files (each one a si App), the panel, and what each event does.
+//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7
+//! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
 //! are in `panel.rs`, the search of file contents in `live.rs`.
@@ -29,13 +29,13 @@ use crossterm::event::MouseEvent;
 use live::{Live, Pick};
 use panel::Search;
 use ropey::Rope;
-use si::core::app::{App, Effect, Event, Key, Read};
-use si::core::buffer::Buffer;
-use si::core::cli;
-use si::core::color::{Palette, palette};
-use si::core::vi::Mode;
-use si::core::view::{self, Frame, Row, Shape};
-use si::io::journal::Snapshot;
+use sim_core::core::app::{App, Effect, Event, Key, Read};
+use sim_core::core::buffer::Buffer;
+use sim_core::core::cli;
+use sim_core::core::color::{Palette, palette};
+use sim_core::core::vi::Mode;
+use sim_core::core::view::{self, Frame, Row, Shape};
+use sim_core::io::journal::Snapshot;
 use std::collections::HashSet;
 use std::mem::{replace, take};
 use std::path::{Path, PathBuf};
@@ -47,6 +47,8 @@ use unicode_width::UnicodeWidthStr;
 pub const FLASH_MS: u64 = 150;
 /// PICK-5: how long a frame of the spinner lasts.
 pub const SPIN_MS: u64 = 80;
+/// COLOR-2: the page the interface is laid out on when nothing asks the terminal for its own.
+const MONO_BG: (u8, u8, u8) = (0x1e, 0x1e, 0x1e);
 
 /// The text a yank took, lit (UI-13).
 struct Flash {
@@ -66,11 +68,11 @@ pub const MAX_HL: usize = 10_000_000;
 pub enum SimEvent {
     /// An event of one open file: a change on disk, the result of a save, a reload.
     App(Id, Event),
-    /// What the terminal sent that si understands: a key, a paste, a new size, its background.
+    /// What the terminal sent that the core understands: a key, a paste, a new size, its background.
     Term(Event),
     /// The mouse (PTR-1): a click, a drag, a release, the wheel.
     Mouse(MouseEvent),
-    /// Shift-Tab, which si's `Key` does not have.
+    /// Shift-Tab, which the core's `Key` does not have.
     BackTab,
     Tick(u64),
     Signal(i32),
@@ -301,7 +303,7 @@ pub struct Sim {
     t0: u64,
     /// MARK-3: the rows of the narrowed tree, when it is narrowed.
     focus: Option<Tree>,
-    /// VIS-4: si's palette, made of the terminal's background (it paints the four styles).
+    /// VIS-4: the core's palette, made of the terminal's background (it paints the four styles).
     /// SYN-1, SYN-2, SYN-5: the syntax colors, whether they are on, and a `z` just typed.
     pal: Option<Palette>,
     syn: Syntax,
@@ -321,8 +323,10 @@ pub struct Sim {
     chrome: bool,
     home: Option<PathBuf>,
     pub icons: bool,
-    /// `SI_ON_NORMAL` (VI-11), which every file's App runs.
+    /// `SIM_ON_NORMAL` (VI-11), which every file's App runs.
     hook: Option<String>,
+    /// PLAIN-1: plain mode: calm, no panel at the start, and no program (git, rg, filters, the hook).
+    pub plain: bool,
     /// PTR-1: the press in the text that a drag goes on from: the file, and whether it has begun.
     drag: Option<(Id, bool)>,
 }
@@ -337,12 +341,16 @@ pub struct Env {
     pub history: History,
     pub syn: Syntax,
     pub hook: Option<String>,
+    /// PLAIN-1: plain mode by default (root, sudoedit): the same as `--plain`.
+    pub plain: bool,
     /// LOOK-1: the look to start with (calm if none is given).
     pub skin: Skin,
     /// UI-2: `$HOME`, for the root the header shows as `~/...`.
     pub home: Option<PathBuf>,
     /// UI-2: whether the tree has icons (the saved choice; the tests start without).
     pub icons: bool,
+    /// ICON-1: the first status line is the hint that `zi` turns the icons on.
+    pub hint: bool,
     /// UI-1: whether flat and depth draw the interface (the binary does; the tests of the looks
     /// before it start without, and say so when they test it).
     pub chrome: bool,
@@ -353,20 +361,31 @@ pub struct Start {
     pub root: PathBuf,
     pub file: Option<String>,
     pub keys: String,
+    /// PLAIN-1: `--plain` was given.
+    pub plain: bool,
 }
 
-/// TREE-1: `sim`, `sim {dir}`, `sim {file}`, with si's rules for the file. `None` is a usage error.
+/// TREE-1: `sim`, `sim {dir}`, `sim {file}`, with the core's rules for the file; PLAIN-1: and
+/// `--plain` among the options (before a `--`). `None` is a usage error.
 pub fn start(
     args: &[String],
     cwd: &Path,
     exists: impl Fn(&str) -> bool,
     is_dir: impl Fn(&Path) -> bool,
 ) -> Option<Start> {
-    let cli = cli::parse(args, exists)?;
+    let opts = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    let plain = args[..opts].iter().any(|a| a == "--plain");
+    let rest: Vec<String> = args
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| *i >= opts || *a != "--plain")
+        .map(|x| x.1.clone())
+        .collect();
+    let cli = cli::parse(&rest, exists)?;
     let dir = cli.file.as_deref().map(|f| cwd.join(f)).filter(|d| is_dir(d));
     Some(match dir {
-        Some(root) => Start { root, file: None, keys: String::new() },
-        None => Start { root: cwd.into(), file: cli.file, keys: cli.keys },
+        Some(root) => Start { root, file: None, keys: String::new(), plain },
+        None => Start { root: cwd.into(), file: cli.file, keys: cli.keys, plain },
     })
 }
 
@@ -375,7 +394,7 @@ fn key_of(path: &Path) -> String {
     path.components().collect::<PathBuf>().to_string_lossy().into_owned()
 }
 
-/// The width of the line numbers of a buffer (si's gutter).
+/// The width of the line numbers of a buffer (the core's gutter).
 fn digits(buf: &Buffer) -> usize {
     buf.lines().to_string().len().max(3)
 }
@@ -385,7 +404,7 @@ fn text_of(buf: &Buffer, l: usize) -> Option<String> {
     (l < buf.lines()).then(|| buf.text.line(l).chars().take(buf.line_len(l)).collect())
 }
 
-/// What follows the line address at the start of `s` (si's: `.` `$` `'<` `'>` or digits).
+/// What follows the line address at the start of `s` (the core's: `.` `$` `'<` `'>` or digits).
 fn after_address(s: &str) -> Option<&str> {
     match s.chars().next()? {
         '.' | '$' => Some(&s[1..]),
@@ -395,15 +414,15 @@ fn after_address(s: &str) -> Option<&str> {
     }
 }
 
-/// What follows the range at the start of `s`, as si reads one: `%`, or an address and perhaps a
+/// What follows the range at the start of `s`, as the core reads one: `%`, or an address and perhaps a
 /// `,` and another.
 fn after_range(s: &str) -> &str {
     let Some(rest) = s.strip_prefix('%').map_or_else(|| after_address(s), Some) else { return s };
     rest.strip_prefix(',').and_then(after_address).unwrap_or(rest)
 }
 
-/// The commands for all the files at once, which si's App does not know (BUF-3), and `:e name`,
-/// which opens another file instead of replacing this one (BUF-1): name, `!`, argument. si takes
+/// The commands for all the files at once, which the core's App does not know (BUF-3), and `:e name`,
+/// which opens another file instead of replacing this one (BUF-1): name, `!`, argument. The core takes
 /// a range before `:e` and ignores it, and would replace this file by the other: `:%e name` is
 /// `:e name` here too.
 fn all(line: &str) -> Option<(&str, bool, &str)> {
@@ -423,19 +442,35 @@ fn all(line: &str) -> Option<(&str, bool, &str)> {
 
 impl Sim {
     pub fn new(s: Start, env: Env) -> (Sim, Vec<SimEffect>) {
-        let panel = Panel { open: s.file.is_none(), focus: s.file.is_none(), ..Panel::default() };
+        let plain = s.plain || env.plain;
+        let open = s.file.is_none() && !plain;
+        let panel = Panel { open, focus: open, ..Panel::default() };
         let (root, keys, size) = (s.root, s.keys, (env.size.0.max(1), env.size.1.max(2)));
         let (history, syn, cwd) = (env.history, env.syn, env.cwd);
-        let mut sim = Sim { panel, cwd, size, keys, root, history, syn, ..Sim::default() };
-        (sim.skin, sim.hook) = (env.skin, env.hook);
+        let mut sim = Sim { panel, cwd, size, keys, root, history, syn, plain, ..Sim::default() };
+        // Plain mode is calm, with no hook, and (PLAIN-1) asks for no git and no highlighting colors.
+        (sim.skin, sim.hook) = if plain { (Skin::Calm, None) } else { (env.skin, env.hook) };
         (sim.chrome, sim.home, sim.icons) = (env.chrome, env.home, env.icons);
+        if sim.syn.mono {
+            // COLOR-2: nothing asks the terminal, so the interface is laid out on a dark page, whose
+            // colors the Painter does not write.
+            sim.pal = Some(palette(MONO_BG));
+            sim.retone();
+        }
         (sim.now, sim.t0) = (env.now, env.now);
+        sim.msg = env.hint.then(|| "zi: icons (needs a Nerd Font)".into());
         let mut out = vec![SimEffect::Read(sim.root.clone())];
         out.push(SimEffect::Files);
         sim.git(&mut out);
-        if let Some(f) = s.file {
-            sim.note(&sim.cwd.join(&f), &mut out);
-            sim.request(f, &mut out);
+        match s.file {
+            Some(f) => {
+                sim.note(&sim.cwd.join(&f), &mut out);
+                sim.request(f, &mut out);
+            }
+            // Plain mode without a file is the core's unnamed buffer (the empty name; its snapshot's key is
+            // the empty path, SAFE-6).
+            None if plain => sim.request(String::new(), &mut out),
+            None => {}
         }
         let screen = sim.frame(&mut out);
         out.push(SimEffect::Render(screen));
@@ -469,7 +504,7 @@ impl Sim {
                 self.to(self.id(), Event::Paste(s), &mut out)
             }
             SimEvent::Term(Event::Resize(w, h)) => self.size = (w.max(1), h.max(2)),
-            SimEvent::Term(Event::Bg(rgb)) => self.background(rgb, &mut out),
+            SimEvent::Term(Event::Bg(rgb)) if !self.syn.mono => self.background(rgb, &mut out),
             SimEvent::Term(_) => {}
             SimEvent::Mouse(m) if self.panel.live.is_none() => self.mouse(m, &mut out),
             SimEvent::Mouse(_) => {}
@@ -549,8 +584,8 @@ impl Sim {
         out
     }
 
-    /// VIS-4: the terminal's background came, however late: si's palette is made of it, every App
-    /// is told (as si's loop tells its one), and the syntax colors follow it (SYN-1).
+    /// VIS-4: the terminal's background came, however late: the core's palette is made of it, every App
+    /// is told (as the core's loop tells its one), and the syntax colors follow it (SYN-1).
     fn background(&mut self, rgb: (u8, u8, u8), out: &mut Vec<SimEffect>) {
         (self.pal, _) = (Some(palette(rgb)), self.syn.bg(rgb));
         self.retone();
@@ -560,7 +595,8 @@ impl Sim {
 
     /// UI-1: the tones of the looks, made of the palette and of the colors the terminal has told.
     fn retone(&mut self) {
-        self.tones = self.pal.filter(|_| self.syn.truecolor).map(|p| Tones::with(&p, &self.syn));
+        let colors = self.syn.truecolor || self.syn.mono;
+        self.tones = self.pal.filter(|_| colors).map(|p| Tones::with(&p, &self.syn));
     }
 
     /// Whether the terminal may still be answering what was asked of it (VIS-4): the quit then
@@ -597,7 +633,7 @@ impl Sim {
 
     /// MARK-1: asks for git's status (not where it said there is no repository).
     fn git(&mut self, out: &mut Vec<SimEffect>) {
-        out.extend((!self.no_repo).then_some(SimEffect::Status));
+        out.extend((!self.no_repo && !self.plain).then_some(SimEffect::Status));
     }
 
     /// MARK-1: the marks from git's status and the paths seen changing on disk.
@@ -607,7 +643,7 @@ impl Sim {
     }
 
     /// UI-11: finds the lines the last `/` search matches in the current file, for the scrollbar, when
-    /// the pattern is a plain word (a regex is si's to run, and its marks are not worth a scan on
+    /// the pattern is a plain word (a regex is the core's to run, and its marks are not worth a scan on
     /// the way of a key), the file is not long (`HIT_LINES`) and the text is not being typed: once
     /// for a pattern and a version of the text.
     fn refresh_hits(&mut self) {
@@ -623,7 +659,7 @@ impl Sim {
         if b.hits.as_ref().is_some_and(|h| h.key == key) {
             return;
         }
-        // The case rule of si's search for a pattern with no escape: smartcase (one capital makes it
+        // The case rule of the core's search for a pattern with no escape: smartcase (one capital makes it
         // exact), or exact when it was asked to be.
         let fold = !cs && !pat.chars().any(char::is_uppercase);
         let need = if fold { pat.to_ascii_lowercase() } else { pat };
@@ -702,13 +738,13 @@ impl Sim {
             let path = b.app.path.clone()?;
             Some(DiffReq { id, path, lines: b.app.buf.lines() })
         });
-        out.extend(req.filter(|_| !self.no_repo).map(SimEffect::Diff));
+        out.extend(req.filter(|_| !self.no_repo && !self.plain).map(SimEffect::Diff));
     }
 
     /// MARK-2: notes that the user opened a file, and has the history saved.
     fn note(&mut self, path: &Path, out: &mut Vec<SimEffect>) {
         self.history.record(&key_of(path), self.now);
-        out.push(SimEffect::History(self.history.clone()));
+        out.extend((!self.plain).then(|| SimEffect::History(self.history.clone())));
     }
 
     /// Gives an event to one file's App, and runs what it asks for. A change on disk or a save
@@ -822,18 +858,19 @@ impl Sim {
         let submit = k == Key::Enter && b.app.vi.mode == Mode::Cmd;
         let (id, line) = (b.id, if submit { b.app.vi.line.clone() } else { String::new() });
         if noh(&line) {
-            // UI-14: `:noh` is ours (si has no such command): the command line closes, as for `:qa`.
+            // UI-14: `:noh` is ours (the core has no such command): the command line closes, as for `:qa`.
             self.to(id, Event::Key(Key::Esc), out);
             if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
                 b.lit = false;
             }
             return;
         }
-        if let Some(cmd) = all(&line) {
+        // (plain mode is the core alone: `:e name` replaces the file, there is no `:qa`)
+        if let Some(cmd) = all(&line).filter(|_| !self.plain) {
             self.to(id, Event::Key(Key::Esc), out); // the command line is ours: close it
             return self.run_all(cmd, out);
         }
-        // SYN-2: `zh` turns the colors off and on. si's parser takes the `h` after a `z` and
+        // SYN-2: `zh` turns the colors off and on. The core's parser takes the `h` after a `z` and
         // does nothing, so the App still gets the key.
         let (zh, zl) = (self.z && k == Key::Char('h'), self.z && k == Key::Char('l'));
         let zi = self.z && k == Key::Char('i');
@@ -844,13 +881,16 @@ impl Sim {
             self.msg = Some(format!("syntax colors {}", if self.hl_off { "off" } else { "on" }));
         }
         // UI-2: `zi` turns the icons of the tree off and on, and the choice is remembered.
-        if zi {
+        if zi && !self.plain {
             self.icons = !self.icons;
             self.msg = Some(format!("icons {}", if self.icons { "on" } else { "off" }));
             out.push(SimEffect::Icons(self.icons));
         }
-        // LOOK-1: `zl` goes on to the next look, and the choice is remembered.
-        if zl {
+        // LOOK-1: `zl` goes on to the next look, and the choice is remembered; PLAIN-1: plain mode
+        // stays calm.
+        if zl && self.plain {
+            self.msg = Some("plain mode: the look is calm".into());
+        } else if zl {
             self.skin = self.skin.next();
             self.msg = Some(format!("look: {}", self.skin.name()));
             out.push(SimEffect::Look(self.skin));
@@ -924,9 +964,11 @@ impl Sim {
             return out.push(SimEffect::Close(o.id));
         }
         let g = self.geo();
-        let mut app = App::new(Some(o.path.clone()), o.file, (g.ew, g.rows + 1));
+        // (the empty name is plain mode's unnamed buffer)
+        let mut app =
+            App::new(Some(o.path.clone()).filter(|p| !p.is_empty()), o.file, (g.ew, g.rows + 1));
         app.wide = true; // prose wraps at the pane's width, not at 72 columns (UI-9)
-        app.hook = self.hook.clone();
+        (app.hook, app.plain) = (self.hook.clone(), self.plain);
         let mut fx = vec![];
         if let Some(Found(s, file, age, by)) = o.found {
             let v = app.buf.version();
@@ -1215,8 +1257,8 @@ impl Sim {
         Screen { frame, looks, paints, syn: self.syn }
     }
 
-    /// UI-10: the status line of the interface, or none where the text of si, a message, the
-    /// command line or a search is to be on the row. `si_status` is si's own line for the current
+    /// UI-10: the status line of the interface, or none where the text of the core, a message, the
+    /// command line or a search is to be on the row. `si_status` is the core's own line for the current
     /// file (its state words are taken from it, so that none is lost), `tree` the selected path
     /// and its slash while the panel has the focus.
     fn bar(&self, w: u16, si_status: &str, tree: Option<(&str, &str)>) -> Option<Line> {
@@ -1499,7 +1541,7 @@ impl Guides<'_> {
     }
 }
 
-/// UI-10: the state words of si's status line, which follow the position and the mode
+/// UI-10: the state words of the core's status line, which follow the position and the mode
 /// (`  3:7  NORMAL  2 changes on disk · deleted on disk`): without `modified`, which the bar says by
 /// its dot. None is built again here, so none can be lost (P1).
 fn state_words(status: &str, line: usize, col: usize) -> String {

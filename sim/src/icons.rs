@@ -1,4 +1,4 @@
-//! UI-2, UI-10, SYN-4
+//! UI-2, UI-10, SYN-4, ICON-1
 //! The Nerd Font icon of a tree row (pure): a closed or an open folder, and a file by its whole
 //! name or its extension, from a table of about forty entries; the glyph only, for icons have no color.
 

@@ -1,4 +1,4 @@
-//! UI-10, COLOR-1
+//! UI-10, COLOR-1, COLOR-2
 //! The status line of the interface (pure): one bar across the width, lualine's sections with
 //! powerline separators when icons are on: the mode in a block of its color, the branch and the
 //! changes against HEAD, the file with its icon and a dot when modified, and on the right the
@@ -6,8 +6,8 @@
 //! What does not fit is dropped from the right, least important first.
 use crate::color::{Chg, Tones};
 use crate::layout::{Line, fit, short};
-use crate::paint::Paint;
-use si::core::color::Rgb;
+use crate::paint::{Cue, Paint};
+use sim_core::core::color::Rgb;
 
 /// `U+E0B0` and `U+E0B2`, the solid separators of Powerline, and the branch icon.
 const LEFT: &str = "\u{e0b0}";
@@ -30,7 +30,7 @@ pub struct Bar<'a> {
     pub branch: Option<&'a str>,
     /// Lines added, changed and deleted against HEAD.
     pub counts: Option<(usize, usize, usize)>,
-    /// The file: its icon (a glyph and its accent), its path and whether it is modified; and si's
+    /// The file: its icon (a glyph and its accent), its path and whether it is modified; and the core's
     /// state words after it (`2 changes on disk`).
     pub icon: Option<char>,
     pub path: &'a str,
@@ -201,13 +201,14 @@ pub fn render(w: u16, b: &Bar, t: &Tones) -> Option<Line> {
     // The path was cut to what is left, so the width fits; draw it.
     let mut line = Line::default();
     let bar = Paint { bg: Some(t.bar), ..Paint::default() };
-    let draw = |line: &mut Line, s: &Sect| {
+    let draw = |line: &mut Line, s: &Sect, cue: Cue| {
         for g in &s.segs {
-            line.put(&g.text, Paint { fg: g.fg, bg: Some(s.bg), bold: g.bold, ..Paint::default() });
+            let p = Paint { fg: g.fg, bg: Some(s.bg), bold: g.bold, cue, ..Paint::default() };
+            line.put(&g.text, p);
         }
     };
     for (i, s) in left.iter().enumerate() {
-        draw(&mut line, s);
+        draw(&mut line, s, if i == 0 { Cue::Solid } else { Cue::None }); // (the mode is a block)
         let next = left.get(i + 1).map_or(t.bar, |n| n.bg);
         if b.icons {
             line.put(LEFT, Paint { fg: Some(s.bg), bg: Some(next), ..Paint::default() });
@@ -221,7 +222,7 @@ pub fn render(w: u16, b: &Bar, t: &Tones) -> Option<Line> {
         if b.icons {
             line.put(RIGHT, Paint { fg: Some(s.bg), bg: Some(before), ..Paint::default() });
         }
-        draw(&mut line, s);
+        draw(&mut line, s, Cue::None);
         before = s.bg;
     }
     line.pad(w as u16);

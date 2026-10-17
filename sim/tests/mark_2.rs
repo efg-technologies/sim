@@ -5,6 +5,7 @@ mod common;
 use common::*;
 use proptest::prelude::*;
 use sim::{io, rank::History};
+use sim_core::io::journal;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -153,19 +154,22 @@ proptest! {
 }
 
 #[test]
-fn mark_2_the_state_directory_is_never_a_shared_one() {
+fn mark_2_the_history_lives_in_the_one_state_directory_and_it_is_never_a_shared_one() {
     let os = |s: &str| Some(std::ffi::OsString::from(s));
-    assert_eq!(io::state_dir(os("/x/state"), os("/home/me")), Some("/x/state/sim".into()));
-    assert_eq!(io::state_dir(None, os("/home/me")), Some("/home/me/.local/state/sim".into()));
-    assert_eq!(io::state_dir(os(""), os("/home/me")), Some("/home/me/.local/state/sim".into()));
+    assert_eq!(journal::state_dir(os("/x/state"), os("/home/me")), Some("/x/state/sim".into()));
+    assert_eq!(journal::state_dir(None, os("/home/me")), Some("/home/me/.local/state/sim".into()));
     assert_eq!(
-        io::state_dir(os("relative/dir"), os("/home/me")),
+        journal::state_dir(os(""), os("/home/me")),
+        Some("/home/me/.local/state/sim".into())
+    );
+    assert_eq!(
+        journal::state_dir(os("relative/dir"), os("/home/me")),
         Some("/home/me/.local/state/sim".into()),
         "XDG says to ignore a relative path"
     );
     // Nothing to build on: no directory at all, not /tmp.
-    assert_eq!(io::state_dir(None, None), None);
-    assert_eq!(io::state_dir(os("rel"), os("rel")), None);
+    assert_eq!(journal::state_dir(None, None), None);
+    assert_eq!(journal::state_dir(os("rel"), os("rel")), None);
 }
 
 #[test]
@@ -198,6 +202,7 @@ fn mark_2_a_save_that_fails_says_why_and_leaves_no_litter() {
     // The final rename cannot happen: a directory is where the history belongs.
     let dir = t.0.join("sim");
     std::fs::create_dir_all(dir.join("history")).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap(); // (private, STATE-1)
     let err = io::save_history(&dir, &h).unwrap_err();
     assert!(err.starts_with("history: cannot write"), "{err}");
     let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();

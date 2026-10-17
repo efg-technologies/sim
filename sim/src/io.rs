@@ -1,4 +1,4 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the history file in sim's state directory, and the
 //! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
@@ -9,14 +9,15 @@ use crate::sim::{DiffReq, Found, Hl, Id, Opened, Pv, Req, SimEvent};
 use crate::syn::{Spans, Syn};
 use crate::tree::{self, Entry};
 use ropey::Rope;
-use si::core::app::{Effect, Event};
-use si::io::file::{self, Saved, why};
-use si::io::journal::{self, NO_STATE, Snapshot};
+use sim_core::core::app::{Effect, Event};
+use sim_core::io::file::{self, Saved, why};
+use sim_core::io::filter;
+use sim_core::io::journal::{self, NO_STATE, Snapshot};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
@@ -41,20 +42,24 @@ fn key(path: &Path) -> String {
 /// its App will show. A directory is shown in the panel; a file is read, and the snapshot that a
 /// dead session left for it (SAFE-6) is looked up.
 pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
-    if at.is_dir() {
+    // (the empty name is plain mode's unnamed buffer: the journal's key for it is the empty path)
+    let unnamed = shown.is_empty();
+    if at.is_dir() && !unnamed {
         return SimEvent::Dir(id, shown.into());
     }
-    let key = key(at);
+    let key = if unnamed { String::new() } else { key(at) };
     let found = state.and_then(|state| {
         let s = journal::find(state, &key, std::process::id())?;
         let (file, age) =
             (journal::file(state, &s.path, s.pid), now_ms().saturating_sub(s.time_ms));
         Some(Found(s, file.display().to_string(), age, Instant::now() + MERGE))
     });
-    let place = state.and_then(|state| journal::place(state, &key));
+    let place = state.filter(|_| !unnamed).and_then(|state| journal::place(state, &key));
     // A listing shows a name that is not UTF-8 with U+FFFD, and every path in sim is text: that
     // name is no file, and opening it as a new one would create it under another name (SAFE-8).
-    let file = if shown.contains('\u{fffd}') && !at.exists() {
+    let file = if unnamed {
+        Ok(None)
+    } else if shown.contains('\u{fffd}') && !at.exists() {
         Err("the name is not valid UTF-8, so the file cannot be opened".into())
     } else {
         file::read(&at.to_string_lossy())
@@ -161,7 +166,7 @@ pub fn save_thread(state: Option<PathBuf>, answers: Sender<SimEvent>) -> Sender<
     let (jobs, rx) = mpsc::channel::<Save>();
     thread::spawn(move || {
         for (id, path, bytes, expect) in rx {
-            // The answer is numbered when the save is done (DISK-1), as in si's main.
+            // The answer is numbered when the save is done (DISK-1), as in the core's main.
             let ev = match file::save(&path, &bytes, expect, state.as_deref()) {
                 Ok(Saved::Done(h, warn)) => Event::Saved(Ok((h, warn)), file::seq()),
                 Ok(Saved::Conflict(disk)) => {
@@ -203,6 +208,90 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
 /// MARK-1: what is said (once) when git is not run, and then why: the key that could run a command
 /// (`runs_commands`), or that the config cannot be read.
 pub const GIT_SKIPPED: &str = "git skipped: ";
+/// PLAIN-1: what a program that is asked for in plain mode answers.
+pub const PLAIN_RUNS_NOTHING: &str = "plain mode runs no program";
+
+/// VI-11: the command that runs when Normal mode is entered: `SIM_ON_NORMAL`, else `SI_ON_NORMAL`,
+/// the name it had before sim was one program; an empty one counts as unset.
+pub fn hook(sim: Option<String>, si: Option<String>) -> Option<String> {
+    sim.filter(|h| !h.is_empty()).or(si.filter(|h| !h.is_empty()))
+}
+
+/// PLAIN-1: whether this is a privileged context, where plain mode is the default: the effective
+/// uid is 0 (`status` is `/proc/self/status`), or the parent process is `sudo` (what runs the
+/// editor of `sudoedit`; `parent` is its name in `/proc/{ppid}/comm`).
+pub fn privileged(status: &str, parent: Option<&str>) -> bool {
+    let field = |k: &str| status.lines().find_map(|l| l.strip_prefix(k));
+    let euid = field("Uid:").and_then(|r| r.split_whitespace().nth(1)).and_then(|n| n.parse().ok());
+    euid == Some(0u32) || parent.is_some_and(|p| matches!(p.trim(), "sudo" | "sudoedit"))
+}
+
+/// The same for this process: Linux reads /proc; elsewhere (macOS) the owner of a file made in the
+/// temporary directory is the effective uid, and the parent is not looked at.
+pub fn plain_by_default() -> bool {
+    if let Ok(status) = fs::read_to_string("/proc/self/status") {
+        let ppid = status.lines().find_map(|l| l.strip_prefix("PPid:")).map(str::trim);
+        let parent = ppid.and_then(|p| fs::read_to_string(format!("/proc/{p}/comm")).ok());
+        return privileged(&status, parent.as_deref());
+    }
+    let probe = std::env::temp_dir().join(format!(".sim-uid-{}", std::process::id()));
+    let uid = fs::File::create(&probe).and_then(|f| f.metadata()).map(|m| m.uid());
+    drop(fs::remove_file(&probe));
+    uid.is_ok_and(|u| u == 0)
+}
+
+/// COLOR-2: whether to draw with no color at all: `NO_COLOR` is set and not empty (no-color.org), or
+/// the terminal cannot do 8 colors: TERM is unset, `dumb` or a `vt…`, or terminfo's `colors` says
+/// fewer.
+pub fn mono(no_color: Option<OsString>, term: Option<OsString>, colors: Option<i32>) -> bool {
+    let named =
+        term.as_ref().and_then(|t| t.to_str()).is_none_or(|t| t == "dumb" || t.starts_with("vt"));
+    no_color.is_some_and(|v| !v.is_empty()) || named || colors.is_some_and(|n| n < 8)
+}
+
+/// The `colors` of a compiled terminfo file (ncurses' format, numbers of 16 or 32 bits), if it has
+/// one: the 14th number, not -1 (absent) or -2 (cancelled).
+pub fn colors_in(db: &[u8]) -> Option<i32> {
+    let word =
+        |at: usize| db.get(at..at + 2).map(|b| usize::from(u16::from_le_bytes([b[0], b[1]])));
+    let wide = match word(0)? {
+        0o432 => 2,
+        0o1036 => 4,
+        _ => return None,
+    };
+    let (names, bools, count) = (word(2)?, word(4)?, word(6)?);
+    let at = 12 + names + bools + (names + bools) % 2 + 13 * wide;
+    let n = db.get(at..at + wide).filter(|_| count > 13)?;
+    let n = if wide == 2 {
+        i32::from(i16::from_le_bytes([n[0], n[1]]))
+    } else {
+        i32::from_le_bytes([n[0], n[1], n[2], n[3]])
+    };
+    (n >= 0).then_some(n)
+}
+
+/// `colors` of terminfo's entry for `term`, looked up as ncurses does: `dir/t/term`, or (macOS)
+/// `dir/74/term`. A TERM is a name, not a path.
+pub fn terminfo_colors(term: &str, dirs: &[PathBuf]) -> Option<i32> {
+    let first = term.chars().next().filter(|_| !term.contains('/'))?;
+    let subs = [first.to_string(), format!("{:x}", first as u32)];
+    dirs.iter()
+        .flat_map(|d| subs.iter().map(move |s| d.join(s).join(term)))
+        .find_map(|f| colors_in(&fs::read(f).ok()?))
+}
+
+/// The same for this process (terminfo is looked for in `$TERMINFO`, `~/.terminfo`,
+/// `$TERMINFO_DIRS`, then the system's directories).
+pub fn no_color_here() -> bool {
+    let get = std::env::var_os;
+    let term = get("TERM");
+    let mut dirs: Vec<PathBuf> = get("TERMINFO").map(PathBuf::from).into_iter().collect();
+    dirs.extend(get("HOME").map(|h| PathBuf::from(h).join(".terminfo")));
+    dirs.extend(get("TERMINFO_DIRS").iter().flat_map(|l| std::env::split_paths(l)));
+    dirs.extend(["/etc/terminfo", "/lib/terminfo", "/usr/share/terminfo"].map(PathBuf::from));
+    let colors = term.as_ref().and_then(|t| t.to_str()).and_then(|t| terminfo_colors(t, &dirs));
+    mono(get("NO_COLOR"), term, colors)
+}
 const UNREADABLE: &str = "this repository's config cannot be read";
 
 /// MARK-1: whether a key (`section.[subsection.]variable`, section and variable in lower case) can
@@ -249,6 +338,9 @@ pub fn runs_commands(listing: &[u8]) -> Option<String> {
 
 /// Runs git in `dir`, in English so that "not a git repository" can be told from other failures.
 fn run(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    if !filter::programs_allowed() {
+        return Err(PLAIN_RUNS_NOTHING.into());
+    }
     let out = Command::new("git")
         .args(["-c", "core.fsmonitor=false", "--no-optional-locks"])
         .args(args)
@@ -468,13 +560,6 @@ pub fn status(root: &Path) -> Result<(Vec<u8>, String), String> {
     Ok((status, git_prefix(root)?))
 }
 
-/// MARK-2: `$XDG_STATE_HOME/sim`, else `$HOME/.local/state/sim`: next to si's directory, by si's
-/// own rule (`journal::state_dir`), so with no fallback to a temporary directory: the history
-/// must not sit where others can read it.
-pub fn state_dir(xdg_state_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
-    journal::state_dir(xdg_state_home, home).map(|d| d.with_file_name("sim"))
-}
-
 /// The history saved in `dir`; empty if there is none, or it cannot be read.
 pub fn load_history(dir: &Path) -> History {
     fs::read_to_string(dir.join("history"))
@@ -490,10 +575,62 @@ pub fn save_look(dir: &Path, skin: Skin) -> Result<(), String> {
     save_state(dir, "look", &format!("{}\n", skin.name()))
 }
 
-/// UI-2: whether the icons are on, as saved in `dir` (`save_icons`): on when there is no file, or it
-/// says anything but `off`.
-pub fn load_icons(dir: &Path) -> bool {
-    fs::read_to_string(dir.join("icons")).map_or(true, |t| t.trim_end_matches('\n') != "off")
+/// UI-2, ICON-1: the choice of the icons as saved in `dir` (`save_icons`), `on` or `off`; none if
+/// there is no choice yet (or the file says anything else).
+pub fn load_icons(dir: &Path) -> Option<bool> {
+    match fs::read_to_string(dir.join("icons")).ok()?.trim_end_matches('\n') {
+        "on" => Some(true),
+        "off" => Some(false),
+        _ => None,
+    }
+}
+
+/// ICON-1: what the icons start as when nothing was chosen.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Icons {
+    On,
+    Off,
+    /// Off, for want of a font: once, a hint says how to turn them on.
+    Hint,
+}
+
+/// ICON-1: a console, a dumb terminal (`linux`, `dumb`, `vt…`) and a locale that is not UTF-8 never
+/// get icons. Otherwise they start on where the terminal brings Nerd Font symbols with it, which
+/// its environment shows: Ghostty (`TERM_PROGRAM=ghostty`, `GHOSTTY_RESOURCES_DIR`), kitty
+/// (`KITTY_PID`) and WezTerm (`TERM_PROGRAM=WezTerm`, `WEZTERM_PANE`); tmux, which hides
+/// `TERM_PROGRAM`, passes the others on. Anywhere else they start off, with the hint.
+pub fn icons_by(var: impl Fn(&str) -> Option<String>) -> Icons {
+    let term = var("TERM").unwrap_or_default();
+    let locale =
+        ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| var(k).filter(|v| !v.is_empty()));
+    let utf8 = locale
+        .is_some_and(|l| l.to_lowercase().contains("utf-8") || l.to_lowercase().contains("utf8"));
+    let program = var("TERM_PROGRAM").unwrap_or_default();
+    let brings = matches!(program.as_str(), "ghostty" | "WezTerm")
+        || ["GHOSTTY_RESOURCES_DIR", "KITTY_PID", "WEZTERM_PANE"].iter().any(|k| var(k).is_some());
+    match () {
+        () if matches!(term.as_str(), "linux" | "dumb") || term.starts_with("vt") || !utf8 => {
+            Icons::Off
+        }
+        () if brings => Icons::On,
+        () => Icons::Hint,
+    }
+}
+
+/// ICON-1: whether the icons start on, and whether to say how to turn them on. What `zi` chose
+/// last (`dir/icons`) wins; else `icons_by`. The hint is due once: its marker is written here, and
+/// without a state directory there is nowhere to remember that it was given, so it is not.
+pub fn start_icons(dir: Option<&Path>, var: impl Fn(&str) -> Option<String>) -> (bool, bool) {
+    if let Some(on) = dir.and_then(load_icons) {
+        return (on, false);
+    }
+    let hint =
+        |d: &Path| !d.join("icons-hint").exists() && save_state(d, "icons-hint", "shown\n").is_ok();
+    match icons_by(var) {
+        Icons::On => (true, false),
+        Icons::Off => (false, false),
+        Icons::Hint => (false, dir.is_some_and(hint)),
+    }
 }
 
 pub fn save_icons(dir: &Path, on: bool) -> Result<(), String> {
@@ -514,7 +651,9 @@ fn save_state(dir: &Path, name: &str, text: &str) -> Result<(), String> {
         return Err(fail("use", io::Error::other("it is a link")));
     }
     DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(|e| fail("create", e))?;
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|e| fail("protect", e))?;
+    // SAFE-6, STATE-1: one state directory, one rule: a directory that is not private is not used
+    // (and not made private: what is in it may have been readable).
+    file::private(dir).map_err(|e| format!("{name}: {e}"))?;
     let tmp = dir.join(format!("{name}.{}.tmp", std::process::id()));
     let _ = fs::remove_file(&tmp);
     let write = || -> std::io::Result<()> {
@@ -823,6 +962,9 @@ fn run_rg(
     live: &(dyn Fn() -> bool + Sync),
     out: &mut Out,
 ) -> Option<()> {
+    if !filter::programs_allowed() {
+        return None; // plain mode: the built-in reader does it
+    }
     let mut child = rg_command(rg, &req.root, &req.query, files).spawn().ok()?;
     let mut stdout = BufReader::new(child.stdout.take()?);
     let (stop, over, before) = (AtomicBool::new(false), AtomicBool::new(false), out.total);

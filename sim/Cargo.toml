@@ -1,16 +1,29 @@
 [package]
-name = "sim"
+name = "sim-editor"
 version = "0.1.0"
 edition = "2024"
-publish = false
-description = "sim (SI iMproved): si for your own machine, with a project tree, search and colors"
+rust-version = "1.88" # `let` chains
+description = "sim: the next-generation Vim, in Rust. It shows even what is hidden, and loses nothing."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/efg-technologies/sim"
+readme = "../README.md"
+keywords = ["editor", "vim", "terminal", "tui", "rust"]
+categories = ["text-editors", "command-line-utilities"]
 
-# The event loop (src/main.rs) is si's main.rs for several files: it needs the same crates as that,
-# at the same versions and features, so none of them adds code to the build (SPEC, TREE-1).
+# The package is `sim-editor` (crates.io, AUR); the library is `sim` and the binary is `sim`.
+[lib]
+name = "sim"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sim"
+path = "src/main.rs"
+
+# The event loop (src/main.rs) runs several of the core's Apps: it needs the crates the core needs
+# for the terminal, at the same versions and features, so none of them adds code to the build (SPEC,
+# TREE-1). The core is the package `sim-editor-core` (see its Cargo.toml) and the crate `sim_core`.
 [dependencies]
-si = { path = ".." }
+sim-core = { package = "sim-editor-core", path = "../core", version = "0.1.0" }
 crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste"] }
 signal-hook = "0.3"
 unicode-width = { version = "0.2", default-features = false }
