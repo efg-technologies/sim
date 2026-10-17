@@ -1,0 +1,52 @@
+[package]
+name = "sim-gui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88" # `let` chains
+publish = false
+description = "A window for sim: its depth look drawn for real (layers, elevation, soft shadows). A renderer and an input adapter; the editor is sim's."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/efg-technologies/sim"
+default-run = "sim-gui"
+
+[lib]
+name = "sim_gui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sim-gui"
+path = "src/main.rs"
+
+[[bin]]
+name = "gui-shots"
+path = "src/bin/gui-shots.rs"
+
+# The window's own dependencies live here and nowhere else: `sim-editor` and `sim-editor-core` never
+# depend on a window (scripts/check.sh holds both lists). The list is closed (scripts/check.sh): no
+# webview, nothing that can speak to a network (GUI-17).
+[dependencies]
+sim = { package = "sim-editor", path = "../sim", version = "0.1.0" }
+sim_core = { package = "sim-editor-core", path = "../core", version = "0.1.0" }
+# The event types of sim's input path (`KeyEvent`, `MouseEvent`), at the same version and features
+# as sim; no terminal is read.
+crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste"] }
+# The window and its input: keys with the text a layout made, the input method, the pointer.
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+# The GPU, in safe Rust: Vulkan and Metal only, WGSL shaders.
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "metal"] }
+# Fonts, shaping and the fallback for the chars a font lacks (CJK, symbols), glyph images by swash.
+cosmic-text = { version = "0.19", default-features = false, features = ["std", "swash", "fontconfig"] }
+# The instance structs as bytes for the GPU buffers (derive; no unsafe here).
+bytemuck = { version = "1", features = ["derive"] }
+# `block_on` for wgpu's two async calls at startup (a one-function crate, no runtime).
+pollster = "1"
+# The screenshots and the pixel goldens.
+png = "0.18"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

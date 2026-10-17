@@ -253,6 +253,7 @@ fn key_3_nothing_outside_the_window_changes_and_the_terminal_s_cursor_stays_in_t
                 soft: a.soft || p.soft,
                 sealed: a.sealed || p.sealed,
                 cue: a.cue.max(p.cue),
+                role: a.role,
             })
         };
         for y in 0..before.rows.len() - 1 {

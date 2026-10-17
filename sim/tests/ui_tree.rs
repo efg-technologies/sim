@@ -269,6 +269,7 @@ fn paint(r: &Rig, y: usize, x: u16) -> Paint {
         soft: a.soft || p.soft,
         sealed: a.sealed || p.sealed,
         cue: a.cue.max(p.cue),
+        role: a.role,
     })
 }
 

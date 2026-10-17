@@ -1,0 +1,16 @@
+sim-gui {version}: sim in a window (the editor is sim's: its keys, modes and files are the same)
+
+usage: sim-gui [+cmd] [dir | file]
+       sim-gui --help | --version
+
+The window has no config file. What it can be told is in the environment:
+  SIM_GUI_FONT           the font family, or several separated by commas (the first one installed is
+                         used). Unset, or none installed: the platform's monospace font (fontconfig's
+                         `monospace`, Menlo on macOS). The chars it lacks fall back by locale.
+  SIM_GUI_FONT_SIZE      the size of the text in dp (15 by default)
+  SIM_GUI_LOCALE         the locale the fallback fonts for CJK are found by, e.g. ja-JP
+  SIM_GUI_THEME          dark or light (unset: the system's, else dark)
+  SIM_GUI_REDUCED_MOTION any word but 0 or empty: no glide, no scroll and no fog in between
+  SIM_GUI_ADAPTER        a part of the name of the GPU adapter to draw with
+  SIM_GUI_ICONS=0        no icons, even where the font has them
+  SIM_GUI_NO_STATE=1     no history, journal or places on disk

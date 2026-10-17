@@ -89,6 +89,47 @@ pub fn repo(dir: &Path, files: &[&str]) {
     git(dir, &["commit", "-q", "-m", "init"]);
 }
 
+/// A repository in `dir` (the files `src/main.rs`, `docs/guide.md`, `top.md` and `old/gone.rs` already
+/// made) with a changes view's worth of changes from HEAD: `src/main.rs` changed (+2 -1), `docs/new.md`
+/// untracked (3 lines), `old/gone.rs` deleted (-4) and `top.md` moved to `docs/` with a line added (a rename).
+pub fn changed_repo(dir: &Path) {
+    git(dir, &["init", "-q"]);
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-q", "-m", "init"]);
+    let w = |f: &str, c: &str| std::fs::write(dir.join(f), c).unwrap();
+    w("src/main.rs", "fn main() {}\nfn a1() {}\nfn a2() {}\n");
+    w("docs/new.md", "x\ny\nz\n");
+    w(LONG, "a name the panel has to cut\n");
+    std::fs::remove_file(dir.join("old/gone.rs")).unwrap();
+    git(dir, &["mv", "top.md", "docs/top.md"]);
+    w("docs/top.md", "one\ntwo\nthree\nfour\n");
+}
+
+/// An untracked file of `changed_repo` whose name is longer than the panel is wide.
+pub const LONG: &str = "docs/a-file-with-a-name-too-long-for-the-panel-to-show.md";
+
+/// Moves the panel's cursor, a row at a time, to the row that says `name` (in the depth look the cursor
+/// row is a layer of the screen).
+pub fn walk_to(r: &mut Rig, name: &str) {
+    for _ in 0..40 {
+        let y = r.shot.frame.rows.iter().position(|row| row.text.contains(name));
+        let at = r.shot.layers.iter().find(|l| l.kind == LayerKind::Cursor);
+        if y.is_some() && y == at.map(|l| usize::from(l.rect.y)) {
+            return;
+        }
+        r.keys("j");
+    }
+    panic!("no row says {name}");
+}
+
+/// The files `changed_repo` expects.
+pub const CHANGED_FILES: [&str; 4] = [
+    "src/main.rs=fn main() {}\nfn a() {}\n",
+    "docs/guide.md=# guide\n",
+    "top.md=one\ntwo\nthree\n",
+    "old/gone.rs=a\nb\nc\nd\n",
+];
+
 /// ICON-1: the first private-use code point of a text (U+E000 to U+F8FF, planes 15 and 16): what
 /// only a Nerd Font draws.
 pub fn private_use(text: &str) -> Option<char> {
@@ -117,7 +158,7 @@ use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use sim::color::Tones;
 use sim::grep::Request;
 use sim::io;
-use sim::paint::{Look, Looks, Paints, Screen};
+use sim::paint::{LayerKind, Look, Looks, Paints, Screen};
 use sim::rank::History;
 use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, start};
 use sim_core::core::app::{App, Effect, Event, Key};
@@ -260,6 +301,7 @@ pub fn rig_env(
             looks: vec![],
             paints: vec![],
             syn: Default::default(),
+            layers: vec![],
         },
         screen: blank,
         jobs: vec![],

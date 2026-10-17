@@ -17,6 +17,7 @@ pub mod paint;
 pub mod pick;
 pub mod rank;
 pub mod search;
+pub mod shell;
 pub mod sim;
 pub mod syn;
 pub mod tabs;

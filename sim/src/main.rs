@@ -1,5 +1,6 @@
-//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13, PICK-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, VIS-4, PERF-1, PERF-5, CLI-7
-//! The event loop: several core Apps, the panel, the threads, running Effects: one save thread and
+//! TREE-1, BUF-1, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-3, GREP-5, PTR-1, SPEED-1, SPEED-2, UI-5, UI-13, PICK-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, VIS-4, PERF-1, PERF-5, CLI-7, GUI-4
+//! The event loop: several core Apps, the panel, the terminal, and the shell (`shell.rs`) that runs
+//! the Effects: one save thread and
 //! one journal thread for all of them, a watcher and a filter for each, and every job and answer
 //! tagged with the id of its file. The file list, git's
 //! status, the history, the highlighter and the searches of file contents each run in the
@@ -8,23 +9,18 @@
 #![forbid(unsafe_code)]
 use signal_hook::consts::{SIGHUP, SIGTERM, SIGWINCH};
 use sim::color::{self, Input, Syntax};
-use sim::io::{self as sio, HlJob, Job, MERGE};
+use sim::io::{self as sio};
 use sim::layout::Skin;
 use sim::paint::{MOUSE_ON, Painter, leave};
 use sim::rank::History;
-use sim::sim::{Env, Id, Sim, SimEffect, SimEvent, start};
-use sim_core::core::app::{Effect, Event};
-use sim_core::core::buffer::hash;
-use sim_core::io::file::{self, read};
-use sim_core::io::watch::watch;
+use sim::shell::{Config, Shell};
+use sim::sim::{Env, Sim, SimEvent, start};
+use sim_core::core::app::Event;
 use sim_core::io::{filter, journal, term};
-use std::any::Any;
-use std::collections::HashMap;
 use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use std::{env, fs, thread};
 
@@ -36,34 +32,6 @@ static QUITTING: AtomicBool = AtomicBool::new(false);
 /// like the key table, with the version in it.
 fn usage() -> String {
     include_str!("../help.txt").replace("{version}", env!("CARGO_PKG_VERSION"))
-}
-
-/// A watcher, kept alive by holding it, and the switch that silences it (DISK-1).
-type Held = (Box<dyn Any>, Arc<AtomicBool>);
-
-/// Watches `path` for file `id` (DISK-1), as the core's main does for its one file. The deadline of each
-/// change is stamped when the watcher reads the file, since the core reads no clock (DISK-5), and
-/// its hash is made there too, so that no key waits for it (P3). With `first`, the watcher's thread
-/// also reads the file once at the start, ordered before the debounced reads.
-fn watching(tx: &Sender<SimEvent>, id: Id, path: &str, first: bool) -> Option<(Id, Held)> {
-    let (t, live) = (tx.clone(), Arc::new(AtomicBool::new(true)));
-    let on_ = live.clone();
-    let on = move |seq: u64, bytes: Option<Vec<u8>>| {
-        let hash = bytes.as_deref().map(hash);
-        let ev = Event::Disk { bytes, hash, deadline: Instant::now() + MERGE, seq };
-        on_.load(SeqCst).then(|| drop(t.send(SimEvent::App(id, ev))));
-    };
-    watch(&file::resolve(path), on, first)
-        .inspect_err(|e| drop(tx.send(SimEvent::Notice(format!("cannot watch {path}: {e}")))))
-        .ok()
-        .map(|w| (id, (Box::new(w) as Box<dyn Any>, live)))
-}
-
-/// Tells file `id`'s App that its filter ended (FILT-2). The diff of its result gives up after
-/// `MERGE` (DISK-5).
-fn filter_done(tx: &Sender<SimEvent>, id: Id, status: Option<i32>, out: Vec<u8>, err: Vec<u8>) {
-    let ev = Event::FilterDone(status, out, err, Instant::now() + MERGE);
-    drop(tx.send(SimEvent::App(id, ev)));
 }
 
 /// A hook for the E2E test that the terminal is restored after a panic. Debug builds only.
@@ -184,155 +152,31 @@ fn main() -> ExitCode {
             drop(t.send(SimEvent::Tick(n * 1000)));
         }
     });
-    let (jobs, finished) = sio::journal_thread(state.clone(), history, tx.clone());
-    let saves = sio::save_thread(state.clone(), tx.clone());
-    let highlights = sio::highlight_thread(tx.clone());
-    let diffs = sio::diff_thread(tx.clone(), here); // UI-5: the diffs against HEAD, off the main thread
     let rg = sio::which_rg(env::var_os("PATH")).filter(|_| !sim.plain);
-    let greps = sio::Greps::new(tx.clone(), rg);
-    let (r1, r2) = (sim.root.clone(), sim.root.clone());
-    let files = sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1)));
-    let git = sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2)));
-    let numbers = sio::changes_thread(tx.clone(), sim.root.clone()); // DIFF-2
-    let reads = sio::Reads::default();
+    let cfg = Config { cwd: here, root: sim.root.clone(), state, history, rg };
+    let mut shell = Shell::threads(cfg, tx.clone());
     let (mut painter, tmux) = (Painter::new(io::stdout()), env::var_os("TMUX").is_some());
-    let (mut watchers, mut local, mut first) = (HashMap::<Id, Held>::new(), vec![], true);
+    let mut first = true;
     // `queried`: whether the terminal was asked for anything (a quit before that leaves nothing to wait for)
-    let (mut pgids, mut waiting, mut late) = (HashMap::<Id, u32>::new(), !mono, late && !mono);
+    let (mut waiting, mut late) = (!mono, late && !mono);
     let mut queried = !mono && !late;
     loop {
-        let mut frame = None;
-        loop {
-            for e in fx.drain(..) {
-                match e {
-                    SimEffect::Render(f) => frame = Some(f),
-                    SimEffect::Read(dir) => {
-                        let (t, reads, ticket) = (tx.clone(), reads.clone(), reads.start());
-                        thread::spawn(move || {
-                            let r = sio::read_dir(&dir);
-                            let to = dir.clone();
-                            reads.answer(&to, ticket, || drop(t.send(SimEvent::Listing(dir, r))));
-                        });
-                    }
-                    SimEffect::Files => drop(files.send(())),
-                    SimEffect::Flash(n) => {
-                        // UI-13: a yank is lit for a moment: the thread's only job is to say when it is over.
-                        let t = tx.clone();
-                        thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(sim::sim::FLASH_MS));
-                            drop(t.send(SimEvent::Unflash(n)));
-                        });
-                    }
-                    SimEffect::Spin(n) => {
-                        // PICK-5: a frame of the spinner; the state asks again while the search runs.
-                        let t = tx.clone();
-                        thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(sim::sim::SPIN_MS));
-                            drop(t.send(SimEvent::Spin(n)));
-                        });
-                    }
-                    SimEffect::Diff(req) => drop(diffs.send(req)),
-                    SimEffect::Status => drop(git.send(())),
-                    SimEffect::Changes(untracked) => drop(numbers.send(untracked)),
-                    SimEffect::Show(path) => sio::show_thread(tx.clone(), sim.root.clone(), path),
-                    SimEffect::History(h) => drop(jobs.send(Job::History(h))),
-                    SimEffect::Look(k) => drop(jobs.send(Job::Look(k))),
-                    SimEffect::Icons(on) => drop(jobs.send(Job::Icons(on))),
-                    SimEffect::TabUses(n) => drop(jobs.send(Job::TabUses(n))),
-                    SimEffect::Pause(n) => {
-                        // KEY-3: a pause on a prefix: the thread's only job is to say when it is over.
-                        let t = tx.clone();
-                        thread::spawn(move || {
-                            thread::sleep(Duration::from_millis(sim::sim::PAUSE_MS));
-                            drop(t.send(SimEvent::Pause(n)));
-                        });
-                    }
-                    SimEffect::Highlight(req) => drop(highlights.send(HlJob::Run(req))),
-                    SimEffect::Grep(req) => greps.ask(req),
-                    SimEffect::Preview(path) => {
-                        let (t, root) = (tx.clone(), sim.root.clone());
-                        thread::spawn(move || drop(t.send(sio::preview(&root, &path))));
-                    }
-                    SimEffect::Open(id, path) => {
-                        // Watching starts before the file is read, so that no change slips in between.
-                        watchers
-                            .extend(watching(&tx, id, &path, false).filter(|_| !path.is_empty()));
-                        let at = std::path::Path::new(&path);
-                        local.push(sio::open(state.as_deref(), id, &path, at));
-                    }
-                    SimEffect::Close(id) => {
-                        drop(watchers.remove(&id));
-                        drop(highlights.send(HlJob::Forget(id)));
-                        pgids.remove(&id).into_iter().for_each(filter::cancel); // nobody waits for it
-                    }
-                    SimEffect::Hold(id, key, pid) => drop(jobs.send(Job::Hold(id, key, pid))),
-                    SimEffect::App(id, e) => match e {
-                        Effect::Write { path, bytes, expect_hash } => {
-                            drop(saves.send((id, path, bytes, expect_hash)))
-                        }
-                        Effect::Open(path) => {
-                            // The watcher of the file being left goes quiet before the read's number
-                            // is taken: what it says later began earlier, and App drops it (DISK-1).
-                            watchers
-                                .get(&id)
-                                .iter()
-                                .for_each(|(_, live)| live.store(false, SeqCst));
-                            let seq = file::seq(); // taken before the read starts (DISK-1)
-                            let opened = Event::Opened(path.clone(), read(&path), seq);
-                            local.push(SimEvent::App(id, opened));
-                            drop(jobs.send(Job::App(id, Effect::Open(path))));
-                        }
-                        Effect::Watch(path) => {
-                            drop(watchers.remove(&id)); // the old watcher's thread ends before the new one starts
-                            // Its first read is ordered after everything sent so far (see the core's main).
-                            watchers.extend(watching(&tx, id, &path, true));
-                        }
-                        Effect::Clipboard(text) => {
-                            drop(painter.write(&term::clipboard(&text, tmux)))
-                        }
-                        Effect::Snapshot { .. }
-                        | Effect::Unsnapshot
-                        | Effect::Remember { .. }
-                        | Effect::Keep { .. } => drop(jobs.send(Job::App(id, e))),
-                        Effect::Spawn { cmd, input } => {
-                            let t = tx.clone();
-                            let done = move |o: filter::Output| {
-                                filter_done(&t, id, o.status, o.stdout, o.stderr)
-                            };
-                            let started = filter::spawn(&cmd, input, done).inspect_err(|e| {
-                                let why = format!("cannot run: {e}").into_bytes();
-                                filter_done(&tx, id, Some(127), vec![], why)
-                            });
-                            pgids.extend(started.ok().map(|g| (id, g)));
-                        }
-                        // `kill` waits for a process: not on this thread.
-                        Effect::Kill => {
-                            let g = pgids.get(&id).copied();
-                            drop(g.map(|g| thread::spawn(move || filter::cancel(g))))
-                        }
-                        Effect::Hook(cmd) => drop(filter::spawn(&cmd, vec![], |_| {})),
-                        Effect::Render(_) | Effect::Quit(_) => {}
-                    },
-                    SimEffect::Quit(code) => {
-                        if queried && sim.asking() {
-                            // An answer may still be on its way: the input thread is woken (as a
-                            // resize would) to wait for it, since a late one would be typed into the shell
-                            QUITTING.store(true, SeqCst);
-                            drop(signal_hook::low_level::raise(SIGWINCH));
-                            let _ = drained.recv_timeout(DRAIN);
-                        }
-                        leave(&mut io::stdout());
-                        pgids.values().for_each(|&g| filter::cancel(g)); // a filter nobody waits for
-                        drop(jobs); // the journal thread ends once its queue is done: wait for that
-                        let _ = finished.recv_timeout(Duration::from_secs(2));
-                        return ExitCode::from(code as u8);
-                    }
-                }
+        let out = shell.run(&mut sim, std::mem::take(&mut fx));
+        let frame = out.frame;
+        for text in out.clipboard {
+            drop(painter.write(&term::clipboard(&text, tmux)));
+        }
+        if let Some(code) = out.quit {
+            if queried && sim.asking() {
+                // An answer may still be on its way: the input thread is woken (as a
+                // resize would) to wait for it, since a late one would be typed into the shell
+                QUITTING.store(true, SeqCst);
+                drop(signal_hook::low_level::raise(SIGWINCH));
+                let _ = drained.recv_timeout(DRAIN);
             }
-            if local.is_empty() {
-                break;
-            }
-            fx = local.drain(..).flat_map(|ev| sim.update(ev)).collect();
+            leave(&mut io::stdout());
+            shell.finish(); // the filters nobody waits for are stopped, the journal has what it was sent
+            return ExitCode::from(code as u8);
         }
         if std::mem::take(&mut late) {
             drop(painter.write(term::ASK)); // the keys given at startup did not quit
@@ -354,7 +198,7 @@ fn main() -> ExitCode {
                 }
             }
             if !early.is_empty() {
-                fx = early.into_iter().flat_map(|ev| sim.update(ev)).collect();
+                fx = early.into_iter().flat_map(|ev| shell.update(&mut sim, ev)).collect();
                 continue; // the frame of this round is made again with them in
             }
         }
@@ -373,10 +217,7 @@ fn main() -> ExitCode {
         let Ok(ev) = rx.recv() else { return ExitCode::FAILURE };
         fx = vec![];
         for ev in [ev].into_iter().chain(rx.try_iter()) {
-            if let SimEvent::App(id, Event::FilterDone { .. }) = &ev {
-                pgids.remove(id); // its group is gone: the id could be somebody else's
-            }
-            fx.extend(sim.update(ev));
+            fx.extend(shell.update(&mut sim, ev));
         }
     }
 }

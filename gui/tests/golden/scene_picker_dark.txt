@@ -1,0 +1,305 @@
+scene 1032x632 floor #15171c page #282c34
+layer 0
+  Box [16 16 335 580] r10 #282c34 shadow(dy 4 blur 16 #000000/0.60) rim(#ffffff/0.22 1)
+  Box [361 16 655 580] r10 #282c34 shadow(dy 4 blur 16 #000000/0.60) rim(#ffffff/0.10 1)
+  Strip [16 597 1000 18] r6 #353840 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Select [28 57 316 18] r6 #c6e1ff/0.16 rim(#c6e1ff/0.35 1)
+  Strip [26 36 320 20] r0 #353840
+  Chip [366 38 120 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Strip [486 36 520 20] r0 #353840
+  Heading [428 58 576 16] r6 #32424b shadow(dy 1 blur 4 #000000/0.40)
+  Heading [928 158 76 16] r6 #2d373f shadow(dy 1 blur 4 #000000/0.40)
+  Chip [26 178 90 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Patch [926 198 60 16] r4 #3a3d45
+  Heading [928 338 76 16] r6 #2d373f shadow(dy 1 blur 4 #000000/0.40)
+  Band [928 518 76 36] r6 #33373f shadow(dy 1 blur 4 #000000/0.40)
+  Band [428 558 576 16] r6 #33373f shadow(dy 1 blur 4 #000000/0.40)
+  Chip [16 598 60 16] r6 #0060a6 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [76 598 60 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [966 598 50 16] r6 #0060a6 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Shape [368 37 2 18] r1 #c6e1ff
+  Shape [431 556 1 20] r0 #64676c
+  Shape [1008 58 6 516] r3 #b8b8b8/0.07
+  Thumb [1008 57 6 438] r3 #4c4f56 shadow(dy 1 blur 4 #000000/0.40)
+  Shape [1007 58 8 2] r1 #b8b8b8
+  Shape [1012 157 3 18] r2 #feda99
+  Shape [1012 237 3 18] r2 #fed6d7
+  text [36 16] "files" #eaeaea bold
+  text [36 36] "~/lantern" #eaeaea bold
+  text [386 36] "README.md" #eaeaea bold
+  text [36 56] "▸" #eaeaea
+  text [56 56] "docs/" #eaeaea
+  text [386 56] "1" #eaeaea bold
+  text [426 56] "#" #b8b8b8
+  text [446 56] "Lantern" #8feefa bold
+  text [36 76] "▸" #eaeaea
+  text [56 76] "script" #eaeaea
+  text [36 96] "▸" #eaeaea
+  text [56 96] "src/" #eaeaea
+  text [916 96] "n" #929498
+  text [926 96] "dow," #eaeaea
+  text [976 96] "to" #eaeaea
+  text [56 116] "Cargo." #d7d7d8
+  text [56 136] "hidden" #d2d3d4
+  text [56 156] "LICENS" #d2d3d4
+  text [26 176] "•" #b8b8b8
+  text [56 176] "README" #feda99
+  text [916 196] "a" #929498
+  text [926 196] "ntern" #d9d9da
+  text [916 476] "n" #929498
+  text [926 476] "." #d2d3d4
+  text [956 516] "rust" #b8b8b8
+  text [396 536] "22" #939497
+  text [426 536] "fn" #aa8c90 bold
+  text [456 536] "main" #639da7
+  text [496 536] "()" #929498
+  text [526 536] "{" #929498
+  text [396 556] "23" #939497
+  text [466 556] "println!" #84e1ed
+  text [546 556] "(" #d2d3d4
+  text [556 556] "\"hello," #b4e095
+  text [636 556] "lantern\"" #b4e095
+  text [716 556] ");" #d2d3d4
+  text [26 596] "TREE" #f1f1f1 bold
+  text [86 596] "main" #eaeaea
+  text [146 596] "docs/" #eaeaea
+  text [976 596] "1/7" #f1f1f1 bold
+scrim over the layers before 1: #000000/0.50
+layer 1
+  Float [116 76 800 460] r14 #282c34 shadow(dy 16 blur 40 #000000/0.70) rim(#ffffff/0.22 1)
+  Patch [126 138 780 16] r4 #0060a6
+  Shape [126 126 10 1] r0 #64676c
+  Shape [136 126 10 1] r0 #64676c
+  Shape [146 126 10 1] r0 #64676c
+  Shape [156 126 10 1] r0 #64676c
+  Shape [166 126 10 1] r0 #64676c
+  Shape [176 126 10 1] r0 #64676c
+  Shape [186 126 10 1] r0 #64676c
+  Shape [196 126 10 1] r0 #64676c
+  Shape [206 126 10 1] r0 #64676c
+  Shape [216 126 10 1] r0 #64676c
+  Shape [226 126 10 1] r0 #64676c
+  Shape [236 126 10 1] r0 #64676c
+  Shape [246 126 10 1] r0 #64676c
+  Shape [256 126 10 1] r0 #64676c
+  Shape [266 126 10 1] r0 #64676c
+  Shape [276 126 10 1] r0 #64676c
+  Shape [286 126 10 1] r0 #64676c
+  Shape [296 126 10 1] r0 #64676c
+  Shape [306 126 10 1] r0 #64676c
+  Shape [316 126 10 1] r0 #64676c
+  Shape [326 126 10 1] r0 #64676c
+  Shape [336 126 10 1] r0 #64676c
+  Shape [346 126 10 1] r0 #64676c
+  Shape [356 126 10 1] r0 #64676c
+  Shape [366 126 10 1] r0 #64676c
+  Shape [376 126 10 1] r0 #64676c
+  Shape [386 126 10 1] r0 #64676c
+  Shape [396 126 10 1] r0 #64676c
+  Shape [406 126 10 1] r0 #64676c
+  Shape [416 126 10 1] r0 #64676c
+  Shape [426 126 10 1] r0 #64676c
+  Shape [436 126 10 1] r0 #64676c
+  Shape [446 126 10 1] r0 #64676c
+  Shape [456 126 10 1] r0 #64676c
+  Shape [466 126 10 1] r0 #64676c
+  Shape [476 126 10 1] r0 #64676c
+  Shape [486 126 10 1] r0 #64676c
+  Shape [496 126 10 1] r0 #64676c
+  Shape [506 126 10 1] r0 #64676c
+  Shape [516 126 10 1] r0 #64676c
+  Shape [526 126 10 1] r0 #64676c
+  Shape [536 126 10 1] r0 #64676c
+  Shape [546 126 10 1] r0 #64676c
+  Shape [556 126 10 1] r0 #64676c
+  Shape [566 126 10 1] r0 #64676c
+  Shape [576 126 10 1] r0 #64676c
+  Shape [586 126 10 1] r0 #64676c
+  Shape [596 126 10 1] r0 #64676c
+  Shape [606 126 10 1] r0 #64676c
+  Shape [616 126 10 1] r0 #64676c
+  Shape [626 126 10 1] r0 #64676c
+  Shape [636 126 10 1] r0 #64676c
+  Shape [646 126 10 1] r0 #64676c
+  Shape [656 126 10 1] r0 #64676c
+  Shape [666 126 10 1] r0 #64676c
+  Shape [676 126 10 1] r0 #64676c
+  Shape [686 126 10 1] r0 #64676c
+  Shape [696 126 10 1] r0 #64676c
+  Shape [706 126 10 1] r0 #64676c
+  Shape [716 126 10 1] r0 #64676c
+  Shape [726 126 10 1] r0 #64676c
+  Shape [736 126 10 1] r0 #64676c
+  Shape [746 126 10 1] r0 #64676c
+  Shape [756 126 10 1] r0 #64676c
+  Shape [766 126 10 1] r0 #64676c
+  Shape [776 126 10 1] r0 #64676c
+  Shape [786 126 10 1] r0 #64676c
+  Shape [796 126 10 1] r0 #64676c
+  Shape [806 126 10 1] r0 #64676c
+  Shape [816 126 10 1] r0 #64676c
+  Shape [826 126 10 1] r0 #64676c
+  Shape [836 126 10 1] r0 #64676c
+  Shape [846 126 10 1] r0 #64676c
+  Shape [856 126 10 1] r0 #64676c
+  Shape [866 126 10 1] r0 #64676c
+  Shape [876 126 10 1] r0 #64676c
+  Shape [886 126 10 1] r0 #64676c
+  Shape [896 126 10 1] r0 #64676c
+  Shape [128 137 2 18] r1 #c6e1ff
+  Shape [126 286 10 1] r0 #b8b8b8
+  Shape [266 286 10 1] r0 #b8b8b8
+  Shape [276 286 10 1] r0 #b8b8b8
+  Shape [286 286 10 1] r0 #b8b8b8
+  Shape [296 286 10 1] r0 #b8b8b8
+  Shape [306 286 10 1] r0 #b8b8b8
+  Shape [316 286 10 1] r0 #b8b8b8
+  Shape [326 286 10 1] r0 #b8b8b8
+  Shape [336 286 10 1] r0 #b8b8b8
+  Shape [346 286 10 1] r0 #b8b8b8
+  Shape [356 286 10 1] r0 #b8b8b8
+  Shape [366 286 10 1] r0 #b8b8b8
+  Shape [376 286 10 1] r0 #b8b8b8
+  Shape [386 286 10 1] r0 #b8b8b8
+  Shape [396 286 10 1] r0 #b8b8b8
+  Shape [406 286 10 1] r0 #b8b8b8
+  Shape [416 286 10 1] r0 #b8b8b8
+  Shape [426 286 10 1] r0 #b8b8b8
+  Shape [436 286 10 1] r0 #b8b8b8
+  Shape [446 286 10 1] r0 #b8b8b8
+  Shape [456 286 10 1] r0 #b8b8b8
+  Shape [466 286 10 1] r0 #b8b8b8
+  Shape [476 286 10 1] r0 #b8b8b8
+  Shape [486 286 10 1] r0 #b8b8b8
+  Shape [496 286 10 1] r0 #b8b8b8
+  Shape [506 286 10 1] r0 #b8b8b8
+  Shape [516 286 10 1] r0 #b8b8b8
+  Shape [526 286 10 1] r0 #b8b8b8
+  Shape [536 286 10 1] r0 #b8b8b8
+  Shape [546 286 10 1] r0 #b8b8b8
+  Shape [556 286 10 1] r0 #b8b8b8
+  Shape [566 286 10 1] r0 #b8b8b8
+  Shape [576 286 10 1] r0 #b8b8b8
+  Shape [586 286 10 1] r0 #b8b8b8
+  Shape [596 286 10 1] r0 #b8b8b8
+  Shape [606 286 10 1] r0 #b8b8b8
+  Shape [616 286 10 1] r0 #b8b8b8
+  Shape [626 286 10 1] r0 #b8b8b8
+  Shape [636 286 10 1] r0 #b8b8b8
+  Shape [646 286 10 1] r0 #b8b8b8
+  Shape [656 286 10 1] r0 #b8b8b8
+  Shape [666 286 10 1] r0 #b8b8b8
+  Shape [676 286 10 1] r0 #b8b8b8
+  Shape [686 286 10 1] r0 #b8b8b8
+  Shape [696 286 10 1] r0 #b8b8b8
+  Shape [706 286 10 1] r0 #b8b8b8
+  Shape [716 286 10 1] r0 #b8b8b8
+  Shape [726 286 10 1] r0 #b8b8b8
+  Shape [736 286 10 1] r0 #b8b8b8
+  Shape [746 286 10 1] r0 #b8b8b8
+  Shape [756 286 10 1] r0 #b8b8b8
+  Shape [766 286 10 1] r0 #b8b8b8
+  Shape [776 286 10 1] r0 #b8b8b8
+  Shape [786 286 10 1] r0 #b8b8b8
+  Shape [796 286 10 1] r0 #b8b8b8
+  Shape [806 286 10 1] r0 #b8b8b8
+  Shape [816 286 10 1] r0 #b8b8b8
+  Shape [826 286 10 1] r0 #b8b8b8
+  Shape [836 286 10 1] r0 #b8b8b8
+  Shape [846 286 10 1] r0 #b8b8b8
+  Shape [856 286 10 1] r0 #b8b8b8
+  Shape [866 286 10 1] r0 #b8b8b8
+  Shape [876 286 10 1] r0 #b8b8b8
+  Shape [886 286 10 1] r0 #b8b8b8
+  Shape [896 286 10 1] r0 #b8b8b8
+  text [146 76] "Find" #eaeaea bold
+  text [196 76] "files" #eaeaea bold
+  text [256 76] "·" #b8b8b8
+  text [276 76] "~/lantern" #b8b8b8
+  text [136 96] "❯" #b8b8b8
+  text [156 96] "rs" #eaeaea
+  text [136 136] "src/" #b8b8b8
+  text [176 136] "main." #eaeaea
+  text [226 136] "rs" #c6e1ff bold
+  text [136 156] "src/" #b8b8b8
+  text [176 156] "dense." #eaeaea
+  text [236 156] "rs" #c6e1ff bold
+  text [136 176] "src/" #b8b8b8
+  text [176 176] "notes." #eaeaea
+  text [236 176] "rs" #c6e1ff bold
+  text [136 196] "src/" #b8b8b8
+  text [176 196] "scratch." #eaeaea
+  text [256 196] "rs" #c6e1ff bold
+  text [136 216] "sc" #b8b8b8
+  text [156 216] "r" #c6e1ff bold
+  text [166 216] "ipt" #b8b8b8
+  text [196 216] "s" #c6e1ff bold
+  text [206 216] "/" #b8b8b8
+  text [216 216] "build.sh" #eaeaea
+  text [146 276] "src/main.rs" #eaeaea bold
+  text [156 296] "1" #eaeaea
+  text [176 296] "//!" #b8b8b8 italic
+  text [216 296] "lantern:" #b8b8b8 italic
+  text [306 296] "turns" #b8b8b8 italic
+  text [366 296] "notes" #b8b8b8 italic
+  text [426 296] "into" #b8b8b8 italic
+  text [476 296] "a" #b8b8b8 italic
+  text [496 296] "lit" #b8b8b8 italic
+  text [536 296] "page." #b8b8b8 italic
+  text [156 316] "2" #b8b8b8
+  text [176 316] "use" #fdc8c9 bold
+  text [216 316] "std::collections::HashMap;" #eaeaea
+  text [156 336] "3" #b8b8b8
+  text [176 336] "use" #fdc8c9 bold
+  text [216 336] "std::env;" #eaeaea
+  text [156 356] "4" #b8b8b8
+  text [156 376] "5" #b8b8b8
+  text [176 376] "mod" #fdc8c9 bold
+  text [216 376] "notes;" #eaeaea
+  text [156 396] "6" #b8b8b8
+  text [156 416] "7" #b8b8b8
+  text [176 416] "///" #b8b8b8 italic
+  text [216 416] "How" #b8b8b8 italic
+  text [256 416] "many" #b8b8b8 italic
+  text [306 416] "notes" #b8b8b8 italic
+  text [366 416] "a" #b8b8b8 italic
+  text [386 416] "page" #b8b8b8 italic
+  text [436 416] "holds" #b8b8b8 italic
+  text [496 416] "before" #b8b8b8 italic
+  text [566 416] "it" #b8b8b8 italic
+  text [596 416] "is" #b8b8b8 italic
+  text [626 416] "split." #b8b8b8 italic
+  text [156 436] "8" #b8b8b8
+  text [176 436] "const" #fdc8c9 bold
+  text [236 436] "PAGE" #b4e095
+  text [276 436] ":" #eaeaea
+  text [296 436] "usize" #fdc8c9 bold
+  text [356 436] "=" #eaeaea
+  text [376 436] "24" #b4e095
+  text [396 436] ";" #eaeaea
+  text [156 456] "9" #b8b8b8
+  text [146 476] "10" #b8b8b8
+  text [176 476] "//" #b8b8b8 italic
+  text [206 476] "TODO:" #b8b8b8 italic
+  text [266 476] "read" #b8b8b8 italic
+  text [316 476] "the" #b8b8b8 italic
+  text [356 476] "page" #b8b8b8 italic
+  text [406 476] "size" #b8b8b8 italic
+  text [456 476] "from" #b8b8b8 italic
+  text [506 476] "the" #b8b8b8 italic
+  text [546 476] "environment" #b8b8b8 italic
+  text [146 496] "11" #b8b8b8
+  text [176 496] "fn" #fdc8c9 bold
+  text [206 496] "main" #85e4f0
+  text [246 496] "()" #eaeaea
+  text [276 496] "{" #eaeaea
+  text [146 516] "1" #b8b8b8
+  text [166 516] "/" #b8b8b8
+  text [186 516] "5" #b8b8b8
+  text [596 516] "↵" #828387
+  text [616 516] "open" #828387
+  text [676 516] "^n/^p" #828387
+  text [736 516] "move" #828387
+  text [796 516] "esc" #828387
+  text [836 516] "close" #828387
+cursor Bar [176 96 10 20] #eaeaea

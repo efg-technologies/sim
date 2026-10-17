@@ -5,7 +5,7 @@
 use crate::color::Tones;
 use crate::grep::PRow;
 use crate::layout::{self, Line, border, fit, tail};
-use crate::paint::{Cue, Look, Looks, Paint, Paints};
+use crate::paint::{Cue, Look, Looks, Paint, Paints, Role};
 use sim_core::core::view::{Frame, Row, Style, width};
 use std::ops::Range;
 
@@ -172,7 +172,8 @@ fn list_line(row: Option<&PRow>, width: u16, t: Option<&Tones>) -> Line {
     l.paints.extend(t.map(|_| r.bold.iter().map(|c| (shift(c), hit))).into_iter().flatten());
     match (r.sel, t) {
         (true, Some(t)) => {
-            l.paints.push((0..width, Paint { bg: Some(t.accent_block().0), ..Paint::default() }))
+            let row = Paint { bg: Some(t.accent_block().0), role: Role::Patch, ..Paint::default() };
+            l.paints.push((0..width, row))
         }
         (true, None) => l.row.underline.push(0..width),
         _ => {}
@@ -214,10 +215,12 @@ fn pane_line(p: Option<&Pane>, k: usize, width: u16, t: Option<&Tones>) -> Line 
                 fg: Some(on),
                 bold: true,
                 cue: Cue::Solid,
+                role: Role::Patch,
                 ..Paint::default()
             };
             l.paints.extend(lit.marks.iter().filter(|m| m.0 == k).map(|m| (m.1.clone(), found)));
-            l.paints.push((0..width, Paint { bg: Some(back), ..Paint::default() }));
+            l.paints
+                .push((0..width, Paint { bg: Some(back), role: Role::Patch, ..Paint::default() }));
         }
     }
     l.pad(width);
@@ -319,7 +322,8 @@ pub fn compose(w: &Win, v: &View, t: Option<&Tones>) -> (Vec<Line>, usize) {
     debug_assert_eq!(rows.len(), usize::from(w.h));
     if let Some(t) = t {
         for l in &mut rows {
-            l.paints.push((0..w.w, Paint { bg: Some(t.cursor), ..Paint::default() }));
+            l.paints
+                .push((0..w.w, Paint { bg: Some(t.cursor), role: Role::Fill, ..Paint::default() }));
         }
     }
     (rows, qcols)
@@ -467,7 +471,8 @@ pub fn lay(
         }
     }
     let Some(t) = shadow else { return };
-    let dark = Paint { bg: Some(t.shadow), fade: 70, soft: true, ..Paint::default() };
+    let dark =
+        Paint { bg: Some(t.shadow), fade: 70, soft: true, role: Role::Shadow, ..Paint::default() };
     let (right, below) = (w.x + w.w, w.y + w.h);
     for y in usize::from(w.y) + 1..=usize::from(below) {
         let cells = if y == usize::from(below) { w.x + 1..right + 1 } else { right..right + 1 };

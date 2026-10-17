@@ -4,7 +4,7 @@
 //! and the small window which-key is.
 use crate::color::Tones;
 use crate::layout::{Line, border, fit};
-use crate::paint::{Look, Paint};
+use crate::paint::{Look, Paint, Role};
 use crate::pick::{Rect, Win};
 use std::sync::OnceLock;
 
@@ -204,7 +204,8 @@ pub fn which(
     out.push(border(w as u16, ['╰', '╯'], frame, &[], &[]));
     if let Some(t) = t {
         for l in &mut out {
-            l.paints.push((0..w as u16, Paint { bg: Some(t.cursor), ..Paint::default() }));
+            let fill = Paint { bg: Some(t.cursor), role: Role::Fill, ..Paint::default() };
+            l.paints.push((0..w as u16, fill));
         }
     }
     let win = Win {

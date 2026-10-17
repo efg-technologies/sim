@@ -1,7 +1,8 @@
-# sim is one product in two crates: the core (sim-editor-core, core/) holds what must never lose text and
-# has its own line cap and dependency allowlist; the editor (sim-editor, sim/) is the binary `sim`.
+# sim is one product in three crates: the core (sim-editor-core, core/) holds what must never lose text and
+# has its own line cap and dependency allowlist; the editor (sim-editor, sim/) is the binary `sim`; the
+# window (sim-gui, gui/) draws the editor's screen with a GPU and has its own cap and allowlist (GUI-9).
 [workspace]
-members = ["core", "sim"]
+members = ["core", "sim", "gui"]
 resolver = "3"
 
 [profile.release]

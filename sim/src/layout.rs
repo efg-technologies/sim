@@ -7,7 +7,7 @@ use crate::color::{Chg, Tones};
 use crate::diff::Sign;
 use crate::icons;
 use crate::marks::Git;
-use crate::paint::{Cue, Look, Looks, Paint, Paints};
+use crate::paint::{Cue, Look, Looks, Paint, Paints, Role};
 use crate::syn::Spans;
 use crate::tabs::Tab;
 use crate::tree;
@@ -396,7 +396,8 @@ fn scroll_cell(c: ScrollCell, t: &Tones, plain: Line) -> Line {
     let mut l = Line::default();
     let fg = ink.or(c.cursor.map(|_| t.focus));
     let cue = if glyph == " " { Cue::Solid } else { Cue::None }; // (the thumb alone: a block)
-    l.put(glyph, Paint { fg, bg: c.thumb.then_some(t.thumb), cue, ..Paint::default() });
+    let role = if c.thumb { Role::Thumb } else { Role::None };
+    l.put(glyph, Paint { fg, bg: c.thumb.then_some(t.thumb), cue, role, ..Paint::default() });
     l
 }
 
@@ -444,7 +445,7 @@ fn join(text: &str, words: &mut Paints, from: u16) {
         if cs[i] == ' ' && col > from {
             let bg = on(words, col - 1);
             if bg.is_some() && bg == on(words, col + 1) && on(words, col).is_none() {
-                gaps.push((col..col + 1, Paint { bg, ..Paint::default() }));
+                gaps.push((col..col + 1, Paint { bg, role: Role::Patch, ..Paint::default() }));
             }
         }
         col += w;
@@ -533,7 +534,7 @@ fn git_chg(g: Git) -> Chg {
 /// the paints of the two, with their text grays.
 fn ink_of(t: &Tones, red: bool) -> Paint {
     let (bg, fg) = if red { (t.del, t.del_text) } else { (t.add, t.add_text) };
-    Paint { bg: Some(bg), fg: Some(fg), cue: Cue::Solid, ..Paint::default() }
+    Paint { bg: Some(bg), fg: Some(fg), cue: Cue::Solid, role: Role::Patch, ..Paint::default() }
 }
 
 /// A row of the panel, `pw` columns: the name with its marks (on green if the file changed), the
@@ -652,7 +653,7 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
 /// UI-2: the first row of the panel: the root, home-relative, in bold, with the open folder.
 fn header_line(pw: u16, root: &str, icons: bool, t: &Tones) -> Line {
     let mut line = Line::default();
-    let bar = Paint { bg: Some(t.bar), ..Paint::default() };
+    let bar = Paint { bg: Some(t.bar), role: Role::Bar, ..Paint::default() };
     line.put(" ", bar);
     if icons {
         line.put(&format!("{} ", icons::OPEN), Paint { fg: Some(t.focus), ..bar });
@@ -681,21 +682,28 @@ fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
         _ => 0,
     };
     let bg = if m.change { Some(t.gain) } else { m.open.then_some(t.card) };
-    Paint { bg, fade, bold: t.mono && m.open, ..Paint::default() }
+    let role = if m.change {
+        Role::Tint
+    } else if m.open {
+        Role::Chip
+    } else {
+        Role::None
+    };
+    Paint { bg, fade, bold: t.mono && m.open, role, ..Paint::default() }
 }
 
 /// UI-8: the markdown of a row of the editor, in flat and depth: the surfaces (a fenced block
 /// across the row, inline code), blue for a link and a level-5 heading, a quote's `>` drawn as a
 /// bar in its own cell, and the language a fence names, dim, at the right of its row.
 fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
-    let on = |bg| Paint { bg: Some(bg), ..Paint::default() };
+    let on = |bg, role| Paint { bg: Some(bg), role, ..Paint::default() };
     let link = Paint { fg: Some(t.accent_fg()), ..Paint::default() };
     let head = Paint { fg: Some(t.head), ..Paint::default() };
     let mut paints: Paints = line
         .looks
         .iter()
         .filter_map(|(r, l)| match l {
-            Look::Code | Look::Tick => Some((r.clone(), on(t.code))),
+            Look::Code | Look::Tick => Some((r.clone(), on(t.code, Role::Patch))),
             Look::Link => Some((r.clone(), link)),
             // UI-8: a heading is in the heading hue (after the link's: a link in it is the accent's)
             Look::H1 | Look::H2 | Look::H3 | Look::Sub => Some((r.clone(), head)),
@@ -703,15 +711,22 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
         })
         .collect();
     // UI-7: one style for every keyword: bold primary on the card's surface.
-    let badge = Paint { bg: Some(t.card), fg: Some(t.primary), bold: true, ..Paint::default() };
+    let badge = Paint {
+        bg: Some(t.card),
+        fg: Some(t.primary),
+        bold: true,
+        role: Role::Chip,
+        ..Paint::default()
+    };
     paints.extend(m.badge.iter().map(|r| (r.clone(), badge)));
     // UI-13, UI-14: the yank, lit in the accent's block, and the matches of a search, the current
     // one on the accent's solid color, over everything else of the cell.
     let (back, text) = t.accent_block();
     let (solid, ink) = t.accent_solid();
-    let flash = Paint { bg: Some(back), fg: Some(text), cue: Cue::Solid, ..Paint::default() };
-    let now = Paint { bg: Some(solid), fg: Some(ink), cue: Cue::Solid, ..Paint::default() };
-    let hit = Paint { bg: Some(back), cue: Cue::Under, ..Paint::default() };
+    let patch = Paint { role: Role::Patch, ..Paint::default() };
+    let flash = Paint { bg: Some(back), fg: Some(text), cue: Cue::Solid, ..patch };
+    let now = Paint { bg: Some(solid), fg: Some(ink), cue: Cue::Solid, ..patch };
+    let hit = Paint { bg: Some(back), cue: Cue::Under, ..patch };
     let lit = m.flash.iter().map(|r| (r.clone(), flash));
     let lit = lit.chain(m.now.iter().map(|r| (r.clone(), now)));
     paints.splice(0..0, lit.chain(m.hit.iter().map(|r| (r.clone(), hit))).collect::<Vec<_>>());
@@ -744,13 +759,13 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     }
     let band = match m.band {
         Band::None => None,
-        Band::Fence => Some(t.band),
-        Band::H1 => Some(t.head1),
-        Band::H2 => Some(t.head2),
+        Band::Fence => Some((t.band, Role::Fence)),
+        Band::H1 => Some((t.head1, Role::Heading)),
+        Band::H2 => Some((t.head2, Role::Heading)),
     };
-    if let Some(band) = band {
+    if let Some((band, role)) = band {
         line.pad(ew);
-        paints.push((gutter..ew, on(band)));
+        paints.push((gutter..ew, on(band, role)));
     }
     line.paints.extend(paints);
 }
@@ -776,7 +791,12 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
         };
         s.put(
             glyph,
-            Paint { bg, fg: accent.zip(t).map(|(a, t)| t.change_fg(a)), ..Paint::default() },
+            Paint {
+                bg,
+                fg: accent.zip(t).map(|(a, t)| t.change_fg(a)),
+                role: if bg.is_some() { Role::Tint } else { Role::None },
+                ..Paint::default()
+            },
         );
         s.add(l);
         s
@@ -808,8 +828,10 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
     let band = |l: &mut Line| {
         if let Some(t) = cc {
             l.pad(gutter + 100);
-            l.paints
-                .push((gutter + 99..gutter + 100, Paint { bg: Some(t.cc), ..Paint::default() }));
+            l.paints.push((
+                gutter + 99..gutter + 100,
+                Paint { bg: Some(t.cc), role: Role::Column, ..Paint::default() },
+            ));
         }
     };
     let mut out = Vec::with_capacity(rows);
@@ -844,12 +866,13 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             join(&e.text, &mut words, gutter);
             if e.text.starts_with(' ') {
                 let bg = Some(if kind == Kind::Loss { t.del } else { t.add }); // the bar goes on over the wrapped rows
-                words.push((0..1, Paint { bg, ..Paint::default() }));
+                words.push((0..1, Paint { bg, role: Role::Tint, ..Paint::default() }));
             }
             line.paints.extend(words);
             line.pad(ew);
             let bg = if kind == Kind::Loss { t.loss } else { t.gain };
-            line.paints.push((gutter..ew, Paint { bg: Some(bg), ..Paint::default() }));
+            line.paints
+                .push((gutter..ew, Paint { bg: Some(bg), role: Role::Tint, ..Paint::default() }));
         } else if let (Some(_), true) = (t, g.boxed) {
             let fade = ramp(i.abs_diff(ed.crow), 3.0, 24.0, 0.45);
             if fade > 0 {
@@ -880,7 +903,10 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             }
             if ed.insert && owner[i] == Some(cl + 1) {
                 line.pad(ew);
-                line.paints.push((0..ew, Paint { bg: Some(t.cursor), ..Paint::default() }));
+                line.paints.push((
+                    0..ew,
+                    Paint { bg: Some(t.cursor), role: Role::Tint, ..Paint::default() },
+                ));
                 sign_bg = Some(t.cursor);
             }
         }
@@ -947,6 +973,7 @@ fn borders(d: &Deck) -> [Line; 2] {
             bg: Some(t.card),
             fg: Some(t.primary),
             cue: Cue::Solid,
+            role: Role::Chip,
             ..Paint::default()
         });
         let notes = [
@@ -1023,7 +1050,7 @@ pub fn body(
             edge(false)
         } else {
             let mut l = Line::default();
-            l.put(" ", Paint { bg: Some(t.bar), ..Paint::default() });
+            l.put(" ", Paint { bg: Some(t.bar), role: Role::Bar, ..Paint::default() });
             l
         };
         lines.push(compose(p, tabs_line(g.ew + g.sign, c, t), end));
@@ -1109,8 +1136,14 @@ pub struct Glyph {
 /// Where it is not called (calm) the Painter draws the style inverse, also sealed.
 pub fn alerted(row: &mut Row, paints: &mut Paints, t: &Tones) {
     let (back, text) = t.alert_block();
-    let block =
-        Paint { bg: Some(back), fg: Some(text), sealed: true, cue: Cue::Solid, ..Paint::default() };
+    let block = Paint {
+        bg: Some(back),
+        fg: Some(text),
+        sealed: true,
+        cue: Cue::Solid,
+        role: Role::Alert,
+        ..Paint::default()
+    };
     let hidden: Vec<_> =
         row.spans.iter().filter(|s| s.1 == Style::Hidden).map(|s| (s.0.clone(), block)).collect();
     row.spans.retain(|s| s.1 != Style::Hidden);

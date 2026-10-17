@@ -2,15 +2,15 @@
 # Checks that SPEC, code and tests line up (see "Checks" in CLAUDE.md).
 #
 # For every requirement ID in SPEC.md it counts the tests whose name starts with the ID (Rust
-# `fn safe_1_...` in core/src, core/tests, sim/src and sim/tests; shell `safe_1_...()` in
-# core/scripts/e2e.sh and sim/scripts/e2e.sh) and looks for the ID in the `//!` header of some
-# module in core/src or sim/src.
+# `fn safe_1_...` in core/src, core/tests, sim/src, sim/tests, gui/src and gui/tests; shell
+# `safe_1_...()` in core/scripts/e2e.sh and sim/scripts/e2e.sh) and looks for the ID in the `//!`
+# header of some module in core/src, sim/src or gui/src.
 # It fails when, for IDs up to the milestone in .milestone:
 #   - an ID has no test,
 #   - an ID is not listed in any `//!` header,
 # or when any test is named after an ID that is not in SPEC.
-# The milestones are two lines of work in one SPEC: M for the core and S for the editor, and
-# .milestone holds the current one of each (`M5 S5`).
+# The milestones are three lines of work in one SPEC: M for the core, S for the editor and G for the
+# window, and .milestone holds the current one of each (`M5 S7 G1`).
 # POSIX sh + awk only, so it also runs on macOS.
 set -eu
 
@@ -30,7 +30,7 @@ for m in $milestone; do
   esac
   case $n in
     "" | *[!0-9]*)
-      echo "trace: .milestone must look like 'M5 S5', found '$milestone'" >&2
+      echo "trace: .milestone must look like 'M5 S7 G1', found '$milestone'" >&2
       exit 1
       ;;
   esac
@@ -41,14 +41,14 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/sim-trace.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 # Test-name families; IDs look like SAFE-1 and test names like safe_1_...
-families=${TRACE_FAMILIES:-'cli|safe|disk|filt|vis|vi|perf|val|plain|state|tree|buf|find|grep|mark|syn|ptr|look|speed|ui|color|icon|pick|key|git|diff'}
+families=${TRACE_FAMILIES:-'cli|safe|disk|filt|vis|vi|perf|val|plain|state|tree|buf|find|grep|mark|syn|ptr|look|speed|ui|color|icon|pick|key|git|diff|gui'}
 
 # 1. IDs and milestones from SPEC.md, in file order. Indented sub-items are skipped.
 awk '
   /^- \*\*[A-Z]+-[0-9]+\*\* / {
     id = $2
     gsub(/\*/, "", id)
-    if (match($0, /\[[MS][0-9]+\]/)) {
+    if (match($0, /\[[MSG][0-9]+\]/)) {
       print "spec", id, substr($0, RSTART + 1, 1), substr($0, RSTART + 2, RLENGTH - 3)
     } else {
       print "nomilestone", id
@@ -96,8 +96,8 @@ mode == "hdr" && /^[ \t]*\/\/!/ {
 '
 
 {
-  find core/src core/tests sim/src sim/tests -type f -name '*.rs' -exec awk -v mode=rs -v families="$families" "$extract" {} +
-  find core/src sim/src -type f -name '*.rs' -exec awk -v mode=hdr -v families="$families" "$extract" {} +
+  find core/src core/tests sim/src sim/tests gui/src gui/tests -type f -name '*.rs' -exec awk -v mode=rs -v families="$families" "$extract" {} +
+  find core/src sim/src gui/src -type f -name '*.rs' -exec awk -v mode=hdr -v families="$families" "$extract" {} +
   for e2e in core/scripts/e2e.sh sim/scripts/e2e.sh; do
     if [ -f "$e2e" ]; then
       awk -v mode=sh -v families="$families" "$extract" "$e2e"
@@ -114,7 +114,7 @@ cat "$tmp/spec" "$tmp/found" | awk -v current="$current" -v milestone="$mileston
       now[kv[1]] = kv[2] + 0
     }
   }
-  $1 == "nomilestone" { bad[++nbad] = "SPEC line for " $2 " has no [M1] or [S1] milestone" }
+  $1 == "nomilestone" { bad[++nbad] = "SPEC line for " $2 " has no [M1], [S1] or [G1] milestone" }
   $1 == "spec" {
     if ($2 in ms) bad[++nbad] = "SPEC lists " $2 " twice"
     if (!($3 in now)) bad[++nbad] = "SPEC gives " $2 " the milestone " $3 $4 ", and .milestone has no " $3

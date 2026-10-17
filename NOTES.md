@@ -21,6 +21,18 @@ The editor's:
 - The position and the mode (`1:1  NORMAL`) in the editor's bottom border, and a hint such as `^p find` in the panel's, as the mockups have; the core's status line stays whole instead (LOOK-3), and the borders are plain in Normal mode.
 - Clicking in the status line or a tab-like list of files to switch files (BufferLine's click in the author's nvim); the position `2/5` is only text now.
 
+The window's (`sim-gui`, part three of SPEC):
+
+- A native clipboard (smithay-clipboard or arboard) instead of `wl-copy`, `wl-paste`, `xclip`, `pbcopy` and `pbpaste` found on `PATH` (GUI-10); no drag and drop and no primary selection. A crate for it is a dependency and a window-system connection of its own (the window's P1), so the tools stand in.
+- The system's own reduced-motion setting (only `SIM_GUI_REDUCED_MOTION` is read, GUI-13), and an accessibility tree: a window of pixels has none, and the terminal's screen readers read its text; this needs a design of its own.
+- The tree's scroll is not animated (only the text's). Wide-glyph kerning, ligatures and emoji presentation are cosmic-text's defaults; color emoji are rasterized by swash and have not been looked at.
+- The scrollbar cannot be dragged: sim ignores a click in its column in the terminal too. Tabs, the tree and the picker's list are clicked through sim's own mouse handling.
+- Window decorations of its own, a title that follows the file, several windows, session restore.
+- A recovery from a lost GPU device (a lost surface is recovered).
+- The scroll's state in the `Screen` (the top line, the rows skipped) so that the animator need not compare the rows' text to see how far the text moved: it hashes the text after the gutter, and a file of identical lines can fool it into no scroll.
+- Input types of sim's own (`Key`, modifiers, a mouse event with a cell and a button) instead of crossterm's, with `convert_all` taking them: the window carries crossterm and `mio` only for three plain types.
+- Windows (the operating system): `wgpu` is built with Vulkan and Metal only, so there is no DX12 backend.
+
 ## Known limits
 
 Found in the last bug hunt before the first release and left as they are, since each fix costs lines that the caps (P4) do not have.
@@ -55,3 +67,10 @@ The editor's:
 - `Space b c` closes through `:q`, so a tab with changes stays (with `:q`'s message) and its file is the one shown; closing it with the changes thrown away is `:q!` in that file.
 - The help (`:help`, F1) lists the keys and commands of the table; the README's table of keys is written by hand and not yet made from it.
 - With `NO_COLOR` or a terminal of fewer than 8 colors the interface is still drawn (boxes, tabs, bar) in weight, underline and inverse; that was not looked at on a real VT100 or a Linux console with a serial line, only on the screens of the tests (COLOR-2, COLOR-3).
+
+The window's:
+
+- **The window has not been seen on a real display.** It compiles, starts and fails cleanly with no display, and everything it is made of is tested offscreen (the scenes, the pixels on a software adapter, the input end to end into a running sim); but no event loop has run on Wayland, X11 or macOS. The surface format, `Fifo` presentation, the redraw cadence while animating, the input method's enabling and the place of its candidate window are written, not observed. The input method itself has been tried only as text arriving (`Ime::Commit`) and as preedit state; its drawing is in the Japanese picture, but no input method produced it.
+- The pixel goldens are llvmpipe's, compared with a tolerance of 8 levels on all but one in a thousand pixels; another software adapter's rounding may need them blessed again (`SIM_GUI_BLESS=1`). The scene goldens are exact and change when sim's looks change, which is their job.
+- Frame times were measured offscreen (submit to GPU idle, one frame at a time) on one discrete GPU; a window's present (vsync, the compositor), the first frame (a cold font cache, about 15 ms for the glyphs of a first screen at 1080p) and a screen of CJK text are not measured.
+- The clipboard needs one of the tools above on `PATH`; with none, a paste and a yank do nothing outside the window.

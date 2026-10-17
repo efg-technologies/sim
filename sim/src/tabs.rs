@@ -7,7 +7,7 @@
 use crate::color::{Chg, Tones};
 use crate::icons;
 use crate::layout::{Line, fit};
-use crate::paint::{Cue, Paint};
+use crate::paint::{Cue, Paint, Role};
 use std::ops::Range;
 
 /// What a tab says about its file.
@@ -122,7 +122,8 @@ const WARN: &str = "▲";
 fn tab(tb: &Tab, icons_on: bool, raised: bool, max: usize, t: Option<&Tones>) -> Line {
     let mut line = Line::default();
     let surface = t.map(|t| if raised { t.card } else { t.bar });
-    let base = Paint { bg: surface, bold: raised, ..Paint::default() };
+    let role = if raised { Role::Chip } else { Role::Bar }; // (GUI-2: the shown tab is raised from the bar)
+    let base = Paint { bg: surface, bold: raised, role, ..Paint::default() };
     // The indicator: a bar at the left of the shown tab, in the accent (`indicator = { icon = '▎' }`).
     if raised {
         line.put("▎", Paint { fg: t.map(|t| t.accent_fg()), ..base });
@@ -133,7 +134,8 @@ fn tab(tb: &Tab, icons_on: bool, raised: bool, max: usize, t: Option<&Tones>) ->
     if let Some(l) = tb.letter {
         // KEY-5: the letter is where the icon is, on the accent's block (inverse without color)
         let (back, text) = t.map(|t| t.accent_block()).unzip();
-        let p = Paint { bg: back, fg: text, bold: true, cue: Cue::Solid, ..base };
+        let p =
+            Paint { bg: back, fg: text, bold: true, cue: Cue::Solid, role: Role::Patch, ..base };
         line.put(&format!(" {l} "), p);
         line.put(" ", base);
     } else if icons_on {
@@ -180,7 +182,7 @@ pub fn layout(
         .map(|(i, l)| usize::from(l.cols) + usize::from(i + 1 < lines.len()))
         .collect();
     let shown = window(&widths, cur, w);
-    let bar = Paint { bg: t.map(|t| t.bar), ..Paint::default() };
+    let bar = Paint { bg: t.map(|t| t.bar), role: Role::Bar, ..Paint::default() };
     let arrow = Paint { fg: t.map(|t| t.focus), ..bar };
     let (mut out, mut hits) = (Line::default(), vec![]);
     if shown.start > 0 {

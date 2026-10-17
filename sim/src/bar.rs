@@ -6,7 +6,7 @@
 //! What does not fit is dropped from the right, least important first.
 use crate::color::{Chg, Tones};
 use crate::layout::{Line, fit, short};
-use crate::paint::{Cue, Paint};
+use crate::paint::{Cue, Paint, Role};
 use sim_core::core::color::Rgb;
 
 /// `U+E0B0` and `U+E0B2`, the solid separators of Powerline, and the branch icon.
@@ -64,10 +64,14 @@ struct Seg {
     text: String,
     fg: Option<Rgb>,
     bold: bool,
+    /// GUI-2: it is the alert's: what is hidden or dangerous.
+    alert: bool,
 }
 
 struct Sect {
     bg: Rgb,
+    /// GUI-2: what the section's surface is: the bar's own, or a block raised from it.
+    role: Role,
     segs: Vec<Seg>,
 }
 
@@ -78,7 +82,7 @@ impl Sect {
 }
 
 fn seg(text: impl Into<String>, fg: Option<Rgb>, bold: bool) -> Seg {
-    Seg { text: text.into(), fg, bold }
+    Seg { text: text.into(), fg, bold, alert: false }
 }
 
 /// The sections of the left and of the right side for what is kept, the path as long as `room`.
@@ -89,8 +93,11 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
         Block::Accent => t.accent_block(),
     };
     // A: the mode.
-    let mut left =
-        vec![Sect { bg: back, segs: vec![seg(format!(" {} ", b.mode), Some(on), true)] }];
+    let mut left = vec![Sect {
+        bg: back,
+        role: Role::Chip,
+        segs: vec![seg(format!(" {} ", b.mode), Some(on), true)],
+    }];
     // B: the branch and the changes.
     let mut parts = vec![];
     if let (true, Some(name)) = (k.branch, b.branch) {
@@ -108,7 +115,7 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
     }
     if !parts.is_empty() {
         parts.push(seg(" ", None, false));
-        left.push(Sect { bg: t.card, segs: parts });
+        left.push(Sect { bg: t.card, role: Role::Chip, segs: parts });
     }
     // C: the file.
     let mut file = vec![seg(" ", None, false)];
@@ -123,12 +130,15 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
         file.push(seg(format!("  {}", b.notes), Some(p), false));
     }
     file.push(seg(" ", None, false));
-    left.push(Sect { bg: t.bar, segs: file });
+    left.push(Sect { bg: t.bar, role: Role::Bar, segs: file });
     // X: the slot, the encoding, the line ending, the file type.
     let mut right = vec![];
     let mut x = vec![];
     if let (true, Some((text, alert))) = (k.slot, b.slot) {
-        x.push(seg(format!(" {text}"), Some(if alert { t.alert_fg() } else { p }), alert));
+        x.push(Seg {
+            alert,
+            ..seg(format!(" {text}"), Some(if alert { t.alert_fg() } else { p }), alert)
+        });
     }
     if let (true, Some(e)) = (k.enc, b.encoding) {
         x.push(seg(format!(" {e}"), Some(p), false));
@@ -142,13 +152,21 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
     }
     if !x.is_empty() {
         x.push(seg(" ", None, false));
-        right.push(Sect { bg: t.bar, segs: x });
+        right.push(Sect { bg: t.bar, role: Role::Bar, segs: x });
     }
     // Y: the progress. Z: the position.
     if let (true, Some(pr)) = (k.progress, b.progress) {
-        right.push(Sect { bg: t.card, segs: vec![seg(format!(" {pr} "), Some(p), false)] });
+        right.push(Sect {
+            bg: t.card,
+            role: Role::Chip,
+            segs: vec![seg(format!(" {pr} "), Some(p), false)],
+        });
     }
-    right.push(Sect { bg: back, segs: vec![seg(format!(" {} ", b.pos), Some(on), true)] });
+    right.push(Sect {
+        bg: back,
+        role: Role::Chip,
+        segs: vec![seg(format!(" {} ", b.pos), Some(on), true)],
+    });
     (left, right)
 }
 
@@ -200,30 +218,32 @@ pub fn render(w: u16, b: &Bar, t: &Tones) -> Option<Line> {
     };
     // The path was cut to what is left, so the width fits; draw it.
     let mut line = Line::default();
-    let bar = Paint { bg: Some(t.bar), ..Paint::default() };
+    let bar = Paint { bg: Some(t.bar), role: Role::Bar, ..Paint::default() };
     let draw = |line: &mut Line, s: &Sect, cue: Cue| {
         for g in &s.segs {
-            let p = Paint { fg: g.fg, bg: Some(s.bg), bold: g.bold, cue, ..Paint::default() };
+            let role = if g.alert { Role::Alert } else { s.role };
+            let p = Paint { fg: g.fg, bg: Some(s.bg), bold: g.bold, cue, role, ..Paint::default() };
             line.put(&g.text, p);
         }
     };
     for (i, s) in left.iter().enumerate() {
         draw(&mut line, s, if i == 0 { Cue::Solid } else { Cue::None }); // (the mode is a block)
-        let next = left.get(i + 1).map_or(t.bar, |n| n.bg);
+        let (next, role) = left.get(i + 1).map_or((t.bar, Role::Bar), |n| (n.bg, n.role));
         if b.icons {
-            line.put(LEFT, Paint { fg: Some(s.bg), bg: Some(next), ..Paint::default() });
+            line.put(LEFT, Paint { fg: Some(s.bg), bg: Some(next), role, ..Paint::default() });
         }
     }
     let used = width(&left, &right, b.icons);
     let gap = w.saturating_sub(used);
     line.put(&" ".repeat(gap), bar);
-    let mut before = t.bar; // (the left side ends with the file's section, on the bar)
+    let mut before = (t.bar, Role::Bar); // (the left side ends with the file's section, on the bar)
     for s in &right {
         if b.icons {
-            line.put(RIGHT, Paint { fg: Some(s.bg), bg: Some(before), ..Paint::default() });
+            let (bg, role) = (Some(before.0), before.1);
+            line.put(RIGHT, Paint { fg: Some(s.bg), bg, role, ..Paint::default() });
         }
         draw(&mut line, s, Cue::None);
-        before = s.bg;
+        before = (s.bg, s.role);
     }
     line.pad(w as u16);
     Some(line)

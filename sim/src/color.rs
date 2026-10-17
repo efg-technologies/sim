@@ -469,6 +469,14 @@ impl Syntax {
         }
     }
 
+    /// GUI-6: the ANSI color `i` (0 to 7), told by a window that has no terminal to ask.
+    pub fn set(&mut self, i: usize, c: Rgb) {
+        if let Some(a) = self.ansi.get_mut(i) {
+            *a = Some(c);
+            self.derive();
+        }
+    }
+
     fn derive(&mut self) {
         let bg = self.bg.filter(|_| self.truecolor);
         // A color the terminal has not told (not every terminal answers OSC 4; tmux relays the reply, SYN-1) is made of
@@ -553,18 +561,28 @@ impl Input {
         evs.into_iter().flat_map(|e| self.reply.feed(e)).map(SimEvent::Term).collect()
     }
 
+    /// GUI-7: what a terminal event is to sim when no reply of a terminal is waited for (a window has
+    /// none): the mouse, Shift-Tab and F1, which the core's `Key` does not have (KEY-4), and the rest
+    /// as the core's `convert_all` makes it (Alt-x is Esc, then x). The path the keys of a terminal
+    /// take after `feed` has held back what could be a reply.
+    pub fn event(ev: Ev) -> Vec<SimEvent> {
+        match &ev {
+            Ev::Mouse(m) => vec![SimEvent::Mouse(*m)],
+            Ev::Key(k) if k.code == KeyCode::BackTab => vec![SimEvent::BackTab],
+            Ev::Key(k) if k.code == KeyCode::F(1) => vec![SimEvent::Help],
+            _ => sim_core::io::term::convert_all(ev).into_iter().map(SimEvent::Term).collect(),
+        }
+    }
+
     pub fn feed(&mut self, ev: Ev) -> Vec<SimEvent> {
         let (alt, ctrl) = (KeyModifiers::ALT, KeyModifiers::CONTROL);
         let (code, mods) = match &ev {
             Ev::Key(k) => (k.code, k.modifiers),
-            Ev::Mouse(m) => return vec![SimEvent::Mouse(*m)],
+            Ev::Mouse(_) => return Input::event(ev),
             _ => (KeyCode::Null, KeyModifiers::NONE),
         };
-        if code == KeyCode::BackTab {
-            return vec![SimEvent::BackTab];
-        }
-        if code == KeyCode::F(1) {
-            return vec![SimEvent::Help]; // KEY-4: the core's `Key` has no F1
+        if matches!(code, KeyCode::BackTab | KeyCode::F(1)) {
+            return Input::event(ev);
         }
         let (plain, on) = (!mods.intersects(alt | ctrl), self.due > 0);
         let end = matches!(code, KeyCode::Char('\\' | 'g')) && !plain;

@@ -1,12 +1,17 @@
-//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8, COLOR-1, COLOR-2
+//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8, COLOR-1, COLOR-2, GUI-1, GUI-2, GUI-3
 //! What sim draws beyond the core's four styles: the looks a char can have, the Screen that carries
 //! them with the core's Frame, and the Painter that writes a Screen to the terminal, row by row. The
 //! four styles are the core's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
+//! What each cell finally is (`Resolved`) is settled here once, for the Painter's bytes and for a
+//! window's pixels alike (GUI-3), and what a surface is (`Role`, `Layer`) is said here too (GUI-1, GUI-2).
 use crate::color::{NUMBER_FLOOR, Syntax, TEXT_FLOOR, fade_to};
+use crate::pick::Rect;
 use sim_core::core::color::{Palette, Rgb};
 use sim_core::core::view::{Frame, Shape, Style, width};
 use sim_core::io::term::{self, sgr as base};
 use std::collections::HashMap;
+use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::ops::Range;
 
@@ -85,6 +90,77 @@ fn made_of(look: Look, pal: bool) -> (&'static str, Option<Look>, bool) {
     }
 }
 
+/// The SGR parameters of a cell, in the order they are written, as a number each (`;4;1` is `[4, 1]`):
+/// the order and the repeats are what the terminal is sent, and what a window reads weight, slant,
+/// underline, faint and reverse from (GUI-3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Attrs {
+    n: u8,
+    v: [u8; 6],
+}
+
+impl Attrs {
+    /// The parameters of `;1;3`-like text (no more than six are kept: a cell has five at most).
+    pub fn parse(s: &str) -> Attrs {
+        let mut a = Attrs::default();
+        for p in s.split(';').filter_map(|p| p.parse::<u8>().ok()) {
+            if let Some(slot) = a.v.get_mut(usize::from(a.n)) {
+                (*slot, a.n) = (p, a.n + 1);
+            }
+        }
+        a
+    }
+
+    pub fn has(&self, p: u8) -> bool {
+        self.v[..usize::from(self.n)].contains(&p)
+    }
+
+    pub fn bold(&self) -> bool {
+        self.has(1)
+    }
+
+    pub fn faint(&self) -> bool {
+        self.has(2)
+    }
+
+    pub fn italic(&self) -> bool {
+        self.has(3)
+    }
+
+    pub fn underline(&self) -> bool {
+        self.has(4)
+    }
+
+    pub fn reverse(&self) -> bool {
+        self.has(7)
+    }
+}
+
+impl fmt::Display for Attrs {
+    /// `;4;1`: each parameter after a `;`, as it follows `ESC [ 0`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.v[..usize::from(self.n)].iter().try_for_each(|p| write!(f, ";{p}"))
+    }
+}
+
+/// What a look is drawn with (GUI-3): its attributes, the syntax look whose hue it takes, and whether
+/// it is the secondary gray (rank, not distance).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LookAttrs {
+    pub attrs: Attrs,
+    pub hue: Option<Look>,
+    pub dim: bool,
+}
+
+impl Look {
+    /// How the look is drawn before a paint's colors (`pal`: the terminal's palette is known, which
+    /// makes a comment italic and no more faint). The one table the Painter and a window both read.
+    pub fn attrs(self, pal: bool) -> LookAttrs {
+        let (attrs, hue, dim) = made_of(self, pal);
+        LookAttrs { attrs: Attrs::parse(attrs), hue, dim }
+    }
+}
+
 /// The syntax look whose hue a look is drawn in, if it has one: the looks of code only (UI-1).
 pub fn syntax_hue(look: Look) -> Option<Look> {
     made_of(look, true).1
@@ -117,10 +193,43 @@ pub enum Cue {
     Solid,
 }
 
+/// GUI-2: what a surface is, said where `layout` makes it, for a window that draws surfaces with an
+/// elevation each; the terminal draws a color and ignores the role.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Role {
+    #[default]
+    None,
+    /// A fenced block's surface (UI-8).
+    Fence,
+    /// A heading's band (UI-8).
+    Heading,
+    /// A short label raised from the page: the shown tab, a badge, the open file's row, a block of the status line.
+    Chip,
+    /// A patch behind words: a change, a match, a yank, inline code, the letter on a tab.
+    Patch,
+    /// A tint across a row or a cell: a changed line, the cursor's line.
+    Tint,
+    /// The surface of a bar: the tree's header, the tab bar, the status line.
+    Bar,
+    /// A char shown in another form, and text in the alert's ink (an untrusted root, git not run for
+    /// safety): what is hidden or dangerous (COLOR-1, UI-15).
+    Alert,
+    /// The handle of the scrollbar (UI-11).
+    Thumb,
+    /// The colorcolumn (UI-6).
+    Column,
+    /// What a window fills with: a window of a window's own has a surface, so its cells need none.
+    Fill,
+    /// The terminal's one-cell shadow beside a window: a window casts a shadow of its own.
+    Shadow,
+}
+
 /// What a run of cells has beside its style and look (LOOK-2 to LOOK-7): colors of its own, which
 /// `layout` has worked out from the palette (a tint behind the text, the color of a box's line),
 /// how far its text fades toward the page, in percent, and whether it is bold (a title).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+/// Two paints that differ in `role` alone are equal: the role is not a part of what the terminal is
+/// sent, so it must not make a row look changed (GUI-2).
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Paint {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
@@ -132,19 +241,68 @@ pub struct Paint {
     /// selection, underline, fade or other paint they have (UI-15: a hidden char).
     pub sealed: bool,
     pub cue: Cue,
+    pub role: Role,
+}
+
+impl Paint {
+    fn same(&self) -> (Option<Rgb>, Option<Rgb>, u8, bool, bool, bool, Cue) {
+        (self.fg, self.bg, self.fade, self.bold, self.soft, self.sealed, self.cue)
+    }
+}
+
+impl PartialEq for Paint {
+    fn eq(&self, o: &Paint) -> bool {
+        self.same() == o.same()
+    }
+}
+
+impl Eq for Paint {}
+
+impl Hash for Paint {
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        self.same().hash(h);
+    }
+}
+
+/// GUI-1: a part of the screen a window draws as a surface of its own, in cells, and what it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayerKind {
+    /// A box of depth (LOOK-3): the cells on its outer ring hold its border chars.
+    Box { focused: bool },
+    /// The text of the open file: the sign column (`sign` cells), the line numbers (`gutter`
+    /// cells after it) and the lines; what scrolls.
+    Text { sign: u16, gutter: u16 },
+    /// The column of the scrollbar (UI-11).
+    Scroll,
+    /// The row of the status line (UI-10).
+    Status,
+    /// The tree's cursor row, which the terminal underlines: its cells are in the panel's columns.
+    Cursor,
+    /// A window over the rest, its outer ring of cells its border: the picker (`modal`: the keys
+    /// are its own and the rest is not) or which-key.
+    Float { modal: bool },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Layer {
+    pub kind: LayerKind,
+    pub rect: Rect,
 }
 
 /// Column ranges of a row and their paints; the first range a column is in decides.
 pub type Paints = Vec<(Range<u16>, Paint)>;
 
 /// A Frame (which carries the core's palette) with the looks and the paints of each of its rows (no
-/// paints at all in calm) and the syntax colors they are drawn with.
+/// paints at all in calm), the syntax colors they are drawn with, and the layers a window draws as
+/// surfaces (GUI-1), from the lowest to the highest (the boxes in depth only, the text, its scrollbar
+/// and the status line with the interface, the windows always).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Screen {
     pub frame: Frame,
     pub looks: Vec<Looks>,
     pub paints: Vec<Paints>,
     pub syn: Syntax,
+    pub layers: Vec<Layer>,
 }
 
 /// COLOR-2: the SGR sequence where there is no color. The style is what it is without a palette
@@ -164,28 +322,62 @@ fn mono_sgr(style: Style, underline: bool, look: Option<Look>, paint: Paint) -> 
     format!("\x1b[0{attrs}m")
 }
 
-/// The SGR sequence for a char with this style, underline and look. The change style wins: on
-/// it a look can only be bold or italic, never a color (P3: the change is the only chromatic
-/// background, and reverse video would turn a text color into a background). Comments are the
-/// secondary gray and italic, or faint and italic where there is no palette.
+/// GUI-3: what a cell finally is, with every rule of the Painter applied (the style's colors, the
+/// look's weight and hue, the paint's colors and fade, the selection's gray, a hidden char as itself
+/// and nothing else): what `sgr` writes as bytes and a window draws as pixels. The colored path: with
+/// `Syntax::mono` the Painter writes weight and inverse only (`mono_sgr`, COLOR-2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Resolved {
+    /// The text color before the fog (none: the terminal's own).
+    pub fg: Option<Rgb>,
+    /// SGR 31-36, which stands for a syntax look where there is no palette or no truecolor.
+    pub ansi: Option<u8>,
+    pub bg: Option<Rgb>,
+    pub attrs: Attrs,
+    /// How far the text fades into the page, in percent; 0 where the fog does not reach: the secondary
+    /// gray is rank and does not fade (LOOK-6), the change style never fades, a selection neither.
+    pub fade: u8,
+    /// The fade stops at |Lc| 40, not 75: the line numbers.
+    pub soft: bool,
+    pub role: Role,
+    /// A char shown in another form (SAFE-8): the style Hidden, or a sealed paint (UI-15).
+    pub hidden: bool,
+    /// The Visual selection's gray (SYN-5).
+    pub selected: bool,
+}
+
+impl Resolved {
+    /// The text color against the page `page`, `fade` percent of the way into it but no further than
+    /// where it still reads at the floor (|Lc| 75 for text, 40 for the numbers): the fog of LOOK-6, for
+    /// any fade (a window gives the one an animation is at, the Painter the cell's own).
+    pub fn ink(&self, page: Rgb, fade: u8) -> Option<Rgb> {
+        let c = self.fg?;
+        if fade == 0 {
+            return Some(c);
+        }
+        let floor = if self.soft { NUMBER_FLOOR } else { TEXT_FLOOR };
+        Some(fade_to(c, page, f64::from(fade.min(100)) / 100.0, floor))
+    }
+}
+
+/// GUI-3: the cell that has this style, underline, look and paint, with the palette and the syntax
+/// colors. The change style wins: on it a look can only be bold or italic, never a color (P3: the
+/// change is the only chromatic background, and reverse video would turn a text color into a
+/// background). Comments are the secondary gray and italic, or faint and italic where there is no
+/// palette.
 ///
-/// Each color is written once, the last that was meant (the style's, then the look's, then the
-/// paint's): tmux drops a whole SGR sequence of more than 20 parameters (3.7c, measured), and one
-/// that repeated a color in turn (`38;2;..;38;2;..;48;2;..;38;2;..`) lost the colors of a fenced
-/// block's code in the owner's tmux.
-fn sgr(
+/// Each color is the last that was meant (the style's, then the look's, then the paint's): tmux drops
+/// a whole SGR sequence of more than 20 parameters (3.7c, measured), and one that repeated a color in
+/// turn (`38;2;..;38;2;..;48;2;..;38;2;..`) lost the colors of a fenced block's code in the owner's tmux.
+pub fn resolve(
     style: Style,
     underline: bool,
     look: Option<Look>,
     paint: Paint,
     pal: Option<Palette>,
     syn: &Syntax,
-) -> String {
-    if syn.mono {
-        return mono_sgr(style, underline, look, paint);
-    }
+) -> Resolved {
     let change = style == Style::Change;
-    let rgb = |k: u8, (r, g, b): (u8, u8, u8)| format!(";{k}8;2;{r};{g};{b}");
     // What the style gives: attributes, and with a palette the colors (the core's `term::sgr`, VIS-4).
     let (mut attrs, mut fg, mut bg) = (String::new(), None, None);
     match (pal, style) {
@@ -218,22 +410,52 @@ fn sgr(
         (fg, ansi) = (Some(c), None);
     }
     // The secondary gray is rank and the fog is distance: only the gutter's numbers fade it (LOOK-6).
-    if let (Some(c), Some(p), true, false) = (fg, pal, paint.fade > 0, change)
-        && (paint.soft || c != p.secondary)
-    {
-        let floor = if paint.soft { NUMBER_FLOOR } else { TEXT_FLOOR };
-        fg = Some(fade_to(c, p.bg, f64::from(paint.fade) / 100.0, floor));
-    }
-    let mut out = format!("\x1b[0{attrs}");
+    let mut fade = match (fg, pal) {
+        (Some(c), Some(p)) if paint.fade > 0 && !change && (paint.soft || c != p.secondary) => {
+            paint.fade
+        }
+        _ => 0,
+    };
+    let mut selected = false;
     if let (Some(Look::Sel), false, Some((sbg, text))) = (look, change, syn.sel()) {
-        (bg, fg, ansi) = (Some(sbg), Some(text), None);
+        (bg, fg, ansi, fade, selected) = (Some(sbg), Some(text), None, 0, true);
     }
-    if let Some(i) = ansi {
+    let hidden = style == Style::Hidden || paint.sealed;
+    Resolved {
+        fg,
+        ansi,
+        bg,
+        attrs: Attrs::parse(&attrs),
+        fade,
+        soft: paint.soft,
+        role: paint.role,
+        hidden,
+        selected,
+    }
+}
+
+/// The SGR sequence for a char with this style, underline and look: `resolve`, written.
+fn sgr(
+    style: Style,
+    underline: bool,
+    look: Option<Look>,
+    paint: Paint,
+    pal: Option<Palette>,
+    syn: &Syntax,
+) -> String {
+    if syn.mono {
+        return mono_sgr(style, underline, look, paint);
+    }
+    let r = resolve(style, underline, look, paint, pal, syn);
+    let rgb = |k: u8, (r, g, b): (u8, u8, u8)| format!(";{k}8;2;{r};{g};{b}");
+    let mut out = format!("\x1b[0{}", r.attrs);
+    let fg = pal.map_or(r.fg, |p| r.ink(p.bg, r.fade));
+    if let Some(i) = r.ansi {
         out += &format!(";3{i}");
     } else if let Some(c) = fg {
         out += &rgb(3, c);
     }
-    if let Some(c) = bg {
+    if let Some(c) = r.bg {
         out += &rgb(4, c);
     }
     out + "m"
@@ -278,6 +500,7 @@ fn cells(cells: &mut Vec<Cell>, s: &Screen, i: usize, cols: usize) {
                 soft: p.soft || q.soft,
                 sealed: false,
                 cue: p.cue.max(q.cue),
+                role: if p.role == Role::None { q.role } else { p.role },
             };
         };
         cells[span(r)].iter_mut().for_each(on);
@@ -292,6 +515,50 @@ fn cells(cells: &mut Vec<Cell>, s: &Screen, i: usize, cols: usize) {
         for c in &mut cells[span(r)] {
             *c = Cell { paint: *p, ..Cell::default() };
         }
+    }
+}
+
+/// GUI-3: the cells of a Screen's rows as `Resolved`, one for each column of the row (the columns
+/// as the core counts them: a wide char has two, the second the same as the first), made by the same
+/// `cells` and `resolve` the Painter writes its sequences from. A window draws these.
+#[derive(Default)]
+pub struct Resolver {
+    memo: HashMap<(u8, bool, Option<u8>, Paint), Resolved>,
+    /// The palette and the syntax colors the memo is for.
+    of: Option<(Option<Palette>, Syntax)>,
+    scratch: Vec<Cell>,
+}
+
+impl Resolver {
+    pub fn new() -> Resolver {
+        Resolver::default()
+    }
+
+    /// The cells of row `i` of `s`. A row of the Screen that has no looks or paints has plain ones.
+    pub fn row(&mut self, s: &Screen, i: usize) -> Vec<Resolved> {
+        let of = (s.frame.pal, s.syn);
+        if self.of != Some(of) {
+            self.memo.clear(); // (the palette or the syntax colors may be new)
+            self.of = Some(of);
+        }
+        let cs: Vec<char> = s.frame.rows[i].text.chars().collect();
+        let mut col = 0;
+        for k in 0..cs.len() {
+            col += width(&cs, k, col);
+        }
+        cells(&mut self.scratch, s, i, col);
+        let (pal, syn) = of;
+        self.scratch
+            .iter()
+            .map(|c| {
+                let (style, look) = (c.style.unwrap_or(Style::Primary), c.look);
+                let id = (style as u8, c.underline, look.map(|l| l as u8), c.paint);
+                *self
+                    .memo
+                    .entry(id)
+                    .or_insert_with(|| resolve(style, c.underline, look, c.paint, pal, &syn))
+            })
+            .collect()
     }
 }
 

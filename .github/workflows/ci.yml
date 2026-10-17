@@ -46,7 +46,9 @@ jobs:
         run: command -v tmux || brew install tmux
       - run: tmux -V
 
-      # fmt, clippy -D warnings, tests, trace, both line caps, the core's dependencies, release binary size.
+      # fmt, clippy -D warnings, tests, trace, the three line caps, the dependency lists of the core, the editor
+      # and the window, release binary size. The window's pixel tests draw on llvmpipe and skip, saying so, where
+      # there is none (no GPU, no software Vulkan: they are not run here).
       - name: scripts/check.sh
         if: ${{ !cancelled() }}
         run: sh scripts/check.sh

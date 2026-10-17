@@ -160,6 +160,7 @@ fn screen(
         looks: vec![vec![], vec![]],
         paints: vec![paints, vec![]],
         syn: Syntax::default(),
+        layers: vec![],
     }
 }
 
@@ -299,7 +300,13 @@ fn fogged(bg: Rgb, text: &str, spans: Vec<(std::ops::Range<u16>, Style)>, soft: 
         pal: Some(palette(bg)),
     };
     let paints = vec![vec![(0..width, Paint { fade: 100, soft, ..Paint::default() })], vec![]];
-    draw(Screen { frame, looks: vec![vec![], vec![]], paints, syn: Syntax::default() })
+    draw(Screen {
+        frame,
+        looks: vec![vec![], vec![]],
+        paints,
+        syn: Syntax::default(),
+        layers: vec![],
+    })
 }
 
 /// The foreground set just before the first `ch` of `out`.

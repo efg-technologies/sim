@@ -21,7 +21,7 @@ use crate::layout::{
     self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin, Tick,
 };
 use crate::marks::{Git, Marks};
-use crate::paint::{Paint, Screen};
+use crate::paint::{Layer, LayerKind, Paint, Role, Screen};
 use crate::pick;
 use crate::rank::History;
 use crate::search::Matcher;
@@ -35,7 +35,7 @@ use ropey::Rope;
 use sim_core::core::app::{App, Effect, Event, Key, Read};
 use sim_core::core::buffer::Buffer;
 use sim_core::core::cli;
-use sim_core::core::color::{Palette, palette};
+use sim_core::core::color::{Palette, Rgb, palette};
 use sim_core::core::vi::Mode;
 use sim_core::core::view::{self, Frame, Row, Shape};
 use sim_core::io::journal::Snapshot;
@@ -117,6 +117,9 @@ pub enum SimEvent {
     Changes(Result<Counts, String>),
     /// DIFF-3: HEAD's version of a file (named as it was asked for), or why there is none.
     Shown(String, Result<Vec<u8>, String>),
+    /// GUI-6: the background and the ANSI colors (0 to 7, those the window has) that a terminal
+    /// would have answered with, told as they are: a window has none to ask.
+    Colors(Rgb, [Option<Rgb>; 8]),
 }
 
 /// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
@@ -642,6 +645,12 @@ impl Sim {
                 self.syn.reply(&s);
                 self.retone();
             }
+            SimEvent::Colors(bg, ansi) => {
+                ansi.iter()
+                    .enumerate()
+                    .for_each(|(i, c)| c.iter().for_each(|c| self.syn.set(i, *c)));
+                self.background(bg, &mut out);
+            }
             SimEvent::Spans(h) => match self.bufs.iter_mut().find(|b| b.id == h.id) {
                 Some(b) => b.hl = Some(h),
                 None => self.live_spans(h), // (the picker's preview, PICK-4)
@@ -692,6 +701,17 @@ impl Sim {
         let g = self.geo();
         for b in &mut self.bufs {
             b.app.size = (g.ew, g.rows + 1);
+        }
+    }
+
+    /// GUI-5: whether the next key is text (typed in Insert mode, on the command line, in the picker's
+    /// query, in the tree's search, the char after `f` or `r`) and not a command: a window turns its
+    /// input method on for it, and off where a letter is a command.
+    pub fn wants_text(&self) -> bool {
+        match (self.panel.live.is_some(), self.panel.open && self.panel.focus) {
+            (true, _) => true,
+            (_, true) => self.panel.search.as_ref().is_some_and(|s| s.typing),
+            _ => self.bufs.get(self.cur).is_some_and(|b| b.app.vi.text()),
         }
     }
 
@@ -1370,6 +1390,7 @@ impl Sim {
             None => None,
         };
         let (mut rows, mut looks, mut paints) = layout::body(&deck, &marked, sel, editor.as_ref());
+        let mut floats = vec![]; // GUI-1: the windows laid over the body
         // PICK-1: the picker is laid over the rows of the body, and has the terminal's cursor.
         if let Some(win) = self.pick_win()
             && let Some((lines, qcols)) = self.live_draw(&win, tones.as_ref())
@@ -1378,6 +1399,10 @@ impl Sim {
             pick::lay(&mut rows, &mut looks, &mut paints, w, &win, lines, shadow);
             let at = qcols.min(usize::from(win.prompt.w).saturating_sub(5));
             (cursor, shape) = ((win.prompt.x + 3 + at as u16, win.prompt.y), Shape::Bar);
+            floats.push(Layer {
+                kind: LayerKind::Float { modal: true },
+                rect: pick::Rect { x: win.x, y: win.y, w: win.w, h: win.h },
+            });
         }
         // KEY-3: which-key, laid over the text as the picker is, while a prefix has been typed for a pause;
         // with no shadow: beside a window this small it read as a second cursor
@@ -1385,6 +1410,10 @@ impl Sim {
             && let Some((win, lines)) = keys::which(&title, &next, (w, h), tones.as_ref())
         {
             pick::lay(&mut rows, &mut looks, &mut paints, w, &win, lines, None);
+            floats.push(Layer {
+                kind: LayerKind::Float { modal: false },
+                rect: pick::Rect { x: win.x, y: win.y, w: win.w, h: win.h },
+            });
         }
         // UI-10: the bar, unless a message, the command line or a search has the row's text.
         let tree = focus.then(|| (at.as_ref().map(|r| r.path.display().to_string()), slash));
@@ -1402,12 +1431,52 @@ impl Sim {
                 // What says that git was not run, for safety, is the alert's (UI-1): hidden, and
                 // dangerous if it were not so.
                 let alert = tones.as_ref().filter(|_| ui && status.starts_with(GIT_SKIPPED));
-                let ink = |t: &Tones| Paint { fg: Some(t.alert_fg()), ..Paint::default() };
+                let ink = |t: &Tones| Paint {
+                    fg: Some(t.alert_fg()),
+                    role: Role::Alert,
+                    ..Paint::default()
+                };
                 paints.push(alert.map(|t| vec![(0..w, ink(t))]).unwrap_or_default());
             }
         }
         let frame = Frame { width: w, height: h, rows, cursor, shape, pal: self.pal };
-        Screen { frame, looks, paints, syn: self.syn }
+        let layers = self.layers(ui, sel, floats);
+        Screen { frame, looks, paints, syn: self.syn, layers }
+    }
+
+    /// GUI-1: what a window draws as surfaces, from the lowest to the highest: the boxes of the panel
+    /// and of the text (depth), the text of the open file, its scrollbar and the status line (the
+    /// interface), and the windows (`floats`) over them.
+    fn layers(&self, ui: bool, sel: Option<usize>, floats: Vec<Layer>) -> Vec<Layer> {
+        let (g, (w, h)) = (self.geo(), self.size);
+        let rect = |x, y, w, h| pick::Rect { x, y, w, h };
+        let mut out = vec![];
+        let open = self.panel.open && self.panel.focus;
+        if g.boxed {
+            let rows = h.saturating_sub(1);
+            if g.pw > 0 {
+                let kind = LayerKind::Box { focused: open };
+                out.push(Layer { kind, rect: rect(0, 0, g.pw + 2, rows) });
+            }
+            let kind = LayerKind::Box { focused: !open };
+            out.push(Layer { kind, rect: rect(g.ex - 1, 0, g.sign + g.ew + 2, rows) });
+        }
+        if let (true, Some(b)) = (ui, self.bufs.get(self.cur)) {
+            let kind = LayerKind::Text { sign: g.sign, gutter: digits(&b.app.buf) as u16 + 2 };
+            out.push(Layer { kind, rect: rect(g.ex, g.y0, g.sign + g.ew, g.rows) });
+            if g.boxed || g.rule > 0 {
+                let x = g.ex + g.sign + g.ew;
+                out.push(Layer { kind: LayerKind::Scroll, rect: rect(x, g.y0, 1, g.rows) });
+            }
+        }
+        if let (true, Some(i), true) = (ui, sel, g.pw > 0) {
+            out.push(Layer { kind: LayerKind::Cursor, rect: rect(g.px, g.y0 + i as u16, g.pw, 1) });
+        }
+        if ui {
+            out.push(Layer { kind: LayerKind::Status, rect: rect(0, h - 1, w, 1) });
+        }
+        out.extend(floats);
+        out
     }
 
     /// UI-10: the status line of the interface, or none where the text of the core, a message, the

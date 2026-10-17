@@ -1,0 +1,86 @@
+scene 1032x632 floor #15171c page #282c34
+layer 0
+  Box [16 16 1000 580] r10 #282c34 shadow(dy 4 blur 16 #000000/0.60) rim(#ffffff/0.22 1)
+  Strip [16 597 1000 18] r6 #353840 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [26 38 130 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Strip [156 36 850 20] r0 #353840
+  Chip [16 598 80 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [96 598 60 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [916 598 50 16] r6 #3f434a shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Chip [966 598 50 16] r6 #4f5259 shadow(dy 1 blur 4 #000000/0.40) rim(#ffffff/0.10 1)
+  Shape [28 37 2 18] r1 #c6e1ff
+  Pill [214 58 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [274 98 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [444 98 24 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [254 118 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [344 118 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [474 118 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [564 118 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [144 138 84 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Pill [664 598 104 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
+  Shape [1008 58 6 516] r3 #b8b8b8/0.07
+  Thumb [1008 57 6 418] r3 #4c4f56 shadow(dy 1 blur 4 #000000/0.40)
+  Shape [1007 158 8 2] r1 #b8b8b8
+  text [46 36] "hidden.txt" #eaeaea bold
+  text [66 56] "1" #b8b8b8
+  text [86 56] "invoice_final" #eaeaea
+  text [216 56] "<U+202E>" #f1f1f1
+  text [296 56] "fdp.exe" #eaeaea
+  text [46 76] "2" #eaeaea bold
+  text [86 76] "the" #eaeaea
+  text [126 76] "literal" #eaeaea
+  text [206 76] "text:" #eaeaea
+  text [276 76] "<U+202E>" #eaeaea
+  text [376 76] "and" #eaeaea
+  text [426 76] "^[" #eaeaea
+  text [466 76] "(only" #eaeaea
+  text [526 76] "ASCII)" #eaeaea
+  text [66 96] "1" #b8b8b8
+  text [86 96] "the" #eaeaea
+  text [126 96] "real" #eaeaea
+  text [176 96] "chars:" #eaeaea
+  text [266 96] "[" #eaeaea
+  text [276 96] "<U+202E>" #f1f1f1
+  text [356 96] "]" #eaeaea
+  text [386 96] "and" #eaeaea
+  text [436 96] "[" #eaeaea
+  text [446 96] "^[" #f1f1f1
+  text [466 96] "]" #eaeaea
+  text [496 96] "(shown" #eaeaea
+  text [566 96] "in" #eaeaea
+  text [596 96] "another" #eaeaea
+  text [676 96] "form)" #eaeaea
+  text [66 116] "2" #b8b8b8
+  text [86 116] "if" #eaeaea
+  text [116 116] "level" #eaeaea
+  text [176 116] "==" #eaeaea
+  text [206 116] "\"user" #eaeaea
+  text [256 116] "<U+202E>" #f1f1f1
+  text [346 116] "<U+2066>" #f1f1f1
+  text [426 116] "admin" #eaeaea
+  text [476 116] "<U+2069>" #f1f1f1
+  text [566 116] "<U+2066>" #f1f1f1
+  text [646 116] "\"" #eaeaea
+  text [666 116] "{" #eaeaea
+  text [686 116] "grant();" #eaeaea
+  text [776 116] "}" #eaeaea
+  text [66 136] "3" #b8b8b8
+  text [86 136] "a" #eaeaea
+  text [106 136] "zero" #eaeaea
+  text [146 136] "<U+200B>" #f1f1f1
+  text [226 136] "width" #eaeaea
+  text [286 136] "space" #eaeaea
+  text [346 136] "hides" #eaeaea
+  text [406 136] "inside" #eaeaea
+  text [476 136] "this" #eaeaea
+  text [526 136] "word" #eaeaea
+  text [26 596] "NORMAL" #eaeaea bold
+  text [106 596] "main" #eaeaea
+  text [166 596] "hidden.txt" #eaeaea
+  text [676 596] "untrusted" #f1f1f1 bold
+  text [776 596] "utf-8" #eaeaea
+  text [836 596] "LF" #eaeaea
+  text [866 596] "text" #eaeaea
+  text [926 596] "20%" #eaeaea
+  text [976 596] "2:1" #eaeaea bold
+cursor Block [86 76 10 20] #eaeaea

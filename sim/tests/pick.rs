@@ -178,6 +178,7 @@ fn cell(r: &Rig, y: u16, x: u16) -> Paint {
         soft: a.soft || p.soft,
         sealed: a.sealed || p.sealed,
         cue: a.cue.max(p.cue),
+        role: a.role,
     })
 }
 
@@ -233,6 +234,7 @@ fn pick_1_nothing_behind_the_window_changes() {
                     soft: a.soft || p.soft,
                     sealed: a.sealed || p.sealed,
                     cue: a.cue.max(p.cue),
+                    role: a.role,
                 })
             };
             assert_eq!(own(paints), own(&before.1), "paint ({x},{y})");
