@@ -1457,8 +1457,12 @@ pub fn colors_with<'a>(
     refs: Option<&dyn Fn() -> Arc<Refs>>,
 ) -> Colored {
     let (gutter, mut win) = (digits + 2, None);
+    // (the last row is the status line or the command line, which is no line of the text, though `:123`
+    // and a file called `h264.rs` start as a numbered row does)
+    let body = f.rows.len().saturating_sub(1);
     // MD-1: the read view of the lines on screen, if it is on (`read`: the lines drawn as they are)
-    let shown_lines = f.rows.iter().filter_map(|r| number(r, digits)).map(|n| n.saturating_sub(1));
+    let shown_lines =
+        f.rows[..body].iter().filter_map(|r| number(r, digits)).map(|n| n.saturating_sub(1));
     let (first, last) = shown_lines.fold((usize::MAX, 0), |(a, z), n| (a.min(n), z.max(n)));
     let pane = usize::from(f.width).saturating_sub(gutter);
     let read =
@@ -1473,7 +1477,7 @@ pub fn colors_with<'a>(
     let (mut delim, mut framed, mut pipes, mut rule) = (false, false, (0, 0), false);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
-        let starts = number(row, digits).and_then(|n| n.checked_sub(1));
+        let starts = number(row, digits).filter(|_| i < body).and_then(|n| n.checked_sub(1));
         if let Some(l) = starts {
             (cs, sp, ci) = (text(l).unwrap_or_default().chars().collect(), spans(l), 0);
             win = Some((win.map_or(l, |w: (usize, usize)| w.0), l));

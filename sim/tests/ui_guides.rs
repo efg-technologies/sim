@@ -255,3 +255,24 @@ fn ui_6_a_huge_indent_or_a_huge_width_overflows_nothing_and_makes_few_guides() {
         assert!(row.text.chars().count() <= 70, "{skin:?}: the row is a pane wide");
     }
 }
+
+/// The last row of the frame is the status line (or the command line), not a line of the text: a
+/// file called `h264.rs` has a status line that starts like the row of a line 264 (the gutter's
+/// digits are read from the row), and `:123` is a command line that does too. Both were taken for
+/// lines that the one-line buffer does not have, and the guides indexed the rope past its end: sim
+/// died when it opened `h264.rs`, and when `123` was typed after a `:`.
+#[test]
+fn ui_6_the_status_line_and_the_command_line_are_no_lines_of_the_text() {
+    for skin in [Skin::Flat, Skin::Depth] {
+        let mut r = rig_env("ui6-h264", &["h264.rs=int x;\n"], &["h264.rs"], (80, 12), |e| {
+            e.skin = skin;
+            e.chrome = true;
+            e.syn = Syntax::new(true);
+        });
+        r.send(SimEvent::Term(Event::Bg(BG)));
+        for typed in [":123", ":1234", "<Esc>/123", "<Esc>:9", "<Esc>"] {
+            r.keys(typed);
+        }
+        assert_eq!(r.text(), "int x;", "{skin:?}: the text is as it was");
+    }
+}

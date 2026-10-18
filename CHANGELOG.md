@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- sim died with a panic when it opened a file whose name starts with digits that read as a line number (`h264.rs`, `e1000.c`) and when `123` was typed after a `:` or `/` in a file with fewer lines, once the interface was drawn: the status line and the command line were read as numbered lines of the text (UI-6).
 - The breadcrumb in flat's tab bar was drawn as it was given, so a directory named with an escape sequence, or a Markdown heading with one, could reach the terminal (SAFE-8). The parts are now made fit to be drawn like every other row text (U+FFFD for a control, bidirectional or zero-width char) and both places that draw them draw what `fit` gives (UI-18).
 - With the cursor on a Markdown fence line the breadcrumb could name the wrong heading for a frame; the line above now says which fence it is (UI-18).
 - The status line said a non-UTF-8 file's encoding twice (`read-only: not valid UTF-8` in the middle and `not utf-8` at the right); the middle says `read-only` and the right the format (UI-10).
