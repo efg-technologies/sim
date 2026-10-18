@@ -185,7 +185,9 @@ fn tree_1_a_name_that_is_not_utf8_is_listed_but_never_opened_as_another_file() {
 fn tree_1_an_argument_that_is_not_utf8_is_a_usage_error_and_not_a_panic() {
     use std::os::unix::ffi::OsStrExt;
     let arg = std::ffi::OsStr::from_bytes(b"a\xff.txt");
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_sim")).arg(arg).output().unwrap();
+    let home = temp_dir("tree1-arg");
+    let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_sim"));
+    let out = clean_env(&mut c, &home.0).arg(arg).output().unwrap();
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("not valid UTF-8") && !err.contains("panicked"), "{err}");
     assert_eq!(out.status.code(), Some(2), "a usage error, as for any argument sim cannot use");

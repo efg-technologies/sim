@@ -39,6 +39,27 @@ fn vis_4_a_quit_at_startup_asks_for_no_color() {
     assert_eq!((m["queried_quit"], m["queried_open"]), (0.0, 1.0), "+q asks, or a start does not");
 }
 
+/// COLOR-2 on the real binary in a pty (scripts/pty_bench.py --no-term): a start where TERM is unset
+/// (a CI runner has none; sim does not guess one) cannot be told to do 8 colors, so it draws none and
+/// asks the terminal for none (VIS-4's OSC 11 query), `+q` or not; a quit then waits for no answer, not
+/// even the 100 ms it allows a terminal that was asked and said nothing.
+#[test]
+fn color_2_a_start_with_no_term_asks_the_terminal_nothing_and_a_quit_waits_for_none() {
+    let dir = temp_dir("color2-noterm");
+    let file = dir.0.join("f.rs");
+    std::fs::write(&file, code_text(20, 40)).unwrap();
+    let file = file.to_str().unwrap();
+    let m = pty_bench(&["--no-term", "asks", SIM, file]).unwrap();
+    assert_eq!((m["queried_quit"], m["queried_open"]), (0.0, 0.0), "it asked with TERM unset");
+    if cfg!(target_os = "linux") {
+        let m = pty_bench(&["--no-term", "firstframe", SIM, file]).unwrap();
+        assert_eq!(m["colored"], 0.0, "the first frame is in color, though TERM is unset");
+    }
+    let m = pty_bench(&["--no-term", "quit", SIM, file, "silent"]).unwrap();
+    let ms = m["quit_ms"];
+    assert!(ms < 90.0, "a quit waited {ms:.1} ms for a terminal it did not ask");
+}
+
 /// The real binary in a pty (scripts/pty_bench.py quitnow): a quit at startup was never answered by
 /// a terminal because it never asked, so it does not wait the 100 ms the bound allows (VIS-4). A
 /// start that did ask and was not answered (the case above) is the one that waits.
@@ -85,10 +106,13 @@ import os, pty, sys, time, select, struct, fcntl, termios, signal
 exe, f, payload = sys.argv[1], sys.argv[2], sys.argv[3].encode().decode('unicode_escape').encode('latin1')
 pid, fd = pty.fork()
 if pid == 0:
-    os.environ['TERM'] = 'xterm-256color'
-    os.environ['XDG_STATE_HOME'] = os.path.dirname(f)
+    # the child's own environment: nothing of the terminal this runs in (TERM_PROGRAM, COLORTERM, TMUX...)
+    here = os.path.dirname(f)
+    env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'HOME': here, 'XDG_STATE_HOME': here,
+           'TERM': 'xterm-256color', 'LANG': 'en_US.UTF-8',
+           'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_SYSTEM': '/dev/null'}
     args = exe.split()
-    os.execv(args[0], args + [f])
+    os.execve(args[0], args + [f], env)
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
 def drain(t):
     end = time.time() + t

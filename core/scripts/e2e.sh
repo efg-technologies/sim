@@ -13,9 +13,14 @@
 # This never touches the user's tmux: every case starts its own tmux server on its own socket
 # (-L sim-e2e-<pid>), so options and paste buffers set by one case never reach another. It reads no
 # config (-f /dev/null) and sets escape-time to 0, so tmux itself never delays an Escape.
-# Each case also gets its own HOME and XDG_STATE_HOME, and sim gets none of the variables of the terminal
-# this runs in (COLORTERM, NO_COLOR, TERM_PROGRAM, and what Ghostty, kitty and WezTerm set), so a case
-# is the same in a developer's Ghostty and on a CI runner. The hint of ICON-1 counts as given.
+# Each case also gets its own HOME and XDG_STATE_HOME, and sim runs in an environment of its own (`env -i`:
+# PATH, HOME, the state directory, tmux's TERM and TMUX, a UTF-8 LANG, no git configuration), none of the
+# variables of the terminal this runs in (COLORTERM, NO_COLOR, TERM_PROGRAM, and what Ghostty, kitty and
+# WezTerm set), so a case is the same in a developer's Ghostty and on a CI runner. The hint of ICON-1
+# counts as given.
+#
+# A case that fails says which of its lines did, and the command as it ran: it runs traced (set -x), and the
+# last command of the case in the trace is the one (scripts/e2e-lib.sh).
 #
 #   SIM_E2E_KEEP=DIR   a case that fails leaves what it saw in DIR/<case>.txt: the screen, the screen with
 #                      its escape sequences made visible, and the names in the state directory (CI uploads it)
@@ -40,6 +45,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SELF=$ROOT/core/scripts/e2e.sh
+. "$ROOT/scripts/e2e-lib.sh"
 SOCKET=sim-e2e
 COLS=80
 ROWS=24
@@ -60,7 +66,10 @@ start() {
   if [ -d "$XDG_STATE_HOME" ] && [ ! -e "$XDG_STATE_HOME/sim/icons-hint" ]; then
     mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"
   fi
-  cmd="cd $(shq "$CASE_DIR") && env -u COLORTERM -u NO_COLOR -u TERM_PROGRAM -u GHOSTTY_RESOURCES_DIR -u KITTY_PID -u WEZTERM_PANE HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") $(shq "$SIM_BIN")"
+  # sim's environment is the case's own (`env -i`): nothing of the terminal this runs in (COLORTERM, NO_COLOR,
+  # TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_*, a locale) and no git configuration. Only PATH is the caller's;
+  # TERM and TMUX are tmux's own (the pane's: this tmux sets them, whatever the user's terminal is).
+  cmd="cd $(shq "$CASE_DIR") && env -i PATH=$(shq "$PATH") HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") TERM=\"\$TERM\" TMUX=\"\$TMUX\" TMUX_PANE=\"\$TMUX_PANE\" LANG=en_US.UTF-8 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
   # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after si exits.
@@ -171,6 +180,7 @@ run_one() {
   mkdir -p "$HOME" "$XDG_STATE_HOME"
   export CASE_DIR SESSION HOME XDG_STATE_HOME
   trap 'status=$?
+        set +x
         if [ "$status" -ne 0 ] && tm has-session -t "$SESSION" 2> /dev/null; then
           echo "---- screen at failure ----"
           screen
@@ -183,13 +193,7 @@ run_one() {
         # a killed server leaves its socket file behind: remove it, or /tmp/tmux-UID fills up
         rm -f "${sock:-${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$SOCKET}"
         # si saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
-        for pid in $panes; do
-          tries=100
-          while { pgrep -s "$pid" > /dev/null 2>&1 || kill -0 -- "-$pid" 2> /dev/null; } && [ "$tries" -gt 0 ]; do
-            sleep 0.05
-            tries=$((tries - 1))
-          done
-        done
+        until_gone $panes
         # a process on its way out can still add a file while rm empties a directory ("Directory not
         # empty", seen on macOS): rm again, which finds it empty once the process is gone
         tries=40
@@ -197,10 +201,9 @@ run_one() {
           sleep 0.05
           tries=$((tries - 1))
         done
-        rm -rf "$CASE_DIR"
+        rm -rf "$CASE_DIR" "$CASE_DIR.case"
         exit "$status"' EXIT
   trap 'exit 130' HUP INT TERM
-  "$name"
 }
 
 cases() {
@@ -209,11 +212,6 @@ cases() {
 
 # Build, then run the cases one by one. Called on the last line, after all cases are defined.
 main() {
-  if [ "${1:-}" = "--run-one" ]; then
-    run_one "$2"
-    exit 0
-  fi
-
   filter=${1:-}
   selected=
   for name in $(cases); do
@@ -260,7 +258,8 @@ main() {
       passed=$((passed + 1))
     else
       echo "FAIL  $name"
-      sed 's/^/      /' "$log"
+      { grep -a -v -E '^\++@@ [0-9]+: ' "$log" || true; where_failed "$log" "$SELF" "$name"; } | sed 's/^/      /'
+      keep_trace "$log" "$SELF" "$name"
       failed=$((failed + 1))
     fi
     rm -f "$log"
@@ -289,8 +288,12 @@ wrap() {
   chmod +x "$SIM_BIN"
 }
 
+# Ends the session and waits for si to be gone: it saves its unsaved text, its place and its choices when tmux
+# hangs it up (SAFE-6, CLI-6), and what the next `start` reads is what it left.
 restart() {
+  panes=$(tm list-panes -t "$SESSION" -F "#{pane_pid}" 2> /dev/null || true)
   tm kill-session -t "$SESSION"
+  until_gone $panes
   rm -f "$CASE_DIR/.exit_code"
 }
 
@@ -1268,5 +1271,15 @@ state_1_what_si_kept_is_copied_into_sims_state_directory_and_si_is_left_alone() 
   wait_for "exit=0"
   [ "$(cd "$XDG_STATE_HOME/si" && cksum -- * | sort)" = "$old" ]
 }
+
+# A case runs in a process of its own, traced (scripts/e2e-lib.sh says how and why).
+if [ "${1:-}" = "--run-one" ]; then
+  run_one "$2"
+  case_body "$SELF" "$2" > "$CASE_DIR.case"
+  PS4='+@@ $LINENO: '
+  set -x
+  . "$CASE_DIR.case"
+  exit 0
+fi
 
 main "$@"

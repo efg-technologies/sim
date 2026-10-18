@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The frame says what the guard did to a repository: where git is not run for the repository's config the tree's box says `git not run` in the alert's block (in flat, the tree's header does) and the lines of both boxes are the alert's, and where git runs with settings of the repository's own turned off (the monitor, the hooks path, an external diff, a text conversion, a filter) it says `n git settings off`; a narrow panel gets a shorter form. The status line names the first setting once, and `<Space>gi` says again why git was not run or which settings were turned off (GIT-5).
 - The lines another process has just written into the open file are lit for 400 ms, the whole text of each in the change's green as a solid block, bold (bold on inverse with no color), and are then marked as they were (UI-19). The core lists the lines a merge marked (`App::wrote`, one field).
 - A Markdown link whose text looks like an address that its target is not (`[https://good.example](https://evil.example)`, a host or a path that differs, or a `javascript:`, `data:` or `vbscript:` target) has its target drawn on the alert's block in the raw line and in the read view, which hides no bracket, text or URL of a link (MD-10).
+- `<Space>bk` says again where the version that `:w!` or `:e!` gave up was copied, alone on the status line (a path wider than the line is cut from the left, so the file's name stays), as `<Space>gi` does for the guard (SAFE-7).
 
 ### Changed
 
@@ -29,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - sim died with a panic when it opened a file whose name starts with digits that read as a line number (`h264.rs`, `e1000.c`) and when `123` was typed after a `:` or `/` in a file with fewer lines, once the interface was drawn: the status line and the command line were read as numbered lines of the text (UI-6).
+- The message after `:w!` or `:e!` ended in the copy's absolute path, which a long state directory or a macOS `$TMPDIR` pushed off the line: it is now told as a shell takes it, `~/.local/state/sim/a.rs.1.disk` below the home directory, and `<Space>bk` says it again (SAFE-7).
 - The breadcrumb in flat's tab bar was drawn as it was given, so a directory named with an escape sequence, or a Markdown heading with one, could reach the terminal (SAFE-8). The parts are now made fit to be drawn like every other row text (U+FFFD for a control, bidirectional or zero-width char) and both places that draw them draw what `fit` gives (UI-18).
 - With the cursor on a Markdown fence line the breadcrumb could name the wrong heading for a frame; the line above now says which fence it is (UI-18).
 - The status line said a non-UTF-8 file's encoding twice (`read-only: not valid UTF-8` in the middle and `not utf-8` at the right); the middle says `read-only` and the right the format (UI-10).

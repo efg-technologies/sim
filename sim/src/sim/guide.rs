@@ -81,6 +81,7 @@ impl Sim {
             (Some("g"), 'e') => self.changes_key(out),
             (Some("g"), 'i') => self.guard_key(),
             (Some("b"), 'p' | 'c') => self.tab_pick(c == 'c', out),
+            (Some("b"), 'k') => self.kept_key(),
             _ => {}
         }
     }
@@ -100,6 +101,14 @@ impl Sim {
             }
             (None, true) => "git: nothing of this repository's config is turned off".into(),
         });
+    }
+
+    /// SAFE-7: `<Space>bk` says again where the version that `:w!` or `:e!` gave up went, alone on the line;
+    /// a path wider than the line is cut from the left, so that the file's name stays.
+    fn kept_key(&mut self) {
+        let room = usize::from(self.size.0).saturating_sub(8); // (BUF-2's position, `  12/34`, follows a message)
+        let said = self.kept.as_deref().map(|p| layout::tail(p, room));
+        self.msg = Some(said.unwrap_or_else(|| "no other version was kept".into()));
     }
 
     /// MD-5, MD-6: `<Space>um` turns the read view of Markdown on and off for every file, and the

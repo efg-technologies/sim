@@ -108,6 +108,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 | `<Space>` | tecla líder |
 | `<Space>bp` | elegir una pestaña por letra |
 | `<Space>bc` | elegir una pestaña para cerrarla |
+| `<Space>bk` | dónde fue la versión que se dejó (`:w!`, `:e!`) |
 | `<Space>ge` | ver los cambios respecto a HEAD |
 | `<Space>gi` | qué hizo la protección con este repositorio |
 | `<Space>um` | vista de lectura de Markdown activada/desactivada |

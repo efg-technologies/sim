@@ -355,6 +355,8 @@ pub struct Sim {
     off: Vec<String>,
     /// GIT-5: why git was not run (the message of its first refusal), for `<Space>gi`.
     why: Option<String>,
+    /// SAFE-7: where the version that `:w!` or `:e!` gave up went, for `<Space>bk`.
+    kept: Option<String>,
     /// MD-10: the reference links of the Markdown file shown, for the file and the version of its text.
     refs: RefCell<Option<(Id, u64, Arc<lie::Refs>)>>,
     disk: HashSet<PathBuf>,
@@ -637,6 +639,12 @@ impl Sim {
             SimEvent::Mouse(m) if self.panel.live.is_none() => self.mouse(m, &mut out),
             SimEvent::Mouse(_) => {}
             SimEvent::BackTab => self.step(self.bufs.len().saturating_sub(1), &mut out),
+            SimEvent::App(id, Event::Kept(Ok(at))) => {
+                // SAFE-7: told as a shell takes it (`~/...` below the home), and kept for `<Space>bk`
+                let at = tilde(Path::new(&at), self.home.as_deref());
+                self.kept = Some(at.clone());
+                self.to(id, Event::Kept(Ok(at)), &mut out);
+            }
             SimEvent::App(id, e) => self.to(id, e, &mut out),
             SimEvent::Notice(m) => self.msg = Some(m),
             SimEvent::Tick(n) => {

@@ -14,7 +14,8 @@ use std::path::Path;
 use std::process::Command;
 
 fn tool(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_gui-shots")).args(args).output().unwrap()
+    // (an environment of its own: nothing of the terminal the tests run in)
+    Command::new(env!("CARGO_BIN_EXE_gui-shots")).env_clear().args(args).output().unwrap()
 }
 
 #[test]

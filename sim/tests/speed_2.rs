@@ -32,12 +32,17 @@ fn big_repo() -> TempDir {
 }
 
 /// Runs `cmd` under a pty of 80x24 and returns the time until `marker` was written.
-fn first_output(dir: &std::path::Path, cmd: &str, marker: &str, env: &[(&str, &str)]) -> Duration {
+fn first_output(
+    dir: &std::path::Path,
+    cmd: &str,
+    marker: &str,
+    home: &std::path::Path,
+) -> Duration {
     let t = Instant::now();
-    let mut child = Command::new("script")
+    let mut child = Command::new("script");
+    let mut child = clean_env(&mut child, home)
         .args(["-qfec", &format!("stty rows 24 cols 80; {cmd}"), "/dev/null"])
         .current_dir(dir)
-        .envs(env.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -89,19 +94,14 @@ fn speed_2_bench_first_frame_in_a_repository_of_100000_files() {
     // a baseline run with a `printf` in place of sim shows.
     let bin = env!("CARGO_BIN_EXE_sim");
     let state = temp_dir("speed-2-state");
-    let env = [
-        ("HOME", state.0.to_str().unwrap()),
-        ("XDG_STATE_HOME", state.0.to_str().unwrap()),
-        ("COLORTERM", ""),
-    ];
     let median = |f: &dyn Fn() -> Duration| {
         let mut v: Vec<Duration> = (0..15).map(|_| f()).collect();
         v.sort();
         v[v.len() / 2]
     };
     let base =
-        median(&|| first_output(&d.0, "printf 'Ctrl-n  tree'; sleep 1", "Ctrl-n  tree", &env));
-    let sim = median(&|| first_output(&d.0, &format!("exec {bin}"), "Ctrl-n  tree", &env));
+        median(&|| first_output(&d.0, "printf 'Ctrl-n  tree'; sleep 1", "Ctrl-n  tree", &state.0));
+    let sim = median(&|| first_output(&d.0, &format!("exec {bin}"), "Ctrl-n  tree", &state.0));
     println!("SPEED-2: {FILES} files");
     println!("  before the first frame, in process:      {in_process:.2?}");
     println!(

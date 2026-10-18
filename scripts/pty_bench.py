@@ -29,6 +29,10 @@ script plays the terminal on the other side of it (class Terminal).
                                       `quit_ms` the time from `:q` to the exit, `owed_ms` the time from
                                       `:q` to the last answer that was due (what a quit has to wait for)
 
+Any of them may be given `--no-term` first (`pty_bench.py --no-term asks BIN FILE`): the child then has
+no TERM, as on a CI runner (COLOR-2: it asks the terminal for no color). The rest of the child's
+environment is the script's own, never the caller's.
+
 Prints key=value lines (times in ms, memory in kB) after a readable summary on stderr.
 Used by scripts/bench.sh and sim/tests/{perf_1,perf_5,pty,hl}.rs. Standard library only.
 """
@@ -51,14 +55,26 @@ import time
 # si's places and snapshots (SAFE-6, CLI-6) go to a directory of its own, never to the user's.
 STATE = tempfile.mkdtemp(prefix="sim-bench-state.")
 # ICON-1: where no Nerd Font is known (Terminal.app, a CI runner: anywhere but Ghostty, kitty and
-# WezTerm, whose variables this script may have inherited) sim says `zi: icons (needs a Nerd Font)` in
-# place of the status line's text until the first key, once. Every run here looks for NORMAL on that
-# line, so the hint counts as given: the runs are the same in a developer's terminal and on a runner.
+# WezTerm) sim says `zi: icons (needs a Nerd Font)` in place of the status line's text until the first
+# key, once. Every run here looks for NORMAL on that line, so the hint counts as given.
 os.mkdir(os.path.join(STATE, "sim"), 0o700)
 with open(os.path.join(STATE, "sim", "icons-hint"), "w") as marker:
     marker.write("shown\n")
-ENV = dict(os.environ, HOME=STATE, XDG_STATE_HOME=STATE)
 atexit.register(shutil.rmtree, STATE, True)
+
+# The environment of the child is its own, never the caller's: a developer's terminal sets TERM,
+# COLORTERM, TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_* and TMUX, which change what sim does (COLOR-2,
+# ICON-1), and a CI runner sets no TERM at all, so the runs would differ between the two. Only PATH comes
+# from the caller (the programs sim runs). `--no-term` is a terminal without TERM, as a CI runner has.
+ENV = {
+    "HOME": STATE,
+    "XDG_STATE_HOME": STATE,
+    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+    "TERM": "xterm-256color",
+    "LANG": "en_US.UTF-8",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_SYSTEM": "/dev/null",
+}
 
 
 def open_pty():
@@ -342,6 +358,9 @@ def firstframe(binary, path):
 
 
 def main(argv):
+    if "--no-term" in argv:
+        argv = [a for a in argv if a != "--no-term"]
+        del ENV["TERM"]
     if len(argv) >= 4 and argv[1] == "startup":
         startup(argv[2], argv[3], int(argv[4]) if len(argv) > 4 else 200)
     elif len(argv) == 4 and argv[1] == "rss":

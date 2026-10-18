@@ -108,6 +108,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `<Space>` | leader 鍵 |
 | `<Space>bp` | 以字母選擇分頁 |
 | `<Space>bc` | 選擇要關閉的分頁 |
+| `<Space>bk` | 被 `:w!` 或 `:e!` 放棄的版本存放在哪裡 |
 | `<Space>ge` | 顯示相對於 HEAD 的變更 |
 | `<Space>gi` | 防護對這個儲存庫做了什麼 |
 | `<Space>um` | 開關 Markdown 閱讀檢視 |

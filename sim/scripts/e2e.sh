@@ -11,7 +11,12 @@
 # This never touches the user's tmux: every case starts its own tmux server on its own socket
 # (-L sim-e2e-<pid>), so options and paste buffers set by one case never reach another. It reads no
 # config (-f /dev/null) and sets escape-time to 0, so tmux itself never delays an Escape.
-# Each case also gets its own HOME and XDG_STATE_HOME.
+# Each case also gets its own HOME and XDG_STATE_HOME, and sim runs in an environment of its own (`env -i`:
+# PATH, HOME, the state directory, tmux's TERM and TMUX, a UTF-8 LANG, no git configuration, and what the
+# case asks for below), none of the variables of the terminal this runs in.
+#
+# A case that fails says which of its lines did, and the command as it ran: it runs traced (set -x), and the
+# last command of the case in the trace is the one (scripts/e2e-lib.sh).
 #
 # Helpers (available inside a case):
 #   start [args...]    run sim in a detached 80x24 session, in the case's temp directory
@@ -53,6 +58,7 @@ set -eu
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 SELF=$HERE/scripts/e2e.sh
+. "$ROOT/scripts/e2e-lib.sh"
 SOCKET=sim-e2e
 COLS=80
 ROWS=24
@@ -90,7 +96,10 @@ start() {
   [ -n "${HINTED:-}" ] || [ -e "$XDG_STATE_HOME/sim/icons-hint" ] || { mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"; }
   # KEY-6: Tab is learned (three uses) unless a case wants the hint for a second file
   [ -n "${HINT_TAB:-}" ] || [ -e "$XDG_STATE_HOME/sim/tab-uses" ] || { mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo 3 > "$XDG_STATE_HOME/sim/tab-uses"; }
-  cmd="cd $(shq "$W") && env -u COLORTERM -u NO_COLOR -u TERM_PROGRAM -u GHOSTTY_RESOURCES_DIR -u KITTY_PID -u WEZTERM_PANE HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") ${CT:+COLORTERM=$CT} ${NOCOLOR:+NO_COLOR=$NOCOLOR} ${TP:+TERM_PROGRAM=$TP} ${SIM_PATH:+PATH=$(shq "$SIM_PATH")} $(shq "$SIM_BIN")"
+  # sim's environment is the case's own (`env -i`): nothing of the terminal this runs in (COLORTERM, NO_COLOR,
+  # TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_*, a locale) and no git configuration. Only PATH is the caller's
+  # (or $SIM_PATH); TERM and TMUX are tmux's own (the pane's: this tmux sets them, whatever the user's terminal is).
+  cmd="cd $(shq "$W") && env -i PATH=$(shq "${SIM_PATH:-$PATH}") HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") TERM=\"\$TERM\" TMUX=\"\$TMUX\" TMUX_PANE=\"\$TMUX_PANE\" LANG=en_US.UTF-8 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null ${CT:+COLORTERM=$CT} ${NOCOLOR:+NO_COLOR=$NOCOLOR} ${TP:+TERM_PROGRAM=$TP} $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
   # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after sim exits.
@@ -151,6 +160,33 @@ wait_for() {
   return 1
 }
 
+# The last row of the screen that has text (the bar, the status line) contains TEXT. What the bar says comes
+# when it is known (the branch with git's status, the changes with its diff), not with the first frame.
+wait_last() {
+  tries=$((${2:-5} * 20))
+  while [ "$tries" -gt 0 ]; do
+    if screen 2> /dev/null | grep -v '^$' | tail -1 | grep -F -q -- "$1"; then return 0; fi
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+  echo "timed out waiting for the last row of the screen to contain: $1" >&2
+  echo "it is: $(screen | grep -v '^$' | tail -1)" >&2
+  return 1
+}
+
+# A row of the screen that has TEXT has PATTERN (a basic regex) too: what a row says comes in pieces (the
+# letter of git at the end of a name, when git's status is there).
+wait_row() {
+  tries=$((${3:-5} * 20))
+  while [ "$tries" -gt 0 ]; do
+    if screen 2> /dev/null | grep -F -- "$1" | grep -q -- "$2"; then return 0; fi
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+  echo "timed out waiting for a row with $1 to have: $2" >&2
+  return 1
+}
+
 # The screen stops containing TEXT.
 wait_gone() {
   tries=$((${2:-5} * 20))
@@ -184,6 +220,18 @@ wait_content() {
     tries=$((tries - 1))
   done
   echo "timed out waiting for $1 to hold: $2 (it holds: $(cat "$1"))" >&2
+  return 1
+}
+
+# The journal (the state directory) holds TEXT: a snapshot is written by a tick, behind the disk.
+wait_journal() {
+  tries=200
+  while [ "$tries" -gt 0 ]; do
+    if grep -a -r -l -F -- "$1" "$XDG_STATE_HOME/sim" > /dev/null 2>&1; then return 0; fi
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+  echo "timed out waiting for the journal to hold: $1" >&2
   return 1
 }
 
@@ -225,6 +273,7 @@ run_one() {
   mkdir -p "$HOME" "$XDG_STATE_HOME" "$W"
   export CASE_DIR SESSION HOME XDG_STATE_HOME W
   trap 'status=$?
+        set +x
         if [ "$status" -ne 0 ] && tm has-session -t "$SESSION" 2> /dev/null; then
           echo "---- screen at failure ----"
           screen
@@ -237,13 +286,7 @@ run_one() {
         # tmux leaves its socket behind when the server is killed: one file for every case, for ever
         rm -f "${sock:-${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$SOCKET}"
         # sim saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
-        for pid in $panes; do
-          tries=100
-          while { pgrep -s "$pid" > /dev/null 2>&1 || kill -0 -- "-$pid" 2> /dev/null; } && [ "$tries" -gt 0 ]; do
-            sleep 0.05
-            tries=$((tries - 1))
-          done
-        done
+        until_gone $panes
         # a process on its way out can still add a file while rm empties a directory ("Directory not
         # empty", seen on macOS): rm again, which finds it empty once the process is gone
         tries=40
@@ -251,10 +294,9 @@ run_one() {
           sleep 0.05
           tries=$((tries - 1))
         done
-        rm -rf "$CASE_DIR"
+        rm -rf "$CASE_DIR" "$CASE_DIR.case"
         exit "$status"' EXIT
   trap 'exit 130' HUP INT TERM
-  "$name"
 }
 
 cases() {
@@ -263,11 +305,6 @@ cases() {
 
 # Build, then run the cases one by one. Called on the last line, after all cases are defined.
 main() {
-  if [ "${1:-}" = "--run-one" ]; then
-    run_one "$2"
-    exit 0
-  fi
-
   filter=${1:-}
   selected=
   for name in $(cases); do
@@ -304,7 +341,8 @@ main() {
       passed=$((passed + 1))
     else
       echo "FAIL  $name"
-      sed 's/^/      /' "$log"
+      { grep -a -v -E '^\++@@ [0-9]+: ' "$log" || true; where_failed "$log" "$SELF" "$name"; } | sed 's/^/      /'
+      keep_trace "$log" "$SELF" "$name"
       failed=$((failed + 1))
     fi
     rm -f "$log"
@@ -343,8 +381,12 @@ wrap() {
   chmod +x "$SIM_BIN"
 }
 
+# Ends the session and waits for sim to be gone: it saves its unsaved text, its place and its choices when tmux
+# hangs it up (SAFE-6, CLI-6), and what the next `start` reads is what it left.
 restart() {
+  panes=$(tm list-panes -t "$SESSION" -F "#{pane_pid}" 2> /dev/null || true)
   tm kill-session -t "$SESSION"
+  until_gone $panes
   rm -f "$CASE_DIR/.exit_code"
 }
 
@@ -513,7 +555,7 @@ buf_1_two_files_are_edited_switched_with_tab_saved_with_wa_and_closed_with_qa() 
   keys Enter
   wait_content "$W/src/lib.rs" "fn lib() {} // LIB"
   wait_content "$W/src/main.rs" "fn main() {} // MAIN"
-  gone modified
+  wait_gone modified # (the save is told after the file is written and synced)
   typed ":qa"
   keys Enter
   wait_exit
@@ -586,8 +628,10 @@ buf_1_kill_9_leaves_a_snapshot_for_every_modified_file() {
   wrap
   start src/lib.rs
   two_files_modified
-  sleep 1.5 # a tick has surely come
-  kill -9 "$(cat "$CASE_DIR/sim.pid")"
+  wait_journal "// MAIN" # a tick writes the snapshots, behind the disk
+  wait_journal "// LIB"
+  killed=$(cat "$CASE_DIR/sim.pid")
+  kill -9 "$killed"
   wait_for "exit=137"
   restart
   start src/lib.rs
@@ -602,7 +646,8 @@ buf_1_kill_9_leaves_a_snapshot_for_every_modified_file() {
   typed ":qa!"
   keys Enter
   wait_for "exit=0"
-  [ -z "$(journal_left)" ] # discarding forgot them
+  # discarding forgot them (but a tick that the kill cut in the middle of a write leaves its temporary file, as a kill does)
+  [ -z "$(journal_left | grep -v -- "-$killed.tmp$" || true)" ]
 }
 
 buf_1_sigterm_snapshots_every_modified_file() {
@@ -1459,7 +1504,7 @@ look_1_zl_cycles_the_looks_and_the_choice_is_the_next_runs() {
   typed ":q"
   keys Enter
   wait_exit
-  [ "$(cat "$XDG_STATE_HOME/sim/look")" = flat ]
+  wait_content "$XDG_STATE_HOME/sim/look" flat
   restart
   start a.txt
   wait_for "a.txt  1:1  NORMAL"
@@ -1585,14 +1630,14 @@ ui_3_the_tree_shows_the_home_relative_root_icons_git_letters_and_zi_turns_icons_
   wait_for "~/work" # the root, below $HOME (the case's)
   closed=$(printf '\357\201\273') # U+F07B, the closed folder of Nerd Fonts
   screen | grep -F 'docs' | grep -q "$closed"
-  screen | grep -F 'docs' | grep -q 'U *│' # something below it is new: the letter of the strongest status
-  screen | grep -F 'src' | grep -q 'M *│'
+  wait_row docs 'U *│' # something below it is new: the letter of the strongest status (git's status comes after the first frame)
+  wait_row src 'M *│'
   typed l # docs/ opens
   wait_for "new.md"
-  screen | grep -F 'new.md' | grep -q 'U *│' # the letter of git at the right edge of the panel
+  wait_row new.md 'U *│' # the letter of git at the right edge of the panel
   typed jjjl # src/
   wait_for "lib.rs"
-  screen | grep -F 'lib.rs' | grep -q 'M *│'
+  wait_row lib.rs 'M *│'
   # The text has the focus once a file is open: `zi` turns the icons off and on.
   typed jl
   wait_for "NORMAL"
@@ -1600,11 +1645,11 @@ ui_3_the_tree_shows_the_home_relative_root_icons_git_letters_and_zi_turns_icons_
   wait_for "icons off"
   ! screen | grep -q "$closed"
   screen | grep -F -q "▸ target/"
-  [ "$(cat "$XDG_STATE_HOME/sim/icons")" = off ]
+  wait_content "$XDG_STATE_HOME/sim/icons" off # (the journal thread saves the choice after the message, behind a disk)
   typed zi
   wait_for "icons on"
   screen | grep -q "$closed"
-  [ "$(cat "$XDG_STATE_HOME/sim/icons")" = on ]
+  wait_content "$XDG_STATE_HOME/sim/icons" on
 }
 
 ui_5_the_numbers_are_relative_the_cursors_line_is_lit_and_insert_mode_has_a_surface() {
@@ -1665,8 +1710,9 @@ ui_10_the_status_line_is_a_bar_with_the_mode_the_branch_the_file_and_the_positio
   reply '11;rgb:1e1e/1e1e/1e1e'
   branch=$(git -C "$W" symbolic-ref --short HEAD)
   sep=$(printf '\356\202\260') # U+E0B0, powerline's separator
-  tries=100
-  while ! screen | tail -1 | grep -q "$sep" && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  wait_last "$sep"
+  wait_last "$branch" # (git's status comes after the first frame, and so does its diff: the bar shows each when it is there)
+  wait_last "~1"
   last() { screen | grep -v '^$' | tail -1; }
   last | grep -q "NORMAL"
   last | grep -q "$branch"
@@ -2075,7 +2121,7 @@ icon_1_the_icons_start_off_with_a_hint_once_and_the_remembered_choice_wins() {
   wait_for "NORMAL"
   typed "zi"
   wait_for "icons off"
-  [ "$(cat "$XDG_STATE_HOME/sim/icons")" = off ]
+  wait_content "$XDG_STATE_HOME/sim/icons" off
   typed ":qa"
   keys Enter
   wait_exit
@@ -2427,14 +2473,14 @@ md_5_space_u_m_toggles_the_read_view_and_the_choice_is_remembered() {
   typed m
   wait_for "markdown: raw"
   screen | grep -F -q "Second **line** here."
-  [ "$(cat "$XDG_STATE_HOME/sim/md")" = off ]
+  wait_content "$XDG_STATE_HOME/sim/md" off
   restart
   start README.md
   wait_for "Second **line** here."
   typed " um"
   wait_for "markdown: read view"
   wait_for "Second line here." # (the highlighter's answer may be a moment behind the key)
-  [ "$(cat "$XDG_STATE_HOME/sim/md")" = on ]
+  wait_content "$XDG_STATE_HOME/sim/md" on
   typed ":help"
   keys Enter
   wait_for "Help · keys and commands"
@@ -2807,5 +2853,15 @@ md_10_a_definition_in_a_quote_raw_html_and_a_line_of_a_megabyte() {
   keys j
   wait_for "NORMAL" # (sim answers with the line of a megabyte under the cursor)
 }
+
+# A case runs in a process of its own, traced (scripts/e2e-lib.sh says how and why).
+if [ "${1:-}" = "--run-one" ]; then
+  run_one "$2"
+  case_body "$SELF" "$2" > "$CASE_DIR.case"
+  PS4='+@@ $LINENO: '
+  set -x
+  . "$CASE_DIR.case"
+  exit 0
+fi
 
 main "$@"

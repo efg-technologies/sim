@@ -108,6 +108,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `<Space>` | leader 键 |
 | `<Space>bp` | 按字母选择标签页 |
 | `<Space>bc` | 选择要关闭的标签页 |
+| `<Space>bk` | 被 `:w!` 或 `:e!` 放弃的版本保存在哪里 |
 | `<Space>ge` | 显示相对于 HEAD 的改动 |
 | `<Space>gi` | 防护对这个仓库做了什么 |
 | `<Space>um` | 开关 Markdown 阅读视图 |

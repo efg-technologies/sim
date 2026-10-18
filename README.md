@@ -108,6 +108,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `<Space>` | leader |
 | `<Space>bp` | pick a tab by letter |
 | `<Space>bc` | pick a tab to close |
+| `<Space>bk` | where the version a save or reload gave up went (`:w!`, `:e!`) |
 | `<Space>ge` | changes from HEAD |
 | `<Space>gi` | what the guard did to this repository |
 | `<Space>um` | markdown read view on/off |

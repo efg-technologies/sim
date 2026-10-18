@@ -108,6 +108,7 @@ Rust 1.88 以降が必要です。Linux と macOS の任意の端末で動き、
 | `<Space>` | リーダー |
 | `<Space>bp` | 文字でタブを選ぶ |
 | `<Space>bc` | 文字で閉じるタブを選ぶ |
+| `<Space>bk` | `:w!` や `:e!` で退けた側の版の保存先 |
 | `<Space>ge` | HEAD からの変更を表示 |
 | `<Space>gi` | このリポジトリに対して防御が行ったこと |
 | `<Space>um` | Markdown 閲覧ビューのオン・オフ |

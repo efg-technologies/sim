@@ -108,6 +108,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 | `<Space>` | Leader-Taste |
 | `<Space>bp` | Tab per Buchstabe wählen |
 | `<Space>bc` | Tab zum Schließen wählen |
+| `<Space>bk` | wohin die aufgegebene Version ging (`:w!`, `:e!`) |
 | `<Space>ge` | Änderungen gegenüber HEAD anzeigen |
 | `<Space>gi` | was die Schutzschicht mit diesem Repository getan hat |
 | `<Space>um` | Markdown-Leseansicht an/aus |

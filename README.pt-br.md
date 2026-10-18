@@ -108,6 +108,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `<Space>` | líder |
 | `<Space>bp` | escolher uma aba por letra |
 | `<Space>bc` | escolher uma aba para fechar |
+| `<Space>bk` | para onde foi a versão deixada de lado (`:w!`, `:e!`) |
 | `<Space>ge` | ver as mudanças em relação ao HEAD |
 | `<Space>gi` | o que a proteção fez com este repositório |
 | `<Space>um` | visualização de leitura de Markdown ligada ou desligada |

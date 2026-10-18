@@ -1,15 +1,14 @@
 //! CLI-7: `sim --version` and `sim --help` print and exit 0, an unknown flag prints the usage to
 //! stderr and exits 2, and none of them touches the terminal: no raw mode, no query, no escape.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
+mod common;
+use common::{clean_env, temp_dir};
 use std::process::{Command, Output, Stdio};
 
 fn sim(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_sim"))
-        .args(args)
-        .stdin(Stdio::null())
-        .env_remove("NO_COLOR")
-        .output()
-        .unwrap()
+    let home = temp_dir("cli7");
+    let mut c = Command::new(env!("CARGO_BIN_EXE_sim"));
+    clean_env(&mut c, &home.0).args(args).stdin(Stdio::null()).output().unwrap()
 }
 
 fn text(b: &[u8]) -> String {

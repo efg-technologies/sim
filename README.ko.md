@@ -108,6 +108,7 @@ Rust 1.88 이상이 필요합니다. Linux와 macOS의 아무 터미널에서나
 | `<Space>` | 리더 |
 | `<Space>bp` | 글자로 탭 고르기 |
 | `<Space>bc` | 탭을 골라 닫기 |
+| `<Space>bk` | `:w!` 또는 `:e!`로 내준 버전이 간 곳 |
 | `<Space>ge` | HEAD 기준 변경 사항 보기 |
 | `<Space>gi` | 이 저장소에 방어 장치가 한 일 |
 | `<Space>um` | Markdown 읽기 보기 켜기/끄기 |

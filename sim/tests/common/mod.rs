@@ -29,6 +29,25 @@ pub fn temp_dir(name: &str) -> TempDir {
     }
 }
 
+/// The environment a test gives the real binary: its own, and nothing of the terminal the tests run in
+/// (a developer's sets TERM, COLORTERM, TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_* and TMUX; a CI runner
+/// sets no TERM), so a run is the same on both. Only PATH comes from the caller, for the programs sim
+/// runs; HOME and the state directory are `home`, and no git configuration is read.
+pub fn clean_env<'a>(
+    c: &'a mut std::process::Command,
+    home: &Path,
+) -> &'a mut std::process::Command {
+    let path = std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into());
+    c.env_clear()
+        .env("PATH", path)
+        .env("HOME", home)
+        .env("XDG_STATE_HOME", home)
+        .env("TERM", "xterm-256color")
+        .env("LANG", "en_US.UTF-8")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+}
+
 /// Writes `files` (relative paths; a trailing `/` makes a directory) under `dir`.
 pub fn make(dir: &Path, files: &[&str]) {
     for f in files {

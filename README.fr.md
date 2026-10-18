@@ -108,6 +108,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 | `<Space>` | leader |
 | `<Space>bp` | choisir un onglet par une lettre |
 | `<Space>bc` | choisir un onglet à fermer |
+| `<Space>bk` | où est allée la version abandonnée (`:w!`, `:e!`) |
 | `<Space>ge` | voir les changements par rapport à HEAD |
 | `<Space>gi` | ce que la garde a fait à ce dépôt |
 | `<Space>um` | vue de lecture Markdown activée ou désactivée |
