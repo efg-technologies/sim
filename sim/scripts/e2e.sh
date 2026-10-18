@@ -16,7 +16,8 @@
 # case asks for below), none of the variables of the terminal this runs in.
 #
 # A case that fails says which of its lines did, and the command as it ran: it runs traced (set -x), and the
-# last command of the case in the trace is the one (scripts/e2e-lib.sh).
+# last command of the case in the trace is the one (scripts/e2e-lib.sh). The line is there in bash (Linux,
+# macOS); in Debian's and Ubuntu's dash, which has no LINENO, it is `?` and the command is what there is.
 #
 # Helpers (available inside a case):
 #   start [args...]    run sim in a detached 80x24 session, in the case's temp directory
@@ -274,6 +275,7 @@ run_one() {
   mkdir -p "$HOME" "$XDG_STATE_HOME" "$W"
   export CASE_DIR SESSION HOME XDG_STATE_HOME W
   trap 'status=$?
+        : e2e-case-over # (the trace says where the case ended, when it has no line numbers: e2e-lib.sh)
         set +x
         if [ "$status" -ne 0 ] && tm has-session -t "$SESSION" 2> /dev/null; then
           echo "---- screen at failure ----"
@@ -342,7 +344,7 @@ main() {
       passed=$((passed + 1))
     else
       echo "FAIL  $name"
-      { grep -a -v -E '^\++@@ [0-9]+: ' "$log" || true; where_failed "$log" "$SELF" "$name"; } | sed 's/^/      /'
+      { grep -a -v -E "$trace_re" "$log" || true; where_failed "$log" "$SELF" "$name"; } | sed 's/^/      /'
       keep_trace "$log" "$SELF" "$name"
       failed=$((failed + 1))
     fi
@@ -2938,8 +2940,7 @@ md_11_a_callout_is_the_kinds_word_in_place_of_its_marker_and_the_cursors_line_is
 if [ "${1:-}" = "--run-one" ]; then
   run_one "$2"
   case_body "$SELF" "$2" > "$CASE_DIR.case"
-  PS4='+@@ $LINENO: '
-  set -x
+  trace_on
   . "$CASE_DIR.case"
   exit 0
 fi

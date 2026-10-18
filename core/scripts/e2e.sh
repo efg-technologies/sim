@@ -20,7 +20,8 @@
 # counts as given.
 #
 # A case that fails says which of its lines did, and the command as it ran: it runs traced (set -x), and the
-# last command of the case in the trace is the one (scripts/e2e-lib.sh).
+# last command of the case in the trace is the one (scripts/e2e-lib.sh). The line is there in bash (Linux,
+# macOS); in Debian's and Ubuntu's dash, which has no LINENO, it is `?` and the command is what there is.
 #
 #   SIM_E2E_KEEP=DIR   a case that fails leaves what it saw in DIR/<case>.txt: the screen, the screen with
 #                      its escape sequences made visible, and the names in the state directory (CI uploads it)
@@ -180,6 +181,7 @@ run_one() {
   mkdir -p "$HOME" "$XDG_STATE_HOME"
   export CASE_DIR SESSION HOME XDG_STATE_HOME
   trap 'status=$?
+        : e2e-case-over # (the trace says where the case ended, when it has no line numbers: e2e-lib.sh)
         set +x
         if [ "$status" -ne 0 ] && tm has-session -t "$SESSION" 2> /dev/null; then
           echo "---- screen at failure ----"
@@ -258,7 +260,7 @@ main() {
       passed=$((passed + 1))
     else
       echo "FAIL  $name"
-      { grep -a -v -E '^\++@@ [0-9]+: ' "$log" || true; where_failed "$log" "$SELF" "$name"; } | sed 's/^/      /'
+      { grep -a -v -E "$trace_re" "$log" || true; where_failed "$log" "$SELF" "$name"; } | sed 's/^/      /'
       keep_trace "$log" "$SELF" "$name"
       failed=$((failed + 1))
     fi
@@ -1352,8 +1354,7 @@ state_1_what_si_kept_is_copied_into_sims_state_directory_and_si_is_left_alone() 
 if [ "${1:-}" = "--run-one" ]; then
   run_one "$2"
   case_body "$SELF" "$2" > "$CASE_DIR.case"
-  PS4='+@@ $LINENO: '
-  set -x
+  trace_on
   . "$CASE_DIR.case"
   exit 0
 fi
