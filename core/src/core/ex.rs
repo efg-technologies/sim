@@ -189,6 +189,7 @@ impl App {
             },
             "s" => self.subst(range.unwrap_or((line, line)), arg),
             "seen" => self.buf.marks = Default::default(),
+            "reg" | "registers" => self.say(self.regs.list(usize::from(self.size.0))),
             _ => self.say(format!("not an editor command: {name}")),
         }
         self.clamp();

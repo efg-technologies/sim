@@ -92,6 +92,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 | `n` | occurrence suivante |
 | `*` | rechercher le mot vers l’avant |
 | `yy` | copier des lignes |
+| `"a` | un registre : `"ayw` copie dans `a`, `"ap` le colle (`:registers` les liste) |
 | `]c` | changement suivant venu de l’extérieur |
 | `[c` | changement précédent venu de l’extérieur |
 | `:s` | substituer |
@@ -116,7 +117,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 | `F1` | aide |
 | `:help` | aide |
 
-Tout le reste, c’est vi : déplacements, opérateurs, objets de texte, compteurs, `.`, mode Visuel, `:s`, plages. `Y` copie jusqu’à la fin de la ligne, `U` rétablit, et chaque copie (yank) atteint aussi le presse-papiers du système via OSC 52, y compris à travers tmux. Rouvrir un fichier vous replace là où vous l’aviez laissé. Quand l’IME est activé, les touches pleine chasse fonctionnent comme des commandes ; `SIM_ON_NORMAL='fcitx5-remote -c'` désactive l’IME chaque fois que vous revenez en mode Normal (`SI_ON_NORMAL`, son ancien nom, fonctionne toujours). Toutes les touches sont dans une seule table, `sim/keys.tsv`, que `:help` et which-key lisent et que les tests comparent à ce que font les touches. La liste complète se trouve sur la [page de documentation](https://sim.efg-technologies.com/fr/docs/).
+Tout le reste, c’est vi : déplacements, opérateurs, objets de texte, compteurs, `.`, mode Visuel, `:s`, plages. `Y` copie jusqu’à la fin de la ligne, `U` rétablit, et chaque copie (yank) sans nom de registre atteint aussi le presse-papiers du système via OSC 52, y compris à travers tmux (`"ay`, avec un nom, reste dans sim). Rouvrir un fichier vous replace là où vous l’aviez laissé. Quand l’IME est activé, les touches pleine chasse fonctionnent comme des commandes ; `SIM_ON_NORMAL='fcitx5-remote -c'` désactive l’IME chaque fois que vous revenez en mode Normal (`SI_ON_NORMAL`, son ancien nom, fonctionne toujours). Toutes les touches sont dans une seule table, `sim/keys.tsv`, que `:help` et which-key lisent et que les tests comparent à ce que font les touches. La liste complète se trouve sur la [page de documentation](https://sim.efg-technologies.com/fr/docs/).
 
 ## Modèle de sécurité
 
@@ -139,7 +140,7 @@ Là où les autres ont de l’avance, pour l’instant : Neovim et Helix intèg
 
 ## Feuille de route (prévu, pas livré)
 
-Registres, macros et marques de Vim · intégration du presse-papiers au-delà d’OSC 52 · un client de serveur de langage dans un bac à sable · `:tutor` · une arborescence des diffs git · une interface graphique avec une vraie profondeur (un prototype) · des paquets pour l’AUR et crates.io.
+Macros et marques de Vim · intégration du presse-papiers au-delà d’OSC 52 · un client de serveur de langage dans un bac à sable · `:tutor` · une arborescence des diffs git · une interface graphique avec une vraie profondeur (un prototype) · des paquets pour l’AUR et crates.io.
 
 ## Développer sim
 

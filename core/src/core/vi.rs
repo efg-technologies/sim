@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13
+//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15
 //! Key sequence to Command: counts, operators and prefixes in Normal and Visual mode, and the
 //! editing of the command line.
 use super::app::Key;
@@ -22,10 +22,11 @@ impl Mode {
 
 /// A command as keys: `k` is the final key (a motion, a command, or `i` / `a` of a text
 /// object), `arg` the char after `f t r g z Z i a`. `k == '\0'` with an operator means "the
-/// selection"; `k == op` means "whole lines". `n` is 0 when no count was typed.
+/// selection"; `k == op` means "whole lines". `n` is 0 when no count was typed. `reg` is the
+/// register named with `"` (VI-15).
 #[rustfmt::skip]
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Cmd { pub n: usize, pub op: Option<char>, pub k: char, pub arg: Option<char> }
+pub struct Cmd { pub n: usize, pub op: Option<char>, pub k: char, pub arg: Option<char>, pub reg: Option<char> }
 
 // Keys that have no char of their own are given private ones.
 pub const HOME: char = '\u{e000}';
@@ -63,6 +64,8 @@ pub struct Parser {
     /// The count typed before the pending operator.
     n0: usize,
     op: Option<char>,
+    /// The register named with `"`.
+    reg: Option<char>,
     /// A prefix key waiting for its argument.
     pre: Option<char>,
 }
@@ -70,7 +73,9 @@ pub struct Parser {
 impl Parser {
     /// Normal mode with nothing half typed.
     pub fn idle(&self) -> bool {
-        self.mode == Mode::Normal && self.n + self.n0 == 0 && self.op.or(self.pre).is_none()
+        self.mode == Mode::Normal
+            && self.n + self.n0 == 0
+            && self.op.or(self.pre).or(self.reg).is_none()
     }
 
     /// A prefix key (the `]` of `]c`) waits for the key that completes it.
@@ -104,17 +109,18 @@ impl Parser {
         self.pos += s.chars().count();
     }
 
-    /// Forgets a half-typed command (a count, an operator, a prefix).
+    /// Forgets a half-typed command (a count, an operator, a register, a prefix).
     pub fn reset(&mut self) -> Option<Cmd> {
-        (self.n, self.n0, self.op, self.pre) = (0, 0, None, None);
+        (self.n, self.n0, self.op, self.pre, self.reg) = (0, 0, None, None, None);
         None
     }
 
     fn emit(&mut self, op: Option<char>, k: char, arg: Option<char>) -> Option<Cmd> {
         let n =
             if self.n + self.n0 == 0 { 0 } else { self.n0.max(1).saturating_mul(self.n.max(1)) };
+        let reg = self.reg;
         self.reset();
-        Some(Cmd { n, op, k, arg })
+        Some(Cmd { n, op, k, arg, reg })
     }
 
     /// Feeds a key in Normal or Visual mode.
@@ -123,13 +129,17 @@ impl Parser {
         if let Some(p) = self.pre.take() {
             #[rustfmt::skip]
             return match (k, p) {
+                (Key::Char(r), '"') => {
+                    self.reg = Some(r);
+                    None
+                }
                 (Key::Char('g'), 'g') | (Key::Char('z'), 'z') | (Key::Char('Z' | 'Q'), 'Z')
                 | (Key::Char('c'), '[' | ']') | (Key::Char(_), 'f' | 'F' | 't' | 'T' | 'r' | 'i' | 'a') => self.emit(self.op, p, Some(c)),
                 _ => self.reset(),
             };
         }
         if "\x1b\x03".contains(c) {
-            let busy = self.n + self.n0 > 0 || self.op.is_some();
+            let busy = self.n + self.n0 > 0 || self.op.or(self.reg).is_some();
             return if busy { self.reset() } else { self.emit(None, c, None) };
         }
         if c.is_ascii_digit() && (c != '0' || self.n > 0) {
@@ -151,7 +161,7 @@ impl Parser {
             return self.reset();
         }
         match c {
-            'f' | 'F' | 't' | 'T' | 'g' | 'r' | 'z' | 'Z' | '[' | ']' => self.pre = Some(c),
+            'f' | 'F' | 't' | 'T' | 'g' | 'r' | 'z' | 'Z' | '[' | ']' | '"' => self.pre = Some(c),
             'i' | 'a' if vis || self.op.is_some() => self.pre = Some(c),
             'D' | 'C' | 'Y' if !vis => return self.emit(Some(c.to_ascii_lowercase()), '$', None),
             'x' if !vis => return self.emit(Some('d'), 'l', None),

@@ -700,6 +700,58 @@ vi_8_yank_reaches_the_clipboard() {
   done
 }
 
+# VI-15: a named register keeps its text while the unnamed one is overwritten, and a yank into a name
+# stays inside: tmux gets a paste buffer from the plain yank only.
+vi_15_a_named_register_keeps_its_text_and_stays_inside() {
+  printf 'one two\nthree\nfour\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  tm set-option -sg set-clipboard on
+  typed '"ayw'
+  wait_for "4 chars yanked"
+  sleep 0.3
+  [ -z "$(tm show-buffer 2> /dev/null)" ]
+  typed 'jyy'
+  tries=100
+  until [ "$(tm show-buffer 2> /dev/null)" = "three" ]; do
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ] || { echo "tmux's buffer holds: $(tm show-buffer 2>&1)" >&2; return 1; }
+    sleep 0.05
+  done
+  typed 'G"ap'
+  wait_for "fone our"
+  typed ":reg"
+  keys Enter
+  wait_for '"a one'
+  typed ":wq"
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+  printf 'one two\nthree\nfone our\n' | cmp - "$CASE_DIR/f"
+}
+
+# VI-15: "+ and "* write the terminal's clipboard like a plain yank and cannot be read.
+vi_15_plus_writes_the_clipboard_and_is_never_read() {
+  printf 'copy me\nsecond\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  tm set-option -sg set-clipboard on
+  typed '"+yy'
+  tries=100
+  until [ "$(tm show-buffer 2> /dev/null)" = "copy me" ]; do
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ] || { echo "tmux's buffer holds: $(tm show-buffer 2>&1)" >&2; return 1; }
+    sleep 0.05
+  done
+  typed '"+p'
+  wait_for "write-only"
+  typed ":q!"
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+  printf 'copy me\nsecond\n' | cmp - "$CASE_DIR/f"
+}
+
 # The screen no longer contains TEXT.
 gone() { ! screen | grep -F -q -- "$1"; }
 

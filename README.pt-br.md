@@ -92,6 +92,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `n` | próxima ocorrência |
 | `*` | buscar a palavra para a frente |
 | `yy` | copiar linhas |
+| `"a` | um registrador: `"ayw` copia para `a`, `"ap` cola (`:registers` lista) |
 | `]c` | próxima mudança vinda de fora |
 | `[c` | mudança anterior vinda de fora |
 | `:s` | substituir |
@@ -116,7 +117,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `F1` | ajuda |
 | `:help` | ajuda |
 
-Tudo o mais é vi: movimentos, operadores, objetos de texto, contadores, `.`, modo Visual, `:s`, intervalos. `Y` copia até o fim da linha, `U` refaz, e todo yank também chega à área de transferência do sistema por meio do OSC 52, inclusive através do tmux. Reabrir um arquivo leva você de volta ao ponto em que o deixou. Com o IME ligado, as teclas de largura total funcionam como comandos; `SIM_ON_NORMAL='fcitx5-remote -c'` desliga o IME sempre que você volta ao modo Normal (`SI_ON_NORMAL`, o nome antigo, continua funcionando). Todas as teclas estão em uma única tabela, `sim/keys.tsv`, que `:help` e o which-key leem e que os testes conferem com o que as teclas fazem. A lista completa está na [página de documentação](https://sim.efg-technologies.com/pt-br/docs/).
+Tudo o mais é vi: movimentos, operadores, objetos de texto, contadores, `.`, modo Visual, `:s`, intervalos. `Y` copia até o fim da linha, `U` refaz, e todo yank sem nome de registrador também chega à área de transferência do sistema por meio do OSC 52, inclusive através do tmux (`"ay`, com nome, fica no sim). Reabrir um arquivo leva você de volta ao ponto em que o deixou. Com o IME ligado, as teclas de largura total funcionam como comandos; `SIM_ON_NORMAL='fcitx5-remote -c'` desliga o IME sempre que você volta ao modo Normal (`SI_ON_NORMAL`, o nome antigo, continua funcionando). Todas as teclas estão em uma única tabela, `sim/keys.tsv`, que `:help` e o which-key leem e que os testes conferem com o que as teclas fazem. A lista completa está na [página de documentação](https://sim.efg-technologies.com/pt-br/docs/).
 
 ## Modelo de segurança
 
@@ -139,7 +140,7 @@ O que os outros ainda fazem melhor, por enquanto: Neovim e Helix incluem um clie
 
 ## Roadmap (planejado, não lançado)
 
-Registradores, macros e marcas do Vim · integração com a área de transferência além do OSC 52 · um cliente de servidor de linguagem em sandbox · `:tutor` · uma árvore de diff do git · uma GUI com profundidade de verdade (um protótipo) · pacotes para o AUR e o crates.io.
+Macros e marcas do Vim · integração com a área de transferência além do OSC 52 · um cliente de servidor de linguagem em sandbox · `:tutor` · uma árvore de diff do git · uma GUI com profundidade de verdade (um protótipo) · pacotes para o AUR e o crates.io.
 
 ## Desenvolvimento
 

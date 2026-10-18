@@ -1,7 +1,8 @@
-//! CLI-1, CLI-3, CLI-6, VIS-4, SAFE-1, SAFE-4, SAFE-5, SAFE-6, SAFE-7, DISK-1, DISK-6, FILT-1, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14, PLAIN-1
+//! VI-15, CLI-1, CLI-3, CLI-6, VIS-4, SAFE-1, SAFE-4, SAFE-5, SAFE-6, SAFE-7, DISK-1, DISK-6, FILT-1, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14, PLAIN-1
 //! `App::update(&mut self, Event) -> Vec<Effect>`: the state, and what each Event does to it.
 use super::buffer::{ABSENT, Buffer, Format, hash};
 use super::color::{Palette, Rgb, palette};
+use super::reg::Regs;
 use super::vi::{Mode, Parser};
 use super::view::{self, Frame};
 use ropey::Rope;
@@ -128,8 +129,10 @@ pub struct App {
     pub(super) anchor: usize,
     /// The lines of `'<` and `'>`.
     pub(super) marks: (usize, usize),
-    /// The one register (VI-8): text, and whether it is whole lines.
-    pub(super) reg: (String, bool),
+    /// The registers (VI-15).
+    pub(super) regs: Regs,
+    /// How many chars the last yank took, for the host to light (UI-13); the host clears it.
+    pub took: usize,
     /// The last `f F t T`: the key and the char.
     pub(super) find: Option<(char, char)>,
     /// The last search: pattern, whether it is case-sensitive regardless, whether it goes forward.

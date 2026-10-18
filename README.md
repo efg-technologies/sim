@@ -92,6 +92,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `n` | next match |
 | `*` | search word forward |
 | `yy` | yank lines |
+| `"a` | a register: `"ayw` yanks into `a`, `"ap` puts it (`:registers` lists them) |
 | `]c` | next change from outside |
 | `[c` | previous change from outside |
 | `:s` | substitute |
@@ -116,7 +117,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `F1` | help |
 | `:help` | help |
 
-Everything else is vi: motions, operators, text objects, counts, `.`, Visual mode, `:s`, ranges. `Y` yanks to the end of the line, `U` redoes, and every yank also reaches the system clipboard through OSC 52, also through tmux. Opening a file again puts you where you left it. With the IME on, full-width keys work as commands; `SIM_ON_NORMAL='fcitx5-remote -c'` turns the IME off whenever you return to Normal mode (`SI_ON_NORMAL`, its old name, still works). Every key is in one table, `sim/keys.tsv`, which `:help` and which-key read, and which the tests check against what the keys do. The full list is on the [docs page](https://sim.efg-technologies.com/docs/).
+Everything else is vi: motions, operators, text objects, counts, `.`, Visual mode, `:s`, ranges. `Y` yanks to the end of the line, `U` redoes, and every yank without a register name also reaches the system clipboard through OSC 52, also through tmux (`"ay`, with a name, stays in sim). Opening a file again puts you where you left it. With the IME on, full-width keys work as commands; `SIM_ON_NORMAL='fcitx5-remote -c'` turns the IME off whenever you return to Normal mode (`SI_ON_NORMAL`, its old name, still works). Every key is in one table, `sim/keys.tsv`, which `:help` and which-key read, and which the tests check against what the keys do. The full list is on the [docs page](https://sim.efg-technologies.com/docs/).
 
 ## Security model
 
@@ -139,7 +140,7 @@ What the others still do better, for now: Neovim and Helix ship a language-serve
 
 ## Roadmap (planned, not shipped)
 
-Vim registers, macros and marks · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
+Vim macros and marks · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
 
 ## Working on it
 

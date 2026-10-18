@@ -1,4 +1,4 @@
-//! VI-2 (editing), VI-8 (the one register and the clipboard), and `.` and undo units.
+//! VI-2 (editing), VI-8 (the unnamed register and the clipboard), and `.` and undo units.
 //! Rows are (before, keys, after); `|` is the cursor.
 mod common;
 use common::*;
@@ -205,17 +205,13 @@ fn vi_8_a_yank_says_what_it_took() {
 }
 
 #[test]
-fn vi_8_there_is_one_register_and_deletes_fill_it() {
+fn vi_8_the_unnamed_register_holds_what_was_last_yanked_or_deleted() {
     table(&[
         ("|ab cd", "dwp", "cab| d"),
         ("|ab cd", "ywwdwP", "abc|d "),
         ("|a\nb", "ddp", "b\n|a"),
         ("|a b", "ywxP", "|a b"),
     ]);
-    let mut a = app("abc");
-    feed(&mut a, "\"");
-    assert_eq!(status(&screen(&mut a)), "registers: there is only one");
-    assert_eq!(text(&a), "abc");
 }
 
 #[test]

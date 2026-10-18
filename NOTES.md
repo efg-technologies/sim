@@ -7,9 +7,14 @@ The core's:
 
 - similar 3.2 ships `TextMerge`, a structured line-level three-way merge. DISK-3 asks for our own merge built from two line diffs, so it is not used.
 - Old snapshots of files that are never reopened (for example random temp files from other tools) stay in `$XDG_STATE_HOME/sim/`. Pruning them is not specified (P4).
+- Registers kept between sessions (viminfo, shada in Neovim): not built, and on purpose. A register holds what was cut, and a file on the disk would keep it in plaintext, outside everything P1 promises (VI-15).
+- Reading the system clipboard with `"+p`: a terminal does not hand it over, and a program that reads it (`xclip`, `pbpaste`) is one that plain mode runs none of (VI-15, PLAIN-1). The terminal's own paste is the way in (VI-9).
+- vim's read-only registers (`".` `":` `"%` `"#` `"/`) and the expression register (`"=`), which evaluates; macros (`q`, `@`) and marks (`m`) are next, not here (VI-13: `q` still quits).
+- `d{motion}` over more than one line made linewise when only blanks come before it and nothing after (`:help d` in vim): sim keeps it charwise. The register oracle found it (`SIM_ORACLE_MODE=reg` leaves those cases out); the text and the register's type follow from it, so it is the editing's, not the registers'.
 
 The editor's:
 
+- The row and the sentence about registers in the READMEs of German, Spanish, French, Korean, Portuguese (Brazil), Russian and the two Chinese are awaiting native review (English and Japanese excepted), like the tutor's lessons: they were written from the English by the model that built the rest.
 - The lessons of `:tutor` in German, Spanish, French, Korean, Portuguese (Brazil), Russian and the two Chinese are awaiting native review (English and Japanese excepted): they were written from the English by the model that built the rest, and a test holds the exercises in them to be the same in every language, but no native speaker has read their prose.
 - `:tutor` is typed on a command line, which needs a buffer: in an editor started with no file and none opened it is out of reach (there is no `sim tutor`, and `sim --tutor` would be a second way into the same buffer).
 - A tutor that remembers where the learner was (the exercises done), and one that tests the learner at the end: the lessons keep nothing between runs (the state directory is not written for a scratch copy, TUTOR-1), and the grade of the exercises is their marks.

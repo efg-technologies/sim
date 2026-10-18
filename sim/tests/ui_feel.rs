@@ -171,6 +171,23 @@ fn ui_13_a_yank_is_lit_in_the_accent_until_150_ms_have_gone_and_then_it_is_not()
 }
 
 #[test]
+fn ui_13_a_yank_into_a_named_register_is_lit_too_and_one_into_the_black_hole_is_not() {
+    let mut r = body("ui13-named", Skin::Flat, "alpha beta gamma\nsecond line\n", true);
+    let (t, g) = (Tones::new(&palette(BG)), r.sim.geo());
+    let (lit, _) = t.accent_block();
+    let x0 = g.tx() + 5;
+    r.keys("w\"ayw"); // `beta `, which does not go to the clipboard
+    assert_eq!(flashes(&r).len(), 1, "{:?}", r.status());
+    let y = y_of(&r, "alpha");
+    for k in 6..11 {
+        assert_eq!(bg(&r, y, x0 + k), Some(lit), "char {k} of what was taken");
+    }
+    assert_eq!(bg(&r, y, x0 + 11), None);
+    r.keys("\"_yw");
+    assert_eq!(flashes(&r).len(), 1, "nothing was taken");
+}
+
+#[test]
 fn ui_13_whole_lines_are_lit_and_an_edit_puts_the_flash_out() {
     let mut r = body("ui13-lines", Skin::Flat, "one\ntwo\nthree\nfour\n", true);
     let (t, g) = (Tones::new(&palette(BG)), r.sim.geo());

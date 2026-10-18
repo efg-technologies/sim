@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19
+//! VI-15, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -406,6 +406,8 @@ pub struct Sim {
     pub plain: bool,
     /// PTR-1: the press in the text that a drag goes on from: the file, and whether it has begun.
     drag: Option<(Id, bool)>,
+    /// VI-15: the file that holds the registers, which all files share (the one typed in last).
+    holds: Id,
     /// KEY-2: what was typed after a Space that makes no sequence yet: `Some("")` after the Space,
     /// `Some("b")` after `<Space>b`.
     leader: Option<String>,
@@ -1033,6 +1035,13 @@ impl Sim {
             matches!(ev, Event::Disk { .. }),
             matches!(ev, Event::Disk { .. } | Event::Saved(Ok(_), _)),
         );
+        if self.holds != id && matches!(ev, Event::Key(_)) {
+            let regs = self.bufs.iter_mut().find(|b| b.id == self.holds).map(|b| b.app.take_regs());
+            if let (Some(r), Some(b)) = (regs, self.bufs.iter_mut().find(|b| b.id == id)) {
+                b.app.put_regs(r);
+            }
+            self.holds = id;
+        }
         let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) else { return };
         // UI-14: what a key may light or put out is decided from the state before and after it.
         let pre = match &ev {
@@ -1042,10 +1051,11 @@ impl Sim {
         let slash = b.app.vi.line.starts_with(['/', '?']);
         let (fx, path) = (b.app.update(ev), b.app.path.clone());
         let mut wrote = take(&mut b.app.wrote); // (UI-19: the core's list is read, and cleared, every time)
+        let took = take(&mut b.app.took); // (UI-13: so is the count of a yank)
         if let Some((k, mode, idle, was)) = pre {
             b.lit = lit_after(b.lit, (k, mode, idle, slash), &was, &b.app.search);
         }
-        let (yank, ver) = (yanked(&b.app, &fx), b.app.buf.version());
+        let (yank, ver) = (yanked(&b.app, took), b.app.buf.version());
         self.run(id, fx, out);
         if let Some(chars) = yank {
             // UI-13: the text a yank took is lit for a moment, as the author's `on_yank` does.
@@ -1114,12 +1124,16 @@ impl Sim {
     /// with the last one. The App has asked the journal to forget its snapshot already.
     fn close(&mut self, id: Id, out: &mut Vec<SimEffect>) {
         let Some(i) = self.bufs.iter().position(|b| b.id == id) else { return };
-        self.bufs.remove(i);
+        let regs = self.bufs.remove(i).app.take_regs();
         if self.lesson_id() == Some(id) {
             self.lesson = None;
         }
         out.push(SimEffect::Close(id));
         self.cur = (self.cur - usize::from(i < self.cur)).min(self.bufs.len().saturating_sub(1));
+        if let (true, Some(b)) = (self.holds == id, self.bufs.get_mut(self.cur)) {
+            b.app.put_regs(regs); // the registers outlive their file
+            self.holds = b.id;
+        }
         self.refocus();
         if self.bufs.is_empty() {
             out.push(SimEffect::Quit(0));
@@ -1871,15 +1885,14 @@ fn moved(old: &Path, r: &TreeRow) -> String {
     format!("{}{} → {}", "../".repeat(dir.len() - same), rest.display(), r.name)
 }
 
-/// UI-13: the chars a yank has taken, in the buffer as it is after it: the App says so by its
-/// message (`3 lines yanked`) and by putting the text on the clipboard, and leaves the cursor at the
-/// start of what it took (at the start of the cursor's line, for whole lines).
-fn yanked(app: &App, fx: &[Effect]) -> Option<std::ops::Range<usize>> {
-    let text = fx.iter().find_map(|e| if let Effect::Clipboard(t) = e { Some(t) } else { None })?;
-    let msg = app.msg.as_deref().filter(|m| m.ends_with("yanked"))?;
+/// UI-13: the chars a yank has taken (`took`, how many the App says it took, with or without a register
+/// name), in the buffer as it is after it: the App says so by its message (`3 lines yanked`) and leaves the
+/// cursor at the start of what it took (at the start of the cursor's line, for whole lines).
+fn yanked(app: &App, took: usize) -> Option<std::ops::Range<usize>> {
+    let msg = app.msg.as_deref().filter(|m| m.ends_with("yanked") && took > 0)?;
     let b = &app.buf;
     let from = if msg.contains("line") { b.start(b.line_of(b.cursor)) } else { b.cursor };
-    Some(from..(from + text.chars().count()).min(b.text.len_chars()))
+    Some(from..(from + took).min(b.text.len_chars()))
 }
 
 /// UI-11: how many lines a file may have for the scrollbar to mark the matches of a search.

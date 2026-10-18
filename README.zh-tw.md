@@ -92,6 +92,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `n` | 下一個符合項目 |
 | `*` | 向前搜尋目前的單字 |
 | `yy` | 複製行 |
+| `"a` | 暫存器：`"ayw` 複製到 `a`，`"ap` 貼上（`:registers` 列出） |
 | `]c` | 下一處來自外部的變更 |
 | `[c` | 上一處來自外部的變更 |
 | `:s` | 取代 |
@@ -116,7 +117,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `F1` | 說明 |
 | `:help` | 說明 |
 
-其餘都是 vi：移動指令、運算子、文字物件、計數、`.`、視覺模式、`:s`、範圍。`Y` 複製到行尾，`U` 是重做，每次複製也會透過 OSC 52 送進系統剪貼簿，在 tmux 裡同樣如此。重新開啟檔案時，游標會回到你離開的位置。開著輸入法時，全形按鍵也能當作指令使用；`SIM_ON_NORMAL='fcitx5-remote -c'` 會在你每次回到一般模式時關閉輸入法（舊名稱 `SI_ON_NORMAL` 仍然有效）。所有按鍵都在同一張表 `sim/keys.tsv` 中，`:help` 與 which-key 讀取它，測試也會對照按鍵的實際作用檢查它。完整清單見[文件頁面](https://sim.efg-technologies.com/zh-tw/docs/)。
+其餘都是 vi：移動指令、運算子、文字物件、計數、`.`、視覺模式、`:s`、範圍。`Y` 複製到行尾，`U` 是重做，沒有暫存器名稱的複製也會透過 OSC 52 送進系統剪貼簿，在 tmux 裡同樣如此（帶名稱的 `"ay` 只留在 sim 裡）。重新開啟檔案時，游標會回到你離開的位置。開著輸入法時，全形按鍵也能當作指令使用；`SIM_ON_NORMAL='fcitx5-remote -c'` 會在你每次回到一般模式時關閉輸入法（舊名稱 `SI_ON_NORMAL` 仍然有效）。所有按鍵都在同一張表 `sim/keys.tsv` 中，`:help` 與 which-key 讀取它，測試也會對照按鍵的實際作用檢查它。完整清單見[文件頁面](https://sim.efg-technologies.com/zh-tw/docs/)。
 
 ## 安全模型
 
@@ -139,7 +140,7 @@ Vim、Neovim 與 Helix 都是成熟的編輯器，而 sim 是新的。這裡只�
 
 ## 路線圖（規劃中，尚未推出）
 
-Vim 的暫存器、巨集與標記 · 超出 OSC 52 的剪貼簿整合 · 沙盒化的語言伺服器用戶端 · `:tutor` · git 差異樹 · 真正有層次感的 GUI（原型） · AUR 與 crates.io 的套件。
+Vim 的巨集與標記 · 超出 OSC 52 的剪貼簿整合 · 沙盒化的語言伺服器用戶端 · `:tutor` · git 差異樹 · 真正有層次感的 GUI（原型） · AUR 與 crates.io 的套件。
 
 ## 參與開發
 

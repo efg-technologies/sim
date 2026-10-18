@@ -358,6 +358,20 @@ fn buf_2_tab_and_shift_tab_switch_to_the_next_and_the_previous_file_and_wrap() {
 }
 
 #[test]
+fn buf_2_registers_are_shared_by_the_files_and_outlive_the_one_that_made_them() {
+    let mut r = two("b2-regs");
+    r.keys("\"ayyj\"byy<Tab>\"ap\"bP");
+    assert_eq!(r.text(), "one\nB2\nB1\ntwo", "yanked in b.txt, put in a.txt");
+    r.keys("dd<Tab>p");
+    assert_eq!(r.text(), "B1\nB2\nB2", "the unnamed register is what a.txt wrote last");
+    // The file that holds them closes: the registers stay with the file that shows next.
+    r.keys(":q!\n");
+    assert_eq!(r.open_files(), ["a.txt"]);
+    r.keys("\"1p");
+    assert_eq!(r.text(), "one\nB1\nB2\ntwo");
+}
+
+#[test]
 fn buf_2_tab_only_switches_in_normal_mode_with_nothing_pending() {
     let mut r = two("b2-normal");
     for pending in ["i", "v", "V", "d", "2", "g", "f", "r", ":", "/", "y"] {

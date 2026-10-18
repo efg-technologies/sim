@@ -92,6 +92,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 | `n` | nächster Treffer |
 | `*` | Wort vorwärts suchen |
 | `yy` | Zeilen kopieren |
+| `"a` | ein Register: `"ayw` kopiert nach `a`, `"ap` fügt es ein (`:registers` listet sie) |
 | `]c` | nächste Änderung von außen |
 | `[c` | vorherige Änderung von außen |
 | `:s` | ersetzen |
@@ -116,7 +117,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 | `F1` | Hilfe |
 | `:help` | Hilfe |
 
-Alles andere ist vi: Motions, Operatoren, Textobjekte, Anzahlen, `.`, Visual-Modus, `:s`, Bereiche. `Y` kopiert bis zum Zeilenende, `U` stellt wieder her (redo), und jeder Yank geht über OSC 52 auch in die System-Zwischenablage, ebenso durch tmux hindurch. Öffnen Sie eine Datei erneut, stehen Sie dort, wo Sie aufgehört haben. Bei eingeschaltetem IME funktionieren vollbreite Tasten als Befehle; `SIM_ON_NORMAL='fcitx5-remote -c'` schaltet den IME aus, sobald Sie in den Normal-Modus zurückkehren (`SI_ON_NORMAL`, der alte Name, funktioniert weiterhin). Jede Taste steht in einer einzigen Tabelle, `sim/keys.tsv`, die `:help` und which-key lesen und die die Tests gegen das prüfen, was die Tasten tun. Die vollständige Liste steht auf der [Doku-Seite](https://sim.efg-technologies.com/de/docs/).
+Alles andere ist vi: Motions, Operatoren, Textobjekte, Anzahlen, `.`, Visual-Modus, `:s`, Bereiche. `Y` kopiert bis zum Zeilenende, `U` stellt wieder her (redo), und jeder Yank ohne Registernamen geht über OSC 52 auch in die System-Zwischenablage, ebenso durch tmux hindurch (`"ay` mit Namen bleibt in sim). Öffnen Sie eine Datei erneut, stehen Sie dort, wo Sie aufgehört haben. Bei eingeschaltetem IME funktionieren vollbreite Tasten als Befehle; `SIM_ON_NORMAL='fcitx5-remote -c'` schaltet den IME aus, sobald Sie in den Normal-Modus zurückkehren (`SI_ON_NORMAL`, der alte Name, funktioniert weiterhin). Jede Taste steht in einer einzigen Tabelle, `sim/keys.tsv`, die `:help` und which-key lesen und die die Tests gegen das prüfen, was die Tasten tun. Die vollständige Liste steht auf der [Doku-Seite](https://sim.efg-technologies.com/de/docs/).
 
 ## Sicherheitsmodell
 
@@ -139,7 +140,7 @@ Was die anderen vorerst noch besser können: Neovim und Helix liefern einen Lang
 
 ## Roadmap (geplant, nicht ausgeliefert)
 
-Vim-Register, Makros und Marken · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
+Vim-Makros und -Marken · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
 
 ## Entwicklung
 

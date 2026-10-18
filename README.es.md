@@ -92,6 +92,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 | `n` | siguiente coincidencia |
 | `*` | buscar la palabra hacia adelante |
 | `yy` | copiar líneas |
+| `"a` | un registro: `"ayw` copia en `a`, `"ap` lo pega (`:registers` los lista) |
 | `]c` | siguiente cambio externo |
 | `[c` | cambio externo anterior |
 | `:s` | sustituir |
@@ -116,7 +117,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 | `F1` | ayuda |
 | `:help` | ayuda |
 
-Todo lo demás es vi: movimientos, operadores, objetos de texto, contadores, `.`, modo Visual, `:s`, rangos. `Y` copia hasta el final de la línea, `U` rehace, y cada yank llega también al portapapeles del sistema mediante OSC 52, también a través de tmux. Al volver a abrir un archivo, el cursor queda donde se dejó. Con el IME activado, las teclas de ancho completo funcionan como comandos; `SIM_ON_NORMAL='fcitx5-remote -c'` desactiva el IME cada vez que se vuelve al modo Normal (`SI_ON_NORMAL`, su nombre antiguo, sigue funcionando). Cada tecla está en una sola tabla, `sim/keys.tsv`, que leen `:help` y which-key y que las pruebas comprueban frente a lo que hacen las teclas. La lista completa está en la [página de documentación](https://sim.efg-technologies.com/es/docs/).
+Todo lo demás es vi: movimientos, operadores, objetos de texto, contadores, `.`, modo Visual, `:s`, rangos. `Y` copia hasta el final de la línea, `U` rehace, y cada yank sin nombre de registro llega también al portapapeles del sistema mediante OSC 52, también a través de tmux (`"ay`, con nombre, se queda en sim). Al volver a abrir un archivo, el cursor queda donde se dejó. Con el IME activado, las teclas de ancho completo funcionan como comandos; `SIM_ON_NORMAL='fcitx5-remote -c'` desactiva el IME cada vez que se vuelve al modo Normal (`SI_ON_NORMAL`, su nombre antiguo, sigue funcionando). Cada tecla está en una sola tabla, `sim/keys.tsv`, que leen `:help` y which-key y que las pruebas comprueban frente a lo que hacen las teclas. La lista completa está en la [página de documentación](https://sim.efg-technologies.com/es/docs/).
 
 ## Modelo de seguridad
 
@@ -139,7 +140,7 @@ En qué siguen siendo mejores los demás, por ahora: Neovim y Helix incluyen un 
 
 ## Hoja de ruta (prevista, no publicada)
 
-Registros, macros y marcas de Vim · integración con el portapapeles más allá de OSC 52 · un cliente de servidores de lenguaje en un sandbox · `:tutor` · un árbol de diff de git · una GUI con profundidad real (un prototipo) · paquetes para AUR y crates.io.
+Macros y marcas de Vim · integración con el portapapeles más allá de OSC 52 · un cliente de servidores de lenguaje en un sandbox · `:tutor` · un árbol de diff de git · una GUI con profundidad real (un prototipo) · paquetes para AUR y crates.io.
 
 ## Desarrollo
 

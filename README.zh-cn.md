@@ -92,6 +92,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `n` | 下一个匹配 |
 | `*` | 向前搜索当前单词 |
 | `yy` | 复制行 |
+| `"a` | 寄存器：`"ayw` 复制到 `a`，`"ap` 粘贴（`:registers` 列出） |
 | `]c` | 下一处来自外部的改动 |
 | `[c` | 上一处来自外部的改动 |
 | `:s` | 替换 |
@@ -116,7 +117,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `F1` | 帮助 |
 | `:help` | 帮助 |
 
-其余都是 vi：移动命令、操作符、文本对象、计数、`.`、可视模式、`:s`、范围。`Y` 复制到行尾，`U` 是重做，每次复制也会通过 OSC 52 送入系统剪贴板，在 tmux 里同样如此。重新打开文件时，光标会回到你离开的位置。开着输入法时，全角按键也能当作命令使用；`SIM_ON_NORMAL='fcitx5-remote -c'` 会在你每次回到普通模式时关闭输入法（旧名称 `SI_ON_NORMAL` 仍然有效）。所有按键都在同一张表 `sim/keys.tsv` 中，`:help` 和 which-key 读取它，测试也会对照按键的实际作用检查它。完整列表见[文档页面](https://sim.efg-technologies.com/zh-cn/docs/)。
+其余都是 vi：移动命令、操作符、文本对象、计数、`.`、可视模式、`:s`、范围。`Y` 复制到行尾，`U` 是重做，没有寄存器名的复制也会通过 OSC 52 送入系统剪贴板，在 tmux 里同样如此（带名字的 `"ay` 只留在 sim 里）。重新打开文件时，光标会回到你离开的位置。开着输入法时，全角按键也能当作命令使用；`SIM_ON_NORMAL='fcitx5-remote -c'` 会在你每次回到普通模式时关闭输入法（旧名称 `SI_ON_NORMAL` 仍然有效）。所有按键都在同一张表 `sim/keys.tsv` 中，`:help` 和 which-key 读取它，测试也会对照按键的实际作用检查它。完整列表见[文档页面](https://sim.efg-technologies.com/zh-cn/docs/)。
 
 ## 安全模型
 
@@ -139,7 +140,7 @@ Vim、Neovim 和 Helix 都是成熟的编辑器，而 sim 是新的。这里只�
 
 ## 路线图（计划中，尚未发布）
 
-Vim 的寄存器、宏和标记 · 超出 OSC 52 的剪贴板集成 · 沙箱化的语言服务器客户端 · `:tutor` · git 差异树 · 真正有层次感的 GUI（原型） · AUR 和 crates.io 的软件包。
+Vim 的宏和标记 · 超出 OSC 52 的剪贴板集成 · 沙箱化的语言服务器客户端 · `:tutor` · git 差异树 · 真正有层次感的 GUI（原型） · AUR 和 crates.io 的软件包。
 
 ## 参与开发
 

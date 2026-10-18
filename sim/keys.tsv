@@ -43,9 +43,9 @@ i {|}	ov	inner braces	The text between the braces that hold the cursor, without 
 a {|}	ov	around braces	The same with the braces.
 i <lt>|>	ov	inner angle brackets	The text between < and > that hold the cursor, without them.
 a <lt>|>	ov	around angle brackets	The same with the angle brackets.
-d	nv	delete	d{motion} deletes the text from the cursor to where the motion goes (dw, d$, dip, di"); dd deletes lines; in Visual mode d deletes the selection. What it deletes is the register p pastes from, and one yank reaches the system clipboard too (also through tmux).
+d	nv	delete	d{motion} deletes the text from the cursor to where the motion goes (dw, d$, dip, di"); dd deletes lines; in Visual mode d deletes the selection. What it deletes is what p pastes, and it never goes to the system clipboard ("+d cuts to it); a register name before it ("add) keeps the text there.
 c	nv	change	c{motion} deletes like d and starts Insert mode; cc changes whole lines; cw changes to the end of the word, as ce does; in Visual mode c changes the selection.
-y	nv	yank	y{motion} copies the text to the register and to the system clipboard (also through tmux), and says what it took (3 lines yanked); yy yanks lines; in Visual mode y yanks the selection. The text lights up for a moment.
+y	nv	yank	y{motion} copies the text to the unnamed register and to the system clipboard (also through tmux), and says what it took (3 lines yanked); yy yanks lines; in Visual mode y yanks the selection. The text lights up for a moment. With a register name ("ayw) the text stays in sim, even over ssh and tmux: it does not reach the clipboard.
 <lt>	nv	outdent	<{motion} takes one level of indent off the lines the motion covers; << is the current line; in Visual mode < outdents the selection. A level is the file's own: 4 columns, 2, or a tab, as the first indented lines show.
 >	nv	indent	>{motion} puts one level of indent on the lines the motion covers; >> is the current line; in Visual mode > indents the selection.
 !	nv	filter	!{motion} opens the command line with the range of lines, ready for a command: !! is the current line, and :{range}!cmd runs the lines through cmd and replaces them with what it prints, as one undo step. Ctrl-c cancels a filter that runs. Not in plain mode.
@@ -65,7 +65,7 @@ I	n	insert at line start	Starts Insert mode before the first non-blank of the li
 A	n	append at line end	Starts Insert mode at the end of the line.
 o	n	open line below	Opens a new line under this one, with the same indent, and starts Insert mode.
 O	n	open line above	Opens a new line above this one, with the same indent, and starts Insert mode.
-p	n	paste after	Puts the register (what was last deleted or yanked) after the cursor, or under the current line when it holds whole lines; with a count, that many times.
+p	n	paste after	Puts the unnamed register (what was last deleted or yanked), or the one named before it ("ap), after the cursor, or under the current line when it holds whole lines; with a count, that many times.
 P	n	paste before	Like p, before the cursor or above the line.
 J	n	join lines	Joins the next line to this one with a single blank; with a count, that many lines.
 r {char}	n	replace character	Replaces the character under the cursor with the one you type; with a count, that many characters.
@@ -78,7 +78,7 @@ V	nv	visual line	Starts Visual mode on whole lines, or leaves it.
 o	v	other end of selection	Moves the cursor to the other end of the selection.
 <Esc>	nvi	back to Normal	Leaves Insert mode, Visual mode or a half-typed command. In Normal mode with nothing typed it puts the search highlight out (as :noh does).
 <C-c>	nv	cancel	Cancels a half-typed command or Visual mode; with a filter running it cancels the filter; with nothing to cancel it says q to quit.
-"	n	registers	There is only one register: what was last deleted or yanked, which p pastes. The key says so and does nothing else.
+" {char}	nv	register (a-z A-Z 0-9 - _ + *)	Names the register for the next yank, delete, change or put: "ayw yanks into a, "ap puts it. a-z keep their text and A-Z add to it; "0 is the last yank, "1-"9 the last deletes of a line or more ("1p then . puts "2p), "- the small deletes, "_ drops the text, "" is the unnamed one. "+ and "* write the system clipboard (also through tmux) and cannot be read: paste with the terminal. They live in memory only, shared by the open files.
 :	nv	command line	Opens the command line: :w saves, :q quits, :s/old/new/ substitutes, :{n} goes to line n, :{range}!cmd filters, :help shows this table. In Visual mode it starts with the selection as the range, '<,'>.
 /	nv	search forward	Searches forward as you type (the screen follows the first match; Esc goes back), then Enter keeps the place and lights the matches. Smartcase: a capital makes the search exact. n and N go on.
 ?	nv	search backward	Like /, looking back.
@@ -147,4 +147,5 @@ q	t	close the tree	Closes the panel; the text has the focus. In the changes view
 :{range}!cmd	c	filter	Runs the lines of the range through sh -c cmd and replaces them with its output, as one undo step; typing goes on meanwhile and Ctrl-c cancels. :%!sort sorts the file. Not in plain mode.
 :seen	c	clear change marks	Forgets the marks of the changes that came from the disk, as if they had all been looked at.
 :noh	c	put out the search highlight	Puts the lit matches of the search out and the count with them; n or a new search lights them again.
+:registers|:reg	c	list the registers	:registers shows what each register holds, the unnamed one first, a line break as ⏎, long text cut to fit the line; a register that holds nothing is left out. Nothing is written to the disk: they are gone when sim ends.
 :help	c	help	:help (or :h, or F1) opens this table; :help words opens it with the words typed.

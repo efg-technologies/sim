@@ -1,8 +1,10 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VIS-12, FILT-1, DISK-6
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VIS-12, FILT-1, DISK-6
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
 use super::buffer::Buffer;
+use super::reg::Regs;
 use super::vi::{Cmd, HALF_DN, HALF_UP, HOME, MOTIONS, Mode, PGUP, VERTICAL, ch};
+use ropey::Rope;
 use unicode_width::UnicodeWidthChar;
 
 /// How far a motion reaches: up to its target, through it, or over whole lines.
@@ -288,23 +290,33 @@ impl App {
         self.leave_visual();
         let b = &mut self.buf;
         let (l1, l2, col) = (b.line_of(a), b.line_of(e), b.col());
-        let text = b.text.slice(a..e).to_string() + if lw { "\n" } else { "" };
+        let mut text = Rope::from(b.text.slice(a..e));
+        if lw {
+            text.append(Rope::from_str("\n"));
+        }
         match op {
             'y' => {
-                // Taking nothing leaves the register and the clipboard as they are (VI-8).
-                if !text.is_empty() {
+                // Taking nothing leaves the registers and the clipboard as they are (VI-8); the black
+                // hole takes what a yank takes and says nothing.
+                if text.len_chars() > 0 && c.reg != Some('_') {
                     // The clipboard gives no sign that it got the text, so say what was taken.
                     #[rustfmt::skip]
-                    let (n, one, many) = if lw { (text.matches('\n').count(), "line", "lines") } else { (text.chars().count(), "char", "chars") };
+                    let (n, one, many) = if lw { (text.len_lines() - 1, "line", "lines") } else { (text.len_chars(), "char", "chars") };
                     self.msg = Some(format!("{} yanked", plural(n, one, many)));
-                    self.reg = (text.clone(), lw);
-                    self.fx.push(Effect::Clipboard(text));
+                    self.yank(c.reg, text, lw);
                 }
+                let b = &mut self.buf;
                 b.cursor = if lw { b.start(l1) + col.min(b.line_len(l1)) } else { a };
             }
             'd' | 'c' => {
-                if !text.is_empty() {
-                    self.reg = (text, lw);
+                if text.len_chars() > 0 {
+                    // A cut into the clipboard (`"+dd`) is asked for; a plain delete never goes out.
+                    if matches!(c.reg, Some('+' | '*')) {
+                        self.fx.push(Effect::Clipboard(text.to_string()));
+                    }
+                    let big =
+                        lw || text.len_lines() > 1 || matches!(c.k, '%' | 'n' | 'N' | '*' | '#');
+                    self.regs.delete(c.reg, text, lw, big);
                 }
                 let last = e >= b.text.len_chars();
                 // Whole lines go with one line break: the one after them, or before the last.
@@ -340,6 +352,11 @@ impl App {
     /// Normal and Visual mode commands.
     pub(super) fn exec(&mut self, c: Cmd) {
         let (n1, vis) = (c.n.max(1), self.vi.mode.visual());
+        if let Some(r) = c.reg.filter(|r| !Regs::valid(*r)) {
+            self.leave_visual();
+            self.failed = true;
+            return self.say(format!("not a register: {r}"));
+        }
         let edits = match c.op {
             Some(o) => "dc<>".contains(o),
             None => !vis && "iaIAoOpPJr".contains(c.k),
@@ -386,7 +403,7 @@ impl App {
                 }
             }
             'i' | 'a' | 'I' | 'A' | 'o' | 'O' => self.open_insert(c.k),
-            'p' | 'P' => self.paste(c.k == 'p', n1),
+            'p' | 'P' => self.paste(c.k == 'p', n1, c.reg),
             'J' => self.join(n1),
             'r' => {
                 let b = &mut self.buf;
@@ -412,7 +429,6 @@ impl App {
             'Z' => self.ex(if c.arg == Some('Z') { "x" } else { "q!" }),
             'z' => self.center = true,
             '[' | ']' => self.jump(c.k == ']'),
-            '"' => self.say("registers: there is only one"),
             _ => {}
         }
         self.clamp();
@@ -445,16 +461,20 @@ impl App {
         bytes <= MAX_ADD
     }
 
-    fn paste(&mut self, after: bool, n: usize) {
-        let (text, lw) = self.reg.clone();
-        if text.is_empty() {
-            return self.say("the register is empty");
+    fn paste(&mut self, after: bool, n: usize, name: Option<char>) {
+        if matches!(name, Some('+' | '*')) {
+            self.failed = true;
+            return self
+                .say("the clipboard is write-only: paste with the terminal (bracketed paste)");
         }
-        if !self.fits(text.len().saturating_mul(n)) {
+        let Some((text, lw)) = self.regs.get(name).cloned() else {
+            return self.say("the register is empty");
+        };
+        if !self.fits(text.len_bytes().saturating_mul(n)) {
             return;
         }
         let b = &mut self.buf;
-        let (l, s) = (b.line_of(b.cursor), text.repeat(n));
+        let (l, s) = (b.line_of(b.cursor), text.to_string().repeat(n));
         if lw && after {
             b.replace(b.end(l)..b.end(l), &format!("\n{}", s.strip_suffix('\n').unwrap_or(&s)));
             b.cursor = b.nonblank(l + 1);
@@ -493,6 +513,12 @@ impl App {
             let digits = keys.iter().take_while(|k| matches!(k, Key::Char('0'..='9'))).count();
             keys =
                 n.to_string().chars().map(Key::Char).chain(keys.into_iter().skip(digits)).collect();
+        }
+        // `"1p` repeated is `"2p`, then `"3p`: the walk of VI-15 (only a register named in front of the
+        // command: a `"1` typed as text is text).
+        let at = keys.iter().take_while(|k| matches!(k, Key::Char('0'..='9'))).count();
+        if let [Key::Char('"'), Key::Char(d @ '1'..='8'), ..] = keys[at..] {
+            keys[at + 1] = Key::Char(char::from(d as u8 + 1));
         }
         (self.failed, self.replaying) = (false, true);
         for k in keys {
