@@ -1,4 +1,4 @@
-//! MD-1, MD-2, MD-3, MD-4, MD-7, MD-8
+//! MD-1, MD-2, MD-3, MD-4, MD-7, MD-8, MD-11
 //! The read view of a Markdown file (pure): which chars of a line are not drawn and what is put
 //! in their place (`Plan`), made from the line's chars and the highlighter's spans; the tables of
 //! a screen, found once per frame (`Read`); and the map from the columns of a row as the core made
@@ -25,6 +25,8 @@ pub enum Why {
     Blank,
     /// A char of a delimiter row, which the rule of the aligned cells replaces.
     Rule,
+    /// A char of a callout's marker, `[!NOTE]`, which the kind's word replaces (MD-11).
+    Callout,
 }
 
 /// MD-2: whether `c` may be left out for `why`. The one place that says so: a char shown in
@@ -34,6 +36,7 @@ pub fn may_hide(c: char, why: Why) -> bool {
         Why::Markup => matches!(c, '*' | '_' | '`'),
         Why::Blank => c == ' ',
         Why::Rule => matches!(c, '-' | ':' | ' '),
+        Why::Callout => c.is_ascii_alphabetic() || matches!(c, '[' | '!' | ']'),
     }
 }
 
@@ -79,6 +82,9 @@ pub struct Read {
     tables: Vec<Table>,
     /// The lines of the tables that are raw only for want of spans (MD-4): to be asked for.
     pub need: Option<Range<usize>>,
+    /// MD-11: the callouts of the screen (`callouts`), and whether their kind has an icon (`zi`).
+    pub calls: Vec<Block>,
+    pub icons: bool,
 }
 
 /// The pipes of a table's row, and whether text follows the last of them.
@@ -225,6 +231,106 @@ fn table<'a>(
     (aligned <= pane).then_some(cols)
 }
 
+/// MD-11: the kinds of a callout, GitHub's alerts, in the order GitHub lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Callout {
+    Note,
+    Tip,
+    Important,
+    Warning,
+    Caution,
+}
+
+impl Callout {
+    pub const ALL: [Callout; 5] =
+        [Callout::Note, Callout::Tip, Callout::Important, Callout::Warning, Callout::Caution];
+
+    /// The name as GitHub draws it.
+    pub fn word(self) -> &'static str {
+        ["Note", "Tip", "Important", "Warning", "Caution"][self as usize]
+    }
+
+    /// GitHub's own octicon for it, in a Nerd Font: info, light-bulb, report, alert and stop.
+    pub fn icon(self) -> char {
+        ['\u{f449}', '\u{f400}', '\u{f50a}', '\u{f421}', '\u{f46e}'][self as usize]
+    }
+}
+
+/// MD-11: a callout on the screen: the lines of its quote, the kind, and the chars of the marker in
+/// the first of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Block {
+    pub lines: Range<usize>,
+    pub kind: Callout,
+    pub marker: Range<usize>,
+}
+
+/// MD-11: `> [!NOTE]`, as GitHub's renderer reads it (measured with its API, SPEC): a bar in the first
+/// column, up to four blanks, `[!`, one of the five names in any case, `]` and then nothing but blanks.
+fn marker(cs: &[char]) -> Option<(Callout, Range<usize>)> {
+    let skip = cs.get(1..)?.iter().take_while(|&&c| matches!(c, ' ' | '\t')).count();
+    let at = 1 + skip;
+    if cs.first() != Some(&'>') || skip > 4 || cs.get(at..at + 2)? != ['[', '!'] {
+        return None;
+    }
+    let close = at + cs[at..].iter().position(|&c| c == ']')?;
+    let name: String = cs[at + 2..close].iter().collect::<String>().to_ascii_lowercase();
+    let kind = *Callout::ALL.iter().find(|k| k.word().to_ascii_lowercase() == name)?;
+    cs[close + 1..].iter().all(|c| matches!(c, ' ' | '\t' | '\r')).then_some((kind, at..close + 1))
+}
+
+/// Whether line `l` is a line of a quote: a bar in the first column.
+fn quoted(text: Text, l: usize) -> bool {
+    text(l).is_some_and(|s| s.starts_with('>'))
+}
+
+/// MD-11: the callouts among `lines` (the lines on the screen), made as GitHub's renderer makes its
+/// alerts: the first line of a quote (the quote runs while lines start with a bar) is a marker, the
+/// highlighter calls its bar a quote's (so a line of a fence is none), and a later line has text.
+pub fn callouts<'a>(
+    lines: Range<usize>,
+    text: Text,
+    spans: &dyn Fn(usize) -> Option<&'a Spans>,
+) -> Vec<Block> {
+    let (mut out, mut l) = (vec![], lines.start);
+    while l < lines.end {
+        if !quoted(text, l) {
+            l += 1;
+            continue;
+        }
+        let mut s = l;
+        while s > 0 && l - s < MAX_ROWS && quoted(text, s - 1) {
+            s -= 1;
+        }
+        let mut e = l + 1;
+        while e - l < MAX_ROWS && quoted(text, e) {
+            e += 1;
+        }
+        let first: Vec<char> = text(s).unwrap_or_default().chars().collect();
+        let bar =
+            spans(s).is_some_and(|x| x.iter().any(|(r, k)| *k == Look::Quote && r.start == 0));
+        let body = (s + 1..e).any(|k| text(k).is_some_and(|t| !t[1..].trim().is_empty()));
+        if let Some((kind, marker)) = marker(&first).filter(|_| bar && body) {
+            out.push(Block { lines: s..e, kind, marker });
+        }
+        l = e;
+    }
+    out
+}
+
+/// MD-11: the ops of a callout's marker line: each char of the marker is left out, and as many of
+/// the chars of the icon (with `icons`), a blank and the kind's word are put before them, one for each.
+/// The word is never longer than the marker, whose brackets and bang it takes the room of.
+fn word(ops: &mut [Op], cs: &[char], b: &Block, icons: bool) {
+    let icon = icons.then_some([b.kind.icon(), ' ']).into_iter().flatten();
+    let put: Vec<char> = icon.chain(b.kind.word().chars()).collect();
+    for (n, i) in b.marker.clone().enumerate() {
+        let Some(&c) = cs.get(i) else { continue };
+        ops[i].hide = may_hide(c, Why::Callout);
+        ops[i].fill = put.get(n).map(|&c| (c, 1));
+    }
+}
+
 impl Read {
     /// The read view of `lines` (the lines on the screen), for a pane of `pane` columns. `raw` are
     /// the lines drawn as they are: the cursor's and the selected ones (MD-1).
@@ -257,7 +363,7 @@ impl Read {
             tables.push(Table { lines: s..e, cols });
             l = e;
         }
-        Read { raw, front, tables, need }
+        Read { raw, front, tables, need, calls: vec![], icons: false }
     }
 
     /// How line `l` (`cs`, with the highlighter's `sp`) is drawn, if it is drawn otherwise than raw.
@@ -268,6 +374,9 @@ impl Read {
         }
         let mut ops = vec![Op::default(); cs.len() + 1];
         marks(cs, sp, &mut ops);
+        if let Some(b) = self.calls.iter().find(|b| b.lines.start == l) {
+            word(&mut ops, cs, b, self.icons);
+        }
         let at = self.tables.partition_point(|t| t.lines.end <= l);
         let tab = self.tables.get(at).filter(|t| t.lines.contains(&l));
         // (a run of lines that start with a pipe is a table that is aligned, or it is raw)
@@ -406,14 +515,15 @@ impl Remap {
         (c >= end).then(|| at + c - end)
     }
 
-    /// The new columns of what is put in other than blanks (the rule of a delimiter row).
-    pub fn rules(&self) -> Vec<Range<u16>> {
+    /// The new columns of what is put in other than blanks, and the char it is made of: the rule of a
+    /// delimiter row (`─`), or a callout's word (MD-11).
+    pub fn puts(&self) -> Vec<(Range<u16>, char)> {
         let (mut at, mut out) = (0, vec![]);
         for p in &self.pieces {
             match p {
                 Piece::Keep { cols, .. } => at += cols.end - cols.start,
                 Piece::Fill(c, n) => {
-                    out.extend((*c != ' ').then_some(at..at + n));
+                    out.extend((*c != ' ').then(|| (at..at + n, *c)));
                     at += n;
                 }
             }

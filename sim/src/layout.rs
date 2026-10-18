@@ -8,7 +8,7 @@ use crate::diff::Sign;
 use crate::icons;
 use crate::lie::{Budget, Refs, line_marks};
 use crate::marks::Git;
-use crate::md::{Plan, Read, Remap};
+use crate::md::{Block, Callout, Plan, Read, Remap, callouts};
 use crate::paint::{Cue, Look, Looks, Paint, Paints, Role};
 use crate::syn::Spans;
 use crate::tabs::Tab;
@@ -788,6 +788,11 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
         ..Paint::default()
     };
     paints.extend(m.badge.iter().map(|r| (r.clone(), badge)));
+    // MD-11: a callout's icon and word, or its marker where the line is raw, in the hue of its kind
+    if let Some(k) = m.call {
+        let word = Paint { fg: Some(t.callout(k)), bold: true, ..Paint::default() };
+        paints.extend(m.word.iter().map(|r| (r.clone(), word)));
+    }
     // UI-13, UI-14: the yank, lit in the accent's block, and the matches of a search, the current
     // one on the accent's solid color, over everything else of the cell.
     let (back, text) = t.accent_block();
@@ -822,6 +827,7 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
                 Tone::Mark => Some(t.focus),
                 Tone::Dim | Tone::Guide => Some(t.line),
                 Tone::Scope => Some(t.focus),
+                Tone::Call(k) => Some(t.callout(k)),
             };
             let mark = Paint { fg: ink, ..Paint::default() };
             paints.extend(ink.map(|_| (g.col..g.col + 1, mark)));
@@ -860,9 +866,19 @@ fn drawn(line: &mut Line, m: &Extra, map: &Remap, tones: Option<&Tones>) -> Extr
     line.looks = take(&mut line.looks).into_iter().filter_map(|(r, l)| Some((go(r)?, l))).collect();
     line.paints =
         take(&mut line.paints).into_iter().filter_map(|(r, p)| Some((go(r)?, p))).collect();
-    line.looks.extend(map.rules().into_iter().map(|r| (r, Look::Mark)));
+    // what is put in: a delimiter row's rule is dim (MD-3), a callout's icon and word are bold (MD-11)
+    let puts = map.puts();
+    line.looks.extend(puts.iter().filter(|p| p.1 == '─').map(|p| (p.0.clone(), Look::Mark)));
+    let mut said = Vec::<Range<u16>>::new();
+    for r in puts.into_iter().filter(|p| p.1 != '─').map(|p| p.0) {
+        match said.last_mut() {
+            Some(b) if b.end == r.start => b.end = r.end,
+            _ => said.push(r),
+        }
+    }
+    line.looks.extend(said.iter().map(|r| (r.clone(), Look::Bold)));
     line.cols = fit(&line.row.text, usize::MAX).1 as u16;
-    m.mapped(map)
+    Extra { word: said, ..m.mapped(map) }
 }
 
 /// The rows of the editor, `ew` columns each where something is drawn behind the blanks and as
@@ -1280,6 +1296,8 @@ pub enum Tone {
     Dim,
     Guide,
     Scope,
+    /// MD-11: the hue of a callout's kind (a quote's bar).
+    Call(Callout),
 }
 
 /// A char drawn in the place of a cell of a row: the index of the char it stands for in the row's
@@ -1351,6 +1369,10 @@ pub struct Extra {
     pub lie: Vec<std::ops::Range<u16>>,
     /// MD-1: the row of a line of the read view, as it is drawn from the row the core made.
     pub map: Option<Remap>,
+    /// MD-11: the kind of the callout the row is in, and the columns of its word (or, in a raw line,
+    /// of its marker).
+    pub call: Option<Callout>,
+    pub word: Vec<std::ops::Range<u16>>,
 }
 
 impl Extra {
@@ -1372,6 +1394,7 @@ impl Extra {
             hit: ranges(&self.hit),
             now: ranges(&self.now),
             lie: ranges(&self.lie),
+            word: ranges(&self.word),
             ..self.clone()
         }
     }
@@ -1455,8 +1478,15 @@ pub fn colors<'a>(
     colors_with(f, digits, text, spans, ui, read, None)
 }
 
-/// `colors` for a Markdown file, which is given the reference links of the document (`refs`: asked for
-/// only where a line has something a reference could make lie, MD-10) and has the links that lie found.
+/// What a Markdown file is given beside its lines (`colors_with`): the reference links of the
+/// document (`refs`: asked for only where a line has something a reference could make lie, MD-10), and
+/// whether the icons are on (the icon of a callout's kind, MD-11).
+pub struct Md<'a> {
+    pub refs: &'a dyn Fn() -> Arc<Refs>,
+    pub icons: bool,
+}
+
+/// `colors` for a Markdown file, which has the links that lie found and the callouts (MD-10, MD-11).
 pub fn colors_with<'a>(
     f: &Frame,
     digits: usize,
@@ -1464,7 +1494,7 @@ pub fn colors_with<'a>(
     spans: &dyn Fn(usize) -> Option<&'a Spans>,
     ui: Option<&dyn Fn(usize) -> LineUi>,
     read: Option<Range<usize>>,
-    refs: Option<&dyn Fn() -> Arc<Refs>>,
+    given: Option<Md>,
 ) -> Colored {
     let (gutter, mut win) = (digits + 2, None);
     // (the last row is the status line or the command line, which is no line of the text, though `:123`
@@ -1475,14 +1505,22 @@ pub fn colors_with<'a>(
         f.rows[..body].iter().filter_map(|r| number(r, digits)).map(|n| n.saturating_sub(1));
     let (first, last) = shown_lines.fold((usize::MAX, 0), |(a, z), n| (a.min(n), z.max(n)));
     let pane = usize::from(f.width).saturating_sub(gutter);
-    let read =
-        read.filter(|_| first <= last).map(|r| Read::new(first..last + 1, r, pane, text, spans));
+    // MD-11: the callouts of a Markdown file's lines on screen, and the read view that draws them
+    let calls =
+        given.as_ref().filter(|_| first <= last).map(|_| callouts(first..last + 1, text, spans));
+    let calls = calls.unwrap_or_default();
+    let read = read.filter(|_| first <= last).map(|r| {
+        let mut read = Read::new(first..last + 1, r, pane, text, spans);
+        (read.calls, read.icons) = (calls.clone(), given.as_ref().is_some_and(|m| m.icons));
+        read
+    });
     let mut plan: Option<Plan> = None;
     let (mut out, mut md) =
         (vec![Looks::new(); f.rows.len()], vec![Extra::default(); f.rows.len()]);
     let (mut cs, mut sp, mut ci, mut band) = (Vec::<char>::new(), None, 0, Band::None);
     let (mut lui, mut trail, mut badge, mut hk) = (LineUi::default(), 0, 0..0, 0);
     let mut lie = Vec::<Range<usize>>::new();
+    let (mut call, mut head) = (None::<&Block>, false);
     let mut budget = Budget::frame(); // (MD-10: what this frame may judge of its links)
     let (mut delim, mut framed, mut pipes, mut rule) = (false, false, (0, 0), false);
     for (i, row) in f.rows.iter().enumerate() {
@@ -1517,8 +1555,17 @@ pub fn colors_with<'a>(
             );
             plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s));
             (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
+            call = calls.iter().find(|b| b.lines.contains(&l));
+            head = call.is_some_and(|b| b.lines.start == l);
             // MD-10: the targets of the links of this line that say another place
-            lie = line_marks(l, &cs, sp.map_or(&[][..], |s| &s[..]), text, refs, &mut budget);
+            lie = line_marks(
+                l,
+                &cs,
+                sp.map_or(&[][..], |s| &s[..]),
+                text,
+                given.as_ref().map(|m| m.refs),
+                &mut budget,
+            );
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
                 .filter(|_| ui.is_some() && !lui.bare)
@@ -1527,6 +1574,7 @@ pub fn colors_with<'a>(
         }
         // (a row with no text and no number is past the end of the file, not the rest of a line)
         md[i].band = if line.is_some() || len > 0 { band } else { Band::None };
+        md[i].call = call.map(|b| b.kind).filter(|_| line.is_some() || len > 0);
         let (mut map, mut edited) = (Remap::default(), false);
         if plan.is_some() {
             map.keep(0..gutter as u16, 0..gutter);
@@ -1537,9 +1585,19 @@ pub fn colors_with<'a>(
             let look = look.filter(|s| s.0.contains(&ci) && w > 0).map(|s| s.1);
             let cols = (gutter + col) as u16..(gutter + col + w) as u16;
             if look == Some(Look::Quote) && n == 1 {
-                md[i]
-                    .glyph
-                    .push(Glyph { idx: gutter + used, ch: '▌', col: 0, tone: Tone::Plain });
+                // (MD-11: the bar of a callout has the hue of its kind)
+                let tone = call.map_or(Tone::Plain, |b| Tone::Call(b.kind));
+                let col = (gutter + col) as u16;
+                md[i].glyph.push(Glyph { idx: gutter + used, ch: '▌', col, tone });
+            }
+            // MD-11: the marker of a callout is bold where it is drawn as the file has it
+            let said = head && call.is_some_and(|b| b.marker.contains(&ci));
+            let look = if said { Some(Look::Bold) } else { look };
+            if said {
+                match md[i].word.last_mut() {
+                    Some(b) if b.end == cols.start => b.end = cols.end,
+                    _ => md[i].word.push(cols.clone()),
+                }
             }
             // UI-13: the cells of the text a yank has just taken, merged where they touch.
             if lui.flash.as_ref().is_some_and(|f| f.contains(&ci)) {

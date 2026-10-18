@@ -19,7 +19,8 @@ use crate::indent::{self, Indent, Lead};
 use crate::io::GIT_SKIPPED;
 use crate::keys;
 use crate::layout::{
-    self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, LineUi, Mark, ScrollCell, Skin, Tick,
+    self, Chrome, Colored, Deck, Ed, Fade, Geo, Kind, Line, LineUi, Mark, Md, ScrollCell, Skin,
+    Tick,
 };
 use crate::lie;
 use crate::marks::{Git, Marks};
@@ -1352,7 +1353,7 @@ impl Sim {
             &spans,
             have.then_some(&line_ui as &dyn Fn(usize) -> LineUi),
             read,
-            md.then_some(&refs as &dyn Fn() -> Arc<lie::Refs>),
+            md.then_some(Md { refs: &refs, icons: self.icons }),
         );
         let win = colored.win;
         let (ver, h) = (buf.version(), usize::from(self.size.1));
