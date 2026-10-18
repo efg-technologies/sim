@@ -162,9 +162,11 @@ pub fn is_markdown(name: &str) -> bool {
 impl Syn {
     /// SYN-4: the syntax for a file, from its name (the whole name, then the extension: `Makefile`,
     /// `.bashrc`, `a.rs`), then from its first line (`#!/usr/bin/env python`). None if there is
-    /// none, or only plain text. bat's "JavaScript" is never used: with the pure-Rust regex engine
-    /// syntect 5.3 loops for ever on `x = y /* c */` in it, and the set has no `.mjs`, `.cjs` or
-    /// `.jsx`; TypeScript's syntax reads JavaScript, so that is what these files get.
+    /// none, or only plain text. bat's "JavaScript" is never used: syntect 5.3's parser loops for ever
+    /// on `x = y /* c */` in it (two of its contexts `set` each other without consuming anything, and the
+    /// parser has no guard for that: not the regex engine, Oniguruma loops too, see SYN-3), and the set
+    /// has no `.mjs`, `.cjs` or `.jsx`; TypeScript's syntax reads JavaScript, so that is what these
+    /// files get.
     pub fn new(name: &str, first_line: &str) -> Option<Syn> {
         let set = syntaxes();
         let named = by_name(name);
