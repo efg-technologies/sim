@@ -152,7 +152,7 @@ fn ui_1_the_surfaces_are_steps_from_the_page_toward_secondary_and_none_is_above_
 #[test]
 fn ui_6_the_colorcolumn_and_the_handle_are_steps_from_the_page_the_author_s_scale_gives() {
     use sim::color::{scale, stepped};
-    // His scale_hex: each channel times the factor, clipped (a dark page); divided on a light one.
+    // The author's scale_hex: each channel times the factor, clipped (a dark page); divided on a light one.
     assert_eq!(scale((0x16, 0x17, 0x19), 1.18), (26, 27, 30));
     assert_eq!(scale((0x16, 0x17, 0x19), 1.8), (40, 41, 45));
     assert_eq!(scale((250, 250, 250), 1.18), (212, 212, 212), "a light page goes darker");

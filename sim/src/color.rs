@@ -133,7 +133,7 @@ fn text_on(primary: Rgb, c: Rgb) -> Rgb {
     contrast(primary, c, 75.5)
 }
 
-/// The author's `scale_hex` (his `init.lua`): each channel times `f`, clipped, on a dark page; on a
+/// The author's `scale_hex` (from the author's `init.lua`): each channel times `f`, clipped, on a dark page; on a
 /// light one each is divided by `f`, so the result is always a step away from the page and never
 /// past it (a white page times 1.18 would be white).
 pub fn scale(c: Rgb, f: f64) -> Rgb {
