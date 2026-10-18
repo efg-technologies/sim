@@ -65,6 +65,40 @@ pub fn make(dir: &Path, files: &[&str]) {
     }
 }
 
+/// The names of `names` that `write` (what makes the file) accepts. A name that the file system refuses
+/// with EILSEQ ("Illegal byte sequence") cannot exist there, which says nothing of sim: it is left out
+/// and printed, and the others are still made. Any other error is a failure.
+///
+/// APFS refuses a name with a code point that Unicode 9.0 leaves unassigned: Apple's APFS FAQ says it
+/// "doesn't allow files to be created with filenames that contain unassigned codepoints" in that version
+/// (https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/APFS_Guide/FAQ/FAQ.html).
+/// The macOS CI (run 39129740384) saw `make` fail with EILSEQ on the names of a test that put hidden
+/// characters in names. Linux file systems hold any name but one with `/` or NUL.
+pub fn names_that_can_exist<'a>(
+    names: &[&'a str],
+    mut write: impl FnMut(&str) -> std::io::Result<()>,
+) -> Vec<&'a str> {
+    let refused =
+        |e: &std::io::Error| e.raw_os_error() == Some(rustix::io::Errno::ILSEQ.raw_os_error());
+    let mut held = vec![];
+    for n in names {
+        match write(n) {
+            Ok(()) => held.push(*n),
+            Err(e) if refused(&e) => {
+                eprintln!("left out {n:?}: the file system refuses the name ({e})")
+            }
+            Err(e) => panic!("{n:?}: {e}"),
+        }
+    }
+    held
+}
+
+/// The names of `names` (flat names) that the file system of the test directories can hold.
+pub fn names_the_test_directory_can_hold<'a>(probe: &str, names: &[&'a str]) -> Vec<&'a str> {
+    let dir = temp_dir(probe);
+    names_that_can_exist(names, |n| std::fs::write(dir.0.join(n), n))
+}
+
 /// Runs git in `dir` with none of the user's configuration (no global config, no global ignore
 /// file) and a fixed identity. Returns stdout.
 pub fn git(dir: &Path, args: &[&str]) -> String {

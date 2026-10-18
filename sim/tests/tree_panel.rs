@@ -201,10 +201,25 @@ fn tree_1_every_hidden_character_of_a_name_is_shown_as_the_core_shows_text() {
             "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}.md",
         ),
     ];
-    let files: Vec<&str> = names.iter().map(|n| n.0).collect();
+    // A file system may refuse a name (APFS: one with a code point that Unicode 9.0 leaves unassigned,
+    // here U+0378: Apple's APFS FAQ, and the macOS CI, run 39129740384, which saw EILSEQ). That name
+    // cannot exist there and is left out, and said. Linux holds all of them, so on Linux none may be
+    // left out; anywhere, 7 of the 9 must be made, so that the test is never empty.
+    let all: Vec<&str> = names.iter().map(|n| n.0).collect();
+    let files = names_the_test_directory_can_hold("t1-hidden-fs", &all);
+    if cfg!(target_os = "linux") {
+        assert_eq!(files, all, "Linux holds every one of these names");
+    }
+    assert!(
+        files.len() >= 7,
+        "only {} of {} names could be made: {files:?}",
+        files.len(),
+        all.len()
+    );
+    assert!(files.contains(&names[0].0), "the name the search below types is made");
     let mut r = rig("t1-hidden", &files, &[]);
     let panel = r.panel();
-    for (name, shown) in names {
+    for (name, shown) in names.iter().filter(|n| files.contains(&n.0)) {
         assert!(panel.contains(&format!("  {shown}")), "{name:?} as {shown:?} in {panel:?}");
     }
     let all = |r: &Rig| r.screen.rows.iter().map(|r| r.text.as_str()).collect::<String>();
@@ -216,6 +231,32 @@ fn tree_1_every_hidden_character_of_a_name_is_shown_as_the_core_shows_text() {
     assert_eq!(oracle::raw_hidden(&all(&r)), None);
     r.keys("<Esc>");
     assert_eq!(oracle::raw_hidden(r.status()), None);
+}
+
+/// What a file system that refuses a name says: EILSEQ, "Illegal byte sequence" (errno 92 on macOS).
+fn eilseq() -> std::io::Error {
+    std::io::Error::from_raw_os_error(rustix::io::Errno::ILSEQ.raw_os_error())
+}
+
+#[test]
+fn tree_1_a_name_the_file_system_refuses_is_left_out_and_any_other_error_is_not() {
+    // The macOS CI (APFS) refused one of the names of the test above with EILSEQ: the name cannot exist
+    // there, which says nothing of sim. The helper leaves such a name out and says so; it does not
+    // forgive any other error.
+    let names = ["a.md", "u\u{378}.md", "b.md"];
+    let mut tried = vec![];
+    let held = names_that_can_exist(&names, |n| {
+        tried.push(n.to_string());
+        if n.contains('\u{378}') { Err(eilseq()) } else { Ok(()) }
+    });
+    assert_eq!(held, ["a.md", "b.md"]);
+    assert_eq!(tried, names, "every name is tried, also after a refused one");
+    let other = std::panic::catch_unwind(|| {
+        names_that_can_exist(&names, |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        })
+    });
+    assert!(other.is_err(), "an error that is not a refused name is a failure");
 }
 
 #[test]
