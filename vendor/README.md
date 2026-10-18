@@ -32,7 +32,7 @@ SYN-3. The change is also written for upstream (a pull request is not made: that
 ## `scripts/vendor-check.sh`
 
 `scripts/check.sh` runs it: a copy of `syntect/` with the patch taken off must be, file for file, what
-`syntect.sha256` lists, and no file may be there that the list does not have. A change to this directory that is
+`syntect.sha256` lists, and no file may be there that the list does not have, nor one that is not a regular file (a link, a fifo). A change to this directory that is
 not in `syntect.patch` fails it.
 
 ## Updating
