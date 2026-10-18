@@ -245,6 +245,8 @@ pub struct Hl {
     pub lines: usize,
     pub from: usize,
     pub spans: Vec<Spans>,
+    /// The highlighter gave this file up (its parse took too long): the spans are empty, and the bar says so.
+    pub stopped: bool,
 }
 
 /// UI-18: what a section was found for: the text's version, the cursor's line, and whether the
@@ -1674,6 +1676,10 @@ impl Sim {
             Mode::Normal => ("NORMAL".into(), BarBlock::Gray),
         };
         let mut notes = state_words(si_status, line + 1, col + 1);
+        if b.hl.as_ref().is_some_and(|h| h.stopped) {
+            // SYN-3: said for as long as it is true (a message is said once)
+            notes = format!("{notes} · colors stopped").trim_start_matches(" · ").into();
+        }
         // UI-10: the format is said once, at the right: the middle says only that the file is read-only
         let not_utf8 = buf.readonly.as_deref().is_some_and(|r| r.contains(NOT_UTF8));
         if not_utf8 {

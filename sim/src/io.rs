@@ -995,7 +995,7 @@ impl Highlighter {
             }
             None => vec![Spans::new(); n.min(lines.saturating_sub(from))],
         };
-        SimEvent::Spans(Hl { id, ver, lines, from, spans })
+        SimEvent::Spans(Hl { id, ver, lines, from, spans, stopped: false })
     }
 }
 
@@ -1040,7 +1040,7 @@ pub fn highlight_thread_within(tx: Sender<SimEvent>, budget: Duration) -> Sender
                 let wait = budget + Duration::from_micros(100) * (from + n).min(1 << 20) as u32;
                 let plain = |lines: usize| {
                     let spans = vec![Spans::new(); n.min(lines.saturating_sub(from))];
-                    SimEvent::Spans(Hl { id, ver, lines, from, spans })
+                    SimEvent::Spans(Hl { id, ver, lines, from, spans, stopped: true })
                 };
                 let answer = if given_up.contains(&id) {
                     plain(lines)

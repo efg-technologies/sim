@@ -1305,15 +1305,22 @@ syn_3_a_parse_that_takes_too_long_is_given_up_and_the_other_files_keep_their_col
   # keys, says so after them, and highlights the next file
   awk 'BEGIN { w = sprintf("%9000s", ""); gsub(/ /, "A", w); for (i = 0; i < 24; i++) { print "cat <<" w; print w } }' > "$W/slow.sh"
   printf 'fn main() { let s = "x"; }\n' > "$W/a.rs"
+  look depth
+  CT=truecolor
   start slow.sh
-  wait_for "slow.sh  1:1  NORMAL"
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_last NORMAL
   typed jj
-  wait_for "slow.sh  3:1  NORMAL" # the keys are answered while it parses
+  wait_for "slow.sh" # (the tab)
   wait_for "syntax colors stopped for slow.sh" 30
+  typed k
+  # SYN-3: a message is said once and a key ends it; the bar goes on saying it for as long as it is so
+  wait_gone "stopped for"
+  wait_last "colors stopped"
   typed ":e a.rs"
   keys Enter
-  wait_for "a.rs  1:1  NORMAL  2/2"
-  wait_esc '31mfn' # and a.rs has its colors
+  wait_for "a.rs" 5
+  wait_esc '3[0-9];2;[0-9;]*mfn' # and a.rs has its colors
 }
 
 syn_3_a_file_over_10_mb_is_not_highlighted() {

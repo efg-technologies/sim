@@ -7,7 +7,7 @@ use common::*;
 use sim::bar::{Bar, Block, render};
 use sim::color::{Accent, Syntax, Tones};
 use sim::layout::Skin;
-use sim::sim::SimEvent;
+use sim::sim::{Hl, SimEvent};
 use sim_core::core::app::Event;
 use sim_core::core::color::{Rgb, apca, palette};
 use unicode_width::UnicodeWidthStr;
@@ -289,6 +289,29 @@ fn ui_10_si_s_state_words_are_in_the_bar_and_a_second_file_is_in_the_tabs() {
     assert!(!text.contains("2/2"), "the tab bar says where you are, the bar does not: {text}");
     assert!(!text.contains("b.rs"), "nor which file: the tab does: {text}");
     assert!(r.shot.frame.rows[0].text.contains("b.rs"), "{}", r.shot.frame.rows[0].text);
+}
+
+/// SYN-3: where the highlighter gave a file up (a parse that took too long), the bar says `colors stopped`
+/// among the state words for as long as it is so, as the frame says what the guard did for as long as it did
+/// it (GIT-5): a message is said once and a key ends it; the file stays shown, plain.
+#[test]
+fn ui_10_the_bar_says_colors_stopped_for_as_long_as_the_highlighter_has_given_the_file_up() {
+    let mut r = rig("ui10-stopped", Skin::Flat, (140, 24), true);
+    assert!(!last(&r).contains("colors stopped"), "{}", last(&r));
+    let (id, ver) = (r.sim.bufs[0].id, r.app().buf.version());
+    let answer = |stopped: bool| {
+        SimEvent::Spans(Hl { id, ver, lines: 12, from: 0, spans: vec![Vec::new(); 100], stopped })
+    };
+    r.send(answer(true));
+    r.keys("l");
+    assert!(last(&r).contains("colors stopped"), "{}", last(&r));
+    r.keys("jl"); // as long as it is so, a key does not end it
+    let text = last(&r);
+    assert!(text.contains("colors stopped") && text.contains("NORMAL"), "{text}");
+    assert_eq!(r.text().lines().next(), Some("l1"), "the text is shown as it is");
+    r.send(answer(false)); // (a newer answer that is not the highlighter's giving up: it has colors again)
+    r.keys("l");
+    assert!(!last(&r).contains("colors stopped"), "{}", last(&r));
 }
 
 #[test]

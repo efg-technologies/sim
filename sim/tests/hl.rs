@@ -872,7 +872,7 @@ fn syn_3_a_parse_that_takes_too_long_is_given_up_and_the_other_files_are_still_h
             e => panic!("{e:?}"),
         }
     };
-    assert_eq!((plain.id, plain.spans.len()), (1, 40));
+    assert_eq!((plain.id, plain.spans.len(), plain.stopped), (1, 40, true), "the bar says so");
     assert!(plain.spans.iter().all(Vec::is_empty), "the lines are plain");
     // Another file is highlighted afterwards.
     jobs.send(HlJob::Run(req(2, "b.rs", 1, "fn f() {}\n", 0, 1))).unwrap();
@@ -884,12 +884,16 @@ fn syn_3_a_parse_that_takes_too_long_is_given_up_and_the_other_files_are_still_h
             e => panic!("{e:?}"),
         }
     }
-    assert_eq!(other.unwrap().spans[0], [(0..2, Look::Kw), (3..4, Look::Fun)]);
+    let other = other.unwrap();
+    assert_eq!(other.spans[0], [(0..2, Look::Kw), (3..4, Look::Fun)]);
+    assert!(!other.stopped, "only the file that was given up is stopped");
     // The file that was given up is answered at once at its next edit, plain, and not parsed again.
     let t = std::time::Instant::now();
     jobs.send(HlJob::Run(req(1, "a.sh", 2, &(slow + "echo\n"), 0, 41))).unwrap();
     match next("the file that was given up was parsed again") {
-        SimEvent::Spans(h) => assert!(h.id == 1 && h.ver == 2 && h.spans.iter().all(Vec::is_empty)),
+        SimEvent::Spans(h) => {
+            assert!(h.id == 1 && h.ver == 2 && h.stopped && h.spans.iter().all(Vec::is_empty))
+        }
         e => panic!("{e:?}"),
     }
     assert!(t.elapsed() < Duration::from_millis(250), "{:?}", t.elapsed());
