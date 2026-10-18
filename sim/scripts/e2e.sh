@@ -2872,6 +2872,11 @@ tutor_1_tutor_opens_the_lessons_marks_an_exercise_done_and_writes_nothing() {
   typed ":tutor"
   keys Enter
   wait_for "sim tutor: short lessons"
+  wait_for "[tutor]  1:1  NORMAL" # the status line names the lesson, not `[no name]`
+  typed ":w"
+  keys Enter
+  wait_for "scratch copy" # and `:w` says what `:w name` says, not `no file name`
+  ! screen | grep -F -q "no file name"
   typed '/1\.1 Move'
   keys Enter
   wait_for "[✗] 1.1 Move"

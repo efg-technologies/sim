@@ -6,7 +6,16 @@ use super::{Id, Opened, Pick, Sim, SimEffect, text_of};
 use crate::layout::{self, Skin};
 use crate::tutor::{self, Tutor};
 use sim_core::core::app::Event;
+use sim_core::core::view;
 use sim_core::io::file;
+
+/// What every way of writing the lesson says (TUTOR-1).
+const SCRATCH: &str = "the tutor is a scratch copy: nothing was written (:q! leaves)";
+
+/// The core's status line for a buffer that has no file says `[no name]`: the lesson's says what it is.
+pub(super) fn named(lesson: bool, status: String) -> String {
+    if lesson { status.replacen("[no name]", "[tutor]", 1) } else { status }
+}
 
 /// The lesson that is open: its buffer, its exercises, which of them are done, what was seen of
 /// the events (`tutor::bit`) and the panel and the look it began with.
@@ -55,8 +64,17 @@ impl Sim {
     /// TUTOR-1: a write of the scratch buffer is not made: it is answered as a write that failed, so
     /// that the App does not wait for it and says why.
     pub(super) fn refuse(&mut self, id: Id, out: &mut Vec<SimEffect>) {
-        let why = "the tutor is a scratch copy: nothing was written (:q! leaves)";
-        self.to(id, Event::Saved(Err(why.into()), file::seq()), out);
+        self.to(id, Event::Saved(Err(SCRATCH.into()), file::seq()), out);
+    }
+
+    /// TUTOR-1: `:w`, `:wq`, `:x` and `ZZ` of a buffer that has no file are the core's, which says `no file
+    /// name` and asks for nothing: what it says is said as `:w name` says it, without a line of the core's.
+    pub(super) fn said(&mut self, id: Id) {
+        let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) else { return };
+        if b.app.msg.as_deref() == Some("no file name") {
+            b.app.msg = Some(SCRATCH.into());
+            b.frame = Some(view::render(&mut b.app));
+        }
     }
 
     /// TUTOR-2: before a frame, the lesson in view (what is done while another file is shown is not its): what has been seen of the events, the marks of

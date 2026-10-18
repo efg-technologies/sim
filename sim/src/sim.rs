@@ -1096,6 +1096,8 @@ impl Sim {
         }
         if refused {
             self.refuse(id, out);
+        } else if scratch {
+            self.said(id);
         }
         match quit {
             Some(0) => self.close(id, out),
@@ -1472,6 +1474,7 @@ impl Sim {
         let room = usize::from(w).saturating_sub(pos.width());
         let (mut status, mut cursor, mut shape) =
             (layout::short(&root, room), (g.tx(), g.y0), Shape::Block);
+        let lesson = self.bufs.get(self.cur).is_some_and(|b| self.scratch(b.id));
         if let Some(b) = self.bufs.get_mut(self.cur) {
             if b.frame.as_ref().is_some_and(|f| (f.width, f.height) != b.app.size) {
                 b.frame = None;
@@ -1498,6 +1501,7 @@ impl Sim {
                 cursor = if cmd { (wide.cursor.0, h - 1) } else { cursor };
             }
         }
+        status = lesson::named(lesson, status); // TUTOR-1
         self.grade(); // TUTOR-2
         if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
             let mode = if self.changes.is_some() { "CHANGES" } else { "TREE" };

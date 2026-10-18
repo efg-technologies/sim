@@ -344,6 +344,16 @@ fn tutor_1_nothing_the_learner_types_writes_a_file_or_a_snapshot() {
     ] {
         r.keys(cmd);
         assert_eq!(r.sim.bufs.len(), 2, "{cmd:?}: it does not quit on a failed write");
+        // every way to write says the same: the core's `no file name` is not what the lesson says
+        // (`:saveas` is no command of the core's, and says so)
+        let writes = !cmd.starts_with(":saveas");
+        assert_eq!(
+            r.status().contains("the tutor is a scratch copy"),
+            writes,
+            "{cmd:?}: {}",
+            r.status()
+        );
+        assert!(!r.status().contains("no file name"), "{cmd:?}: {}", r.status());
     }
     assert_eq!(list(&r.cwd), files, "no file made");
     assert_eq!(std::fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "one\ntwo\n");
@@ -448,4 +458,21 @@ fn tutor_1_a_search_for_the_title_line_jumps_to_each_lesson_in_every_language() 
             assert!(at.starts_with(&format!("## {n} ")), "{lang}: {n}: {at:?}");
         }
     }
+}
+
+#[test]
+fn tutor_1_the_status_line_names_the_lesson_and_an_unnamed_buffer_keeps_its_name() {
+    let mut r = rig_env("tutor-name", &FILES, &["a.txt"], (80, 24), |_| {});
+    r.keys(":tutor\n");
+    assert!(r.status().starts_with("[tutor]  1:1  NORMAL"), "{}", r.status());
+    assert!(!r.status().contains("[no name]"), "{}", r.status());
+    r.keys("<Tab>");
+    assert!(r.status().starts_with("a.txt"), "{}", r.status());
+    // plain mode: the lesson is over an unnamed buffer, which is `[no name]` as it was
+    let mut r = rig_env("tutor-name-plain", &[], &["--plain"], (80, 24), |_| {});
+    assert!(r.status().starts_with("[no name]"), "{}", r.status());
+    r.keys(":tutor\n");
+    assert!(r.status().starts_with("[tutor]"), "{}", r.status());
+    r.keys(":q!\n");
+    assert!(r.status().starts_with("[no name]"), "{}", r.status());
 }
