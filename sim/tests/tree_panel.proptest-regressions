@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 201ee54fea2c75b368d0d6b92369bc2f6b308904c5b692f2fd4b51bd4e6fc27a # shrinks to path = "\u{200d}", max = 0
+cc 0c56ba9ff5ae857cbd646082c04edf991b750dc0edc27db6e9032a94c923f9e3 # shrinks to path = "/😀a/\u{200d}😀", max = 6
+cc e63676e67f28e11b96cbcb4a49513671b2a3a44a0a9e904ef543d1079ea22d0e # shrinks to text = "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}a🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}😀\u{200d}😀/😀\u{200d}😀😀/🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}😀\u{200d}😀éé😀\u{200d}😀🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}😀\u{200d}😀/😀日🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}😀\u{200d}😀😀\u{200d}😀🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}", max = 12

@@ -385,16 +385,17 @@ fn vis_7_an_emoji_presentation_sequence_takes_two_columns() {
         ("1\u{fe0f}\u{20e3} abc\n", 3),
         ("😀 abc\n", 3),
         ("⚠ abc\n", 2),
-        // Only an emoji joins an emoji, as `unicode-width` reads such a string (never less).
-        ("⚠\u{200d}⚠ abc\n", 3),
-        ("👨\u{fe0f}\u{200d}😀 abc\n", 5),
-        ("❤\u{200d}🔥 abc\n", 4),
-        ("a\u{200d}👩 abc\n", 4),
+        // Only an emoji joins an emoji, as `unicode-width` reads such a string (never less); a
+        // ZWJ that joins none is shown, as `<U+200D>` (SAFE-11): 8 columns.
+        ("⚠\u{200d}⚠ abc\n", 1 + 8 + 1 + 1),
+        ("👨\u{fe0f}\u{200d}😀 abc\n", 2 + 8 + 2 + 1),
+        ("❤\u{200d}🔥 abc\n", 1 + 8 + 2 + 1),
+        ("a\u{200d}👩 abc\n", 1 + 8 + 2 + 1),
     ] {
         assert_eq!(cursor_after(text, "fa", (40, 6)), (5 + cols, 0), "{text:?}");
     }
-    // A ZWJ joins the next char into the cluster, and only when it is there.
-    assert_eq!(cursor_after("a\u{200d}b\n", "$", (40, 6)), (5 + 1, 0), "joined chars have width 0");
+    // A ZWJ joins the next char into the cluster, and only when it is there and an emoji.
+    assert_eq!(cursor_after("a\u{200d}b\n", "$", (40, 6)), (5 + 1 + 8, 0), "a ZWJ is shown");
     assert_eq!(cursor_after("a\u{200d}\n", "$", (40, 6)), (5 + 1, 0));
 }
 

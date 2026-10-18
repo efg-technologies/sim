@@ -7,6 +7,7 @@ pub mod color;
 pub mod disk;
 pub mod edit;
 pub mod ex;
+pub mod hidden;
 pub mod mark;
 pub mod merge;
 pub mod reg;

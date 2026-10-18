@@ -6,6 +6,7 @@
 //! line it draws; the read view of `md.rs` hides none of what is marked.
 use crate::paint::Look;
 use crate::syn::MAX_LINE;
+use sim_core::core::hidden::hidden;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -634,13 +635,10 @@ fn entity(name: &str) -> Option<char> {
     v.and_then(char::from_u32).filter(|&c| c != '\0')
 }
 
-/// MD-10: whether `c` shows nothing: a control, a soft hyphen, a zero-width or joining char, a mark of
-/// direction, a variation selector, a tag char.
+/// MD-10: whether `c` shows nothing: a control, or one of the chars that SAFE-10 draws as a form (the
+/// core's one table: a soft hyphen, a zero-width or joining char, a mark of direction, a selector, a tag).
 fn invisible(c: char) -> bool {
-    (c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
-        || matches!(c as u32, 0xAD | 0x34F | 0x61C | 0x115F | 0x1160 | 0x17B4 | 0x17B5 | 0x180B..=0x180F
-            | 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x206F | 0x3164 | 0xFE00..=0xFE0F | 0xFEFF | 0xFFA0
-            | 0xE0000..=0xE0FFF)
+    (c.is_control() && !matches!(c, '\t' | '\n' | '\r')) || hidden(c)
 }
 
 /// MD-10: `s` as CommonMark reads it: a backslash before an ASCII punctuation char is dropped, and an

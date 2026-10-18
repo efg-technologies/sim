@@ -1,7 +1,8 @@
 //! VIS-7: wrapping applies kinsoku. `、。，．）」』】〕〉》ー…‥・！？` never start a row, `（「『【〔〈《`
 //! never end one, a full-width character counts as 2 columns, and a row that cannot satisfy the rule
 //! breaks at the edge. The property test throws random mixes of CJK, ASCII words, punctuation from
-//! both sets, spaces, tabs and emoji at `wrap`. (The widths of emoji are tests/view.rs.)
+//! both sets, spaces, tabs, emoji, and the chars that SAFE-10 shows (and the few it draws, SAFE-11)
+//! at `wrap`. (The widths of emoji are tests/view.rs.)
 #![allow(clippy::unwrap_used)]
 mod common;
 use common::*;
@@ -132,6 +133,28 @@ fn wrap_before_kinsoku(cs: &[char], max: usize) -> Vec<usize> {
     starts
 }
 
+/// Chars and sequences of SAFE-10 and SAFE-11: shown (8 to 10 columns, an ideograph's selector
+/// and a flag that is not RGI too) or drawn (an RGI flag, a keycap, a private-use icon).
+const HIDDEN_UNITS: &[&str] = &[
+    "\u{200b}",
+    "\u{e0041}",
+    "\u{fdd0}",
+    "\u{f0e7}",
+    "\u{378}",
+    "\u{202e}",
+    "a\u{fe0f}",
+    "\u{200d}",
+    "葛\u{e0100}",
+    "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+    "🏴\u{e0067}\u{e0062}\u{e007f}",
+    "1\u{fe0f}\u{20e3}",
+    "⚠\u{fe0e}",
+];
+
+fn hidden_unit() -> impl Strategy<Value = String> {
+    prop::sample::select(HIDDEN_UNITS.to_vec()).prop_map(String::from)
+}
+
 /// A piece of text (CJK, an ASCII word, a blank, an emoji, ASCII punctuation) followed by up to
 /// `runs` characters from the two kinsoku sets.
 fn unit(runs: usize) -> impl Strategy<Value = String> {
@@ -192,6 +215,7 @@ proptest! {
         cs in prop::collection::vec(
             prop::sample::select(vec![
                 'a', ' ', '\t', 'あ', '、', '（', '」', '\u{200d}', '\u{fe0f}', '😀', '\x1b', '\u{202e}', 'ー', '…',
+                '\u{fe0e}', '⚠', '🏴', '\u{e0067}', '\u{e007f}', '葛', '\u{e0100}', '\u{200b}', '\u{e0041}', '\u{378}',
             ]),
             0..60,
         ),
@@ -207,10 +231,38 @@ proptest! {
         }
     }
 
+    /// The columns of a row are the same before and after it is painted: the width of the chars
+    /// that `wrap` cut into it, and the width the terminal's writer measures in what the screen
+    /// got (it measures again with the same `width`, on text where a shown char is its form).
+    /// Chars that SAFE-10 shows, and the ones SAFE-11 draws, are among them.
+    #[test]
+    fn vis_7_prop_a_row_is_as_wide_painted_as_the_text_it_paints(
+        cs in prop::collection::vec(
+            prop::sample::select(vec![
+                'a', ' ', '\t', 'あ', '、', '（', '」', '😀', '👨', '⚠', '❤', '\u{200d}', '\u{fe0f}', '\u{fe0e}', '🏴',
+                '\u{e0067}', '\u{e0062}', '\u{e007f}', '葛', '\u{e0100}', '\u{200b}', '\u{e0041}', '\u{202e}',
+                '\x01', '\u{378}', '\u{85}', '1', '\u{20e3}', 'ー',
+            ]),
+            0..40,
+        ),
+        w in 15u16..40,
+    ) {
+        let line: String = cs.iter().collect();
+        let screen = screen(&mut app_with(Some("f.rs"), line.as_bytes(), (w, 60)));
+        let starts = wrap(&cs, usize::from(w) - 5);
+        for (k, &s) in starts.iter().enumerate() {
+            let e = starts.get(k + 1).copied().unwrap_or(cs.len());
+            let before = (s..e).fold(0, |col, i| col + width(&cs, i, col));
+            let body: String = screen.rows[k].text.chars().skip(5).collect();
+            prop_assert_eq!(cols(&body), before, "row {} of {:?}: {:?}", k, line, screen.rows[k].text);
+            prop_assert!(5 + before <= usize::from(w));
+        }
+    }
+
     /// Text without a character of either set wraps as it did before kinsoku.
     #[test]
     fn vis_7_prop_text_without_marks_wraps_as_before(
-        units in prop::collection::vec(unit(0), 0..40),
+        units in prop::collection::vec(prop_oneof![4 => unit(0), 1 => hidden_unit()], 0..40),
         max in 2usize..40,
     ) {
         let cs: Vec<char> = units.concat().chars().collect();

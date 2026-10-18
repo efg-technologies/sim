@@ -4,6 +4,7 @@
 //! `cargo test` fast; `SIM_FUZZ_CASES=100000 cargo test --test fuzz` runs every property that long.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod common;
+use common::oracle::{must_hide, raw_hidden};
 use common::*;
 use proptest::prelude::*;
 use sim_core::core::app::{App, Event};
@@ -327,11 +328,76 @@ const WITH_COUNT: &[&str] = &[
 /// Characters that matter: ASCII words and punctuation, blanks, brackets, quotes, CJK, wide and
 /// zero-width chars, and everything SAFE-8 talks about.
 const ALPHABET: &[char] = &[
-    'a', 'b', 'c', 'x', 'a', 'b', ' ', ' ', ' ', '\n', '\n', '\n', '\t', '.', '(', ')', '[', ']',
-    '{', '}', '<', '>', '"', '\'', '\\', '_', '-', '$', '^', '*', '/', '日', '本', '語', '、',
-    'あ', 'ア', 'ｱ', 'é', '😀', '\u{301}', '\r', '\x1b', '\0', '\x7f', '\u{85}', '\u{202e}',
-    '\u{200b}', '\u{feff}', '\u{3000}', '\u{a0}', '\x01', '\u{61c}', '\u{fe0f}', '\u{200d}', '⚠',
+    'a',
+    'b',
+    'c',
+    'x',
+    'a',
+    'b',
+    ' ',
+    ' ',
+    ' ',
+    '\n',
+    '\n',
+    '\n',
+    '\t',
+    '.',
+    '(',
+    ')',
+    '[',
+    ']',
+    '{',
+    '}',
+    '<',
+    '>',
+    '"',
+    '\'',
+    '\\',
+    '_',
+    '-',
+    '$',
+    '^',
+    '*',
+    '/',
+    '日',
+    '本',
+    '語',
+    '、',
+    'あ',
+    'ア',
+    'ｱ',
+    'é',
+    '😀',
+    '\u{301}',
+    '\r',
+    '\x1b',
+    '\0',
+    '\x7f',
+    '\u{85}',
+    '\u{202e}',
+    '\u{200b}',
+    '\u{feff}',
+    '\u{3000}',
+    '\u{a0}',
+    '\x01',
+    '\u{61c}',
+    '\u{fe0f}',
+    '\u{200d}',
+    '⚠',
     '👨',
+    '👩',
+    '葛',
+    '\u{e0100}',
+    '🏴',
+    '\u{e0067}',
+    '\u{e007f}',
+    '\u{e0041}',
+    '\u{fe0e}',
+    '\u{f0e7}',
+    '\u{378}',
+    '\u{ff00}',
+    '\u{2028}',
+    '\u{ad}',
 ];
 
 fn gen_text() -> impl Strategy<Value = String> {
@@ -355,11 +421,6 @@ fn file_bytes() -> impl Strategy<Value = Vec<u8>> {
             b
         },
     )
-}
-
-fn sane(c: char) -> bool {
-    !c.is_control()
-        && !matches!(c, '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200b}' | '\u{feff}')
 }
 
 /// The cell under display column `col` of `row`: the char that starts there.
@@ -386,7 +447,7 @@ fn check_frame(a: &App, f: &Frame, strict_width: bool) -> Result<(), String> {
         return Err(format!("{} rows for height {h}", f.rows.len()));
     }
     for (i, r) in f.rows.iter().enumerate() {
-        if let Some(c) = r.text.chars().find(|&c| !sane(c)) {
+        if let Some(c) = raw_hidden(&r.text) {
             return Err(format!("row {i} holds raw {c:?}: {:?}", r.text));
         }
         if r.text.width() > w {
@@ -407,16 +468,11 @@ fn check_frame(a: &App, f: &Frame, strict_width: bool) -> Result<(), String> {
         let joined =
             prev == Some('\u{200d}') || b.ch(b.cursor + 1) == '\u{fe0f}' && c.width() == Some(1);
         if !matches!(c, '\n' | '\0') && c.width() != Some(0) && !joined {
+            // (the ones that SAFE-11 draws in some uses take no column, and are not here)
             let want = match c {
                 '\t' => ' ',
                 '\0'..='\x1f' | '\x7f' => '^',
-                '\u{80}'..='\u{9f}'
-                | '\u{61c}'
-                | '\u{200b}'
-                | '\u{200e}'..='\u{200f}'
-                | '\u{202a}'..='\u{202e}'
-                | '\u{2066}'..='\u{2069}'
-                | '\u{feff}' => '<',
+                c if must_hide(c as u32) => '<',
                 c => c,
             };
             let row = &f.rows[f.cursor.1 as usize].text;
@@ -1073,7 +1129,10 @@ proptest! {
         pasted in gen_text(),
     ) {
         // (How a variation selector or a ZWJ changes widths is tested with the view.)
-        let pasted = pasted.replace(['\u{fe0f}', '\u{200d}'], "");
+        let pasted: String = pasted
+            .chars()
+            .filter(|c| !"\u{fe0f}\u{fe0e}\u{200d}\u{e0100}\u{e0067}\u{e007f}🏴葛".contains(*c))
+            .collect();
         let mut a = app_with(Some("f.rs"), b"a b\nc d\n", (w, 6));
         feed(&mut a, opener);
         if a.vi.mode != Mode::Cmd {
@@ -1094,8 +1153,7 @@ proptest! {
             let wd = |c: char| match c {
                 '\t' => 4,
                 '\0'..='\x1f' | '\x7f' => 2,
-                '\u{80}'..='\u{9f}' | '\u{61c}' | '\u{200b}' | '\u{200e}'..='\u{200f}'
-                | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}' => 8,
+                c if must_hide(c as u32) => format!("<U+{:04X}>", c as u32).len(),
                 c => c.width().unwrap_or(0),
             };
             // The line scrolls: from its `off`-th char on, the cursor stays on the screen, and

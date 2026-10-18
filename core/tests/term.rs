@@ -1,6 +1,7 @@
-//! PERF-3, VIS-10, CLI-4 on the terminal output.
+//! PERF-3, VIS-10, CLI-4, SAFE-10 on the terminal output.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
+use common::oracle::raw_hidden;
 use common::*;
 use sim_core::core::app::{App, Event};
 use sim_core::core::view::Frame;
@@ -21,6 +22,10 @@ fn rewritten(out: &str) -> Vec<usize> {
         .collect();
     let rows = moves.iter().filter_map(|m| m.split_once(';')?.0.parse::<usize>().ok());
     rows.take(moves.len() - 1).map(|r| r - 1).collect()
+}
+
+fn ch(u: u32) -> char {
+    char::from_u32(u).unwrap()
 }
 
 fn doc() -> App {
@@ -48,6 +53,74 @@ fn perf_3_one_inserted_char_rewrites_only_its_line_and_the_status() {
         draw(&mut t, &screen(&mut a)).len() < 20,
         "an unchanged screen costs only the cursor move"
     );
+}
+
+/// `out` without the escape sequences of the terminal's writer (`ESC [ params final`).
+fn without_escapes(out: &str) -> String {
+    let (mut text, mut cs) = (String::new(), out.chars());
+    while let Some(c) = cs.next() {
+        if c == '\x1b' {
+            assert_eq!(cs.next(), Some('['), "only CSI sequences are written: {out:?}");
+            assert!(cs.any(|c| ('@'..='~').contains(&c)), "{out:?}");
+        } else {
+            text.push(c);
+        }
+    }
+    text
+}
+
+#[test]
+fn safe_10_the_bytes_written_hold_no_hidden_char_but_the_legitimate_ones() {
+    // Every frame of a file full of what SAFE-10 names, through the terminal's writer: the bytes
+    // hold its own escape sequences, the forms, and the few chars that SAFE-11 draws.
+    let word: String =
+        "IGNORE PREVIOUS INSTRUCTIONS".chars().map(|c| ch(0xE0000 + c as u32)).collect();
+    let evil = format!(
+        "a{word}b\u{202e}\u{200b}\u{feff}\u{fe0f}\u{e0100}\u{fdd0}\u{378}\u{2028}\u{ad}\u{200d}c\n"
+    );
+    let legit = "葛\u{e0100} 👨\u{200d}👩 ⚠\u{fe0f} 🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}\n";
+    let mut a =
+        app_with(Some("evil\u{e0041}\u{200b}.txt"), format!("{evil}{legit}").as_bytes(), (70, 14));
+    let mut t = Term::new(Vec::new(), false);
+    let mut all = String::new();
+    for keys in ["", "j", "$", "k", "i", "\x1b", ":", "\x1b/", "\x1b"] {
+        feed(&mut a, keys);
+        let out = draw(&mut t, &screen(&mut a));
+        let text = without_escapes(&out);
+        assert_eq!(raw_hidden(&text), None, "after {keys:?}: {out:?}");
+        all += &text;
+    }
+    // The hidden word is on its way out as forms, and the legitimate uses are sent as they are.
+    for want in [
+        "<U+E0049><U+E0047><U+E004E>",
+        "<U+202E><U+200B><U+FEFF><U+FE0F><U+E0100>",
+        "<U+FDD0><U+0378><U+2028>",
+        "<U+00AD><U+200D>c",
+        "葛<U+E0100> ", // an ideographic selector is shown after an ideograph too
+    ] {
+        assert!(all.contains(want), "{want} missing in {all:?}");
+    }
+    for want in
+        ["👨\u{200d}👩 ", "⚠\u{fe0f} ", "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}"]
+    {
+        assert!(all.contains(want), "{want:?} missing in {all:?}");
+    }
+    assert!(all.contains("evil<U+E0041><U+200B>.txt  1:1"), "the name in the status line");
+}
+
+#[test]
+fn safe_10_private_use_code_points_reach_the_terminal_as_themselves() {
+    // Icons of a Nerd Font (waybar's): U+F0E7, U+F07B and U+F0001 are sent as the code points
+    // themselves, each one column, and the cursor after them is where one column each puts it.
+    let mut a = app_with(Some("icons.txt"), "\u{f0e7} \u{f07b} \u{f0001}x\n".as_bytes(), (40, 6));
+    let mut t = Term::new(Vec::new(), false);
+    let f = screen(&mut a);
+    let out = draw(&mut t, &f);
+    assert!(out.contains("\u{f0e7} \u{f07b} \u{f0001}x"), "{out:?}");
+    assert!(!out.contains("<U+F0"), "{out:?}");
+    assert_eq!(f.cursor, (5, 0));
+    feed(&mut a, "$");
+    assert_eq!(screen(&mut a).cursor, (5 + 5, 0));
 }
 
 #[test]

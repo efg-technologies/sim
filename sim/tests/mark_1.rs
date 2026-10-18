@@ -845,10 +845,10 @@ fn mark_1_the_refusal_names_the_key_and_the_file_it_is_in() {
     git(&d.0, &["worktree", "add", "-q", &d.0.join("wt").display().to_string()]);
     assert_eq!(with(monitor, &d.0.join("wt")), say("core.sshcommand", "…/.git/config"));
     // A key of a hundred chars is cut from the left, so that its end (the variable) and the file
-    // stay on the line, and a char that a terminal must not get is replaced.
+    // stay on the line, and a char that a terminal must not get is its form (`^[`).
     let long = format!("[merge \"{}\u{1b}[31m\"]\n\tdriver = cat\n", "x".repeat(100));
     let reason = with(&long, &d.0);
-    assert!(reason.ends_with("\u{fffd}[31m.driver in .git/config could run a command"), "{reason}");
+    assert!(reason.ends_with("^[[31m.driver in .git/config could run a command"), "{reason}");
     let key = reason.strip_prefix("git skipped: ").unwrap().split(" in ").next().unwrap();
     assert!(key.starts_with("…xx") && key.chars().count() <= 30, "{key:?}");
     assert!(!reason.chars().any(char::is_control), "{reason:?}");

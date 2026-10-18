@@ -3,7 +3,7 @@
 //! finds in a text, the rows of the panel made of them, and the reading of ripgrep's output. The
 //! threads that run a search are in io.rs, the state of one search in sim/live.rs.
 use crate::find::fold;
-use crate::layout::{fit, short};
+use crate::layout::{as_drawn, fit, short};
 use sim_core::core::view::width;
 use std::cmp::Ordering;
 use std::ops::Range;
@@ -194,18 +194,24 @@ pub fn row(path: &str, l: &Line, max: usize) -> PRow {
     let head = format!("{}:{}  ", short(path, (max * 2 / 5).max(1)), l.no);
     let head_cols = fit(&head, usize::MAX).1;
     let room = max.saturating_sub(head_cols);
-    let mut cs: Vec<char> = fit(&l.text, usize::MAX).0.chars().collect();
-    let (mut marks, cols) = (l.marks.clone(), columns(&cs));
+    // (the matches are char ranges of the line: where they are in what is drawn)
+    let (mut cs, mut starts) = as_drawn(&l.text);
+    let to = |i: usize| starts[i.min(starts.len() - 1)];
+    let mut marks: Vec<Range<usize>> = l.marks.iter().map(|r| to(r.start)..to(r.end)).collect();
+    let cols = columns(&cs);
     if let Some(m) = marks.first().filter(|m| cols[m.end.min(cs.len())] > room) {
         let skip = m.start.saturating_sub(BEFORE).min(cs.len());
         if skip > 0 {
             cs = std::iter::once('…').chain(cs[skip..].iter().copied()).collect();
             let kept = marks.iter().filter(|r| r.end > skip);
             marks = kept.map(|r| r.start.max(skip) - skip + 1..r.end - skip + 1).collect();
+            starts = starts.iter().filter(|&&a| a >= skip).map(|a| a - skip + 1).collect();
+            starts.insert(0, 0);
         }
     }
+    // The row ends between two chars of the line, never inside what one of them is drawn as.
     let cols = columns(&cs);
-    let kept = cols.iter().rposition(|&c| c <= room).unwrap_or(0);
+    let kept = starts.iter().rfind(|&&a| cols[a] <= room).copied().unwrap_or(0);
     let at = |i: usize| (head_cols + cols[i.min(kept)]).min(max) as u16;
     let bold = marks.iter().map(|r| at(r.start)..at(r.end)).filter(|r| r.start < r.end);
     PRow {
@@ -222,8 +228,12 @@ pub fn row(path: &str, l: &Line, max: usize) -> PRow {
 /// the path.
 pub fn file_row(path: &str, marks: &[Range<usize>], max: usize) -> PRow {
     let shown = short(path, max);
-    let (all, cs): (Vec<char>, Vec<char>) =
-        (fit(path, usize::MAX).0.chars().collect(), shown.chars().collect());
+    // (the marks are char ranges of the path: where they are in what is drawn)
+    let ((all, starts), cs) = (as_drawn(path), shown.chars().collect::<Vec<char>>());
+    let marks: Vec<Range<usize>> = marks
+        .iter()
+        .map(|r| starts[r.start.min(starts.len() - 1)]..starts[r.end.min(starts.len() - 1)])
+        .collect();
     let common = all.iter().rev().zip(cs.iter().rev()).take_while(|(a, b)| a == b).count();
     let (cut, gap) = (all.len() - common, cs.len() - common);
     let cols = columns(&cs);

@@ -15,6 +15,7 @@ const P99: Duration = Duration::from_millis(1);
 
 type Times = Vec<(Duration, Key)>;
 type Kind = fn(&mut Rig) -> Times;
+type Make = fn((u16, u16)) -> Rig;
 
 /// An App on 100,000 lines with the cursor in the middle, and a Term drawing into memory.
 struct Rig {
@@ -25,6 +26,14 @@ struct Rig {
 impl Rig {
     fn new(size: (u16, u16)) -> Rig {
         let mut r = Rig::on(&code_text(100_000, 70), size);
+        r.a.buf.cursor = r.a.buf.start(50_000);
+        r
+    }
+
+    /// The same, on 100,000 lines that are mostly Japanese, with a char that SAFE-10 shows every few
+    /// lines: every char of the screen is a lookup in the table of hidden chars, and some are forms.
+    fn japanese(size: (u16, u16)) -> Rig {
+        let mut r = Rig::on(&japanese_text(100_000), size);
         r.a.buf.cursor = r.a.buf.start(50_000);
         r
     }
@@ -53,6 +62,41 @@ impl Rig {
             })
             .collect()
     }
+}
+
+/// Lines of Japanese (kanji, kana, full-width punctuation) with an ASCII word now and then, and, one line
+/// in 30, a char that SAFE-10 shows (a zero-width space, a tag, a filler).
+fn japanese_text(lines: usize) -> String {
+    const WORDS: [&str; 8] = [
+        "日本語の",
+        "テキスト",
+        "、これは",
+        "ひらがな",
+        "漢字かな交じり",
+        "保存して終了",
+        "（括弧）",
+        "ＡＢＣ",
+    ];
+    const HIDDEN: [&str; 3] = ["\u{200b}", "\u{e0041}", "\u{3164}"];
+    let mut rng = Rng(0x2545_f491_4f6c_dd1d);
+    let mut out = String::with_capacity(lines * 90);
+    for i in 0..lines {
+        let target = 20 + rng.below(40);
+        let mut n = 0;
+        while n < target {
+            let w = WORDS[rng.below(WORDS.len())];
+            out.push_str(w);
+            n += w.chars().count();
+            if rng.below(6) == 0 {
+                out.push_str(" word ");
+            }
+        }
+        if i % 30 == 7 {
+            out.push_str(HIDDEN[rng.below(3)]);
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// A pseudo-random walk over the motions, with `G` and `gg` now and then.
@@ -124,26 +168,29 @@ fn perf_2_bench_a_key_on_100k_lines_takes_under_1ms_at_p99() {
     for size in [(80, 24), (240, 60)] {
         let kinds: [(&str, Kind); 4] =
             [("motions", motions), ("insert", inserts), ("delete", deletes), ("undo", undos)];
-        for (name, run) in kinds {
-            run(&mut Rig::new(size)); // warm up: page in the text and the allocator
-            let mut r = Rig::new(size);
-            let mut t = run(&mut r);
-            t.sort();
-            let (p50, p99, max) = (percentile(&t, 50), percentile(&t, 99), t[t.len() - 1]);
-            eprintln!(
-                "PERF-2 {}x{} {name:8} keys {:5}  p50 {:>8.1?}  p99 {:>8.1?}  max {:>8.1?} ({:?})",
-                size.0,
-                size.1,
-                t.len(),
-                p50.0,
-                p99.0,
-                max.0,
-                max.1
-            );
-            assert!(t.len() >= 1000);
-            assert!(r.a.buf.dirty() != (name == "motions"), "{name}: the text changed or not");
-            if p99.0 > P99 {
-                failed.push(format!("{name} {}x{}: p99 {:?}", size.0, size.1, p99.0));
+        let texts: [(&str, Make); 2] = [("code", Rig::new), ("japanese", Rig::japanese)];
+        for (text, make) in texts {
+            for (name, run) in kinds {
+                run(&mut make(size)); // warm up: page in the text and the allocator
+                let mut r = make(size);
+                let mut t = run(&mut r);
+                t.sort();
+                let (p50, p99, max) = (percentile(&t, 50), percentile(&t, 99), t[t.len() - 1]);
+                eprintln!(
+                    "PERF-2 {}x{} {text:8} {name:8} keys {:5}  p50 {:>8.1?}  p99 {:>8.1?}  max {:>8.1?} ({:?})",
+                    size.0,
+                    size.1,
+                    t.len(),
+                    p50.0,
+                    p99.0,
+                    max.0,
+                    max.1
+                );
+                assert!(t.len() >= 1000);
+                assert!(r.a.buf.dirty() != (name == "motions"), "{name}: the text changed or not");
+                if p99.0 > P99 {
+                    failed.push(format!("{text} {name} {}x{}: p99 {:?}", size.0, size.1, p99.0));
+                }
             }
         }
     }

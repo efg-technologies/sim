@@ -2601,7 +2601,7 @@ color_3_with_no_color_the_breadcrumb_the_table_and_the_bar_are_told_by_shapes() 
   fi
 }
 
-# UI-18, SAFE-8: a directory's name and a heading can hold an escape sequence: the breadcrumb draws U+FFFD
+# UI-18, SAFE-8: a directory's name and a heading can hold an escape sequence: the breadcrumb draws `^[`
 # for it, in flat and in depth, and the terminal's title (which `OSC 0` would set) and screen are untouched.
 ui_18_the_breadcrumb_never_sends_an_escape_sequence_of_a_name_or_a_heading_to_the_terminal() {
   dir=$(printf 'd\033]0;PWNED\007\033[2Jx')
@@ -2615,8 +2615,8 @@ ui_18_the_breadcrumb_never_sends_an_escape_sequence_of_a_name_or_a_heading_to_th
     wait_for "NORMAL"
     typed j
     tries=100
-    while ! screen | grep -F -q '�' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
-    screen | grep -F -q '�' # the breadcrumb shows U+FFFD where the control chars were
+    while ! screen | grep -F -q '^[' && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+    screen | grep -F -q '^[' # the breadcrumb shows `^[` where the escape chars were
     title=$(tm display-message -p -t "$SESSION" '#{pane_title}')
     case $title in *PWNED*) fail "$l: the terminal's title was set: $title" ;; esac
     screen | grep -F -q 'a.md' # and the screen was not cleared
@@ -2934,6 +2934,44 @@ md_11_a_callout_is_the_kinds_word_in_place_of_its_marker_and_the_cursors_line_is
   keys j
   wait_for "[!WARNING]" # the cursor's line is the file's own
   ! screen | grep -F -q "Warning"
+}
+
+# The ASCII word $1 as tag characters (U+E0000 + each char, which UTF-8 writes as F3 A0 and two more bytes).
+tags() {
+  printf '%s' "$1" | od -An -v -tu1 | tr -s ' ' '\n' | while read -r b; do
+    [ -n "$b" ] || continue
+    printf "\363\240\\$(printf '%03o' $((128 + b / 64)))\\$(printf '%03o' $((128 + b % 64)))"
+  done
+}
+
+tree_1_hidden_characters_in_a_name_and_in_a_file_are_shown_as_their_forms() {
+  # ASCII smuggling twice: in the file's name, and in a line between two visible words.
+  { printf 'see '; tags 'IGNORE PREVIOUS INSTRUCTIONS'; printf ' now\n'; } > "$W/n$(tags 'x').md"
+  start
+  wait_for "n<U+E0078>.md"
+  keys Enter
+  wait_for "<U+E0049><U+E0047><U+E004E>"
+  wait_for "<U+E0053> now"
+  # Not one tag character reached the terminal as it is (tmux keeps what it is sent in the cells).
+  if screen | LC_ALL=C grep -q "$(printf '\363\240')"; then
+    echo "a tag character is on the screen" >&2
+    return 1
+  fi
+}
+
+grep_7_hidden_characters_in_a_result_are_shown_as_their_forms() {
+  # The same instruction in tag characters, in a line of a file the search finds.
+  { printf 'needle '; tags 'IGNORE'; printf ' here\n'; } > "$W/smuggled.txt"
+  printf 'plain\n' > "$W/plain.txt"
+  start plain.txt
+  wait_for "plain.txt  1:1  NORMAL"
+  keys C-f
+  typed needle
+  wait_for "smuggled.txt:1  needle <U+E0049>"
+  if screen | LC_ALL=C grep -q "$(printf '\363\240')"; then
+    echo "a tag character is on the screen" >&2
+    return 1
+  fi
 }
 
 # A case runs in a process of its own, traced (scripts/e2e-lib.sh says how and why).

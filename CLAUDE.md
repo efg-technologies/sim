@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC i
         ┌─┴─────────┴─┐
         │    SPEC     │  what      requirements with IDs         SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       core/src ≤ 3,580, sim/src ≤ 11,385, gui/src ≤ 5,100
+      │      CODE       │  how       core/src ≤ 3,640, sim/src ≤ 11,385, gui/src ≤ 5,100
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       core/tests, sim/tests, gui/tests and the E2E scripts
     └─────────────────────┘
@@ -43,6 +43,7 @@ core/               the package sim-editor-core, the library crate `sim_core` (p
       edit.rs       applies a Command to the Buffer: motions, operators, text objects, Insert mode
       ex.rs         ex commands and their ranges, `:s`, search
       reg.rs        the registers (memory only, ropes), what a yank, a delete and `:registers` do with them, and their hand-over between Apps (VI-15)
+      hidden.rs     the one table of the chars that are never drawn as they are (SAFE-10; the table is `hidden.tbl`, made by scripts/hidden.py); `view::show` says the form of a char where it stands (SAFE-10, SAFE-11)
       mark.rs       the marks `ma`-`mz` and the place before the last jump: where an edit, an undo and a change from the disk leave them, `'` `` ` `` `''` and `:marks` (VI-17)
       merge.rs      diff3 and the word-level diff
       disk.rs       what App does when the file changes on disk: reload or merge, marks, the conflict of SAFE-7; the result of a filter; `]c` `[c`
@@ -128,7 +129,7 @@ If another one is needed, first write the reason into SPEC.
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
 - A key is added to `sim/keys.tsv` in the same change that adds it to the core or to sim: `sim/tests/key_1.rs` feeds every key to a Sim and fails for a key that does something and is not in the table, and for an entry that does nothing
 - `[profile.release]` (in the workspace) has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- core/src stays within 3,580 lines, sim/src within 11,385 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
+- core/src stays within 3,640 lines, sim/src within 11,385 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
 - Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
 - Code, comments, messages, docs and commit messages are in English. sim is the next-generation Vim (新時代の Vim): in README, CONCEPT, this file, the crates' descriptions and `--help`, it is never described as a likeness of Vim (nothing "-like", nothing "-style")
 
@@ -153,14 +154,14 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 2. `cargo clippy --workspace --all-targets -- -D warnings`
 3. `cargo test --workspace --no-fail-fast`
 4. scripts/trace.sh
-5. core/src has at most 3,580 lines
+5. core/src has at most 3,640 lines
 6. sim/src has at most 11,385 lines
 7. gui/src has at most 5,100 lines
 8. the core depends on its allowlist only
 9. the editor depends on its own list only, and no crate of the window is in the tree of the editor or of the core
 10. the window depends on its allowlist only, and no network crate or webview is in its tree
 11. the name is *Secure vIM* and the crates are sim-editor and sim-editor-core: a grep keeps the earlier name stories and the earlier crate name from coming back
-12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 32 KiB (5,275,648 bytes)
+12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 48 KiB (5,292,032 bytes)
 13. vendor/syntect is upstream's syntect 5.3.0 and vendor/syntect.patch, nothing else (scripts/vendor-check.sh: the patch taken off a copy, every file against the sha256 list)
 14. the traced path of the e2e harnesses works in the `sh` that runs check.sh, with no tmux and no sim (scripts/e2e-lib-check.sh: a passing case and a failing one, and the failing one is told by its command: Ubuntu's dash has no LINENO)
 

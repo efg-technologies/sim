@@ -45,6 +45,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 **Shows what is hidden**
 
 - A right-to-left override, a zero-width space or a control character is drawn as `<U+202E>` or `^[` on a magenta block, in every state a cell can be in, and is never sent raw to the terminal. The literal text `<U+202E>` in a file gets no block.
+- What else cannot be seen is drawn the same way: a tag character (how an instruction is smuggled to a language model), a variation selector (how code was hidden in published packages), a Hangul filler or a soft hyphen inside a name, a zero-width joiner that joins nothing, a line separator, a code point nobody has assigned. Names in the tree, the tabs, the search and the status line are drawn like the text. Emoji sequences, flags, keycaps and the icons of a Nerd Font stay as they are. A kanji followed by an ideographic variation selector shows the selector, too.
 - Trailing blanks show as `·`, a no-break space as `⍽`, a tab as `»`.
 - When another process rewrites the open file, the changed lines flash for a moment and are then marked in the text, the box says how many changes are on disk, the tab shows `↯`, and the tree marks the file. `]c` and `[c` go to the next and the previous mark.
 - Changes against git HEAD show as gutter signs, a status letter for each file in the tree (a folder shows the letter of the strongest status below it) and `+n ~n -n` in the status line.

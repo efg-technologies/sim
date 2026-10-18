@@ -209,8 +209,7 @@ fn ui_18_a_markdown_file_names_its_heading_and_a_fence_does_not_make_one() {
 /// Whether a char must not reach the terminal as it is (SAFE-8): a control (C0, C1, DEL), a
 /// bidirectional one, a zero-width one.
 fn hostile(c: char) -> bool {
-    c.is_control()
-        || matches!(c, '\u{61c}' | '\u{200b}' | '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+    c.is_control() || oracle::must_hide(c as u32)
 }
 
 const EVIL: &str = "d\u{1b}[2J\u{9b}\u{202e}x\n\u{7f}";
@@ -228,8 +227,8 @@ fn ui_18_the_parts_of_a_breadcrumb_hold_no_char_that_must_not_reach_the_terminal
     let p = parts(&format!("{EVIL}/sub/a.md"), Some(HEAD));
     assert_eq!(p.len(), 4, "{p:?}");
     assert!(p.iter().all(|x| !x.chars().any(hostile)), "{p:?}");
-    assert!(p[0].contains('\u{fffd}') && p[3].contains('\u{fffd}'), "{p:?}");
-    assert!(p[0].starts_with("d\u{fffd}[2J"), "the rest of the name is as it is: {p:?}");
+    assert!(p[0].contains("<U+202E>") && p[3].contains("<U+200B>"), "{p:?}");
+    assert!(p[0].starts_with("d^[[2J<U+009B>"), "the rest of the name is as it is: {p:?}");
     // what is measured is what is drawn
     let width = |v: &[String]| -> usize { v.join(" › ").chars().count() };
     let cut = cut(&p, 20);
@@ -272,8 +271,8 @@ fn ui_18_the_drawing_of_the_breadcrumb_cannot_leak_what_it_is_given_in_flat_or_i
     for skin in [Skin::Flat, Skin::Depth] {
         let rows = raw_deck(skin);
         clean(&rows);
-        let title = rows.iter().find(|r| r.contains('\u{fffd}')).unwrap_or_else(|| &rows[0]);
-        assert!(title.contains('\u{fffd}'), "{skin:?}: {rows:?}");
+        let title = rows.iter().find(|r| r.contains("<U+")).unwrap_or_else(|| &rows[0]);
+        assert!(title.contains("<U+202E>"), "{skin:?}: {rows:?}");
     }
 }
 
@@ -284,7 +283,7 @@ fn ui_18_a_directory_and_a_heading_with_control_chars_never_reach_a_row() {
         let file = format!("{name}=# {HEAD}\n\ntext\n");
         let r = shown("crumb-evil", skin, (100, 20), &[&file], &name, "j");
         clean(&r.screen.rows.iter().map(|x| x.text.clone()).collect::<Vec<_>>());
-        let top = r.screen.rows.iter().find(|x| x.text.contains('\u{fffd}'));
+        let top = r.screen.rows.iter().find(|x| x.text.contains("<U+202E>"));
         assert!(top.is_some(), "{skin:?}: {}", dump(&r.screen));
     }
 }

@@ -185,14 +185,64 @@ fn grep_3_a_file_row_has_the_directories_secondary_and_the_matched_chars_bold() 
 }
 
 #[test]
-fn grep_3_hostile_chars_in_a_row_are_replaced() {
+fn grep_3_hostile_chars_in_a_row_are_shown_as_their_forms() {
     let l = q("x").line(1, "a\u{1b}[2Jx\u{202e}\u{7}");
-    let r = grep::row("p", &l, 40);
-    assert!(!r.text.chars().any(|c| c.is_control() || c == '\u{202e}'), "{:?}", r.text);
-    let r = grep::row("dir\u{1b}[31m/x\n.rs", &l, 60);
-    assert!(!r.text.chars().any(char::is_control), "{:?}", r.text);
+    let r = grep::row("p", &l, 60);
+    assert_eq!(r.text, "p:1  a^[[2Jx<U+202E>^G");
+    let r = grep::row("dir\u{1b}[31m/x\n.rs", &l, 80);
+    assert!(r.text.starts_with("dir^[[31m/x^J.rs:1  "), "{:?}", r.text);
     let r = grep::file_row("dir\u{1b}[31m/x\n.rs", &[], 40);
-    assert!(!r.text.chars().any(char::is_control), "{:?}", r.text);
+    assert_eq!(r.text, "dir^[[31m/x^J.rs");
+}
+
+#[test]
+fn grep_3_hidden_characters_of_a_line_are_shown_and_the_match_is_marked_where_it_is() {
+    // ASCII smuggling in a matching line: the tags are forms (9 columns each), and the bold part is
+    // the match, after them.
+    let l = q("needle").line(8, "a\u{e0049}\u{e0047} needle\u{200b} \u{e0041}");
+    let r = grep::row("p", &l, 80);
+    assert_eq!(r.text, "p:8  a<U+E0049><U+E0047> needle<U+200B> <U+E0041>");
+    assert_eq!(r.bold, [25..31]);
+    assert_eq!(r.dim, [0..3], "the path and the number");
+    // A match on a hidden char is marked on its whole form.
+    let r = grep::row("p", &q("\u{e0049}").line(1, "ab\u{e0049}cd"), 40);
+    assert_eq!(r.text, "p:1  ab<U+E0049>cd");
+    assert_eq!(r.bold, [7..16], "the head is 5 columns, `ab` 2, and the form 9");
+    // A match that must be brought into view comes after an ellipsis, as before: the row ends
+    // between two chars of the line, never inside the form of one.
+    let tags = "\u{e0041}".repeat(6);
+    let r = grep::row("p", &q("needle").line(2, &format!("{tags}needle")), 30);
+    assert!(r.text.starts_with("p:2  …"), "{:?}", r.text);
+    assert!(r.text.ends_with("needle"), "{:?}", r.text);
+    assert_eq!(r.bold.len(), 1);
+    // Legitimate uses stay as they are, and take their columns.
+    let r = grep::row("p", &q("x").line(3, "葛\u{e0100} \u{1f468}\u{200d}\u{1f469} x"), 60);
+    assert_eq!(
+        r.text, "p:3  葛<U+E0100> \u{1f468}\u{200d}\u{1f469} x",
+        "a selector behind kanji is shown"
+    );
+    assert_eq!(
+        r.bold,
+        [20..21],
+        "5 for the head, 2 for the kanji, 9 for its selector, a blank, 2, a blank"
+    );
+    // A row never holds a char of SAFE-10 raw and never passes its width, whatever the line holds.
+    for s in ["\u{e0041}x", "\u{fe0f}x", "a\u{200d}x", "\u{85}x", "\tx", "\u{2028}x", "\u{3164}x"] {
+        for max in 5..40 {
+            let r = grep::row("p", &q("x").line(1, s), max);
+            assert!(width(&r.text) <= max, "{:?} in {max}", r.text);
+            assert_eq!(oracle::raw_hidden(&r.text), None, "{:?}", r.text);
+        }
+    }
+}
+
+#[test]
+fn grep_3_a_file_row_with_hidden_characters_marks_the_matches_where_they_are() {
+    let r = grep::file_row("d\u{e0041}/f\u{3164}.rs", &[0..1, 4..5], 40);
+    assert_eq!(r.text, "d<U+E0041>/f<U+3164>.rs");
+    // `d` is bold, and so is the form of the filler (a match on a hidden char is marked whole)
+    assert_eq!(r.bold, [0..1, 12..20]);
+    assert_eq!(r.dim, [0..11], "the directory");
 }
 
 #[test]

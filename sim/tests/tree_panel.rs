@@ -182,6 +182,43 @@ fn tree_1_a_name_that_is_not_utf8_is_listed_but_never_opened_as_another_file() {
 }
 
 #[test]
+fn tree_1_every_hidden_character_of_a_name_is_shown_as_the_core_shows_text() {
+    // SAFE-10 for names: tags (ASCII smuggling), selectors after a letter (GlassWorm), an unassigned
+    // code point, a ZWJ that joins nothing, a line separator, a filler, a control char: each is its
+    // form, in the panel, in the status line and in the narrowed tree. So is a selector behind an
+    // ideograph; the England flag is a legitimate use (SAFE-11) and stays as it is.
+    let names = [
+        ("a\u{e0041}b.md", "a<U+E0041>b.md"),
+        ("v\u{fe0f}\u{fe00}.md", "v<U+FE0F><U+FE00>.md"),
+        ("u\u{378}.md", "u<U+0378>.md"),
+        ("z\u{200d}w.md", "z<U+200D>w.md"),
+        ("l\u{2028}.md", "l<U+2028>.md"),
+        ("f\u{3164}\u{ad}.md", "f<U+3164><U+00AD>.md"),
+        ("e\x1b[2J.md", "e^[[2J.md"),
+        ("葛\u{e0100}.md", "葛<U+E0100>.md"),
+        (
+            "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}.md",
+            "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}.md",
+        ),
+    ];
+    let files: Vec<&str> = names.iter().map(|n| n.0).collect();
+    let mut r = rig("t1-hidden", &files, &[]);
+    let panel = r.panel();
+    for (name, shown) in names {
+        assert!(panel.contains(&format!("  {shown}")), "{name:?} as {shown:?} in {panel:?}");
+    }
+    let all = |r: &Rig| r.screen.rows.iter().map(|r| r.text.as_str()).collect::<String>();
+    assert_eq!(oracle::raw_hidden(&all(&r)), None);
+    // The status line names the selected path the same way, and the query is typed text.
+    r.keys("/a\u{e0041}");
+    assert_eq!(r.status(), "/a<U+E0041>  1 match");
+    assert!(r.panel().contains(&"  a<U+E0041>b.md".to_string()));
+    assert_eq!(oracle::raw_hidden(&all(&r)), None);
+    r.keys("<Esc>");
+    assert_eq!(oracle::raw_hidden(r.status()), None);
+}
+
+#[test]
 fn tree_1_an_argument_that_is_not_utf8_is_a_usage_error_and_not_a_panic() {
     use std::os::unix::ffi::OsStrExt;
     let arg = std::ffi::OsStr::from_bytes(b"a\xff.txt");
@@ -519,10 +556,28 @@ fn tree_2_a_notice_from_a_thread_is_told_on_the_status_line_until_the_next_key()
     assert_eq!(r.status(), "f.txt  TREE");
 }
 
+/// Texts that are drawn as they are, with chars that take no columns of their own: an emoji joined
+/// by a ZWJ, an emoji presentation sequence, the England flag (SAFE-11).
+const TEXT: &str = "(?:[a-z/日本é]|\u{1f600}\u{200d}\u{1f600}|\u{26a0}\u{fe0f}|\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}|\u{1f600}){0,40}";
+
 proptest! {
+    /// A text cut from the left is drawn again from where it starts: a selector or a tag whose base is
+    /// cut away is shown in its form (SAFE-11), so what is left is not always the end of the text as
+    /// it is, but never holds a char that SAFE-10 hides, raw.
+    #[test]
+    fn tree_1_a_cut_text_of_sequences_fits_and_hides_nothing(
+        text in TEXT,
+        max in 0..45usize,
+    ) {
+        let cut = sim::layout::tail(&text, max);
+        prop_assert!(width(&cut) <= max, "{cut:?} in {max}");
+        let raw = cut.chars().filter(|c| matches!(c, '\u{e0020}'..='\u{e007f}')).count();
+        prop_assert!(raw == 0 || cut.contains('\u{1f3f4}'), "tags with no flag raw in {cut:?}");
+    }
+
     #[test]
     fn tree_1_a_cut_text_fits_and_is_the_end_of_the_text(
-        text in "[a-z/日本é\u{200d}\u{1f600}]{0,40}",
+        text in "[a-z/日本é\u{1f600}]{0,40}",
         max in 0..45usize,
     ) {
         let (cut, whole) = (sim::layout::tail(&text, max), width(&text));
@@ -537,7 +592,7 @@ proptest! {
 
     #[test]
     fn tree_1_a_path_made_to_fit_ends_as_the_path_does_and_the_state_words_stay(
-        path in "[a-z/日本é\u{200d}\u{1f600}]{0,40}",
+        path in TEXT,
         max in 0..45usize,
     ) {
         // si's `shorten` keeps the last components (`…/dir/file`); a name wider than the room is cut.

@@ -260,3 +260,17 @@ fn ui_4_a_screen_too_short_for_the_interface_has_no_tab_bar_and_the_status_line_
     assert_eq!(r.sim.geo().head, 0);
     assert!(r.status().contains("3/3"), "{}", r.status());
 }
+
+#[test]
+fn safe_10_a_tab_named_with_hidden_characters_is_drawn_as_its_form() {
+    // The name of a file can hold anything: tags, a filler, a selector behind a kanji, a control char.
+    let tabs: Vec<Tab> =
+        ["e\u{e0041}x.md", "f\u{3164}.rs", "葛\u{e0100}.rs", "d\x1b[2J.c"].map(tab).into();
+    let (line, _) = layout(&tabs, false, 0, 120, None);
+    let text = &line.row.text;
+    assert_eq!(oracle::raw_hidden(text), None, "{text:?}");
+    for form in ["e<U+E0041>x.md", "f<U+3164>.rs", "葛<U+E0100>.rs", "d^[[2J.c"] {
+        assert!(text.contains(form), "{form:?} in {text:?}");
+    }
+    assert_eq!(width(text), usize::from(line.cols), "the columns it says are the columns it takes");
+}

@@ -50,6 +50,20 @@ fn lit(r: &Rig) -> Vec<String> {
 }
 
 #[test]
+fn find_1_names_and_the_query_with_hidden_characters_are_shown_as_their_forms() {
+    // SAFE-10 in the search of the panel: the rows are names drawn as the core draws text, and so is
+    // the query that is typed (it can be a hidden char, to find the names that hold one).
+    let mut r = rig("f1-hidden", &["note\u{e0041}.md", "other.md", "n\u{200b}x.md"], &[]);
+    r.keys("/note");
+    assert_eq!(r.status(), "/note  1 match");
+    assert_eq!(lit(&r), ["*  note<U+E0041>.md", "-  n<U+200B>x.md", "-  other.md"]);
+    r.keys("<BS><BS><BS><BS>");
+    r.keys("\u{200b}");
+    assert_eq!(r.status(), "/<U+200B>  1 match");
+    assert_eq!(lit(&r), ["-  note<U+E0041>.md", "*  n<U+200B>x.md", "-  other.md"]);
+}
+
+#[test]
 fn find_1_slash_searches_every_file_and_takes_the_cursor_to_the_best_match() {
     let mut r = rig("f1-best", &FILES, &[]);
     assert_eq!(r.panel(), ["▸ docs/", "▸ src/", "  build.rs", "  Cargo.toml", "  README.md"]);

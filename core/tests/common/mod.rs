@@ -1,5 +1,6 @@
 //! Helpers shared by the integration tests.
 #![allow(dead_code, clippy::unwrap_used, clippy::panic)]
+pub mod oracle;
 use sim_core::core::app::{App, Effect, Event, Key};
 use sim_core::core::buffer::Mark;
 use sim_core::core::view::{Frame, Style};

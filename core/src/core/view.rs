@@ -1,8 +1,9 @@
-//! CLI-5, VIS-1, VIS-2, VIS-3, VIS-6, VIS-7, VIS-8, VIS-9, VIS-10, VIS-11, VIS-12, VI-5, VI-12, SAFE-8, PERF-2, FILT-1
+//! CLI-5, VIS-1, VIS-2, VIS-3, VIS-6, VIS-7, VIS-8, VIS-9, VIS-10, VIS-11, VIS-12, VI-5, VI-12, SAFE-8, SAFE-10, SAFE-11, PERF-2, FILT-1
 //! State to Frame (a grid of characters and styles), wrapping, kinsoku.
 use super::app::{App, plural};
 use super::buffer::Buffer;
 use super::color::Palette;
+use super::hidden::hidden;
 use super::vi::Mode;
 use std::ops::Range;
 use std::path::Path;
@@ -26,38 +27,87 @@ pub struct Row { pub text: String, pub spans: Vec<(Range<u16>, Style)>, pub unde
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Frame { pub width: u16, pub height: u16, pub rows: Vec<Row>, pub cursor: (u16, u16), pub shape: Shape, pub pal: Option<Palette> }
 
-/// The safe spelling of a char that must never reach the terminal raw (SAFE-8).
-#[rustfmt::skip]
-fn show(c: char) -> Option<String> {
+/// The safe spelling of `cs[i]` when it must never reach the terminal raw: `^[` for a control char
+/// (SAFE-8), `<U+202E>` for a hidden one (SAFE-10) unless it is a legitimate use (SAFE-11). The one
+/// place that says which chars these are: the editor asks it too, for every name and line it draws.
+pub fn show(cs: &[char], i: usize) -> Option<String> {
+    let c = cs[i];
     match c {
         '\0'..='\x08' | '\n'..='\x1f' | '\x7f' => Some(format!("^{}", (c as u8 ^ 0x40) as char)),
-        '\u{80}'..='\u{9f}' | '\u{61c}' | '\u{200b}' | '\u{200e}'..='\u{200f}'
-        | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}' => Some(format!("<U+{:04X}>", c as u32)),
+        _ if hidden(c) && !legit(cs, i) => Some(format!("<U+{:04X}>", c as u32)),
         _ => None,
     }
 }
 
-/// Columns of `cs[i]` when it starts at column `col` of its row. A char (not a blank) followed by
-/// U+FE0F takes 2 if it takes 1 (an emoji presentation sequence), and an emoji after a ZWJ that
-/// follows an emoji joins the cluster before it and takes none, as grapheme-clustering terminals
-/// draw them (VIS-7). An emoji is a pictograph that is wide, or followed by U+FE0F; before the
-/// ZWJ it is a wide one, or a narrow one with its U+FE0F (so the width stays what `unicode-width`
-/// gives such a string, or more).
+/// The pictographs of VIS-7: the chars an emoji is made of.
+#[rustfmt::skip]
+fn pict(c: char) -> bool {
+    matches!(c, '\u{a9}' | '\u{ae}' | '\u{203c}' | '\u{2049}' | '\u{2122}' | '\u{2139}' | '\u{2190}'..='\u{2bff}' | '\u{1f000}'..='\u{1faff}')
+}
+
+/// A wide pictograph.
+fn wide(cs: &[char], j: usize) -> bool {
+    pict(cs[j]) && cs[j].width() == Some(2)
+}
+
+/// Whether an emoji a ZWJ joins starts at `cs[j]`: a wide pictograph, or a narrow one with its U+FE0F.
+fn right(cs: &[char], j: usize) -> bool {
+    j < cs.len() && (wide(cs, j) || pict(cs[j]) && cs.get(j + 1) == Some(&'\u{fe0f}'))
+}
+
+/// Whether an emoji that a ZWJ at `cs[k]` joins ends right before it.
+fn left(cs: &[char], k: usize) -> bool {
+    k > 0
+        && (wide(cs, k - 1)
+            || k > 1 && cs[k - 1] == '\u{fe0f}' && pict(cs[k - 2]) && !wide(cs, k - 2))
+}
+
+/// The subdivision flags that Unicode recommends (RGI): England, Scotland and Wales, as the black
+/// flag, tags and the cancel tag.
+const FLAGS: [&str; 3] = [
+    "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+    "\u{1f3f4}\u{e0067}\u{e0062}\u{e0073}\u{e0063}\u{e0074}\u{e007f}",
+    "\u{1f3f4}\u{e0067}\u{e0062}\u{e0077}\u{e006c}\u{e0073}\u{e007f}",
+];
+
+/// Whether the hidden `cs[i]` is a legitimate use that keeps its look (SAFE-11): a ZWJ between two
+/// emoji, one U+FE0F or U+FE0E after a pictograph (U+FE0F also after a keycap's base, before
+/// U+20E3), and a char of one of the three RGI subdivision flags. Nothing else carries a value
+/// that is not on the screen.
+fn legit(cs: &[char], i: usize) -> bool {
+    let prev = i.checked_sub(1).map(|p| cs[p]);
+    match cs[i] {
+        '\u{200d}' => left(cs, i) && right(cs, i + 1),
+        c @ ('\u{fe0e}' | '\u{fe0f}') => prev.is_some_and(|p| {
+            let more = matches!(p, '\u{3030}' | '\u{303d}' | '\u{3297}' | '\u{3299}');
+            let keycap = c == '\u{fe0f}'
+                && matches!(p, '#' | '*' | '0'..='9')
+                && cs.get(i + 1) == Some(&'\u{20e3}');
+            pict(p) || more || keycap
+        }),
+        '\u{e0020}'..='\u{e007f}' => (1..=6).filter(|&k| k <= i).any(|k| {
+            let at = cs.get(i - k..i - k + 7);
+            FLAGS.iter().any(|f| at.is_some_and(|at| at.iter().copied().eq(f.chars())))
+        }),
+        _ => false,
+    }
+}
+
+/// Columns of `cs[i]` when it starts at column `col` of its row. A char that SAFE-10 shows takes
+/// the columns of its form. A char followed by a U+FE0F that is drawn takes 2 if it takes 1 (an
+/// emoji presentation sequence), and an emoji after a ZWJ that is drawn (one that follows an emoji)
+/// joins the cluster before it and takes none, as grapheme-clustering terminals draw them (VIS-7).
+/// An emoji is a pictograph that is wide, or followed by U+FE0F; before the ZWJ it is a wide one,
+/// or a narrow one with its U+FE0F (so the width stays what `unicode-width` gives such a string,
+/// or more).
 pub fn width(cs: &[char], i: usize, col: usize) -> usize {
-    #[rustfmt::skip]
-    let pict = |c| matches!(c, '\u{a9}' | '\u{ae}' | '\u{203c}' | '\u{2049}' | '\u{2122}' | '\u{2139}' | '\u{2190}'..='\u{2bff}' | '\u{1f000}'..='\u{1faff}');
-    let wide = |j: usize| pict(cs[j]) && cs[j].width() == Some(2);
-    let right = wide(i) || pict(cs[i]) && cs.get(i + 1) == Some(&'\u{fe0f}');
-    let left = |k: usize| {
-        wide(k - 1) || k > 1 && cs[k - 1] == '\u{fe0f}' && pict(cs[k - 2]) && !wide(k - 2)
-    };
-    let joined = i > 1 && cs[i - 1] == '\u{200d}' && right && left(i - 1);
-    match (cs[i], show(cs[i])) {
+    let joined = i > 1 && cs[i - 1] == '\u{200d}' && right(cs, i) && left(cs, i - 1);
+    match (cs[i], show(cs, i)) {
         ('\t', _) => 4 - col % 4,
         (_, Some(s)) => s.len(),
         _ if joined => 0,
         (c, _) => match c.width().unwrap_or(0) {
-            1 if !c.is_whitespace() && cs.get(i + 1) == Some(&'\u{fe0f}') => 2,
+            1 if cs.get(i + 1) == Some(&'\u{fe0f}') && legit(cs, i + 1) => 2,
             w => w,
         },
     }
@@ -92,20 +142,28 @@ pub fn wrap(cs: &[char], max: usize) -> Vec<usize> {
     starts
 }
 
+/// Appends `cs[i]` as it is drawn when it starts at column `col` (SAFE-8, SAFE-10, VIS-8: a tab is
+/// spaces, a hidden char its form), and returns the columns that take.
+pub fn draw(cs: &[char], i: usize, col: usize, out: &mut String) -> usize {
+    let w = width(cs, i, col);
+    match (cs[i], show(cs, i)) {
+        ('\t', _) => out.extend(std::iter::repeat_n(' ', w)),
+        (_, Some(s)) => *out += &s,
+        (c, _) => out.push(c),
+    }
+    w
+}
+
 /// `cs[r]` as text that is safe to send, cut where it would pass `max` columns, and its width.
-fn paint(cs: &[char], r: Range<usize>, max: usize) -> (String, usize) {
-    let (mut out, mut col) = (String::new(), 0);
-    for i in r {
-        let w = width(cs, i, col);
+pub fn paint(cs: &[char], r: Range<usize>, max: usize) -> (String, usize) {
+    // What stands left of the range is not on the screen: it can neither carry nor join a char of it.
+    let (cs, mut out, mut col) = (cs.get(r.start..).unwrap_or_default(), String::new(), 0);
+    for i in 0..r.len() {
+        let kept = out.len();
+        let w = draw(cs, i, col, &mut out);
         if col + w > max {
+            out.truncate(kept);
             break;
-        }
-        match (cs[i], show(cs[i])) {
-            ('\t', _) => out.extend(std::iter::repeat_n(' ', w)),
-            (_, Some(s)) => out += &s,
-            // A variation selector after `^[` would widen its `[`: it shows nothing anyway.
-            ('\u{fe0f}', _) if i > 0 && (show(cs[i - 1]).is_some() || cs[i - 1] == '\u{fe0f}') => {}
-            (c, _) => out.push(c),
         }
         col += w;
     }
@@ -258,7 +316,7 @@ pub fn render(a: &mut App) -> Frame {
             // A char shown in another form is Hidden (SAFE-8) whatever its style is: an attacker's
             // change around it must not hide it.
             #[rustfmt::skip]
-            let sty = |z: usize| if show(d.cs[z]).is_some() { Style::Hidden } else { d.sty[z] };
+            let sty = |z: usize| if show(&d.cs, z).is_some() { Style::Hidden } else { d.sty[z] };
             let mut x = s;
             while x < e {
                 let end = (x..e).find(|&z| sty(z) != sty(x)).unwrap_or(e);

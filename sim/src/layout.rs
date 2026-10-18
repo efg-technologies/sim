@@ -15,7 +15,7 @@ use crate::tabs::Tab;
 use crate::tree;
 use sim_core::core::app::App;
 use sim_core::core::color::Rgb;
-use sim_core::core::view::{Frame, Row, Style, shorten, width};
+use sim_core::core::view::{Frame, Row, Style, draw, paint, shorten, show, width};
 use std::mem::take;
 use std::ops::Range;
 use std::sync::Arc;
@@ -24,36 +24,40 @@ use std::sync::Arc;
 const HELP: [&str; 5] =
     ["Ctrl-n  tree", "Enter   open", "Tab     next file", "q       close", ":qa     quit all"];
 
-/// Whether a char must not reach the terminal as it is (SAFE-8): a file name can hold anything.
-fn hostile(c: char) -> bool {
-    c.is_control()
-        || matches!(c, '\u{61c}' | '\u{200b}' | '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
-}
-
-/// `s` cut to `max` columns, hostile chars replaced by U+FFFD, and the columns it takes: by the core's
-/// own `width`, so an emoji presentation sequence takes what the editor gives it (VIS-7).
+/// `s` as the core draws text (SAFE-8, SAFE-10, SAFE-11: a file name can hold anything, so a control
+/// char is `^[` and a hidden one `<U+202E>`), cut to `max` columns, and the columns it takes: by the
+/// core's own `width`, so an emoji presentation sequence takes what the editor gives it (VIS-7).
 pub fn fit(s: &str, max: usize) -> (String, usize) {
-    // (printable ASCII, which nearly all of it is: one column a char and nothing to replace)
+    // (printable ASCII, which nearly all of it is: one column a char and nothing to show in a form)
     if s.bytes().all(|b| (b' '..0x7f).contains(&b)) {
         let n = s.len().min(max);
         return (s[..n].to_string(), n);
     }
-    let cs: Vec<char> = s.chars().map(|c| if hostile(c) { '\u{fffd}' } else { c }).collect();
-    let (mut end, mut cols) = (0, 0);
-    while end < cs.len() && cols + width(&cs, end, cols) <= max {
-        (end, cols) = (end + 1, cols + width(&cs, end, cols));
+    let cs: Vec<char> = s.chars().collect();
+    paint(&cs, 0..cs.len(), max)
+}
+
+/// `text` as the core draws it (SAFE-8, SAFE-10: its `draw`, each char in the context of the line), as
+/// chars, and where each char of `text` starts in them (and where they end), for ranges of `text`.
+pub fn as_drawn(text: &str) -> (Vec<char>, Vec<usize>) {
+    let src: Vec<char> = text.chars().collect();
+    let (mut cs, mut at, mut col, mut one) = (vec![], vec![0], 0, String::new());
+    for i in 0..src.len() {
+        one.clear();
+        col += draw(&src, i, col, &mut one);
+        cs.extend(one.chars());
+        at.push(cs.len());
     }
-    (cs[..end].iter().collect(), cols)
+    (cs, at)
 }
 
 /// `s` cut from the left to `max` columns, so that its end stays: `…` and the last chars (a query
-/// as it is typed). Hostile chars are replaced.
+/// as it is typed), drawn as the core draws text.
 pub fn tail(s: &str, max: usize) -> String {
-    let all = fit(s, usize::MAX).0;
-    let cs: Vec<char> = all.chars().collect();
-    let cols = |from: usize| fit(&cs[from..].iter().collect::<String>(), usize::MAX).1;
-    if cols(0) <= max {
-        return all;
+    let cs: Vec<char> = s.chars().collect();
+    let drawn = |from: usize| paint(&cs, from..cs.len(), usize::MAX);
+    if drawn(0).1 <= max {
+        return drawn(0).0;
     } else if max == 0 {
         return String::new();
     }
@@ -61,9 +65,9 @@ pub fn tail(s: &str, max: usize) -> String {
     let (mut lo, mut hi) = (0, cs.len());
     while hi - lo > 1 {
         let mid = (lo + hi) / 2;
-        *(if cols(mid) < max { &mut hi } else { &mut lo }) = mid;
+        *(if drawn(mid).1 < max { &mut hi } else { &mut lo }) = mid;
     }
-    format!("…{}", cs[hi..].iter().collect::<String>())
+    format!("…{}", drawn(hi).0)
 }
 
 /// A path made to fit `max` columns, the way the core's status line does it (`shorten`): `…/` and as
@@ -120,9 +124,9 @@ pub fn label(r: &tree::Row, m: &Mark) -> (String, String, String) {
 /// `s` in `max` columns, a cut ending in `…`: no name is cut without saying so, or it would look like a
 /// whole one (a file called `readme.`).
 fn dots(s: &str, max: usize) -> String {
-    let (all, cut) = (s.chars().count(), fit(s, max).0);
-    if max == 0 || cut.chars().count() == all {
-        return cut;
+    let whole = fit(s, usize::MAX);
+    if max == 0 || whole.1 <= max {
+        return fit(s, max).0;
     }
     format!("{}…", fit(s, max - 1).0)
 }
@@ -1255,22 +1259,12 @@ pub fn body(
 }
 
 /// How `cs[i]` of the buffer is written in a row of the editor when it starts at column `col`
-/// (SAFE-8, VIS-7, VIS-8; view.rs): the chars it takes in the row's text and the columns, which
-/// are the core's own `width`. A tab and a char shown as `^X` or `<U+XXXX>` take as many chars as
-/// columns; a U+FE0F after one of those, or after another U+FE0F, is not written (VIS-7).
+/// (SAFE-8, SAFE-10, VIS-7, VIS-8; view.rs): the chars it takes in the row's text and the columns,
+/// which are the core's own `width`. A tab and a char shown as `^X` or `<U+XXXX>` take as many chars
+/// as columns; a char that is drawn as it is (a ZWJ in an emoji sequence, a selector) is one char.
 fn shown(cs: &[char], i: usize, col: usize) -> (usize, usize) {
-    let (w, token) = (width(cs, i, col), |c: char| c != '\t' && hostile(c));
-    let elided = cs[i] == '\u{fe0f}' && i > 0 && (token(cs[i - 1]) || cs[i - 1] == '\u{fe0f}');
-    (
-        if elided {
-            0
-        } else if cs[i] == '\t' || token(cs[i]) {
-            w
-        } else {
-            1
-        },
-        w,
-    )
+    let w = width(cs, i, col);
+    (if cs[i] == '\t' || show(cs, i).is_some() { w } else { 1 }, w)
 }
 
 /// How a glyph put over a char of a row is drawn: as it is (a quote's bar has the look of its

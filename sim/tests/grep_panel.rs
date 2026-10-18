@@ -598,13 +598,11 @@ fn grep_6_the_pane_s_title_is_the_path_and_line_made_to_fit() {
 /// not sim's own (see `foreign`).
 fn assert_safe(r: &Rig, what: &str) {
     let all = r.screen.rows.iter().map(|r| r.text.as_str()).collect::<String>();
-    assert!(!all.chars().any(|c| c.is_control() || BIDI.contains(c)), "{what}: {all:?}");
+    assert!(!all.chars().any(|c| c.is_control() || oracle::must_hide(c as u32)), "{what}: {all:?}");
     let mut p = Painter::new(Vec::new());
     p.draw(r.shot.clone()).unwrap();
     assert_eq!(foreign(&p.out), Vec::<String>::new(), "{what}");
 }
-
-const BIDI: &str = "\u{61c}\u{200b}\u{200e}\u{200f}\u{202a}\u{202e}\u{2066}\u{2069}\u{feff}";
 
 #[test]
 fn grep_7_names_and_contents_with_control_chars_reach_the_terminal_only_as_safe_text() {
@@ -631,6 +629,31 @@ fn grep_7_names_and_contents_with_control_chars_reach_the_terminal_only_as_safe_
     // and the query itself: typed text is cut and replaced like the rest
     r.send(SimEvent::Term(Event::Key(sim_core::core::app::Key::Char('\u{202e}'))));
     assert_safe(&r, "a query with a bidirectional control");
+}
+
+#[test]
+fn grep_7_hidden_characters_in_names_and_lines_are_shown_in_the_results_and_the_preview() {
+    // ASCII smuggling in a file and its name, GlassWorm's selectors, a filler and a ZWJ that joins
+    // nothing: the file row, the matching line, the preview and the status line show their forms
+    // (SAFE-10), and the match is bold where it is.
+    let content = "needle \u{e0049}\u{e0047} \u{fe0f}x\nsecond needle\u{200d}\u{3164}\n";
+    let files = [format!("n\u{e0049}.txt={content}"), "plain.txt=needle\n".to_string()];
+    let mut r = grep_rig("g7-tags", &[&files[0], &files[1]], &[]);
+    r.send(SimEvent::Term(Event::Resize(120, 20)));
+    r.keys("<C-f>needle");
+    assert_safe(&r, "results");
+    let list = lit(&r);
+    assert!(
+        list.iter()
+            .any(|l| l.starts_with("▎n<U+E0049>.txt:1  *needle* <U+E0049><U+E0047> <U+FE0F>x")
+                || l.starts_with("n<U+E0049>.txt:1  *needle* <U+E0049><U+E0047> <U+FE0F>x")),
+        "{list:?}"
+    );
+    assert!(list.iter().any(|l| l.contains("second *needle*<U+200D><U+3164>")), "{list:?}");
+    r.keys("<Down>");
+    assert_safe(&r, "the second result");
+    r.keys("<Down>");
+    assert_safe(&r, "the third result");
 }
 
 #[test]

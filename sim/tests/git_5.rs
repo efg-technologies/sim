@@ -242,8 +242,8 @@ fn git_5_the_status_line_says_which_setting_once_and_is_safe_to_draw() {
     let all: String = r.shot.frame.rows.iter().map(|x| x.text.clone()).collect();
     assert!(!all.contains('\u{1b}') && all.contains("turned off"), "{all:?}");
     assert!(
-        draw(&r.shot).contains("filter.a\u{fffd}[2Jb"),
-        "a replacement char, not the control char"
+        draw(&r.shot).contains("filter.a^[[2Jb"),
+        "the control char as `^[`, never as it is (SAFE-8)"
     );
 }
 
@@ -283,7 +283,7 @@ fn git_5_the_names_that_space_g_i_says_come_from_the_config_and_are_made_safe_to
     r.send(SimEvent::Status(Ok((vec![], String::new(), vec!["filter.a\u{1b}[2Jb".into()]))));
     r.keys("j gi");
     let all: String = r.shot.frame.rows.iter().map(|x| x.text.clone()).collect();
-    assert!(!all.contains('\u{1b}') && all.contains("filter.a\u{fffd}[2Jb"), "{all:?}");
+    assert!(!all.contains('\u{1b}') && all.contains("filter.a^[[2Jb"), "{all:?}");
     // a very long list is cut to the line, not wrapped
     let many: Vec<String> = (0..60).map(|i| format!("filter.name{i}")).collect();
     r.send(SimEvent::Status(Ok((vec![], String::new(), many))));

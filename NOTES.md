@@ -16,8 +16,11 @@ The core's:
 
 The editor's:
 
-- The tokens a message draws for hidden chars (`^[`, `<U+202E>`: what `:registers` and `:marks` list of a register or a line, and any message that quotes text) have no alert's block as the text has (UI-15), so in a message they cannot be told from a line that holds the literal text `<U+202E>`; in the text they are told apart (SAFE-8).
-- The rows about registers and marks, and the sentence about registers, in the READMEs of German, Spanish, French, Korean, Portuguese (Brazil), Russian and the two Chinese are awaiting native review (English and Japanese excepted), like the tutor's lessons: they were written from the English by the model that built the rest.
+- The tokens that are drawn for hidden chars (`^[`, `<U+202E>`) have no alert's block as the text of a file has (UI-15) anywhere else than in the text: in a message (`:registers`, `:marks`, any that quotes text), in a name (the tree, a tab, the breadcrumb, the status line, a branch) and in a row of the picker (a file, a match). There a name that holds the literal text `<U+E0041>` cannot be told from one that holds the char; in the text they are told apart (SAFE-8, SAFE-10). The block would need a span for each token in each of those drawings.
+- SAFE-10's table is Unicode 18.0.0 (made by `scripts/hidden.py`, 802,194 chars): a code point that a later version assigns is shown until the table is made again, and the machine that moved the rules to main (2026-10-18) had no `UnicodeData.txt`, so the table is the one the branch wip/secure made (checked there against the Unicode database, here against a list written out again in `core/tests/common/oracle.rs`).
+- A private-use char is drawn as it is (SAFE-10): a file can hold up to 137,000 of them, and a font that has none of them draws a box or a blank cell, never a char that is not on the screen; a font that draws them as a blank is the channel that is left, a small one beside what the other classes carried.
+- A Japanese registered sequence (a kanji and an ideographic variation selector) is shown with its selector as a form (SAFE-11): there is no list of the registered ones in the core, and a list would be the channel (GlassWorm hid bytes in a run of them).
+- The rows about registers and marks, the sentence about registers and the bullet about everything that is invisible, in the READMEs of German, Spanish, French, Korean, Portuguese (Brazil), Russian and the two Chinese are awaiting native review (English and Japanese excepted), like the tutor's lessons: they were written from the English by the model that built the rest.
 - The lessons of `:tutor` in German, Spanish, French, Korean, Portuguese (Brazil), Russian and the two Chinese are awaiting native review (English and Japanese excepted): they were written from the English by the model that built the rest, and a test holds the exercises in them to be the same in every language, but no native speaker has read their prose.
 - `:tutor` is typed on a command line, which needs a buffer: in an editor started with no file and none opened it is out of reach (there is no `sim tutor`, and `sim --tutor` would be a second way into the same buffer).
 - A tutor that remembers where the learner was (the exercises done), and one that tests the learner at the end: the lessons keep nothing between runs (the state directory is not written for a scratch copy, TUTOR-1), and the grade of the exercises is their marks.
@@ -87,3 +90,34 @@ The window's:
 - Frame times were measured offscreen (submit to GPU idle, one frame at a time) on one discrete GPU; a window's present (vsync, the compositor), the first frame (a cold font cache, about 15 ms for the glyphs of a first screen at 1080p) and a screen of CJK text are not measured.
 - The clipboard needs one of the tools above on `PATH`; with none, a paste and a yank do nothing outside the window.
 - The window and the terminal start through one function (`shell::begin`, GUI-4), and what they still do differently on purpose is only what a window does not need. The window has no hook (`SIM_ON_NORMAL` is a terminal's habit: a program run on entering Normal mode, which a window gives no reason for), always draws depth with Tab's hint counted as seen, and decides its icons by what its font has, not by what the environment says of a terminal. It does not read the remembered look. The offscreen renders and the tests (`Headless`) are not a privileged context by construction: they start on a made-up project in directories of their own and must give the same screen whoever runs them; the window itself is `World::here()`. A window that is closed by the system (SIGTERM, SIGHUP) snapshots what is unsaved as the terminal does; one that is killed (SIGKILL) or hangs has the snapshot of the last tick, at most a second old (SAFE-6).
+
+## Hidden characters in Neovim 0.12.5, measured against sim (2026-10-18)
+
+Only what was measured: Neovim 0.12.5 with no configuration (`nvim --clean`), and sim of this branch. Vim and Helix were not measured here. One small file for each kind (`a<char>b` or the line below), opened in a private tmux (3.7c, no config) and read back from its cells:
+
+    tmux -L cmp -f /dev/null new-session -d -s s -x 100 -y 8 "env LANG=en_US.UTF-8 nvim --clean -n -i NONE FILE"
+    sleep 1; tmux -L cmp -f /dev/null capture-pane -p -t s      # and the same with `sim FILE`
+
+The files, written by `python3` (a tag is `chr(0xE0000 + ord(c))`, a selector byte `b` is `chr(0xFE00 + b)` below 16 and `chr(0xE0100 + b - 16)` above): `a\u200bb`; `a\u200db`; `if access_level != "user\u202e \u2066// Check if admin\u2069 \u2066" {`; `before ` + the tags of `IGNORE ALL PREVIOUS INSTRUCTIONS` + ` after`; `x = a\ufe00\ufe01\ufe02\ufe03;`; `const x = a` + the selectors of the bytes of `eval(atob('Y2` + `;`; `葛\U000E0100 and 葛\U000E0101`; `let ac\u3164count; let b\u115fc; let d\uffa0e;`; `pass\u00adword a\u034fb c\u2060d`; `// harmless\u2028evil();`; `a\u0378b c\uffffd e\ufdd0f`; `\uf0e7 \uf07b \ue000 \U000F0001`; `a\ufeffb`; a family of emoji with ZWJs, `\u26a0\ufe0f`, a keycap and the England flag (tags `gbeng` and the cancel tag); and `esc\x1b[2J del\x7f c1\u0085`. "Raw" is a char that the capture holds as it is: the terminal was sent the char.
+
+| Kind | Neovim 0.12.5 | sim |
+|---|---|---|
+| U+200B zero-width space | `<200b>` | `<U+200B>` |
+| U+200D zero-width joiner between letters | raw | `<U+200D>` |
+| Trojan Source: U+202E, U+2066, U+2069 | `<202e>` `<2066>` `<2069>` | `<U+202E>` `<U+2066>` `<U+2069>` |
+| tag characters (ASCII smuggling) | raw | `<U+E0049>` … |
+| variation selectors behind a letter (GlassWorm): U+FE00–FE03, U+E0155 and the like | raw | `<U+FE00>` … `<U+E0155>` … |
+| an ideographic selector behind a kanji | raw | `葛<U+E0100>` |
+| Hangul fillers U+3164, U+115F, U+FFA0 | raw | `<U+3164>` `<U+115F>` `<U+FFA0>` |
+| soft hyphen U+00AD, U+034F | raw | `<U+00AD>` `<U+034F>` |
+| word joiner U+2060 | `<2060>` | `<U+2060>` |
+| line separator U+2028 | raw | `<U+2028>` |
+| unassigned U+0378, noncharacter U+FDD0 | raw | `<U+0378>` `<U+FDD0>` |
+| noncharacter U+FFFF | `<ffff>` | `<U+FFFF>` |
+| private use (icons) | as they are | as they are |
+| emoji with ZWJs, U+FE0F, a keycap, the England flag | as they are | as they are |
+| ESC, DEL | `^[` `^?` | `^[` `^?` |
+| C1 U+0085 | `<85>` | `<U+0085>` |
+| U+FEFF in the middle | `<feff>` | `<U+FEFF>` |
+
+What this leaves out: Neovim with plugins or `'listchars'` may draw more; tmux keeps a few combining chars for a cell, so how many selectors are on a cell is not read this way (the files hold up to 12 and the capture 7); a terminal other than tmux was not tried. Screens of both: `ui-p-hidden-nvim.png` next to `ui-p-hidden-flat.png`.

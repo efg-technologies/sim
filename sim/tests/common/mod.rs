@@ -4,6 +4,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// A unique empty directory, removed when dropped.
+// What SAFE-10 says is hidden, written out again from SPEC (the core's tests use the same file).
+#[path = "../../../core/tests/common/oracle.rs"]
+pub mod oracle;
+
 pub struct TempDir(pub PathBuf);
 
 impl Drop for TempDir {
@@ -933,15 +937,12 @@ pub fn release_only() {
 }
 
 /// What is not sim's own in the bytes a Painter wrote: a control char other than the ESC that
-/// starts one of its CSI sequences (`ESC [ params final`), a C1 control, a bidirectional control.
+/// starts one of its CSI sequences (`ESC [ params final`), a C1 control, and any char that SAFE-10
+/// says is hidden (the names these tests use hold no emoji, so none is a legitimate use).
 pub fn foreign(bytes: &[u8]) -> Vec<String> {
     let (mut bad, mut i) = (vec![], 0);
     let text = String::from_utf8_lossy(bytes);
-    bad.extend(
-        text.chars()
-            .filter(|c| "\u{202a}\u{202e}\u{2066}\u{2069}\u{200b}\u{feff}".contains(*c))
-            .map(|c| format!("{c:?}")),
-    );
+    bad.extend(text.chars().filter(|&c| oracle::must_hide(c as u32)).map(|c| format!("{c:?}")));
     while i < bytes.len() {
         match bytes[i] {
             0x1b if bytes.get(i + 1) == Some(&b'[') => {
