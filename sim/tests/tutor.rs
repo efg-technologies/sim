@@ -432,3 +432,20 @@ fn tutor_2_what_is_done_while_another_file_is_shown_is_not_the_lesson_s() {
     goto(&mut r, "9.1");
     assert!(row(&r, "9.1 ").contains("[✗]"), "{}", row(&r, "9.1 "));
 }
+
+#[test]
+fn tutor_1_a_search_for_the_title_line_jumps_to_each_lesson_in_every_language() {
+    for lang in ["en", "ja", "ru"] {
+        let mut r = rig_env("tutor-jump", &FILES, &["a.txt"], (80, 24), |e| e.lang = lang.into());
+        r.keys(":tutor\n");
+        for n in 1..=9 {
+            // the search the first lines of the lesson give: `^` is the start of a line, so the
+            // lines that say how to search, and the list of lessons, do not match
+            r.keys(&format!("gg/^## {n}\n"));
+            let line = r.app().buf.line_of(r.app().buf.cursor);
+            let text = r.text();
+            let at = text.lines().nth(line).unwrap_or_default();
+            assert!(at.starts_with(&format!("## {n} ")), "{lang}: {n}: {at:?}");
+        }
+    }
+}

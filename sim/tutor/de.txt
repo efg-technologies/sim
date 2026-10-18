@@ -34,7 +34,7 @@ zurück zum Anfang eines Wortes.
 gg springt zur ersten Zeile der Datei, G zur letzten.
 Eine Zahl wiederholt eine Bewegung: 3j geht drei Zeilen nach unten.
 
-[ ] 1.1 Gehe zum x (mit w oder l) und lösche es mit x.
+[ ] 1.1 Gehe zum Buchstaben x (mit w oder l) und drücke die Taste x.
 a b c d x e f g
 @ a b c d  e f g
 
@@ -53,7 +53,7 @@ Zeilenende. o öffnet darunter eine neue Zeile, O darüber. Esc beendet
 die Eingabe. Wenn du nicht weißt, in welchem Modus du bist, drücke
 Esc: Die Leiste unten am Bildschirm nennt den Modus.
 
-[ ] 2.1 Tippe die fehlende 4 mit i und drücke Esc.
+[ ] 2.1 Auf der 5: i, die fehlende 4, ein Leerzeichen, dann Esc.
 1 2 3 5 6
 @ 1 2 3 4 5 6
 
@@ -136,7 +136,7 @@ l m n o
 @ i j k
 @ l m n o
 
-[ ] 6.2 Ersetze in dieser Zeile jedes a durch b: :s/a/b/g und Enter.
+[ ] 6.2 Ersetze darunter jedes a durch b: :s/a/b/g und Enter.
 a a a
 @ b b b
 

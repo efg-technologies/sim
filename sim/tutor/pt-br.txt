@@ -33,7 +33,7 @@ w vai ao início da próxima palavra, b volta ao início de uma palavra.
 gg vai à primeira linha do arquivo, G à última.
 Um número repete o movimento: 3j desce três linhas.
 
-[ ] 1.1 Vá até o x (com w ou l) e apague-o com x.
+[ ] 1.1 Vá à letra x (com w ou l) e aperte a tecla x para apagá-la.
 a b c d x e f g
 @ a b c d  e f g
 
@@ -52,7 +52,7 @@ A no fim. o abre uma nova linha abaixo, O acima. Esc encerra a
 digitação. Se não souber em que modo está, pressione Esc: a barra na
 parte de baixo da tela mostra o nome do modo.
 
-[ ] 2.1 Digite o 4 que falta com i e pressione Esc.
+[ ] 2.1 No 5, pressione i, digite o 4 que falta e um espaço, e Esc.
 1 2 3 5 6
 @ 1 2 3 4 5 6
 
@@ -134,7 +134,7 @@ l m n o
 @ i j k
 @ l m n o
 
-[ ] 6.2 Troque todo a por b nesta linha: :s/a/b/g e Enter.
+[ ] 6.2 Troque todo a por b na linha de baixo: :s/a/b/g e Enter.
 a a a
 @ b b b
 

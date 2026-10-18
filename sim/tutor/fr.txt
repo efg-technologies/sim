@@ -33,7 +33,7 @@ w va au début du mot suivant, b revient au début d'un mot.
 gg va à la première ligne du fichier, G à la dernière.
 Un nombre répète un déplacement : 3j descend de trois lignes.
 
-[ ] 1.1 Allez jusqu'au x (avec w ou l) et supprimez-le avec x.
+[ ] 1.1 Allez à la lettre x (avec w ou l) et appuyez sur la touche x.
 a b c d x e f g
 @ a b c d  e f g
 
@@ -52,7 +52,7 @@ la fin. o ouvre une nouvelle ligne dessous, O dessus. Esc termine la
 saisie. Si vous ne savez plus dans quel mode vous êtes, appuyez sur
 Esc : la barre en bas de l'écran indique le mode.
 
-[ ] 2.1 Saisissez le 4 manquant avec i, puis appuyez sur Esc.
+[ ] 2.1 Sur le 5, tapez i, puis le 4 manquant et une espace, puis Esc.
 1 2 3 5 6
 @ 1 2 3 4 5 6
 
@@ -134,7 +134,7 @@ l m n o
 @ i j k
 @ l m n o
 
-[ ] 6.2 Remplacez chaque a par b ici : :s/a/b/g puis Entrée.
+[ ] 6.2 Dessous, remplacez chaque a par b : :s/a/b/g, Entrée.
 a a a
 @ b b b
 

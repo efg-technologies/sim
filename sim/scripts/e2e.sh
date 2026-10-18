@@ -2922,7 +2922,7 @@ md_11_a_callout_is_the_kinds_word_in_place_of_its_marker_and_the_cursors_line_is
   wait_for "Warning" # (the first frame is raw: the highlighter has not answered yet)
   ! screen | grep -F -q "[!WARNING]"
   screen | grep -F -q "[!FOO]" # an unknown kind is a quote
-  screen_esc | grep -a "Warning" | grep -aq '\[1m.*38;2;[0-9;]*mWarning' # bold, in a color of its own
+  screen_esc | grep -a "Warning" | grep -aq '\[1m[^W]*Warning' # bold
   keys j
   keys j
   wait_for "[!WARNING]" # the cursor's line is the file's own

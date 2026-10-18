@@ -269,62 +269,46 @@ fn walk(r: &Rig, what: &str, normal: bool, alert: bool, lit: bool) {
                     .nth(usize::from(g.tx()).saturating_sub(1))
                     .is_some_and(|c| c != ' ');
                 let link = r.shot.looks[y].iter().any(|(c, l)| c.contains(&x) && *l == Look::Link);
-                // MD-11: a callout's bar (any quote's bar may have its kind's hue) and, in a row whose
-                // text after the bar is a kind's word (with its icon) or its marker (raw), those cells
-                let bar = chars.iter().position(|&c| c == '▌');
-                let words = ["Note", "Tip", "Important", "Warning", "Caution"];
-                let callout = in_text
-                    && bar.is_some_and(|b| {
-                        let tail: String = chars[b + 1..].iter().skip(1).collect();
-                        let tail = tail.trim_start_matches(|c: char| {
-                            ('\u{f000}'..='\u{f8ff}').contains(&c) || c == ' '
-                        });
-                        let said =
-                            words.iter().any(|w| tail.starts_with(w)) || tail.starts_with("[!");
-                        usize::from(x) == b || (said && (b + 2..b + 15).contains(&usize::from(x)))
-                    });
-                let ok = callout
-                    || match role_of(h) {
-                        Role::Change => {
-                            in_panel
-                                || in_sign
-                                || ruler
-                                || (in_text && flagged && c == bg.unwrap_or((1, 2, 3)))
-                                || (y == last && "+~-0123456789".contains(ch))
-                                || (y == head && x >= g.ex && (ch == '↯' || ch == '●'))
-                        }
-                        Role::Accent => {
-                            (lit && in_text && c == bg.unwrap_or((1, 2, 3)))
-                                || (y == last
-                                    && !normal
-                                    && (x < 12 || usize::from(x) + 12 > chars.len()))
-                                || (y == head && x >= g.ex && ch == '▎')
-                                || (in_text && link)
-                                || ruler
-                        }
-                        Role::Alert => {
-                            // the shield and the word, in the slot of the status line
-                            let at = rows[last]
-                                .text
-                                .find("untrusted")
-                                .map(|b| rows[last].text[..b].chars().count());
-                            let slot = y == last
-                                && alert
-                                && at.is_some_and(|a| {
-                                    usize::from(x) + 2 >= a && usize::from(x) < a + 9
-                                });
-                            // or a hidden char of the text (UI-15): the cells of a `^X` or `<U+XXXX>` token
-                            slot || (in_text && in_token(&rows[y].text, usize::from(x)))
-                        }
-                        // a heading: its text and its band, in the rows of the text that have one
-                        Role::Kind => {
-                            in_text
-                                && r.shot.looks[y].iter().any(|(_, l)| {
-                                    matches!(l, Look::H1 | Look::H2 | Look::H3 | Look::Sub)
-                                })
-                        }
-                        Role::Neutral => true,
-                    };
+                let ok = match role_of(h) {
+                    Role::Change => {
+                        in_panel
+                            || in_sign
+                            || ruler
+                            || (in_text && flagged && c == bg.unwrap_or((1, 2, 3)))
+                            || (y == last && "+~-0123456789".contains(ch))
+                            || (y == head && x >= g.ex && (ch == '↯' || ch == '●'))
+                    }
+                    Role::Accent => {
+                        (lit && in_text && c == bg.unwrap_or((1, 2, 3)))
+                            || (y == last
+                                && !normal
+                                && (x < 12 || usize::from(x) + 12 > chars.len()))
+                            || (y == head && x >= g.ex && ch == '▎')
+                            || (in_text && link)
+                            || ruler
+                    }
+                    Role::Alert => {
+                        // the shield and the word, in the slot of the status line
+                        let at = rows[last]
+                            .text
+                            .find("untrusted")
+                            .map(|b| rows[last].text[..b].chars().count());
+                        let slot = y == last
+                            && alert
+                            && at
+                                .is_some_and(|a| usize::from(x) + 2 >= a && usize::from(x) < a + 9);
+                        // or a hidden char of the text (UI-15): the cells of a `^X` or `<U+XXXX>` token
+                        slot || (in_text && in_token(&rows[y].text, usize::from(x)))
+                    }
+                    // a heading: its text and its band, in the rows of the text that have one
+                    Role::Kind => {
+                        in_text
+                            && r.shot.looks[y].iter().any(|(_, l)| {
+                                matches!(l, Look::H1 | Look::H2 | Look::H3 | Look::Sub)
+                            })
+                    }
+                    Role::Neutral => true,
+                };
                 assert!(
                     ok,
                     "{what}: {:?} {h:?} on {ch:?} at ({x},{y}) is not where {:?} may be",

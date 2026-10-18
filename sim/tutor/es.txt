@@ -34,7 +34,7 @@ vuelve al inicio de una palabra.
 gg va a la primera línea del archivo, G a la última.
 Un número repite un movimiento: 3j baja tres líneas.
 
-[ ] 1.1 Ve hasta la x (con w o l) y bórrala con x.
+[ ] 1.1 Ve a la letra x (con w o l) y pulsa la tecla x para borrarla.
 a b c d x e f g
 @ a b c d  e f g
 
@@ -53,7 +53,7 @@ línea, A al final. o abre una línea nueva debajo, O encima. Esc
 termina la escritura. Si no sabes en qué modo estás, pulsa Esc: la
 barra inferior de la pantalla indica el modo.
 
-[ ] 2.1 Escribe el 4 que falta con i y pulsa Esc.
+[ ] 2.1 En el 5, pulsa i, escribe el 4 que falta y un espacio, y Esc.
 1 2 3 5 6
 @ 1 2 3 4 5 6
 
@@ -135,7 +135,7 @@ l m n o
 @ i j k
 @ l m n o
 
-[ ] 6.2 Reemplaza cada a por b en esta línea: :s/a/b/g y Enter.
+[ ] 6.2 Reemplaza cada a por b en la línea de abajo: :s/a/b/g y Enter.
 a a a
 @ b b b
 

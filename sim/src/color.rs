@@ -3,7 +3,6 @@
 //! they read against the background that the core's palette is made from (`Event::Bg`, VIS-4), the
 //! selection's gray, and what puts the terminal's replies together out of the key stream. APCA,
 //! OKLCH to sRGB and the parsing of a reply are the core's (`core::color`).
-use crate::md::Callout;
 use crate::paint::Look;
 use crate::sim::SimEvent;
 use crossterm::event::{Event as Ev, KeyCode, KeyModifiers};
@@ -252,9 +251,6 @@ pub struct Tones {
     solid_on: Rgb,
     /// UI-19: the text on the change's solid green (its text color as a background).
     add_on: Rgb,
-    /// MD-11: the heading's hue as text on every neutral surface (|Lc| >= 75.5 against the card), for the
-    /// callout that is important.
-    kind: Rgb,
     /// UI-8: a heading's text (the hue SYN-1 gives functions, |Lc| >= 75.5 against the stronger band)
     /// and the bands of the first and the second level: the page mixed 18% and 9% toward that hue, less
     /// where that would be farther from the page in lightness than the card.
@@ -314,7 +310,6 @@ impl Tones {
             gray_on: text_on(p.primary, by(p.secondary, 0.30)),
             solid_on: text_on(p.primary, fg[Accent::Blue as usize]),
             add_on: text_on(p.primary, fg[Accent::Green as usize]),
-            kind: contrast(cyan, card, 75.5),
             head: text_on(cyan, head1),
             head1,
             head2,
@@ -353,19 +348,6 @@ impl Tones {
     /// (|Lc| >= 75.5 against the card) and the text on it.
     pub fn add_solid(&self) -> (Rgb, Rgb) {
         (self.fg(Accent::Green), self.add_on)
-    }
-
-    /// MD-11: the hue of a callout's kind, as text on every neutral surface: the accent's blue for a note,
-    /// the change's green for a tip and amber and red for a warning and a caution, and the heading's
-    /// cyan for what is important (magenta is the alert's alone, COLOR-1).
-    pub fn callout(&self, k: Callout) -> Rgb {
-        match k {
-            Callout::Note => self.accent_fg(),
-            Callout::Tip => self.change_fg(Chg::Add),
-            Callout::Important => self.kind,
-            Callout::Warning => self.change_fg(Chg::Mod),
-            Callout::Caution => self.change_fg(Chg::Del),
-        }
     }
 
     /// The Alert: magenta, likewise.
@@ -414,7 +396,6 @@ impl Tones {
             ("accent solid text", A, so),
             ("add solid text", Change, self.add_on),
             ("heading text", Kind, self.head),
-            ("kind text", Kind, self.kind),
             ("heading band", Kind, self.head1),
             ("fainter heading band", Kind, self.head2),
             ("alert text", Alert, self.alert_fg()),

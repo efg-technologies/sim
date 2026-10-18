@@ -3,14 +3,14 @@
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
-use sim::color::{Syntax, Tones};
+use sim::color::Syntax;
 use sim::layout::Skin;
 use sim::md::{Callout, Read, Why, callouts, may_hide};
 use sim::paint::{Painter, Resolver};
 use sim::sim::SimEvent;
 use sim::syn::{Spans, Syn};
 use sim_core::core::app::Event;
-use sim_core::core::color::{Rgb, apca, palette};
+use sim_core::core::color::{Rgb, palette};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 
@@ -200,82 +200,45 @@ fn col_of(r: &Rig, y: usize, what: &str) -> usize {
 }
 
 #[test]
-fn md_11_in_flat_and_depth_the_bar_and_the_word_have_the_kinds_hue_and_no_cell_has_a_background() {
-    let t = Tones::new(&palette(BG));
-    let hue = |k| t.callout(k);
+fn md_11_in_flat_and_depth_a_callout_has_no_hue_a_bold_word_and_a_bar_a_gray_brighter_than_a_quote_s()
+ {
+    let p = palette(BG);
     for skin in [Skin::Flat, Skin::Depth] {
         let r = rig("md11-hue", skin, Syntax::new(true), false);
-        for (word, kind) in [
-            ("Note", Callout::Note),
-            ("Tip", Callout::Tip),
-            ("Important", Callout::Important),
-            ("Warning", Callout::Warning),
-            ("Caution", Callout::Caution),
-        ] {
+        for word in ["Note", "Tip", "Important", "Warning", "Caution"] {
             let (y, cells) = row_of(&r, &format!("▌ {word}"));
             let x = col_of(&r, y, word);
             for k in 0..word.len() {
-                assert_eq!(cells[x + k].fg, Some(hue(kind)), "{skin:?}: {word}: {k}");
+                assert_eq!(
+                    cells[x + k].fg,
+                    Some(p.primary),
+                    "{skin:?}: {word}: {k}: the text's gray"
+                );
                 assert!(cells[x + k].attrs.bold(), "{skin:?}: {word} is bold");
             }
-            assert_eq!(cells[x - 2].fg, Some(hue(kind)), "{skin:?}: {word}: the bar");
+            // every kind is drawn alike: the kind is told by its word (and its icon), and by no hue
+            assert_eq!(cells[x - 2].fg, Some(p.primary), "{skin:?}: {word}: the bar");
             assert!(cells[..78].iter().all(|c| c.bg.is_none()), "{skin:?}: {word}: a background");
         }
-        // a body line: the bar has the hue of the block it is in, and the text is the text's own
+        // a body line: the bar of the block it is in, and the text is the text's own
         let (y, cells) = row_of(&r, "▌ an important thing");
         let x = col_of(&r, y, "an important");
-        assert_eq!(cells[x - 2].fg, Some(hue(Callout::Important)), "{skin:?}: the body's bar");
-        assert_ne!(cells[x].fg, Some(hue(Callout::Important)), "{skin:?}: the body is not tinted");
+        assert_eq!(cells[x - 2].fg, Some(p.primary), "{skin:?}: the body's bar");
+        assert_eq!(cells[x].fg, Some(p.primary), "{skin:?}: the body is not tinted");
         assert!(cells[..78].iter().all(|c| c.bg.is_none()), "{skin:?}: the body's row");
-        // a second callout of the same kind has the same hue, and a quote that is none has no
-        let (y, cells) = row_of(&r, "▌ second note");
-        assert_eq!(cells[col_of(&r, y, "second") - 2].fg, Some(hue(Callout::Note)));
-        let (y, cells) = row_of(&r, "▌ a plain quote");
-        let bar = cells[col_of(&r, y, "a plain") - 2].fg;
-        assert!(Callout::ALL.iter().all(|&k| bar != Some(hue(k))), "{skin:?}: a plain quote");
-        let (y, cells) = row_of(&r, "▌ [!FOO]");
-        assert!(cells.iter().all(|c| !c.attrs.bold()), "{skin:?}: {y}: [!FOO] is not a word");
-    }
-}
-
-#[test]
-fn md_11_each_hue_reads_on_every_page_and_the_five_are_told_apart() {
-    for page in [
-        (0, 0, 0),
-        (0x1e, 0x1e, 0x1e),
-        (0x28, 0x2c, 0x34),
-        (0x00, 0x2b, 0x36),
-        (0xff, 0xff, 0xff),
-        (0xfa, 0xfa, 0xfa),
-        (0xfd, 0xf6, 0xe3),
-        (0xef, 0xf1, 0xf5),
-    ] {
-        let p = palette(page);
-        let t = Tones::new(&p);
-        let hues: Vec<Rgb> = Callout::ALL.iter().map(|&k| t.callout(k)).collect();
-        for (k, &h) in Callout::ALL.iter().zip(&hues) {
-            // UI-12: text reads on the page and on every neutral surface
-            for surface in [p.bg, t.cursor, t.band, t.code, t.card] {
-                assert!(apca(h, surface).abs() >= 75.0, "{page:?}: {k:?} on {surface:?}");
-            }
-        }
-        for i in 0..hues.len() {
-            for j in i + 1..hues.len() {
-                assert_ne!(
-                    hues[i],
-                    hues[j],
-                    "{page:?}: {:?} and {:?}",
-                    Callout::ALL[i],
-                    Callout::ALL[j]
-                );
-            }
+        // a quote that is none keeps the secondary gray, so the two are told apart by rank
+        for what in ["▌ a plain quote", "▌ [!FOO]"] {
+            let (y, cells) = row_of(&r, what);
+            let bar = cells[col_of(&r, y, what.trim_start_matches("▌ ")) - 2].fg;
+            assert_eq!(bar, Some(p.secondary), "{skin:?}: {what}: a plain quote");
+            assert!(cells.iter().all(|c| !c.attrs.bold()), "{skin:?}: {what} is not a word");
         }
     }
 }
 
 #[test]
-fn md_11_the_cursor_s_line_is_the_files_own_with_the_marker_in_the_hue() {
-    let t = Tones::new(&palette(BG));
+fn md_11_the_cursor_s_line_is_the_files_own_with_the_marker_in_bold() {
+    let p = palette(BG);
     for skin in [Skin::Flat, Skin::Depth, Skin::Calm] {
         let mut r = rig("md11-raw", skin, Syntax::new(true), false);
         r.keys("jj"); // the line `> [!NOTE]`
@@ -283,9 +246,7 @@ fn md_11_the_cursor_s_line_is_the_files_own_with_the_marker_in_the_hue() {
         let x = col_of(&r, y, "[!NOTE]");
         for k in 0..7 {
             assert!(cells[x + k].attrs.bold(), "{skin:?}: raw marker: {k}");
-            if skin != Skin::Calm {
-                assert_eq!(cells[x + k].fg, Some(t.callout(Callout::Note)), "{skin:?}: {k}");
-            }
+            assert_eq!(cells[x + k].fg, Some(p.primary), "{skin:?}: no hue: {k}");
         }
         assert!(!r.shot.frame.rows[y].text.contains("Note"), "{skin:?}: the marker, not the word");
     }
