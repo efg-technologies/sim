@@ -1299,16 +1299,17 @@ syn_2_zh_turns_the_colors_off_and_on() {
   wait_esc '31mfn'
 }
 
-syn_3_a_parse_that_never_ends_is_given_up_and_the_other_files_keep_their_colors() {
-  # syntect loops for ever on this text in QML; sim stays at its keys, says so after the
-  # highlighter's 5 s, and highlights the next file
-  printf 'x = y /* c */\ny\nz\n' > "$W/loop.qml"
+syn_3_a_parse_that_takes_too_long_is_given_up_and_the_other_files_keep_their_colors() {
+  # No parse loops for ever any more (syntect's parser has a guard, SYN-3), but one may be slow: 24 heredocs
+  # whose word is 9,000 chars take this (debug) sim far more than the highlighter's 5 s. sim stays at its
+  # keys, says so after them, and highlights the next file
+  awk 'BEGIN { w = sprintf("%9000s", ""); gsub(/ /, "A", w); for (i = 0; i < 24; i++) { print "cat <<" w; print w } }' > "$W/slow.sh"
   printf 'fn main() { let s = "x"; }\n' > "$W/a.rs"
-  start loop.qml
-  wait_for "loop.qml  1:1  NORMAL"
+  start slow.sh
+  wait_for "slow.sh  1:1  NORMAL"
   typed jj
-  wait_for "loop.qml  3:1  NORMAL" # the keys are answered while it loops
-  wait_for "syntax colors stopped for loop.qml" 15
+  wait_for "slow.sh  3:1  NORMAL" # the keys are answered while it parses
+  wait_for "syntax colors stopped for slow.sh" 30
   typed ":e a.rs"
   keys Enter
   wait_for "a.rs  1:1  NORMAL  2/2"

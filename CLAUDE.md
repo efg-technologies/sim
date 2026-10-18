@@ -97,7 +97,8 @@ gui/                the package sim-gui: the library `sim_gui` and the binaries 
     app.rs main.rs  the window (winit): the only code that opens one
     safe_io.rs demo.rs bin/gui-shots.rs   private directories and new files; the neutral demo project; the pictures and the timings
   tests/            golden/ (scene dumps and pixels on llvmpipe), input end to end, private paths, the api seam, the limits
-scripts/            check.sh, trace.sh, e2e.sh (runs both suites), bench.sh, pty_bench.py
+scripts/            check.sh, trace.sh, e2e.sh (runs both suites), e2e-lib.sh (where a case failed), vendor-check.sh, bench.sh, pty_bench.py
+vendor/syntect/     syntect 5.3.0 with a guard in its parser (SPEC SYN-3); vendor/README.md, syntect.patch, syntect.sha256. Not a workspace member
 core/scripts/e2e.sh the core's cases, run against `sim --plain`
 sim/scripts/e2e.sh  the editor's cases
 ```
@@ -112,7 +113,7 @@ sim/scripts/e2e.sh  the editor's cases
 
 ### Dependencies
 
-The core depends only on ropey, crossterm, notify, rustix (for `geteuid`, its `process` feature only), similar, unicode-width and regex-lite (see SAFE-9; `scripts/check.sh` and `core/tests/safe_9.rs` hold the list). The editor adds syntect and two-face (bat's syntaxes; pure-Rust regex backend) and signal-hook, and uses rustix too (`geteuid`, `getppid`). The only dev dependency is proptest. The window has a closed list of its own (GUI-17: sim-editor, sim-editor-core, crossterm for the event types, winit, wgpu with Vulkan and Metal, cosmic-text, bytemuck, pollster, png); no webview and nothing that can speak to a network, ever, and none of it in the tree of the editor or of the core (`scripts/check.sh` holds all three lists).
+The core depends only on ropey, crossterm, notify, rustix (for `geteuid`, its `process` feature only), similar, unicode-width and regex-lite (see SAFE-9; `scripts/check.sh` and `core/tests/safe_9.rs` hold the list). The editor adds syntect (vendored, with a guard: vendor/README.md) and two-face (bat's syntaxes; pure-Rust regex backend) and signal-hook, and uses rustix too (`geteuid`, `getppid`). The only dev dependency is proptest. The window has a closed list of its own (GUI-17: sim-editor, sim-editor-core, crossterm for the event types, winit, wgpu with Vulkan and Metal, cosmic-text, bytemuck, pollster, png); no webview and nothing that can speak to a network, ever, and none of it in the tree of the editor or of the core (`scripts/check.sh` holds all three lists).
 If another one is needed, first write the reason into SPEC.
 
 ### Rules
@@ -156,6 +157,7 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 10. the window depends on its allowlist only, and no network crate or webview is in its tree
 11. the name is *Secure vIM* and the crates are sim-editor and sim-editor-core: a grep keeps the earlier name stories and the earlier crate name from coming back
 12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MB
+13. vendor/syntect is upstream's syntect 5.3.0 and vendor/syntect.patch, nothing else (scripts/vendor-check.sh: the patch taken off a copy, every file against the sha256 list)
 
 scripts/trace.sh checks these three things, and prints a table with one row per ID (ID, milestone, number of tests, implemented or not).
 

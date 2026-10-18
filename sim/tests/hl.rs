@@ -844,28 +844,35 @@ proptest! {
     }
 }
 
+/// A shell script that takes the highlighter about 50 ms a line in release (a heredoc whose word is 9,000
+/// chars: no line is over `syn::MAX_LINE`, and none loops: a parse that does is stopped by the guard in
+/// syntect's parser, SYN-3), `pairs` of an opening line and its end.
+fn slow_script(pairs: usize) -> String {
+    let word = "A".repeat(9000);
+    format!("cat <<{word}\n{word}\n").repeat(pairs)
+}
+
 #[test]
-fn syn_3_a_parse_that_never_ends_is_given_up_and_the_other_files_are_still_highlighted() {
-    // syntect 5.3 loops for ever on some text, in bat's QML (`x = y /* c */`, a statement without
-    // a semicolon that ends in a comment; JavaScript has the same fault, and is read with
-    // TypeScript's syntax, SYN-4): the one thread that highlights every file would be lost, and a
-    // core kept busy, for the rest of the session.
+fn syn_3_a_parse_that_takes_too_long_is_given_up_and_the_other_files_are_still_highlighted() {
+    // The highlighter is one thread for every file: a request that takes longer than its budget (no parse
+    // is left that never ends, but one may be slow) is given up, or the thread would be lost, and a core
+    // kept busy, for the rest of the session.
     use std::time::Duration;
-    let looped = "x = y /* c */\n";
+    let slow = slow_script(20);
     let (tx, rx) = std::sync::mpsc::channel();
     let jobs = sim::io::highlight_thread_within(tx, Duration::from_millis(300));
     let next =
         |what: &str| rx.recv_timeout(Duration::from_secs(10)).unwrap_or_else(|_| panic!("{what}"));
-    jobs.send(HlJob::Run(req(1, "a.qml", 1, looped, 0, 1))).unwrap();
+    jobs.send(HlJob::Run(req(1, "a.sh", 1, &slow, 0, 40))).unwrap();
     let mut told = false;
     let plain = loop {
-        match next("the parse that never ends was not given up") {
-            SimEvent::Notice(m) => told |= m.contains("a.qml") && m.contains("colors"),
+        match next("the parse that takes too long was not given up") {
+            SimEvent::Notice(m) => told |= m.contains("a.sh") && m.contains("colors"),
             SimEvent::Spans(h) => break h,
             e => panic!("{e:?}"),
         }
     };
-    assert_eq!((plain.id, plain.spans.len()), (1, 1));
+    assert_eq!((plain.id, plain.spans.len()), (1, 40));
     assert!(plain.spans.iter().all(Vec::is_empty), "the lines are plain");
     // Another file is highlighted afterwards.
     jobs.send(HlJob::Run(req(2, "b.rs", 1, "fn f() {}\n", 0, 1))).unwrap();
@@ -873,20 +880,20 @@ fn syn_3_a_parse_that_never_ends_is_given_up_and_the_other_files_are_still_highl
     while other.is_none() {
         match next("the other file was not answered") {
             SimEvent::Spans(h) if h.id == 2 => other = Some(h),
-            SimEvent::Notice(m) => told |= m.contains("a.qml"),
+            SimEvent::Notice(m) => told |= m.contains("a.sh"),
             e => panic!("{e:?}"),
         }
     }
     assert_eq!(other.unwrap().spans[0], [(0..2, Look::Kw), (3..4, Look::Fun)]);
     // The file that was given up is answered at once at its next edit, plain, and not parsed again.
     let t = std::time::Instant::now();
-    jobs.send(HlJob::Run(req(1, "a.qml", 2, "x = y /* c */\nz\n", 0, 2))).unwrap();
+    jobs.send(HlJob::Run(req(1, "a.sh", 2, &(slow + "echo\n"), 0, 41))).unwrap();
     match next("the file that was given up was parsed again") {
         SimEvent::Spans(h) => assert!(h.id == 1 && h.ver == 2 && h.spans.iter().all(Vec::is_empty)),
         e => panic!("{e:?}"),
     }
     assert!(t.elapsed() < Duration::from_millis(250), "{:?}", t.elapsed());
-    assert!(told, "the user is told that the colors of a.qml stopped");
+    assert!(told, "the user is told that the colors of a.sh stopped");
 }
 
 #[test]

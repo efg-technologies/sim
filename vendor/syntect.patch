@@ -1,0 +1,62 @@
+--- a/src/parsing/parser.rs
++++ b/src/parsing/parser.rs
+@@ -63,6 +63,15 @@
+     proto_starts: Vec<usize>,
+ }
+ 
++/// How many matches that consume nothing the parser makes at one position before it goes on one char.
++///
++/// A syntax chains a few of them (a push, a set, a pop: 17 at the most in 195 syntaxes of bat's set on random
++/// text, 13 in 12 million lines of real files), and a circle (two contexts that `set` each other, as the
++/// ones of sublimehq's JavaScript that decide where a statement ends) makes them for ever, which `would_loop`
++/// does not see, since it knows only a push followed by a pop. Going on one char is what Sublime Text does
++/// for the loop that it does see.
++const MAX_EMPTY_RUN: usize = 128;
++
+ #[derive(Debug, Clone, Eq, PartialEq)]
+ struct StateLevel {
+     context: ContextId,
+@@ -234,6 +243,9 @@
+         let mut search_cache: SearchCache = HashMap::with_capacity_and_hasher(128, fnv);
+         // Used for detecting loops with push/pop, see long comment above.
+         let mut non_consuming_push_at = (0, 0);
++        // The position of the last match that consumed nothing, and how many have been made there: see
++        // `MAX_EMPTY_RUN`.
++        let mut empty_run = (0, 0);
+ 
+         while self.parse_next_token(
+             line,
+@@ -242,6 +254,7 @@
+             &mut search_cache,
+             &mut regions,
+             &mut non_consuming_push_at,
++            &mut empty_run,
+             &mut res,
+         )? {}
+ 
+@@ -257,6 +270,7 @@
+         search_cache: &mut SearchCache,
+         regions: &mut Region,
+         non_consuming_push_at: &mut (usize, usize),
++        empty_run: &mut (usize, usize),
+         ops: &mut Vec<(usize, ScopeStackOp)>,
+     ) -> Result<bool, ParsingError> {
+         let check_pop_loop = {
+@@ -312,6 +326,17 @@
+ 
+             let consuming = match_end > *start;
+             if !consuming {
++                *empty_run =
++                    if empty_run.0 == *start { (*start, empty_run.1 + 1) } else { (*start, 1) };
++                if empty_run.1 > MAX_EMPTY_RUN {
++                    // A circle: go on one char, without making the match, as for a pop that would loop.
++                    *empty_run = (0, 0);
++                    if let Some((i, _)) = line[*start..].char_indices().nth(1) {
++                        *start += i;
++                        return Ok(true);
++                    }
++                    return Ok(false);
++                }
+                 // The match doesn't consume any characters. If this is a
+                 // "push", remember the position and stack size so that we can
+                 // check the next "pop" for loops. Otherwise leave the state,

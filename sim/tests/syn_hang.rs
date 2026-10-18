@@ -1,15 +1,17 @@
-//! SYN-3: no text makes the highlighter spin. syntect 5.3.0 has no guard for matches that consume nothing and
+//! SYN-3: no text makes the highlighter spin. syntect 5.3.0 had no guard for matches that consume nothing and
 //! go round in a circle (two contexts that `set` each other), and the JavaScript syntax that the set holds for
 //! `source.js`, which Markdown fences, HTML's `<script>` and a dozen more syntaxes embed, has such a circle: a
-//! line that ends in a block comment after an expression (`y /* c */`) makes it spin on a core for ever.
+//! line that ends in a block comment after an expression (`y /* c */`) made it spin on a core for ever. The
+//! copy of syntect in vendor/syntect has the guard (`MAX_EMPTY_RUN`), and these tests keep it.
 //!
-//! This fuzz gives every syntax of the set random documents of tokens (operators, comment marks, quotes,
-//! keywords, fences, tags), and the Markdown and HTML syntaxes the same inside a fence of each language and a
-//! `<script>` and a `<style>`, and the files of this repository. A parse that does not end cannot be stopped in
-//! a thread, so each syntax runs in a process of its own (this test binary, called again) with a watchdog on
-//! every line: more than two seconds in debug is a hang, and the process says on which document and dies.
-//!
-//! It is `#[ignore]`d while syntect has no guard, since it fails (SPEC, SYN-3's known limit):
+//! The fast test, in check.sh's time, gives the 19 syntaxes of the set that spun, Markdown with a fence of
+//! JavaScript and HTML with a `<script>` the document that made each spin, and checks the colors that are
+//! left. The long one gives every syntax of the set random documents of tokens (operators, comment marks,
+//! quotes, keywords, fences, tags), and the Markdown and HTML syntaxes the same inside a fence of each language
+//! and a `<script>` and a `<style>`, and the files of this repository. A parse that does not end cannot be
+//! stopped in a thread, so each syntax runs in a process of its own (this test binary, called again) with a
+//! watchdog on every line: more than two seconds in debug is a hang, and the process says on which document and
+//! dies. It is `#[ignore]`d for its time (minutes), and widened by the environment:
 //!
 //!   cargo test -p sim-editor --test syn_hang -- --ignored --nocapture
 //!   SIM_HANG_DOCS=3000 SIM_HANG_SEED=7 cargo test ... (more documents of another seed)
@@ -347,7 +349,7 @@ fn files() {
 
 /// The process that runs the children: one for each syntax of the set, a few at a time.
 #[test]
-#[ignore = "syntect has no guard for matches that consume nothing: the JavaScript syntax spins (SPEC SYN-3)"]
+#[ignore = "the long fuzz of the whole set: minutes; SIM_HANG_DOCS and SIM_HANG_SEED widen it (SPEC SYN-3)"]
 fn syn_3_no_syntax_of_the_set_makes_the_highlighter_spin() {
     if let Ok(index) = std::env::var("SIM_HANG_CHILD") {
         let docs = std::env::var("SIM_HANG_DOCS").ok().and_then(|d| d.parse().ok()).unwrap_or(300);
@@ -396,4 +398,69 @@ fn syn_3_no_syntax_of_the_set_makes_the_highlighter_spin() {
     }
     println!("{done} of {} runs ended, {} hung", count + 2, hangs.len());
     assert!(hangs.is_empty(), "{} runs spin:\n{}", hangs.len(), hangs.join("\n"));
+}
+
+/// The documents that made the syntaxes of the set spin, found by the long fuzz (each hung syntect 5.3.0 as it
+/// is on crates.io, in less than a second of the 2 it was given; with the guard none takes a millisecond).
+const SPUN: &[(&str, &str)] = &[
+    ("JavaScript", "y /* c */\n"),
+    ("JavaScript (Rails)", "function f() {\n  return start\n\n  /** @type {State} */\n}\n"),
+    ("QML", "function f() {\n  return start\n\n  /** @type {State} */\n}\n"),
+    ("Svelte", "function f() {\n  return start\n\n  /** @type {State} */\n}\n"),
+    ("MultiMarkdown", "```js\ny /* c */\n```\n"),
+    ("Markdown", "```js\nfunction f() {\n  return start\n\n  /** @type {State} */\n}\n```\n"),
+    ("Javadoc", "/** <script>\ny /* c */\n</script> */\n"),
+    ("HTML", "<script>\ny /* c */\n</script>\n"),
+    ("HTML (ASP)", "<script>\ny /* c */\n</script>\n"),
+    ("HTML (Erlang)", "<script>\ny /* c */\n</script>\n"),
+    ("HTML (Rails)", "<script>\ny /* c */\n</script>\n"),
+    ("HTML (Tcl)", "<script>\ny /* c */\n</script>\n"),
+    ("HTML (EEx)", "<script>\ny /* c */\n</script>\n"),
+    ("HTML (Twig)", "<script>\ny /* c */\n</script>\n"),
+    ("HTML (Jinja2)", "<script>\ny /* c */\n</script>\n"),
+    ("Java Server Page (JSP)", "<script>\ny /* c */\n</script>\n"),
+    ("PHP", "<script>\ny /* c */\n</script>\n"),
+    ("CFML", "<script>\ny /* c */\n</script>\n"),
+    ("Ruby Slim", "<script>\ny /* c */\n</script>\n"),
+    ("Vue Component", "<script>\ny /* c */\n</script>\n"),
+];
+
+#[test]
+fn syn_3_the_documents_that_made_syntaxes_spin_are_parsed_and_keep_their_colors() {
+    let set = syntaxes();
+    for &(name, text) in SPUN {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (syntax, owned) = (set.find_syntax_by_name(name).unwrap(), text.to_string());
+        // (a thread that does not end is left behind and the test fails: the process ends with it)
+        std::thread::spawn(move || {
+            let (mut state, mut stack) = (ParseState::new(syntax), ScopeStack::new());
+            for line in owned.split_inclusive('\n') {
+                let ops = state.parse_line(line, syntaxes()).unwrap();
+                ops.into_iter().for_each(|(_, op)| drop(stack.apply(&op)));
+            }
+            let _ = tx.send(());
+        });
+        rx.recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|_| panic!("{name} spins on {text:?}"));
+    }
+    // What the guard leaves is the colors of the code: the keywords of the JavaScript in a fence and in a tag,
+    // through `Syn` as the highlighter calls it, from a file's name.
+    for (file, text) in [
+        (
+            "fence.md",
+            "# t\n\n```js\nfunction f() {\n  return start\n\n  /** @type {State} */\n}\n```\n",
+        ),
+        ("script.html", "<script>\nfunction f() {\n  return start\n\n  /** x */\n}\n</script>\n"),
+    ] {
+        let lines: Vec<String> = text.lines().map(str::to_string).collect();
+        let mut syn = Syn::new(file, "").unwrap();
+        let spans = syn.spans(&|i| lines.get(i).cloned(), 0, lines.len());
+        let (function, ret) = if file == "fence.md" { (3, 4) } else { (1, 2) };
+        assert!(
+            spans[function].iter().any(|s| s.0 == (0..8) && s.1 == sim::paint::Look::Kw),
+            "{file}: {:?}",
+            spans[function]
+        );
+        assert!(spans[ret].iter().any(|s| s.1 == sim::paint::Look::Kw), "{file}: {:?}", spans[ret]);
+    }
 }

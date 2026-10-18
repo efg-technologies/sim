@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- The highlighter no longer spins on a core for ever on JavaScript in a Markdown fence, in an HTML `<script>` and in the other syntaxes that embed it (a statement without a semicolon that ends in a block comment, a JSDoc comment after `return start`): syntect's parser went round in a circle on matches that consume nothing, and now goes on one char after 128 of them (a copy of syntect 5.3.0 with that guard is in `vendor/`, SYN-3). A parse that is only slow is still given up after 5 s.
 - The mark of a link that lies (MD-10) no longer judges a path in the text against a target that has a host: `[/r/rust](https://www.reddit.com/r/rust)` and `` [`/dev/urandom`][14] `` were 46 of the 128 marks in 6,000 real files and all honest, and the browser shows the host. A path whose first segment is a host (`[/good.com/login](https://evil.com/login)`) is read as that host and is still marked.
 - sim died with a panic when it opened a file whose name starts with digits that read as a line number (`h264.rs`, `e1000.c`) and when `123` was typed after a `:` or `/` in a file with fewer lines, once the interface was drawn: the status line and the command line were read as numbered lines of the text (UI-6).
 - The message after `:w!` or `:e!` ended in the copy's absolute path, which a long state directory or a macOS `$TMPDIR` pushed off the line: it is now told as a shell takes it, `~/.local/state/sim/a.rs.1.disk` below the home directory, and `<Space>bk` says it again (SAFE-7).

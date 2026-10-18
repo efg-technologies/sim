@@ -24,7 +24,7 @@ GUI_ONLY="winit wgpu wgpu-core wgpu-hal wgpu-types naga ash cosmic-text swash fo
 GUI_FORBIDDEN="reqwest hyper ureq curl isahc surf attohttpc h2 http openssl openssl-sys rustls native-tls tokio async-std socket2 quinn tungstenite websocket smol webkit2gtk wry tao tauri gtk cef servo hickory-resolver trust-dns-resolver"
 MAX_BYTES=$((5 * 1024 * 1024))
 
-N=12
+N=13
 step() {
   n=$1
   shift
@@ -136,7 +136,7 @@ done
 # sim-editor and sim-editor-core. What this repository said before must not come back (this file
 # names the patterns, so it is left out).
 printf '\n[11/%s] the name is Secure vIM, the crates sim-editor and sim-editor-core\n' "$N"
-old=$(grep -rIn -E 'SI iMproved|SIght|sim-core' . --exclude-dir=target --exclude-dir=.git --exclude=check.sh || true)
+old=$(grep -rIn -E 'SI iMproved|SIght|sim-core' . --exclude-dir=target --exclude-dir=.git --exclude-dir=vendor --exclude=check.sh || true)
 if [ -n "$old" ]; then
   printf '%s\n' "$old" >&2
   echo "check.sh: step 11 failed: the name sim was given before (SI iMproved, SIght) or the crate sim-core is back" >&2
@@ -153,5 +153,9 @@ if [ "$bytes" -gt "$MAX_BYTES" ]; then
   echo "check.sh: step 12 failed: $bin is $bytes bytes, over $MAX_BYTES" >&2
   exit 1
 fi
+
+# 13. The copy of syntect that the highlighter is built on is upstream's 5.3.0 and the patch of
+# vendor/syntect.patch, and nothing else (vendor/README.md).
+step 13 sh scripts/vendor-check.sh
 
 printf '\ncheck.sh: all checks passed\n'

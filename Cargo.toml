@@ -3,7 +3,16 @@
 # window (sim-gui, gui/) draws the editor's screen with a GPU and has its own cap and allowlist (GUI-9).
 [workspace]
 members = ["core", "sim", "gui"]
+# vendor/syntect is syntect 5.3.0 with a guard in its parser (SYN-3, vendor/README.md): not a member, so that
+# fmt, clippy and `cargo test --workspace` never run on upstream's code
+exclude = ["vendor/syntect"]
 resolver = "3"
+
+# What the highlighter needs and syntect 5.3.0 does not have: a parser that cannot go round in a circle on
+# matches that consume nothing. Dependents of the crates sim-editor and sim-editor-core on crates.io do not get
+# it (a [patch] is the workspace's, not the crate's): NOTES.md says what that means for publishing.
+[patch.crates-io]
+syntect = { path = "vendor/syntect" }
 
 [profile.release]
 lto = true
