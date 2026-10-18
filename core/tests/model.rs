@@ -10,7 +10,7 @@
 //! it brought in the text, as one undo step. Every read of the disk is numbered
 //! as it starts, from one counter, like the shell does (DISK-1): the watcher's read when it starts
 //! (it may be sent long after), a load when `:e` asks, a save's answer when the save is done. A
-//! `Disk` that arrives older than something App took in must change nothing. `SIM_FUZZ_CASES` sets the
+//! `Disk` that arrives older than something App took in must change nothing, and one that arrives while a save is in flight waits for its answer, which numbers it (the model checks that no read numbered before the answer is merged before it). `SIM_FUZZ_CASES` sets the
 //! number of cases of every property.
 #![allow(
     clippy::cmp_owned,
@@ -195,6 +195,12 @@ pub struct Sim {
     held: Option<(u64, Option<Vec<u8>>)>,
     /// The shell's one counter of reads of the disk (DISK-1).
     seq: u64,
+    /// A save is in flight (App has asked for it and has not got its answer), and the last read of the
+    /// disk that came in meanwhile: App keeps it until the answer numbers it (DISK-1).
+    saving: bool,
+    late: Option<(u64, Option<Vec<u8>>, bool)>,
+    /// What the last save wrote: the base of the buffer once its answer is in.
+    last_save: Vec<u8>,
     chan: VecDeque<Event>,
     job: Option<(Vec<u8>, Option<u64>)>,
     done: Option<Event>,
@@ -241,6 +247,9 @@ impl Sim {
             forced: false,
             held: None,
             seq: 0,
+            saving: false,
+            late: None,
+            last_save: vec![],
             chan: VecDeque::new(),
             job: None,
             done: None,
@@ -288,6 +297,7 @@ impl Sim {
             match e {
                 Effect::Write { bytes, expect_hash, .. } => {
                     assert!(self.job.is_none() && self.done.is_none(), "two saves in flight");
+                    self.saving = true;
                     self.forced = expect_hash.is_none();
                     self.job = Some((bytes, expect_hash));
                 }
@@ -479,6 +489,7 @@ impl Sim {
             Some(w) if w != have => Event::SaveConflict(self.disk.clone(), far(), seq),
             _ => {
                 let h = hash(&bytes);
+                self.last_save.clone_from(&bytes);
                 self.set_disk(Some(bytes));
                 Event::Saved(Ok((h, None)), seq)
             }
@@ -620,13 +631,25 @@ impl Sim {
             _ => None,
         };
         let saved = matches!(ev, Event::Saved(Ok(_), _));
+        // The answer of a save, with its number: what App merges when it comes in may be the read that
+        // came in before it (DISK-1).
+        let answer = match &ev {
+            Event::Saved(_, n) | Event::SaveConflict(_, _, n) => Some(*n),
+            _ => None,
+        };
+        let came_in = matches!(ev, Event::Disk { .. }) && self.saving;
+        if let Event::Disk { bytes, seq, .. } = &ev
+            && self.saving
+        {
+            self.late = Some((*seq, bytes.clone(), false));
+        }
         // (A filter's result is something the user asked for: what it takes out is theirs to drop.)
         let user = matches!(
             ev,
             Event::Key(_) | Event::Paste(_) | Event::Opened(..) | Event::FilterDone(..)
         );
         self.log.push(format!("deliver {ev:?}"));
-        let pre = self.pre();
+        let mut pre = self.pre();
         let tick = matches!(ev, Event::Tick(_));
         let fx = self.app.update(ev);
         if let Some((status, out)) = fdone {
@@ -654,7 +677,9 @@ impl Sim {
         }
         // SAFE-7: a forced save that is done settles the conflict, and a reload that discarded mine
         // while it conflicted has a copy of every word of it.
-        if saved && self.forced && self.app.diverged() {
+        // (a read that is newer than the answer was taken in after it: that conflict is a new one)
+        let newer = answer.zip(self.late.as_ref()).is_some_and(|(n, (seq, ..))| *seq > n);
+        if saved && self.forced && self.app.diverged() && !newer {
             return Err("`:w!` is saved and the conflict with the disk is still open".into());
         }
         if loaded && pre.diverged && !self.app.diverged() && text(&self.app) != pre.text {
@@ -705,6 +730,43 @@ impl Sim {
             self.user_removed.extend(pre.all_words.difference(&after).cloned());
         }
         self.clashed |= self.app.diverged();
+        let mut d = d;
+        if came_in
+            && self.app.buf.version() != pre.version
+            && let Some(l) = self.late.as_mut()
+        {
+            l.2 = true;
+        }
+        if let Some(n) = answer {
+            self.saving = false;
+            if let Some((seq, _, true)) = self.late
+                && seq < n
+            {
+                return Err(format!(
+                    "a read numbered {seq} was merged while the save was in flight, and its answer is numbered {n}"
+                ));
+            }
+            // A read that came in while the save was in flight and is older than its answer must change
+            // nothing; a newer one is taken in then, and is the file that the merge is checked against.
+            if let Some((seq, Some(late), _)) = self.late.take()
+                && self.app.buf.version() != pre.version
+                && d.as_ref().is_none_or(|d| {
+                    Buffer::decode(d).text.to_string() != self.app.buf.base.to_string()
+                })
+                && Buffer::decode(&late).text.to_string() == self.app.buf.base.to_string()
+            {
+                if seq < n {
+                    return Err(format!(
+                        "a read numbered {seq} was taken in after the answer numbered {n}"
+                    ));
+                }
+                d = Some(late);
+                // (the answer of a save that was done puts its text as the base before the read is merged)
+                if saved {
+                    pre.base = Buffer::decode(&self.last_save).text.to_string();
+                }
+            }
+        }
         if let (Some(d), true) = (d, self.app.buf.version() != pre.version) {
             self.check_merge(&pre, &d)?;
         }
@@ -956,6 +1018,35 @@ proptest! {
     }
 }
 
+proptest! {
+    #![proptest_config(ProptestConfig { cases: cases(500), max_shrink_iters: 4000, failure_persistence: None, ..ProptestConfig::default() })]
+
+    /// Reads of the disk that come in while a save is in flight (DISK-1): Ctrl-s is delivered, and then
+    /// the outside process, the watcher, the keys and the answers of other things go on, and the save
+    /// itself runs (and answers) last. App cannot know the number of the answer until it is in, so what
+    /// came in meanwhile must wait for it: a read older than the answer changes nothing, a newer one is
+    /// merged after it (the model checks both, `deliver`).
+    #[test]
+    fn disk_1_fuzz_model_reads_that_come_in_while_a_save_is_in_flight(
+        first in 1usize..5,
+        atomic in any::<bool>(),
+        mid in prop::collection::vec(
+            op(true, true, false, true, false)
+                .prop_map(|o| if matches!(o, Op::Exec | Op::Send) { Op::Deliver } else { o }),
+            1..60,
+        ),
+    ) {
+        let (head, tail) = (
+            [Op::U(U::Leave(4)), Op::Deliver],
+            [Op::Exec, Op::Send, Op::Deliver, Op::Deliver, Op::Deliver, Op::U(U::Leave(1))],
+        );
+        let ops: Vec<Op> = head.into_iter().chain(mid).chain(tail).collect();
+        if let Err((e, log)) = run(first, &ops, atomic) {
+            return Err(TestCaseError::fail(format!("{e}\n{}", log.join("\n"))));
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Recovery (SAFE-6): the snapshot is `mine`, the file is `theirs`, the snapshot's base is `base`
 // ---------------------------------------------------------------------------------------------
@@ -1060,6 +1151,29 @@ fn disk_2_model_replay_a_stale_watcher_read_after_a_reload_and_a_save() {
         Deliver, Deliver, Deliver, Deliver, Exec, WSend, Send, user(U::Leave(1)),
     ];
     if let Err((e, log)) = run(1, &ops, false) {
+        panic!("{e}\n{}", log.join("\n"));
+    }
+}
+
+/// Found by the atomic model with conflicts (SAFE-7) in a check on another machine, and as old as the
+/// numbers of DISK-1. The watcher read the file ("e4", a line the outside process added) before the
+/// outside process removed it again; Ctrl-s was typed before that read was sent, so App has asked for the
+/// save when the read comes in, and the save (which found no file, as it expected, and made it) answers
+/// after it. The read came before the answer in the channel, and App took it for news, merged "e4" over
+/// the line "b0" of the user's text that the save was putting on the disk, and ZZ then wrote "e4" over
+/// "b0", which the outside process had touched in the meantime: nowhere was "b0" left. Now a read that comes
+/// in while a save is in flight waits for its answer, which numbers it (DISK-1).
+#[test]
+fn disk_1_model_replay_a_read_that_comes_in_while_a_save_is_in_flight_and_is_older_than_its_answer()
+{
+    use Op::{Deliver, Exec, Read};
+    let (ext, user) = (|e| Op::E(e), |u| Op::U(u));
+    #[rustfmt::skip]
+    let ops = [
+        ext(E::Delete(0)), ext(E::Remove), Read, user(U::Leave(4)), ext(E::Insert(0)), Read, ext(E::Remove),
+        Deliver, Deliver, Exec, ext(E::Touch), user(U::Leave(1)),
+    ];
+    if let Err((e, log)) = run(2, &ops, true) {
         panic!("{e}\n{}", log.join("\n"));
     }
 }

@@ -137,19 +137,50 @@ fn disk_1_a_read_older_than_a_newer_read_is_dropped_and_an_equal_one_is_not() {
     assert_eq!(text(&a), "one\nTWO");
 }
 
-/// A save's answer is never dropped: the save happened. But what was read before it is older.
+/// A save's answer is never dropped: the save happened. A read that came in before it waits for it
+/// (its number is the answer's to judge, DISK-1): a newer one is taken in after it, and what was read
+/// before the answer is older, whoever sent it last.
 #[test]
 fn disk_1_a_save_answer_is_taken_in_even_when_a_newer_read_came_first() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
-    disk_n(&mut a, "one\ntwo\nout\n", 12); // an outside append, read after the rename
-    assert_eq!(text(&a), "ne\ntwo\nout");
+    disk_n(&mut a, "ne\ntwo\nout\n", 12); // an outside append, read after the rename
+    assert_eq!(
+        text(&a),
+        "ne\ntwo",
+        "a read that comes in while the save runs waits for its answer"
+    );
     let fx = a.update(Event::Saved(Ok((hash(&bytes), None)), 10));
-    assert!(rewatch(&fx) && a.msg.as_deref() == Some("saved f"), "{:?}", a.msg);
-    // What was read before the answer is older, whoever sent it last.
+    assert!(rewatch(&fx), "{:?}", a.msg);
+    assert_eq!(
+        text(&a),
+        "ne\ntwo\nout",
+        "and is taken in after it, against the text that was saved"
+    );
     disk_n(&mut a, "ne\ntwo\n", 11);
     assert_eq!(text(&a), "ne\ntwo\nout");
+}
+
+/// What comes in while a save runs and is older than the answer changes nothing, though it differs
+/// from what the file held (the file was read before the save's rename, or before a deletion that
+/// the save made good): the model found it, with the user's line `b0` replaced by an outside `e4`.
+#[test]
+fn disk_1_a_read_that_comes_in_during_a_save_and_is_older_than_its_answer_is_dropped() {
+    let mut a = named("one\ntwo\n");
+    feed(&mut a, "x");
+    let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
+    disk_n(&mut a, "ONE\ntwo\n", 8); // read before the save's rename, sent after the key
+    assert_eq!((text(&a), a.buf.marks.len()), ("ne\ntwo".into(), 0), "it waits");
+    let fx = a.update(Event::Saved(Ok((hash(&bytes), None)), 10));
+    assert!(rewatch(&fx) && a.msg.as_deref() == Some("saved f"), "{:?}", a.msg);
+    assert_eq!((text(&a), a.buf.dirty(), a.buf.marks.len()), ("ne\ntwo".into(), false, 0));
+    // Only the last that came in waits: a newer one replaces an older one.
+    let (bytes, _) = write(&feed(&mut a, "x:w\n")).unwrap();
+    disk_n(&mut a, "x\n", 11);
+    disk_n(&mut a, "e\ntwo\nlate\n", 13);
+    a.update(Event::Saved(Ok((hash(&bytes), None)), 12));
+    assert_eq!(text(&a), "e\ntwo\nlate");
 }
 
 #[test]
@@ -157,11 +188,15 @@ fn disk_1_a_conflict_older_than_a_read_taken_in_merges_nothing() {
     let mut a = named("one\ntwo\n");
     feed(&mut a, "x");
     write(&feed(&mut a, ":w\n")).unwrap();
-    disk_n(&mut a, "one\ntwo\nthree\n", 20); // already merged, the buffer is the newer file plus mine
-    let merged = text(&a);
+    let mine = text(&a);
+    disk_n(&mut a, "one\ntwo\nthree\n", 20); // a newer read, which waits for the answer
+    assert_eq!(text(&a), mine);
     let fx = a.update(Event::SaveConflict(Some(b"one\nOLDER\n".to_vec()), far(), 15));
-    assert_eq!(text(&a), merged, "the older content of the compare is not merged over the newer");
-    assert!(a.msg.as_deref().is_some_and(|m| m.contains("changed on disk meanwhile")));
+    assert_eq!(
+        text(&a),
+        "ne\ntwo\nthree",
+        "the older content of the compare is not merged over the newer, which is taken in after"
+    );
     assert!(rewatch(&fx), "a fresh read follows the answer all the same");
     // The save is over: :w can be asked again.
     assert!(write(&feed(&mut a, ":w\n")).is_some());
@@ -233,13 +268,15 @@ fn disk_2_the_format_of_a_finished_save_is_the_format_of_the_file() {
     let mut a = named("b0\n");
     feed(&mut a, "A x\x1b");
     let (bytes, _) = write(&feed(&mut a, ":w\n")).unwrap();
+    // (a read that came in while the save ran and is older than its answer is dropped: the file is the
+    // one the save wrote)
     a.update(Event::Disk {
         bytes: Some("\u{feff}b0 y\n".as_bytes().to_vec()),
         hash: None,
         deadline: far(),
-        seq: 0,
+        seq: 1,
     });
-    a.update(Event::Saved(Ok((hash(&bytes), None)), 0));
+    a.update(Event::Saved(Ok((hash(&bytes), None)), 2));
     let bom = |b: &[u8]| b.starts_with(b"\xEF\xBB\xBF");
     assert_eq!(
         bom(&a.buf.encode()),
@@ -255,9 +292,9 @@ fn disk_2_the_format_of_a_finished_save_is_the_format_of_the_file() {
         bytes: Some(b"a\r\nb\r\nc\r\n".to_vec()),
         hash: None,
         deadline: far(),
-        seq: 0,
+        seq: 1,
     });
-    a.update(Event::Saved(Ok((hash(&bytes), None)), 0));
+    a.update(Event::Saved(Ok((hash(&bytes), None)), 2));
     assert_eq!(Buffer::decode(&bytes).encode(), bytes);
     let after = a.buf.encode();
     assert!(!after.contains(&b'\r') && !after.ends_with(b"\n"), "{after:?}");

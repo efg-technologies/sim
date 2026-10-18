@@ -38,7 +38,8 @@ pub enum Event {
     /// with the hash of the content when the thread that read the file has made it: 10 MB take 8 ms
     /// to hash, which no key should wait for (P3). `None`: App makes it. `seq` numbers every read of
     /// the disk (this one, a load, a save's answer) from the shell's one counter, taken when the
-    /// read starts: App drops a read that is older than what it took in already (DISK-1).
+    /// read starts: App drops a read that is older than what it took in already, and one that comes in
+    /// while a save is in flight waits for the save's answer, which numbers it (DISK-1).
     #[rustfmt::skip]
     Disk { bytes: Option<Vec<u8>>, hash: Option<u64>, deadline: Instant, seq: u64 },
     /// A thread has something to tell the user, e.g. that snapshots cannot be written (SAFE-6).
@@ -179,6 +180,9 @@ pub struct App {
     pub(super) filter: Option<Run>,
     /// The newest number of a read of the disk that was taken in (DISK-1).
     seen: u64,
+    /// A read of the disk that came in while a save was in flight: it waits for the answer, which is
+    /// numbered after it was taken (DISK-1).
+    held: Option<Event>,
     /// The colors for the Frame's styles, once the terminal has told its background (VIS-4).
     pub pal: Option<Palette>,
     /// The last tick, in ms (FILT-1), and the mode the last update ended in (VI-11).
@@ -214,7 +218,7 @@ impl App {
         // A save for the old buffer that is still running must not touch this one when it ends, and a
         // change that was being typed is not one to repeat. A `:e` that is still to be answered was
         // typed before this load: it expects the new buffer to be as it is now (versions restart).
-        (self.saving, self.rec, self.changed) = (None, vec![], false);
+        (self.saving, self.held, self.rec, self.changed) = (None, None, vec![], false);
         self.opening.iter_mut().for_each(|v| *v = 0);
     }
 
@@ -274,6 +278,7 @@ impl App {
             Event::Saved(r, seq) => self.saved(r, seq),
             Event::SaveConflict(disk, by, seq) => self.conflict(disk, by, seq),
             Event::Disk { seq, .. } if self.stale(seq) => {}
+            e @ Event::Disk { .. } if self.saving.is_some() => self.held = Some(e),
             Event::Disk { bytes, hash, deadline, .. } => self.disk(bytes, hash, deadline),
             Event::Notice(m) => self.say(m),
             Event::Kept(r) => self.kept(r),
@@ -316,6 +321,15 @@ impl App {
             // when an `:e` began to read, so an answer to that is followed by a watch as well, of the
             // file just loaded or the one the buffer keeps.
             self.fx.extend(self.path.clone().map(Effect::Watch));
+            // A read that came in before the answer is older than it, or newer, as its number says (and
+            // nothing is taken in after the answer that ends the session).
+            if self.saving.is_none()
+                && !self.fx.iter().any(|e| matches!(e, Effect::Quit(_)))
+                && let Some(Event::Disk { bytes, hash, deadline, seq }) = self.held.take()
+                && !self.stale(seq)
+            {
+                self.disk(bytes, hash, deadline);
+            }
         }
         let quit = self.fx.iter().position(|e| matches!(e, Effect::Quit(_)));
         let clean = !self.buf.dirty() && self.snap.take().is_some();

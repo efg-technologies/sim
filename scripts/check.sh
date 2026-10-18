@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 # The core (core/src) is the part that must never lose text: its own hard cap and its own allowlist
 # of dependencies. The editor (sim/src) and the window (gui/src) have a cap each; the reasons for all
 # three are in CONCEPT.md.
-MAX_CORE_LINES=3575
+MAX_CORE_LINES=3580
 MAX_SIM_LINES=11385
 MAX_GUI_LINES=5100
 CORE_DEPS="crossterm notify regex-lite ropey rustix similar unicode-width"

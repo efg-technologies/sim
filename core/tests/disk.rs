@@ -489,14 +489,18 @@ fn safe_5_a_save_conflict_for_content_already_merged_makes_no_second_undo_step()
         let mut a = named("one\ntwo\nthree\n");
         feed(&mut a, mine);
         feed(&mut a, ":w\n");
-        disk(&mut a, theirs);
-        let (merged, version, marks_) = (text(&a), a.buf.version(), marks(&a));
-        let m2 = marks_.clone();
+        disk(&mut a, theirs); // it comes in while the save runs: it waits for the answer
+        let (before, marks_) = (text(&a), marks(&a));
+        assert_eq!(before, "One\ntwo\nthree", "nothing is merged yet");
         let fx = a.update(Event::SaveConflict(Some(theirs.as_bytes().to_vec()), far(), 0));
         assert!(write(&fx).is_none() && !quits(&fx));
         assert_eq!(status(last_frame(&fx)), said);
-        assert_eq!(a.buf.version(), version, "nothing new happened to the text");
-        assert_eq!((text(&a), marks(&a)), (merged.clone(), marks_));
+        let (merged, m2) = (text(&a), marks(&a));
+        assert_ne!(
+            (merged.clone(), m2.clone()),
+            (before, marks_),
+            "the answer's content is merged"
+        );
         feed(&mut a, "u");
         assert_ne!(
             (text(&a), marks(&a)),
