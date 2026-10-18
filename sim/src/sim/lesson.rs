@@ -59,11 +59,12 @@ impl Sim {
         self.to(id, Event::Saved(Err(why.into()), file::seq()), out);
     }
 
-    /// TUTOR-2: before a frame, the lesson in view: what has been seen of the events, the marks of
+    /// TUTOR-2: before a frame, the lesson in view (what is done while another file is shown is not its): what has been seen of the events, the marks of
     /// the exercises (`✗` or `✓` drawn over the space of `[ ]`, the text not touched), and a word on the
     /// status line when an exercise has just been done.
     pub(super) fn grade(&mut self) {
-        let Some(lesson) = self.lesson.as_mut() else { return };
+        let here = self.bufs.get(self.cur).map(|b| b.id);
+        let Some(lesson) = self.lesson.as_mut().filter(|l| here == Some(l.id)) else { return };
         let Some(b) = self.bufs.iter_mut().find(|b| b.id == lesson.id) else {
             return self.lesson = None;
         };

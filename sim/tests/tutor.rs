@@ -421,3 +421,14 @@ fn tutor_1_a_file_opened_from_the_tutor_is_a_file_and_the_lesson_is_over() {
     r.keys("ihi<Esc>:w\n");
     assert_eq!(std::fs::read_to_string(r.cwd.join("keep.txt")).unwrap(), "hikept\n");
 }
+
+#[test]
+fn tutor_2_what_is_done_while_another_file_is_shown_is_not_the_lesson_s() {
+    let mut r = rig_env("tutor-away", &FILES, &["a.txt"], (80, 24), |_| {});
+    r.keys(":tutor\n");
+    r.keys("<Tab><C-p><Esc>"); // to a.txt, and its finder
+    assert_eq!(r.sim.bufs[r.sim.cur].app.path.as_deref(), Some("a.txt"));
+    r.keys("<Tab>");
+    goto(&mut r, "9.1");
+    assert!(row(&r, "9.1 ").contains("[✗]"), "{}", row(&r, "9.1 "));
+}

@@ -2911,6 +2911,24 @@ tutor_3_the_locale_picks_the_language_and_plain_mode_has_eight_lessons() {
   wait_for "src/lib.rs  1:1  NORMAL"
 }
 
+# MD-11: a callout is drawn as the kind's word, in bold, in place of its marker; the cursor's line is the file's own text.
+md_11_a_callout_is_the_kinds_word_in_place_of_its_marker_and_the_cursors_line_is_raw() {
+  printf '# t\n\n> [!WARNING]\n> mind this\n\n> [!FOO]\n> stays\n' > "$W/a.md"
+  markdown on
+  look flat
+  CT=truecolor
+  start a.md
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "Warning" # (the first frame is raw: the highlighter has not answered yet)
+  ! screen | grep -F -q "[!WARNING]"
+  screen | grep -F -q "[!FOO]" # an unknown kind is a quote
+  screen_esc | grep -a "Warning" | grep -aq '\[1m.*38;2;[0-9;]*mWarning' # bold, in a color of its own
+  keys j
+  keys j
+  wait_for "[!WARNING]" # the cursor's line is the file's own
+  ! screen | grep -F -q "Warning"
+}
+
 # A case runs in a process of its own, traced (scripts/e2e-lib.sh says how and why).
 if [ "${1:-}" = "--run-one" ]; then
   run_one "$2"
