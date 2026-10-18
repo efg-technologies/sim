@@ -158,6 +158,38 @@ fn vi_15_plus_and_star_write_the_clipboard_and_cannot_be_read() {
 }
 
 #[test]
+fn vi_15_a_yank_into_the_clipboard_leaves_zero_alone_and_is_the_register_plus() {
+    // A yank with a name does not touch "0 (vim's :help quote0): the clipboard's names are names.
+    let mut a = app("alpha\nbeta");
+    feed(&mut a, "yyj\"ayy\"+yy:reg\n");
+    assert_eq!(
+        status(&screen(&mut a)),
+        "\"\" beta⏎ · \"+ beta⏎ · \"0 alpha⏎ · \"a beta⏎",
+        "the unnamed register points to \"+, \"0 is the plain yank's, and sim shows what it sent"
+    );
+    let mut a = app("alpha\nbeta");
+    feed(&mut a, "yyj\"*yy:reg\n");
+    assert_eq!(
+        status(&screen(&mut a)),
+        "\"\" beta⏎ · \"+ beta⏎ · \"0 alpha⏎",
+        "\"* is the same register"
+    );
+    table(&[
+        ("|ab cd", "yw\"*yy\"0P", "ab| ab cd"),
+        ("|ab cd", "yw\"+yl\"0P", "ab| ab cd"),
+        ("|ab cd", "\"+ywP", "ab| ab cd"),
+        // a cut named + fills + (and "1 for lines, as a name does), and not "-
+        ("|ab cd", "\"+dw\"-p", "|cd"),
+        ("|a\nb", "\"+dd\"1p", "b\n|a"),
+    ]);
+    // Reading it stays refused, and what sim sent is shown, not read from the clipboard.
+    let mut a = app("ab cd");
+    feed(&mut a, "\"+yw\"+p:reg\n");
+    assert_eq!(text(&a), "ab cd");
+    assert_eq!(status(&screen(&mut a)), "\"\" ab  · \"+ ab ");
+}
+
+#[test]
 fn vi_15_visual_mode_and_x_take_a_register_too() {
     table(&[
         ("|ab cd", "v$\"ay\"ap", "aab c|db cd"),

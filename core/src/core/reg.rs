@@ -18,7 +18,8 @@ pub struct Regs {
 
 impl Regs {
     /// Whether `c` names a register: `a`-`z`, `A`-`Z` (appends), `0`-`9`, `"` the unnamed one, `-` the small
-    /// deletes, `_` the black hole, and `+` `*` the clipboard (written, never read).
+    /// deletes, `_` the black hole, and `+` `*` (one register: what was sent to the clipboard; written,
+    /// never read).
     pub fn valid(c: char) -> bool {
         c.is_ascii_alphanumeric() || "\"-_+*".contains(c)
     }
@@ -63,11 +64,14 @@ impl Regs {
         k
     }
 
-    /// A yank: into `"0` unless it has a name. The clipboard's names are no register of their own.
+    /// A yank: into `"0` unless it has a name (a yank with a name leaves `"0` alone, as in vim). `+` and
+    /// `*` are one register, the text sim last sent to the clipboard: shown, and put by `p`, never read
+    /// from the clipboard.
     pub fn yank(&mut self, name: Option<char>, text: Rope, lw: bool) {
         let k = match name {
             Some('_') => return,
-            None | Some('"' | '+' | '*') => '0',
+            None | Some('"') => '0',
+            Some('*') => '+',
             Some(c) => c,
         };
         self.last = Some(self.put(k, text, lw));
@@ -76,7 +80,7 @@ impl Regs {
     /// A delete or change. `big`: it took a line or more, or moved by a motion that vi always counts
     /// as one (`%` and the like): it goes to `"1`, the others to `"-`.
     pub fn delete(&mut self, name: Option<char>, text: Rope, lw: bool, big: bool) {
-        let name = name.filter(|c| !"\"+*".contains(*c));
+        let name = name.filter(|c| *c != '"').map(|c| if c == '*' { '+' } else { c });
         if name == Some('_') {
             return;
         }
