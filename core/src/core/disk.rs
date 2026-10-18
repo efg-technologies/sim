@@ -175,6 +175,11 @@ impl App {
         // `'<` and `'>` are lines too: they follow their text like the cursor does.
         let sel = (go(self.marks.0), go(self.marks.1));
         let top = go(self.top); // the view follows the text like the cursor
+        // The marks of VI-17 follow their text too; one on a line the file's change took away is gone,
+        // and one on a line it replaced goes to where the replacement begins.
+        let vmark = b
+            .vmark
+            .map(|m| m.and_then(|(l, c)| inside(l).is_none_or(|r| r.2 > 0).then_some((go(l), c))));
         let old_marks = b.marks.iter().filter(|k| inside(k.line).is_none());
         let mut all: Vec<Mark> =
             old_marks.map(|k| Mark { line: go(k.line), ..k.clone() }).collect();
@@ -190,6 +195,7 @@ impl App {
         let b = &mut self.buf;
         b.marks = Arc::new(all);
         let (last, line) = (b.lines() - 1, line.min(b.lines() - 1));
+        b.vmark = vmark.map(|m| m.map(|(l, c)| (l.min(last), c)));
         (b.cursor, b.want) = (b.start(line) + col.min(b.line_len(line)), None);
         b.checkpoint();
         (self.marks, self.top) = ((sel.0.min(last), sel.1.min(last)), top.min(last));

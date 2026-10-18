@@ -252,11 +252,19 @@ fn vi_15_registers_shows_each_register_that_holds_something() {
     assert_eq!(status(&screen(&mut a)), "no registers");
     feed(&mut a, "ywjdd\"ayl:registers\n");
     assert_eq!(status(&screen(&mut a)), "\"\" a · \"0 ab  · \"1 ef⏎ · \"a a");
-    // Long text is cut, and a line break shows as ⏎.
+    // A line break shows as ⏎; what there is room for is shown whole.
     let mut a = app("0123456789abcdefghij\nxy");
     feed(&mut a, "yj:reg\n");
     let said = status(&screen(&mut a)).to_string();
-    assert!(said.starts_with("\"\" 0123456789abcdef… ·"), "{said}");
+    assert_eq!(said, "\"\" 0123456789abcdefghij⏎xy⏎ · \"0 0123456789abcdefghij⏎xy⏎");
+    // A short register leaves its share to a long one, and what does not fit is cut with `…`.
+    let long = "x".repeat(100);
+    let mut a = app(&format!("{long}\nab"));
+    feed(&mut a, "\"ayyj\"byw:reg\n");
+    let said = status(&screen(&mut a)).to_string();
+    assert!(said.ends_with(" · \"b ab"), "the short one is whole: {said}");
+    assert!(said.starts_with("\"\" ab · \"a xxxx") && said.contains('…'), "{said}");
+    assert_eq!(said.chars().count(), 80, "and the long one has the rest of the line: {said}");
     // Each one is cut to what is left of the line, so that the last one is on it, not past its end.
     let mut a = app("the quick brown fox jumps over the lazy dog");
     for r in 'a'..='e' {

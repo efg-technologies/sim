@@ -93,6 +93,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `*` | buscar a palavra para a frente |
 | `yy` | copiar linhas |
 | `"a` | um registrador: `"ayw` copia para `a`, `"ap` cola (`:registers` lista) |
+| `ma` | definir uma marca; `'a` vai para a linha dela, `` `a `` para a posição (`:marks` lista) |
 | `]c` | próxima mudança vinda de fora |
 | `[c` | mudança anterior vinda de fora |
 | `:s` | substituir |
@@ -140,7 +141,7 @@ O que os outros ainda fazem melhor, por enquanto: Neovim e Helix incluem um clie
 
 ## Roadmap (planejado, não lançado)
 
-Macros e marcas do Vim · integração com a área de transferência além do OSC 52 · um cliente de servidor de linguagem em sandbox · `:tutor` · uma árvore de diff do git · uma GUI com profundidade de verdade (um protótipo) · pacotes para o AUR e o crates.io.
+Macros do Vim · integração com a área de transferência além do OSC 52 · um cliente de servidor de linguagem em sandbox · `:tutor` · uma árvore de diff do git · uma GUI com profundidade de verdade (um protótipo) · pacotes para o AUR e o crates.io.
 
 ## Desenvolvimento
 

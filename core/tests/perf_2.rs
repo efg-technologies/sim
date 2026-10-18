@@ -107,8 +107,11 @@ fn undos(r: &mut Rig) -> Times {
     for _ in 0..3000 {
         r.time("xj");
     }
-    let mut out = r.time(&"u".repeat(2000));
-    out.extend(r.time(&"<C-r>".repeat(1000)));
+    for _ in 0..200 {
+        r.time("ddj"); // (their undo changes the number of lines: the marks follow the lines, VI-17)
+    }
+    let mut out = r.time(&"u".repeat(2200));
+    out.extend(r.time(&"<C-r>".repeat(1100)));
     assert!(r.a.msg.is_none(), "every undo and redo found something to do: {:?}", r.a.msg);
     out
 }

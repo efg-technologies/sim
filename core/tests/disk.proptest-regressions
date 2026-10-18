@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 4d10fbd4f61a7a3ed81a33bdd48fbd95112d56ad53d07689e18134eccf73a409 # shrinks to base = "a\n", steps = [Disk("a\na\n"), Keys("x"), Conflict("c\n"), Disk("dd\nc\n"), Keys("v"), Keys("ggdG")]

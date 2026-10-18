@@ -372,6 +372,21 @@ fn buf_2_registers_are_shared_by_the_files_and_outlive_the_one_that_made_them() 
 }
 
 #[test]
+fn buf_2_marks_belong_to_each_file() {
+    let mut r = two("b2-marks");
+    r.keys("jma<Tab>'a");
+    assert!(
+        r.status().starts_with("mark not set: a"),
+        "a mark set in b.txt is not a.txt's: {}",
+        r.status()
+    );
+    r.keys("lma<Tab>gg'ax");
+    assert_eq!(r.text(), "B1\n2", "and b.txt's own is there, on the line it was set on");
+    r.keys("<Tab>:marks\n");
+    assert!(r.status().starts_with("'a 1:2 one"), "{}", r.status());
+}
+
+#[test]
 fn buf_2_tab_only_switches_in_normal_mode_with_nothing_pending() {
     let mut r = two("b2-normal");
     for pending in ["i", "v", "V", "d", "2", "g", "f", "r", ":", "/", "y"] {

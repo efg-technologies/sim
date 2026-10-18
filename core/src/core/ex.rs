@@ -103,6 +103,7 @@ impl App {
                     _ => self.search = Some((pat.into(), false, fwd)),
                 }
                 if let Some(t) = self.find_match(fwd) {
+                    self.jumped('/');
                     (self.buf.cursor, self.buf.want) = (t, None);
                     self.clamp();
                 }
@@ -119,6 +120,9 @@ impl App {
             '$' => (last, &s[1..]),
             '\'' if s[1..].starts_with('<') => (self.marks.0.min(last), &s[2..]),
             '\'' if s[1..].starts_with('>') => (self.marks.1.min(last), &s[2..]),
+            '\'' if s[1..].starts_with(|c: char| c.is_ascii_lowercase()) => {
+                (b.vmark[usize::from(s.as_bytes()[1] - b'a')]?.0.min(last), &s[2..])
+            }
             '0'..='9' => {
                 let d = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
                 ((s[..d].parse::<usize>().ok()?.max(1) - 1).min(last), &s[d..])
@@ -190,6 +194,7 @@ impl App {
             "s" => self.subst(range.unwrap_or((line, line)), arg),
             "seen" => self.buf.marks = Default::default(),
             "reg" | "registers" => self.say(self.regs.list(usize::from(self.size.0))),
+            "marks" => self.say(self.list_marks(usize::from(self.size.0))),
             _ => self.say(format!("not an editor command: {name}")),
         }
         self.clamp();
@@ -255,7 +260,7 @@ impl App {
             pat = self.search.as_ref().map(|s| s.0.clone()).unwrap_or_default();
         }
         let Some(re) = self.regex(&pat, false) else { return };
-        let (mut subs, mut lines, mut at) = (0, 0, None);
+        let (mut subs, mut lines, mut at, from) = (0, 0, None, self.here());
         self.buf.checkpoint();
         // Last line first: the marks of the lines still to do stay where they are (PERF-2).
         for l in (l1..=l2).rev() {
@@ -273,6 +278,7 @@ impl App {
         }
         match at {
             Some(l) => {
+                self.jump_from(from);
                 (self.buf.cursor, self.buf.want) = (self.buf.nonblank(l), None);
                 let (subs, lines) =
                     (plural(subs, "substitution", "substitutions"), plural(lines, "line", "lines"));

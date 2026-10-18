@@ -93,6 +93,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 | `*` | rechercher le mot vers l’avant |
 | `yy` | copier des lignes |
 | `"a` | un registre : `"ayw` copie dans `a`, `"ap` le colle (`:registers` les liste) |
+| `ma` | poser une marque ; `'a` va à sa ligne, `` `a `` à son emplacement ; `:marks` les liste |
 | `]c` | changement suivant venu de l’extérieur |
 | `[c` | changement précédent venu de l’extérieur |
 | `:s` | substituer |
@@ -140,7 +141,7 @@ Là où les autres ont de l’avance, pour l’instant : Neovim et Helix intèg
 
 ## Feuille de route (prévu, pas livré)
 
-Macros et marques de Vim · intégration du presse-papiers au-delà d’OSC 52 · un client de serveur de langage dans un bac à sable · `:tutor` · une arborescence des diffs git · une interface graphique avec une vraie profondeur (un prototype) · des paquets pour l’AUR et crates.io.
+Macros de Vim · intégration du presse-papiers au-delà d’OSC 52 · un client de serveur de langage dans un bac à sable · `:tutor` · une arborescence des diffs git · une interface graphique avec une vraie profondeur (un prototype) · des paquets pour l’AUR et crates.io.
 
 ## Développer sim
 

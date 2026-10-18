@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15
+//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15, VI-17
 //! Key sequence to Command: counts, operators and prefixes in Normal and Visual mode, and the
 //! editing of the command line.
 use super::app::Key;
@@ -38,7 +38,7 @@ pub const HALF_UP: char = '\x15';
 /// The motions that keep the wanted column.
 pub const VERTICAL: &str = "jk\x04\x15\u{e001}\u{e002}";
 /// The keys that only move the cursor (and, after an operator, make a range).
-pub const MOTIONS: &str = "hjklwbeWBE0^$GgfFtT;,%nN*#\u{e000}\u{e001}\u{e002}\x04\x15";
+pub const MOTIONS: &str = "hjklwbeWBE0^$GgfFtT;,%nN*#'`\u{e000}\u{e001}\u{e002}\x04\x15";
 
 /// The char a key stands for in Normal and Visual mode.
 #[rustfmt::skip]
@@ -134,7 +134,7 @@ impl Parser {
                     None
                 }
                 (Key::Char('g'), 'g') | (Key::Char('z'), 'z') | (Key::Char('Z' | 'Q'), 'Z')
-                | (Key::Char('c'), '[' | ']') | (Key::Char(_), 'f' | 'F' | 't' | 'T' | 'r' | 'i' | 'a') => self.emit(self.op, p, Some(c)),
+                | (Key::Char('c'), '[' | ']') | (Key::Char(_), 'f' | 'F' | 't' | 'T' | 'r' | 'i' | 'a' | 'm' | '\'' | '`') => self.emit(self.op, p, Some(c)),
                 _ => self.reset(),
             };
         }
@@ -161,7 +161,9 @@ impl Parser {
             return self.reset();
         }
         match c {
-            'f' | 'F' | 't' | 'T' | 'g' | 'r' | 'z' | 'Z' | '[' | ']' | '"' => self.pre = Some(c),
+            'f' | 'F' | 't' | 'T' | 'g' | 'r' | 'z' | 'Z' | '[' | ']' | '"' | 'm' | '\'' | '`' => {
+                self.pre = Some(c)
+            }
             'i' | 'a' if vis || self.op.is_some() => self.pre = Some(c),
             'D' | 'C' | 'Y' if !vis => return self.emit(Some(c.to_ascii_lowercase()), '$', None),
             'x' if !vis => return self.emit(Some('d'), 'l', None),

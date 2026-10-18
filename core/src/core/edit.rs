@@ -1,7 +1,7 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VIS-12, FILT-1, DISK-6
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VIS-12, FILT-1, DISK-6
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
-use super::buffer::Buffer;
+use super::buffer::{Buffer, PREV, SAVED};
 use super::reg::Regs;
 use super::vi::{Cmd, HALF_DN, HALF_UP, HOME, MOTIONS, Mode, PGUP, VERTICAL, ch};
 use ropey::Rope;
@@ -113,6 +113,17 @@ impl App {
         if matches!(k, 'n' | 'N' | '*' | '#') {
             return self.search_key(k).map(|t| (t, Kind::Excl));
         }
+        if matches!(k, '\'' | '`') {
+            let (l, c) = self.mark_at(arg?)?;
+            let b = &self.buf;
+            let l = l.min(b.lines() - 1);
+            // `'` is a line motion to its first non-blank; `` ` `` is exclusive, to the place.
+            return Some(if k == '\'' {
+                (b.nonblank(l), Kind::Line)
+            } else {
+                (b.start(l) + c.min(b.line_len(l)), Kind::Excl)
+            });
+        }
         let b = &self.buf;
         let (cur, l, n1, len) = (b.cursor, b.line_of(b.cursor), n.max(1), b.text.len_chars());
         let (last, rows) = (b.lines() - 1, usize::from(self.size.1) - 1);
@@ -205,6 +216,7 @@ impl App {
     fn go(&mut self, k: char, arg: Option<char>, n: usize) {
         let want = self.buf.want.unwrap_or(self.buf.col());
         if let Some((t, _)) = self.motion(k, arg, n, '\0') {
+            self.jumped(k);
             self.buf.cursor = t;
             self.buf.want = VERTICAL.contains(k).then_some(want);
         }
@@ -269,6 +281,7 @@ impl App {
             return self.object(c.k == 'a', c.arg?);
         }
         let (t, kind) = self.motion(c.k, c.arg, c.n, op)?;
+        self.jumped(c.k);
         let b = &self.buf;
         let (s, e) = (cur.min(t), cur.max(t));
         Some(match kind {
@@ -325,6 +338,10 @@ impl App {
                     (_, true) => (a - usize::from(last && a > 0), e + usize::from(!last)),
                     _ => (a, e),
                 };
+                if lw {
+                    // (`c` keeps the first line, emptied)
+                    b.forget(l1 + usize::from(op == 'c')..=l2);
+                }
                 b.replace(from..to, "");
                 b.cursor = if op == 'd' && lw { b.nonblank(l1.min(b.lines() - 1)) } else { from };
                 self.ai = (op == 'c' && lw && from > b.start(l1)).then_some(l1);
@@ -362,7 +379,8 @@ impl App {
             None => !vis && "iaIAoOpPJr".contains(c.k),
         };
         // Only the vertical motions keep the wanted column.
-        self.buf.want = self.buf.want.filter(|_| c.op.is_none() && VERTICAL.contains(c.k));
+        self.buf.want =
+            self.buf.want.filter(|_| c.op.is_none() && (VERTICAL.contains(c.k) || c.k == 'm'));
         if edits {
             if let Some(why) = self.buf.readonly.clone() {
                 self.vi.mode = Mode::Normal;
@@ -376,7 +394,7 @@ impl App {
         }
         match c.k {
             // In Visual mode only motions, selection keys and `:` work.
-            k if vis && !MOTIONS.contains(k) && !"\x1b\x03vVoia:".contains(k) => {}
+            k if vis && !MOTIONS.contains(k) && !"\x1b\x03vVoia:m".contains(k) => {}
             k if MOTIONS.contains(k) => self.go(k, c.arg, c.n),
             '\x1b' | '\x03' if vis => self.leave_visual(),
             '\x03' => match self.filter.as_mut() {
@@ -404,6 +422,7 @@ impl App {
             }
             'i' | 'a' | 'I' | 'A' | 'o' | 'O' => self.open_insert(c.k),
             'p' | 'P' => self.paste(c.k == 'p', n1, c.reg),
+            'm' => self.mark_set(c.arg),
             'J' => self.join(n1),
             'r' => {
                 let b = &mut self.buf;
@@ -416,7 +435,9 @@ impl App {
             }
             'u' | 'U' | '\x12' => {
                 self.rec.clear(); // undo is not a change: `.` keeps repeating the last real one
+                self.jump_from(self.here()); // (vim's undo is a jump, its marks following the lines it brings back)
                 if !self.buf.travel(c.k == 'u') {
+                    self.buf.vmark[PREV] = self.buf.vmark[SAVED].take();
                     self.say(if c.k == 'u' { "nothing to undo" } else { "nothing to redo" });
                 }
             }
@@ -444,7 +465,11 @@ impl App {
             'A' => b.cursor = b.end(l),
             'o' | 'O' => {
                 let at = if k == 'o' { b.end(l) } else { b.start(l) };
-                b.replace(at..at, &if k == 'o' { format!("\n{ind}") } else { format!("{ind}\n") });
+                if k == 'o' {
+                    b.replace_after(l, at..at, &format!("\n{ind}"));
+                } else {
+                    b.replace(at..at, &format!("{ind}\n"));
+                }
                 b.cursor = at + ind.chars().count() + usize::from(k == 'o');
                 self.ai = (!ind.is_empty()).then_some(l + usize::from(k == 'o'));
             }
@@ -476,7 +501,8 @@ impl App {
         let b = &mut self.buf;
         let (l, s) = (b.line_of(b.cursor), text.to_string().repeat(n));
         if lw && after {
-            b.replace(b.end(l)..b.end(l), &format!("\n{}", s.strip_suffix('\n').unwrap_or(&s)));
+            let (end, s) = (b.end(l), s.strip_suffix('\n').unwrap_or(&s));
+            b.replace_after(l, end..end, &format!("\n{s}"));
             b.cursor = b.nonblank(l + 1);
         } else if lw {
             b.replace(b.start(l)..b.start(l), &s);
@@ -498,7 +524,8 @@ impl App {
                 && nx < b.end(l + 1)
                 && !b.ch(e - 1).is_whitespace()
                 && b.ch(nx) != ')';
-            b.replace(e..nx, if space { " " } else { "" });
+            // (a join keeps the marks of its first line, an empty one too)
+            b.replace_after(l, e..nx, if space { " " } else { "" });
             b.cursor = e;
         }
     }

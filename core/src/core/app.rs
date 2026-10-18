@@ -435,6 +435,9 @@ impl App {
                 }
             }
         }
+        if self.vi.mode != Mode::Insert {
+            self.jump_end(); // (a change that starts typing is not over until Esc)
+        }
         self.pv = self.preview();
         self.changed |= typing && self.buf.version() != version;
         if self.vi.idle() && take(&mut self.changed) && !self.rec.is_empty() {

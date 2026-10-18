@@ -752,6 +752,30 @@ vi_15_plus_writes_the_clipboard_and_is_never_read() {
   printf 'copy me\nsecond\n' | cmp - "$CASE_DIR/f"
 }
 
+# VI-17: a mark follows its line when a line is put above it, `'a` and `''` go back, `:marks` lists them.
+vi_17_a_mark_follows_its_line_and_goes_back() {
+  printf 'one\ntwo\nthree\nfour\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  typed 'jjma'
+  typed 'ggOnew'
+  keys Escape
+  typed "gg'a"
+  wait_for "4:1"
+  typed ':marks'
+  keys Enter
+  wait_for "'a 4:1 three"
+  typed "''"
+  wait_for "1:1"
+  typed "'ax"
+  wait_for "4:1"
+  typed ":wq"
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+  printf 'new\none\ntwo\nhree\nfour\n' | cmp - "$CASE_DIR/f"
+}
+
 # The screen no longer contains TEXT.
 gone() { ! screen | grep -F -q -- "$1"; }
 

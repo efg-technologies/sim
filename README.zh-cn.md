@@ -93,6 +93,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `*` | 向前搜索当前单词 |
 | `yy` | 复制行 |
 | `"a` | 寄存器：`"ayw` 复制到 `a`，`"ap` 粘贴（`:registers` 列出） |
+| `ma` | 设置标记；`'a` 跳到其所在行，`` `a `` 跳到其位置（`:marks` 列出） |
 | `]c` | 下一处来自外部的改动 |
 | `[c` | 上一处来自外部的改动 |
 | `:s` | 替换 |
@@ -140,7 +141,7 @@ Vim、Neovim 和 Helix 都是成熟的编辑器，而 sim 是新的。这里只�
 
 ## 路线图（计划中，尚未发布）
 
-Vim 的宏和标记 · 超出 OSC 52 的剪贴板集成 · 沙箱化的语言服务器客户端 · `:tutor` · git 差异树 · 真正有层次感的 GUI（原型） · AUR 和 crates.io 的软件包。
+Vim 的宏 · 超出 OSC 52 的剪贴板集成 · 沙箱化的语言服务器客户端 · `:tutor` · git 差异树 · 真正有层次感的 GUI（原型） · AUR 和 crates.io 的软件包。
 
 ## 参与开发
 

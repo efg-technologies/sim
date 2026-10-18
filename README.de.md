@@ -93,6 +93,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 | `*` | Wort vorwärts suchen |
 | `yy` | Zeilen kopieren |
 | `"a` | ein Register: `"ayw` kopiert nach `a`, `"ap` fügt es ein (`:registers` listet sie) |
+| `ma` | eine Marke setzen; `'a` springt in ihre Zeile, `` `a `` an ihre Stelle; `:marks` listet sie |
 | `]c` | nächste Änderung von außen |
 | `[c` | vorherige Änderung von außen |
 | `:s` | ersetzen |
@@ -140,7 +141,7 @@ Was die anderen vorerst noch besser können: Neovim und Helix liefern einen Lang
 
 ## Roadmap (geplant, nicht ausgeliefert)
 
-Vim-Makros und -Marken · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
+Vim-Makros · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
 
 ## Entwicklung
 

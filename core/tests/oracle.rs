@@ -2,7 +2,9 @@
 //! Ignored by default: `SIM_ORACLE_CASES=20000 SIM_ORACLE_SEED=1 cargo test --test oracle -- --ignored --nocapture`.
 //! `SIM_ORACLE_MODE=single` (one command per case, the default) or `seq` (2-3 commands), `ex` (`:s` and
 //! searches) or `reg` (VI-15: yanks, deletes and puts with register names, 3-5 commands, compared by
-//! the text, the cursor and what every register holds afterwards).
+//! the text and what every register holds afterwards), or `mark` (VI-17: marks set, lines
+//! inserted, deleted, joined and undone, and jumps to the marks; compared by the text, where the marks
+//! are, and the cursor after a jump).
 //! Every divergence is printed grouped by the first command; the test only fails with
 //! `SIM_ORACLE_STRICT=1`. Not every divergence is a bug: several are SPEC "Decided" items (see the
 //! report), which `known()` filters.
@@ -34,6 +36,14 @@ local function dump()
   end
   return table.concat(out, '\30')
 end
+local function mdump()
+  local out = {}
+  for _, n in ipairs({ 'a', 'b', 'c', "'" }) do
+    local p = vim.fn.getpos("'" .. n)
+    if p[2] > 0 then out[#out + 1] = n .. ':' .. (p[2] - 1) .. ':' .. (p[3] - 1) end
+  end
+  return table.concat(out, ' ')
+end
 local function unhex(s) return (s:gsub('..', function(h) return string.char(tonumber(h, 16)) end)) end
 local function hex(s) return (s:gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
 vim.o.compatible = false
@@ -51,6 +61,8 @@ vim.o.virtualedit = ''
 vim.o.matchpairs = '(:),{:},[:]'
 vim.o.undolevels = 1000
 local out = io.open(arg[2], 'w')
+-- 'xnt': the keys count as typed, so that each command is an undo block of its own, as at a keyboard
+local flags = arg[3] or 'xn'
 for line in io.lines(arg[1]) do
   local f = vim.split(line, ' ', { plain = true })
   local text, keys = unhex(f[1]), unhex(f[2])
@@ -63,16 +75,17 @@ for line in io.lines(arg[1]) do
   vim.api.nvim_buf_set_lines(0, 0, -1, false, vim.split(text, '\n', { plain = true }))
   vim.bo.undolevels = 1000
   vim.api.nvim_win_set_cursor(0, { ln + 1, col })
+  vim.fn.setpos("''", { 0, 0, 0, 0 }) -- no place before a jump, as in a window that has made none
   vim.g.ok = 0
   -- `{}` empties a register; `''` leaves one that holds an empty line, and an append (`"Ayy`) adds to that.
   for _, r in ipairs(REGS) do vim.fn.setreg(r, {}) end
   vim.fn.setreg('"', {})
   vim.fn.setreg('/', '')
-  local ok, err = pcall(vim.api.nvim_feedkeys, vim.api.nvim_replace_termcodes(keys .. ':let g:ok=1<CR>', true, true, true), 'xn', false)
+  local ok, err = pcall(vim.api.nvim_feedkeys, vim.api.nvim_replace_termcodes(keys .. ':let g:ok=1<CR>', true, true, true), flags, false)
   vim.cmd('silent! stopinsert')
   local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
   local pos = vim.api.nvim_win_get_cursor(0)
-  out:write(hex(table.concat(lines, '\n')), ' ', pos[1] - 1, ' ', pos[2], ' ', vim.fn.mode(), ' ', vim.g.ok, ' ', hex(dump()), '\n')
+  out:write(hex(table.concat(lines, '\n')), ' ', pos[1] - 1, ' ', pos[2], ' ', vim.fn.mode(), ' ', vim.g.ok, ' ', hex(dump()), ' ', hex(mdump()), '\n')
   out:flush()
 end
 out:close()
@@ -440,9 +453,59 @@ fn reg_command(r: &mut Rng, st: &mut Reg) -> String {
     }
 }
 
+/// One command of the mark mode: a motion that sets a mark, an edit that moves lines, an undo, or an
+/// operator that takes a mark as its motion.
+fn mark_command(r: &mut Rng) -> String {
+    let name = |r: &mut Rng| pick(r, &["a", "a", "b", "b", "c"]);
+    let typed = |r: &mut Rng| pick(r, &["x", "new", "a b"]);
+    match r.below(40) {
+        0..=7 => {
+            let n = name(r);
+            format!("{}m{n}", pick(r, &["j", "jj", "k", "w", "0", "G", "gg", "fo", ""]))
+        }
+        8..=15 => {
+            pick(r, &["dd", "dj", "dk", "dG", "dgg", "ddp", "ddP", "yyp", "yyP", "J", "x", "D"])
+                .into()
+        }
+        16..=20 => format!("{}{}<Esc>", pick(r, &["o", "O", "A", "I", "i", "a"]), typed(r)),
+        21 | 22 => format!("cw{}<Esc>", pick(r, &["q", "xy", "a b"])),
+        23 | 24 => pick(r, &["dw", "2x"]).into(),
+        25 => pick(r, &[":s/o/0/<CR>", ":%s/o/0/g<CR>", ":s/^/X/<CR>", ":%s/ /_/g<CR>"]).into(),
+        // (undo leaves the cursor in another place of the lines it changed: the next command starts from one)
+        26..=29 => pick(r, &["u", "uu", "<C-r>", "u<C-r>", "uuu"]).to_string() + ":1<CR>0",
+        30..=33 => {
+            let n = name(r);
+            let op = pick(r, &["d", "d", "c"]);
+            // (a delete by characters over lines moves the columns of the marks on its last line as
+            // vim's join of the two does, to where the text is not: that is not copied)
+            format!("{op}'{n}") + if op == "c" { "q<Esc>" } else { "" }
+        }
+        34 | 35 => pick(r, &["G", "gg", "/o<CR>", "/o<CR>n", "/o<CR>N", "%", "jj"]).into(),
+        _ => pick(r, &["''", "``", "d''", "j", "k", "w"]).into(),
+    }
+}
+
 fn gen_case(r: &mut Rng, multi: bool) -> Case {
     let indent = r.below(3) == 0;
     let text = gen_text(r, indent);
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark") {
+        // more lines than the other modes, so that the marks have room to move
+        let text = format!("{text}\n{}\n{}", gen_text(r, indent), gen_text(r, false));
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let mut parts: Vec<String> = (0..2)
+            .map(|_| {
+                format!("{}m{}", pick(r, &["j", "jj", "w", "G", "gg", ""]), pick(r, &["a", "b"]))
+            })
+            .collect();
+        parts.extend((0..2 + r.below(3)).map(|_| mark_command(r)));
+        if r.below(2) == 0 {
+            parts.push(format!("{}{}", pick(r, &["'", "`"]), pick(r, &["a", "b", "c"])));
+        }
+        let keys = parts.concat() + "<Esc>";
+        return Case { text, line, col, keys, sw: 4, simple: false, parts };
+    }
     if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "reg") {
         // (no empty line: a yank that takes nothing is the Decided rule of VI-8, see `degenerate`)
         let text = text
@@ -529,6 +592,15 @@ fn dump_of(regs: &sim_core::core::reg::Regs) -> String {
     names.into_iter().filter_map(one).collect::<Vec<_>>().join("\u{1e}")
 }
 
+/// Where the marks are, as the Lua's `mdump` writes them: `name:line:column` (0-based), `a` `b` `c` and
+/// the place before the last jump (`'`), separated by blanks.
+fn dump_marks(a: &sim_core::core::app::App) -> String {
+    use sim_core::core::buffer::PREV;
+    let at = |i: usize, n: char| a.buf.vmark[i].map(|(l, c)| format!("{n}:{l}:{c}"));
+    let all = [at(0, 'a'), at(1, 'b'), at(2, 'c'), at(PREV, '\'')];
+    all.into_iter().flatten().collect::<Vec<_>>().join(" ")
+}
+
 /// Whether a register case is one the two editors are not to agree on by a rule of ours: a command that
 /// takes nothing (VI-8 Decided: the registers stay as they were, where vim's empty yank empties its
 /// register and points the unnamed one to it), a buffer that has nothing left in it, or a `d{motion}`
@@ -564,6 +636,45 @@ fn degenerate(c: &Case) -> bool {
     std::panic::catch_unwind(run).unwrap_or(true)
 }
 
+/// Whether a mark case empties the buffer at some point: vim then drops every mark with the lines, and
+/// sim keeps the one empty line a buffer has (and its marks), a difference no one can type into.
+fn emptied(c: &Case) -> bool {
+    let run = || {
+        let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
+        let idx: usize =
+            c.text.split('\n').take(c.line).map(|l| l.chars().count() + 1).sum::<usize>() + c.col;
+        a.buf.cursor = idx;
+        c.parts.iter().any(|part| {
+            feed(&mut a, part);
+            text(&a).trim_matches('\n').is_empty()
+        })
+    };
+    std::panic::catch_unwind(run).unwrap_or(true)
+}
+
+/// Whether a mark case undoes after a change command that changed nothing (`dw` on an empty line): vim
+/// records an undo step for it and sim does not, so the `u` goes to a different change.
+fn blank_step(c: &Case) -> bool {
+    let run = || {
+        let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
+        let idx: usize =
+            c.text.split('\n').take(c.line).map(|l| l.chars().count() + 1).sum::<usize>() + c.col;
+        a.buf.cursor = idx;
+        let mut blank = false;
+        for part in &c.parts {
+            let before = text(&a);
+            feed(&mut a, part);
+            if blank && (part.starts_with('u') || part.starts_with("<C-r>")) {
+                return true;
+            }
+            let op = part.trim_start_matches(|ch: char| ch.is_ascii_digit());
+            blank |= op.starts_with(['d', 'c', 'x', 'X', 'D', 'C', 's', 'S']) && text(&a) == before;
+        }
+        false
+    };
+    std::panic::catch_unwind(run).unwrap_or(true)
+}
+
 fn run_si_inner(c: &Case) -> Result<Mine, String> {
     let r = std::panic::catch_unwind(|| {
         // The file ends with a newline: its text is the lines joined by newlines (as nvim's).
@@ -572,7 +683,8 @@ fn run_si_inner(c: &Case) -> Result<Mine, String> {
             c.text.split('\n').take(c.line).map(|l| l.chars().count() + 1).sum::<usize>() + c.col;
         a.buf.cursor = idx;
         feed(&mut a, &c.keys);
-        let (t, regs) = (text(&a), dump_regs(&mut a));
+        let mark = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark");
+        let (t, regs) = (text(&a), if mark { dump_marks(&a) } else { dump_regs(&mut a) });
         let b = &a.buf;
         let l = b.line_of(b.cursor);
         (t, l, b.cursor - b.start(l), regs)
@@ -634,6 +746,7 @@ fn vi_1_oracle_against_nvim() {
     let seed: u64 = std::env::var("SIM_ORACLE_SEED").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
     let multi = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "seq");
     let reg_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "reg");
+    let mark_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark");
     let mut r = Rng(0x9e37_79b9_7f4a_7c15 ^ seed.wrapping_mul(0x2545_f491_4f6c_dd1d));
     let cases: Vec<Case> = (0..n).map(|_| gen_case(&mut r, multi)).collect();
     let dir = temp_dir(&format!("oracle-{seed}-{multi}"));
@@ -655,6 +768,7 @@ fn vi_1_oracle_against_nvim() {
             .arg(&lua)
             .arg(&inp)
             .arg(&outp)
+            .arg(if mark_mode { "xnt" } else { "xn" })
             .output()
             .unwrap();
         let part = std::fs::read_to_string(&outp).unwrap_or_default();
@@ -680,7 +794,7 @@ fn vi_1_oracle_against_nvim() {
         }
         let (vt, vl, vc) =
             (unhex(f[0]), f[1].parse::<usize>().unwrap(), f[2].parse::<usize>().unwrap());
-        let vregs = unhex(f.get(5).copied().unwrap_or(""));
+        let vregs = unhex(f.get(if mark_mode { 6 } else { 5 }).copied().unwrap_or(""));
         let key = c.keys.trim_end_matches("<Esc>").to_string();
         if std::env::var_os("SIM_ORACLE_VISUAL").is_none() && c.keys.contains(['v', 'V']) {
             *known_counts.entry("visual (SIM_ORACLE_VISUAL=1 to include)").or_default() += 1;
@@ -693,6 +807,18 @@ fn vi_1_oracle_against_nvim() {
         if reg_mode && degenerate(c) {
             *known_counts
                 .entry("a command took nothing, or the buffer is empty (VI-8 Decided)")
+                .or_default() += 1;
+            continue;
+        }
+        if mark_mode && emptied(c) {
+            *known_counts
+                .entry("the buffer was emptied (no line is left for a mark)")
+                .or_default() += 1;
+            continue;
+        }
+        if mark_mode && blank_step(c) {
+            *known_counts
+                .entry("an undo after a change that changed nothing (vim records a step for it)")
                 .or_default() += 1;
             continue;
         }
@@ -712,15 +838,47 @@ fn vi_1_oracle_against_nvim() {
                 continue;
             }
         };
+        // (undo does not shift the columns of a place past the chars it brings back: that of the place
+        // before a jump is only compared by its line where a case undoes)
+        let undoes = c.parts.iter().any(|p| p.contains('u') || p.contains("<C-r>"));
+        let line_only = |d: &str| {
+            d.split(' ')
+                .map(|t| {
+                    if undoes && t.starts_with('\'') {
+                        t.rsplit_once(':').map_or(t, |x| x.0)
+                    } else {
+                        t
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let (mine_marks, vregs) = if mark_mode {
+            (line_only(&mine.3), line_only(&vregs))
+        } else {
+            (mine.3.clone(), vregs)
+        };
+        let jumped = c.parts.last().is_some_and(|p| p.len() == 2 && p.starts_with(['`', '\'']));
         let kind = if mine.0 != vt {
             text_div += 1;
             "TEXT"
-        } else if (mine.1, mine.2) != (vl, vc) && !reg_mode {
+        } else if (mine.1, mine.2) != (vl, vc)
+            && (!(reg_mode || mark_mode) || (mark_mode && jumped))
+        {
             cur_div += 1;
             "CURSOR"
-        } else if reg_mode && mine.3 != vregs {
+        } else if (reg_mode || mark_mode) && mine_marks != vregs {
             text_div += 1;
-            "REGS"
+            let named = |d: &str| {
+                d.split(' ').filter(|t| !t.starts_with('\'')).collect::<Vec<_>>().join(" ")
+            };
+            if !mark_mode {
+                "REGS"
+            } else if named(&mine_marks) != named(&vregs) {
+                "MARKS"
+            } else {
+                "PREV"
+            }
         } else {
             continue;
         };
@@ -728,12 +886,12 @@ fn vi_1_oracle_against_nvim() {
         let cat = key.clone();
         groups.entry(format!("{kind} {cat}")).or_default().push(format!(
             "text {:?} @({},{}) sw{} keys {key}\n      si   {:?} @({},{}){}\n      nvim {:?} @({},{}){}",
-            show(&c.text), c.line, c.col, c.sw, show(&mine.0), mine.1, mine.2, regs_of(reg_mode, &mine.3), show(&vt), vl, vc, regs_of(reg_mode, &vregs)
+            show(&c.text), c.line, c.col, c.sw, show(&mine.0), mine.1, mine.2, regs_of(reg_mode || mark_mode, &mine.3), show(&vt), vl, vc, regs_of(reg_mode || mark_mode, &vregs)
         ));
     }
     eprintln!(
         "{n} cases ({}): {text_div} text divergences, {cur_div} cursor-only, {panics} si panics, {skipped} skipped (nvim flushed its keys after a failing command)",
-        if multi { "seq" } else { "single" }
+        std::env::var("SIM_ORACLE_MODE").unwrap_or_else(|_| "single".into())
     );
     eprintln!("known/decided, not compared: {known_counts:?}");
     let show_n: usize =

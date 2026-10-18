@@ -1,6 +1,7 @@
-//! SAFE-3, SAFE-4, DISK-6
+//! SAFE-3, SAFE-4, DISK-6, VI-17
 //! The text (ropey) and undo. Every text change goes through `Buffer::replace`, which also keeps
 //! the marks of changes from outside where they belong.
+use super::mark::follow;
 use ropey::Rope;
 use std::mem::replace as swap;
 use std::ops::Range;
@@ -12,6 +13,15 @@ use std::sync::Arc;
 /// step, so a short list is kept by all of them.
 const BIG_MARKS: usize = 1024;
 const KEEP_MARKS: usize = 4;
+
+/// A place in the text: line and column, 0-based.
+pub type Place = (usize, usize);
+
+/// The marks of VI-17, in `Buffer::vmark`: `a` to `z`, then the place before the last jump (`'`), then
+/// the one it replaced while the jump's command runs (`checkpcmark`, mark.rs).
+pub const PREV: usize = 26;
+pub const SAVED: usize = 27;
+pub type Vmarks = [Option<Place>; 28];
 
 /// Hash of a file that does not exist.
 pub const ABSENT: u64 = 0;
@@ -34,7 +44,7 @@ pub type Format = (bool, bool, Option<bool>);
 pub struct Mark { pub line: usize, pub kind: char, pub words: Option<Arc<[Range<usize>]>> }
 
 #[rustfmt::skip]
-struct Snap { text: Rope, cursor: usize, version: u64, nl: Option<bool>, marks: Arc<Vec<Mark>> }
+struct Snap { text: Rope, cursor: usize, version: u64, nl: Option<bool>, marks: Arc<Vec<Mark>>, vmark: Vmarks }
 
 #[derive(Default)]
 pub struct Buffer {
@@ -49,6 +59,9 @@ pub struct Buffer {
     pub readonly: Option<String>,
     /// Changes taken in from the disk, one per line, in line order. Part of undo, like the text.
     pub marks: Arc<Vec<Mark>>,
+    /// The marks of VI-17 (`m` `'` `` ` ``): they move with the edits, and undo brings back the ones it
+    /// took away.
+    pub vmark: Vmarks,
     bom: bool,
     crlf: bool,
     /// Whether the file ends with a newline; `None` (empty or new file): write one iff there is text.
@@ -173,6 +186,7 @@ impl Buffer {
             return;
         }
         self.record();
+        self.adjust(&range, with);
         self.shift(&range, with);
         self.text.remove(range.clone());
         self.text.insert(range.start, with);
@@ -242,6 +256,7 @@ impl Buffer {
     /// Starts an undo unit: it is recorded when the next `replace` happens.
     pub fn checkpoint(&mut self) {
         self.pending = Some(Snap {
+            vmark: self.vmark,
             text: self.text.clone(),
             cursor: self.cursor,
             version: self.version,
@@ -255,7 +270,13 @@ impl Buffer {
         let (from, to) =
             if undo { (&mut self.undo, &mut self.redo) } else { (&mut self.redo, &mut self.undo) };
         let Some(s) = from.pop() else { return false };
+        let before = self.vmark;
+        follow(&self.text, &s.text, &mut self.vmark);
+        for (m, old) in self.vmark.iter_mut().zip(s.vmark).take(PREV) {
+            *m = old.or(*m);
+        }
         to.push(Snap {
+            vmark: before,
             text: swap(&mut self.text, s.text),
             cursor: swap(&mut self.cursor, s.cursor),
             version: swap(&mut self.version, s.version),

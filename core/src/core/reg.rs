@@ -104,24 +104,53 @@ impl Regs {
     }
 
     /// `:registers`: the unnamed register and every one that holds something, on one line of `width`
-    /// columns: each is cut to its share of what the names and the dots leave (at most 16 chars, at
-    /// least 4), so that the last one is on the screen when there are not too many.
+    /// columns (`one_line`).
     pub fn list(&self, width: usize) -> String {
         let held = self.map.iter().filter(|e| e.1.0.len_chars() > 0);
-        let n = held.clone().count() + 1;
-        let cut = (width.saturating_sub(7 * n) / n).clamp(4, 16);
-        let show = |k: char, t: &Rope| {
-            let shown = t.slice(..t.len_chars().min(cut)).to_string().replace('\n', "⏎");
-            format!("\"{k} {shown}{}", if t.len_chars() > cut { "…" } else { "" })
-        };
-        let all: Vec<String> = self
-            .get(None)
-            .map(|r| show('"', &r.0))
-            .into_iter()
-            .chain(held.map(|e| show(e.0, &e.1.0)))
+        let all =
+            self.get(None).map(|r| ('"', &r.0)).into_iter().chain(held.map(|e| (e.0, &e.1.0)));
+        let rows: Vec<(String, String)> = all
+            .map(|(k, t)| (format!("\"{k} "), t.slice(..t.len_chars().min(width)).to_string()))
             .collect();
-        if all.is_empty() { "no registers".into() } else { all.join(" · ") }
+        one_line(&rows, width, "no registers")
     }
+}
+
+/// Rows of a head and a text, on one line of `width` columns, ` · ` between them: a line break in a text
+/// shows as `⏎`, and each text is whole or, if it does not fit, cut with `…` to its share of what the
+/// heads and the dots leave (`shares`). `empty` is what there is to say of no rows.
+pub(super) fn one_line(rows: &[(String, String)], width: usize, empty: &str) -> String {
+    let texts: Vec<Vec<char>> =
+        rows.iter().map(|r| r.1.replace('\n', "⏎").chars().collect()).collect();
+    let (heads, dots) =
+        (rows.iter().map(|r| r.0.chars().count()).sum::<usize>(), rows.len().saturating_sub(1));
+    let needs: Vec<usize> = texts.iter().map(Vec::len).collect();
+    let cuts = shares(&needs, width.saturating_sub(heads + 3 * dots));
+    let shown: Vec<String> = (rows.iter().zip(&texts).zip(cuts))
+        .map(|((r, t), share)| {
+            let text: String = if t.len() <= share {
+                t.iter().collect()
+            } else {
+                t[..share - 1].iter().chain(&['…']).collect()
+            };
+            r.0.clone() + &text
+        })
+        .collect();
+    if shown.is_empty() { empty.into() } else { shown.join(" · ") }
+}
+
+/// How many columns each text (`needs` are their lengths) may have so that all of them fit `room`
+/// columns: one that needs less than an equal share takes what it needs, and the others divide what is
+/// left (at least 4 each, so a line with too many is cut by the screen, not made unreadable).
+fn shares(needs: &[usize], room: usize) -> Vec<usize> {
+    let (mut out, mut open, mut left) =
+        (vec![0; needs.len()], (0..needs.len()).collect::<Vec<_>>(), room);
+    while let Some(i) = open.iter().position(|&j| needs[j] <= left / open.len()) {
+        let j = open.swap_remove(i);
+        (out[j], left) = (needs[j], left - needs[j]);
+    }
+    open.iter().for_each(|&j| out[j] = (left / open.len()).max(4));
+    out
 }
 
 impl App {

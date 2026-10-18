@@ -93,6 +93,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 | `*` | buscar la palabra hacia adelante |
 | `yy` | copiar líneas |
 | `"a` | un registro: `"ayw` copia en `a`, `"ap` lo pega (`:registers` los lista) |
+| `ma` | poner una marca; `'a` va a su línea, `` `a `` a su posición; `:marks` las lista |
 | `]c` | siguiente cambio externo |
 | `[c` | cambio externo anterior |
 | `:s` | sustituir |
@@ -140,7 +141,7 @@ En qué siguen siendo mejores los demás, por ahora: Neovim y Helix incluyen un 
 
 ## Hoja de ruta (prevista, no publicada)
 
-Macros y marcas de Vim · integración con el portapapeles más allá de OSC 52 · un cliente de servidores de lenguaje en un sandbox · `:tutor` · un árbol de diff de git · una GUI con profundidad real (un prototipo) · paquetes para AUR y crates.io.
+Macros de Vim · integración con el portapapeles más allá de OSC 52 · un cliente de servidores de lenguaje en un sandbox · `:tutor` · un árbol de diff de git · una GUI con profundidad real (un prototipo) · paquetes para AUR y crates.io.
 
 ## Desarrollo
 

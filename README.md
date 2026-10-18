@@ -93,6 +93,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `*` | search word forward |
 | `yy` | yank lines |
 | `"a` | a register: `"ayw` yanks into `a`, `"ap` puts it (`:registers` lists them) |
+| `ma` | set a mark; `'a` goes to its line, `` `a `` to its place; `:marks` lists them |
 | `]c` | next change from outside |
 | `[c` | previous change from outside |
 | `:s` | substitute |
@@ -140,7 +141,7 @@ What the others still do better, for now: Neovim and Helix ship a language-serve
 
 ## Roadmap (planned, not shipped)
 
-Vim macros and marks · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
+Vim macros · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
 
 ## Working on it
 
