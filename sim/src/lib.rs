@@ -25,3 +25,4 @@ pub mod sim;
 pub mod syn;
 pub mod tabs;
 pub mod tree;
+pub mod tutor;

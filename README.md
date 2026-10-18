@@ -71,6 +71,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 
 - `Space` is the leader key. A pause on a prefix (`Space`, `g`, `z`, `Z`, `[`, `]`, or an operator such as `d`) opens a small which-key window that lists the keys that can come next; typing on works exactly as without it.
 - `:help` and `F1` open a searchable list of every key and command, with what each one does; `:help tab` finds `Tab`, `Shift-Tab` and `<Space>bp`.
+- `:tutor` opens about fifteen minutes of short lessons in a scratch copy (nothing is written), with exercises that mark themselves ✓ as you get them right; it speaks your language (`LC_ALL`, `LC_MESSAGES`, `LANG`), any of the ten of this README.
 - `<Space>bp` puts a letter on each tab, and the letter jumps to its file; `<Space>bc` does the same to close one (a file with changes stays open, as with `:q`). A hint names `Tab` and `Shift-Tab` the first time a second file is open, until you have used them three times.
 - While the matches of a search are lit, the status line says which one you are at and how many there are, `[3/12]`.
 - `sim --help` prints the usage and the environment sim reads (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` prints the version. Neither touches the terminal.

@@ -1,0 +1,199 @@
+tutor de sim: lecciones breves, unos 15 minutos
+===============================================
+Esta es una copia desechable. Nada de lo que hagas aquí se escribe en
+el disco, así que experimenta con libertad. Pulsa u para deshacer;
+escribe :q! y Enter para salir.
+
+Las líneas que empiezan por [ ] son ejercicios. Haz lo que piden: la
+casilla pasa de ✗ a ✓ en cuanto el texto es correcto (y vuelve atrás
+si deshaces).
+
+Desplázate con j y k, o con Ctrl-d y Ctrl-u para media página. Para
+saltar a una lección, busca su línea de título: /^## 3 y Enter (^ es
+el inicio de línea, así que solo coincide el título).
+
+  1 Moverse
+  2 Escribir texto
+  3 Borrar y cambiar
+  4 Deshacer
+  5 Copiar y pegar
+  6 Buscar
+  7 Guardar y salir
+  8 Lo que sim muestra y otros editores ocultan
+%editor
+  9 Buscar archivos y apariencia
+%end
+
+## 1 Moverse
+
+h mueve a la izquierda, j hacia abajo, k hacia arriba, l a la derecha.
+Las flechas también sirven.
+w va al inicio de la palabra siguiente, b
+vuelve al inicio de una palabra.
+0 va al inicio de la línea, $ a su final.
+gg va a la primera línea del archivo, G a la última.
+Un número repite un movimiento: 3j baja tres líneas.
+
+[ ] 1.1 Ve hasta la x (con w o l) y bórrala con x.
+a b c d x e f g
+@ a b c d  e f g
+
+[ ] 1.2 Baja 3 líneas (3j), pulsa $ y borra el último carácter (x).
+one
+two
+three!
+@ one
+@ two
+@ three
+
+## 2 Escribir texto
+
+i escribe antes del cursor, a después. I escribe al inicio de la
+línea, A al final. o abre una línea nueva debajo, O encima. Esc
+termina la escritura. Si no sabes en qué modo estás, pulsa Esc: la
+barra inferior de la pantalla indica el modo.
+
+[ ] 2.1 Escribe el 4 que falta con i y pulsa Esc.
+1 2 3 5 6
+@ 1 2 3 4 5 6
+
+[ ] 2.2 Añade " 3" al final de la línea con A y pulsa Esc.
+1 2
+@ 1 2 3
+
+[ ] 2.3 Abre una línea debajo del 1 con o, escribe 2 y pulsa Esc.
+1
+3
+@ 1
+@ 2
+@ 3
+
+## 3 Borrar y cambiar
+
+x borra el carácter bajo el cursor, dw una palabra, dd una línea. cw
+cambia una palabra: la borra y empieza a escribir. r reemplaza un
+carácter. d y c aceptan cualquier movimiento: d$ borra hasta el final
+de la línea, c2w cambia dos palabras.
+
+[ ] 3.1 Borra el segundo "two" con dw.
+one two two three
+@ one two three
+
+[ ] 3.2 Borra la línea de x con dd.
+keep
+xxxxx
+keep
+@ keep
+@ keep
+
+[ ] 3.3 Cambia el 9 por un 3 con cw (o r).
+1 2 9 4
+@ 1 2 3 4
+
+## 4 Deshacer
+
+u deshace el último cambio, Ctrl-r rehace lo que deshiciste. Ambos
+aceptan un número: 3u deshace tres cambios.
+
+[ ] 4.1 Borra dos palabras y recupera una (lecciones 3 y 4).
+1 2 3
+@ 2 3
+
+## 5 Copiar y pegar
+
+yy copia una línea, p la pega debajo del cursor, P encima. yw copia
+una palabra. Lo que borran dd y dw también
+se copia: así se mueve el texto.
+
+[ ] 5.1 Copia la línea con yy y pégala debajo con p.
+a b c
+@ a b c
+@ a b c
+
+[ ] 5.2 Mueve el 1 debajo del 3 (lecciones 1, 3 y 5).
+1
+2
+3
+@ 2
+@ 3
+@ 1
+
+## 6 Buscar
+
+/palabra y Enter buscan la siguiente «palabra». n repite la búsqueda,
+N va en sentido contrario, * busca la palabra bajo el cursor. :s/a/b/
+reemplaza en esta línea, :%s/a/b/g en todo el archivo. :noh quita el
+resaltado de las coincidencias.
+
+[ ] 6.1 Busca /zq7 (n: siguiente coincidencia) y borra la palabra.
+a b c d
+e f g h
+i j zq7 k
+l m n o
+@ a b c d
+@ e f g h
+@ i j k
+@ l m n o
+
+[ ] 6.2 Reemplaza cada a por b en esta línea: :s/a/b/g y Enter.
+a a a
+@ b b b
+
+## 7 Guardar y salir
+
+:w guarda, :q sale, :wq hace ambas cosas, :q! sale y descarta los
+cambios. sim nunca pierde texto sin que tú lo decidas: antes de que
+:w! o :e! descarte una versión (la tuya o la del disco), la copia en
+su propia carpeta. Si otro programa cambia tu archivo mientras editas,
+sim fusiona el cambio o muestra el conflicto; nunca sobrescribe en
+silencio.
+Este tutor es una copia desechable: :w dice que no y no escribe nada.
+
+[ ] 7.1 Ordena las líneas (lecciones 3 y 5).
+c 3
+a 1
+b 2
+@ a 1
+@ b 2
+@ c 3
+
+## 8 Lo que sim muestra y otros editores ocultan
+
+Un carácter que no se muestra como él mismo (un control, un espacio de
+ancho cero, una anulación de derecha a izquierda) se dibuja como una
+marca como <U+202E> o ^[ en un bloque de color, así que no puede
+esconderse en un archivo.
+
+[ ] 8.1 Borra el carácter oculto, mostrado como una marca.
+safe\u{200B}word
+@ safeword
+
+En un archivo Markdown, un enlace cuyo texto nombra una dirección y
+cuyo destino es otra se marca, así que un enlace no puede decir un
+sitio e ir a otro:
+[https://good.example](https://evil.example)
+%editor
+
+## 9 Buscar archivos y apariencia
+
+Ctrl-p abre el buscador de archivos: escribe parte de un nombre y
+Enter lo abre. Ctrl-f busca dentro de los archivos del proyecto. Esc
+cierra cualquiera de los dos. Ctrl-n muestra u oculta el árbol. zl
+cambia la apariencia (calm, flat, depth); zi activa o desactiva los
+iconos (necesitan una Nerd Font). <Space>bk dice dónde guardó sim la
+última versión. Pulsa Espacio y espera: un menú nombra cada tecla que
+puede seguir.
+
+[ ] 9.1 Abre el buscador de archivos con Ctrl-p y ciérralo con Esc.
+@! finder
+[ ] 9.2 Busca en los archivos con Ctrl-f y ciérralo con Esc.
+@! grep
+[ ] 9.3 Muestra u oculta el árbol con Ctrl-n.
+@! tree
+[ ] 9.4 Cambia la apariencia con zl.
+@! look
+[ ] 9.5 Pregunta por la última versión guardada con <Space>bk.
+@! kept
+%end
+
+Eso es todo. :q! cierra el tutor; :help lista todas las teclas.

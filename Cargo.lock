@@ -1990,6 +1990,7 @@ name = "sim-editor"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "flate2",
  "proptest",
  "regex-lite",
  "ropey",

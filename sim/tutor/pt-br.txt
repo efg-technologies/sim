@@ -1,0 +1,198 @@
+tutor do sim: lições curtas, cerca de 15 minutos
+================================================
+Esta é uma cópia descartável. Nada do que você fizer aqui é gravado no
+disco, então experimente à vontade. Pressione u para desfazer; digite
+:q! e Enter para sair.
+
+As linhas que começam com [ ] são exercícios. Faça o que pedem: a
+caixa muda de ✗ para ✓ assim que o texto estiver certo (e volta se
+você desfizer).
+
+Role com j e k, ou com Ctrl-d e Ctrl-u para meia página. Para ir a uma
+lição, pesquise a linha do título: /^## 3 e Enter (^ é o início da
+linha, então só o título corresponde).
+
+  1 Movimentação
+  2 Digitar texto
+  3 Apagar e alterar
+  4 Desfazer
+  5 Copiar e colar
+  6 Pesquisar
+  7 Salvar e sair
+  8 O que o sim mostra e outros editores escondem
+%editor
+  9 Encontrar arquivos e aparência
+%end
+
+## 1 Movimentação
+
+h move para a esquerda, j para baixo, k para cima, l para a direita.
+As setas também funcionam.
+w vai ao início da próxima palavra, b volta ao início de uma palavra.
+0 vai ao início da linha, $ ao fim dela.
+gg vai à primeira linha do arquivo, G à última.
+Um número repete o movimento: 3j desce três linhas.
+
+[ ] 1.1 Vá até o x (com w ou l) e apague-o com x.
+a b c d x e f g
+@ a b c d  e f g
+
+[ ] 1.2 Faça 3j, depois $ e x: apague o último caractere.
+one
+two
+three!
+@ one
+@ two
+@ three
+
+## 2 Digitar texto
+
+i digita antes do cursor, a depois dele. I digita no início da linha,
+A no fim. o abre uma nova linha abaixo, O acima. Esc encerra a
+digitação. Se não souber em que modo está, pressione Esc: a barra na
+parte de baixo da tela mostra o nome do modo.
+
+[ ] 2.1 Digite o 4 que falta com i e pressione Esc.
+1 2 3 5 6
+@ 1 2 3 4 5 6
+
+[ ] 2.2 Acrescente " 3" ao fim da linha com A e pressione Esc.
+1 2
+@ 1 2 3
+
+[ ] 2.3 Abra uma linha abaixo do 1 com o, digite 2 e pressione Esc.
+1
+3
+@ 1
+@ 2
+@ 3
+
+## 3 Apagar e alterar
+
+x apaga o caractere sob o cursor, dw uma palavra, dd uma linha. cw
+altera uma palavra: apaga e começa a digitar. r substitui um
+caractere. d e c aceitam qualquer movimento: d$ apaga até o fim da
+linha, c2w altera duas palavras.
+
+[ ] 3.1 Apague o segundo "two" com dw.
+one two two three
+@ one two three
+
+[ ] 3.2 Apague a linha de x com dd.
+keep
+xxxxx
+keep
+@ keep
+@ keep
+
+[ ] 3.3 Troque o 9 por um 3 com cw (ou r).
+1 2 9 4
+@ 1 2 3 4
+
+## 4 Desfazer
+
+u desfaz a última alteração, Ctrl-r refaz o que você desfez. Os dois
+aceitam um número: 3u desfaz três alterações.
+
+[ ] 4.1 Apague duas palavras e traga uma de volta (lições 3 e 4).
+1 2 3
+@ 2 3
+
+## 5 Copiar e colar
+
+yy copia uma linha, p cola abaixo do cursor, P acima. yw copia uma
+palavra. O que dd e dw apagam também é
+copiado: é assim que o texto se move.
+
+[ ] 5.1 Copie a linha com yy e cole abaixo com p.
+a b c
+@ a b c
+@ a b c
+
+[ ] 5.2 Mova o 1 para baixo do 3 (lições 1, 3 e 5).
+1
+2
+3
+@ 2
+@ 3
+@ 1
+
+## 6 Pesquisar
+
+/palavra e Enter procuram a próxima "palavra". n repete a pesquisa, N
+vai no sentido contrário, * procura a palavra sob o cursor. :s/a/b/
+substitui nesta linha, :%s/a/b/g no arquivo inteiro. :noh apaga o
+destaque das ocorrências.
+
+[ ] 6.1 Pesquise /zq7 (n: próxima ocorrência) e apague a palavra.
+a b c d
+e f g h
+i j zq7 k
+l m n o
+@ a b c d
+@ e f g h
+@ i j k
+@ l m n o
+
+[ ] 6.2 Troque todo a por b nesta linha: :s/a/b/g e Enter.
+a a a
+@ b b b
+
+## 7 Salvar e sair
+
+:w salva, :q sai, :wq faz as duas coisas, :q! sai e descarta as
+alterações. O sim nunca perde texto sem você mandar: antes de :w! ou
+:e! descartar uma versão (a sua ou a do disco), ele a copia para a
+própria pasta. Se outro programa alterar seu arquivo enquanto você
+edita, o sim mescla a alteração ou mostra o conflito; nunca
+sobrescreve em silêncio.
+Este tutor é uma cópia descartável: :w diz não e não grava nada.
+
+[ ] 7.1 Coloque as linhas em ordem (lições 3 e 5).
+c 3
+a 1
+b 2
+@ a 1
+@ b 2
+@ c 3
+
+## 8 O que o sim mostra e outros editores escondem
+
+Um caractere que não é mostrado como ele mesmo (um controle, um espaço
+de largura zero, uma substituição da direita para a esquerda) é
+desenhado como uma marca como <U+202E> ou ^[ em um bloco colorido,
+então não pode se esconder em um arquivo.
+
+[ ] 8.1 Apague o caractere oculto, mostrado como uma marca.
+safe\u{200B}word
+@ safeword
+
+Em um arquivo Markdown, um link cujo texto cita um endereço e cujo
+destino é outro é marcado, então um link não pode dizer um lugar e ir
+para outro:
+[https://good.example](https://evil.example)
+%editor
+
+## 9 Encontrar arquivos e aparência
+
+Ctrl-p abre o localizador de arquivos: digite parte de um nome e Enter
+abre. Ctrl-f pesquisa dentro dos arquivos do projeto. Esc fecha
+qualquer um dos dois. Ctrl-n mostra ou oculta a árvore. zl troca a
+aparência (calm, flat, depth); zi liga ou desliga os ícones (precisam
+de uma Nerd Font). <Space>bk diz onde o sim guardou a última versão.
+Pressione Espaço e espere: um menu mostra
+cada tecla que pode vir depois.
+
+[ ] 9.1 Abra o localizador de arquivos com Ctrl-p e feche com Esc.
+@! finder
+[ ] 9.2 Pesquise nos arquivos com Ctrl-f e feche com Esc.
+@! grep
+[ ] 9.3 Mostre ou oculte a árvore com Ctrl-n.
+@! tree
+[ ] 9.4 Troque a aparência com zl.
+@! look
+[ ] 9.5 Pergunte pela última versão guardada com <Space>bk.
+@! kept
+%end
+
+É só isso. :q! sai do tutor; :help lista todas as teclas.

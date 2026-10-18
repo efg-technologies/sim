@@ -4,6 +4,7 @@
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
 //! are in `panel.rs`, the search of file contents in `live.rs`.
 mod guide;
+mod lesson;
 mod live;
 mod panel;
 mod ptr;
@@ -416,6 +417,9 @@ pub struct Sim {
     /// KEY-6: how many times Tab and Shift-Tab were used (at most 3), and whether the hint was told in this run.
     pub tab_uses: u8,
     hinted: bool,
+    /// TUTOR-3: the language of the locale, for `:tutor`, and TUTOR-1: the lesson that is open.
+    lang: String,
+    lesson: Option<lesson::Lesson>,
 }
 
 /// What `sim` starts with besides what it was asked to open: the shell's side of the world.
@@ -445,6 +449,8 @@ pub struct Env {
     /// UI-1: whether flat and depth draw the interface (the binary does; the tests of the looks
     /// before it start without, and say so when they test it).
     pub chrome: bool,
+    /// TUTOR-3: the language of the locale (`tutor::lang`); none is English.
+    pub lang: String,
 }
 
 /// What `sim` was asked to open (TREE-1).
@@ -527,6 +533,11 @@ fn after_range(s: &str) -> &str {
     rest.strip_prefix(',').and_then(after_address).unwrap_or(rest)
 }
 
+/// TUTOR-1: whether a command line is `:tutor`.
+fn tutor_command(line: &str) -> bool {
+    line.strip_prefix(':').is_some_and(|s| matches!(s.trim(), "tutor" | "Tutor"))
+}
+
 /// KEY-4: `:help`, `:h` and `:help words`: the words typed after it (none for the first two).
 fn help_words(line: &str) -> Option<String> {
     let s = line.strip_prefix(':')?.trim();
@@ -564,7 +575,7 @@ impl Sim {
         // Plain mode is calm, with no hook, and (PLAIN-1) asks for no git and no highlighting colors.
         (sim.skin, sim.hook) = if plain { (Skin::Calm, None) } else { (env.skin, env.hook) };
         (sim.chrome, sim.home, sim.icons) = (env.chrome, env.home, env.icons);
-        (sim.tab_uses, sim.md) = (env.tab_uses, env.md && !plain);
+        (sim.tab_uses, sim.md, sim.lang) = (env.tab_uses, env.md && !plain, env.lang);
         if sim.syn.mono {
             // COLOR-2: nothing asks the terminal, so the interface is laid out on a dark page, whose
             // colors the Painter does not write.
@@ -940,7 +951,7 @@ impl Sim {
     /// UI-4: the tabs: one for each open file, in order.
     pub fn tabs(&self) -> Vec<Tab> {
         let paths: Vec<&str> =
-            self.bufs.iter().map(|b| b.app.path.as_deref().unwrap_or("[no name]")).collect();
+            self.bufs.iter().map(|b| b.app.path.as_deref().unwrap_or(self.unnamed(b.id))).collect();
         let names = tabs::names(&paths);
         let picking = self.tabpick.map(|_| self.tab_letters());
         let tab = |(i, (b, name)): (usize, (&Buf, String))| Tab {
@@ -1064,16 +1075,27 @@ impl Sim {
 
     /// Takes the frames and the quits out of an App's effects; the shell gets the rest.
     fn run(&mut self, id: Id, fx: Vec<Effect>, out: &mut Vec<SimEffect>) {
-        let (mut quit, mut frame) = (None, None);
+        let (mut quit, mut frame, mut refused) = (None, None, false);
+        let scratch = self.scratch(id);
         for e in fx {
             match e {
                 Effect::Render(f) => frame = Some(f),
                 Effect::Quit(code) => quit = Some(code),
+                // TUTOR-1: the tutor's buffer is a scratch copy: it is not written, not snapshot, not remembered
+                Effect::Write { .. } if scratch => refused = true,
+                Effect::Snapshot { .. }
+                | Effect::Unsnapshot
+                | Effect::Remember { .. }
+                | Effect::Keep { .. }
+                    if scratch => {}
                 e => out.push(SimEffect::App(id, e)),
             }
         }
         if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
             b.frame = frame.or(b.frame.take());
+        }
+        if refused {
+            self.refuse(id, out);
         }
         match quit {
             Some(0) => self.close(id, out),
@@ -1091,6 +1113,9 @@ impl Sim {
     fn close(&mut self, id: Id, out: &mut Vec<SimEffect>) {
         let Some(i) = self.bufs.iter().position(|b| b.id == id) else { return };
         self.bufs.remove(i);
+        if self.lesson_id() == Some(id) {
+            self.lesson = None;
+        }
         out.push(SimEffect::Close(id));
         self.cur = (self.cur - usize::from(i < self.cur)).min(self.bufs.len().saturating_sub(1));
         self.refocus();
@@ -1105,7 +1130,11 @@ impl Sim {
     /// the seconds of a running filter (FILT-1).
     fn snapshots(&mut self, except: Option<Id>, ev: impl Fn() -> Event) -> (Vec<SimEffect>, bool) {
         let (mut out, mut drawn) = (vec![], false);
+        let scratch = self.lesson_id();
         for b in self.bufs.iter_mut().filter(|b| Some(b.id) != except) {
+            if scratch == Some(b.id) && b.app.path.is_none() {
+                continue; // TUTOR-1: the tutor's buffer is not kept
+            }
             for e in b.app.update(ev()) {
                 match e {
                     Effect::Render(f) => (b.frame, drawn) = (Some(f), true),
@@ -1152,6 +1181,10 @@ impl Sim {
             }
             return;
         }
+        if tutor_command(&line) {
+            self.to(id, Event::Key(Key::Esc), out); // the command line is ours: close it
+            return self.open_tutor(out);
+        }
         if let Some(words) = help_words(&line) {
             self.to(id, Event::Key(Key::Esc), out); // the command line is ours: close it
             return self.help(words, out);
@@ -1191,8 +1224,9 @@ impl Sim {
     /// The names of the files `pick` says yes to, in order, with their ids.
     fn named(&self, pick: impl Fn(&Buf) -> bool) -> (Vec<Id>, String) {
         let files = self.bufs.iter().filter(|b| pick(b));
-        let (ids, names): (_, Vec<_>) =
-            files.map(|b| (b.id, b.app.path.clone().unwrap_or_default())).unzip();
+        let (ids, names): (_, Vec<_>) = files
+            .map(|b| (b.id, b.app.path.clone().unwrap_or_else(|| self.unnamed(b.id).into())))
+            .unzip();
         (ids, names.join(", "))
     }
 
@@ -1464,6 +1498,7 @@ impl Sim {
                 cursor = if cmd { (wide.cursor.0, h - 1) } else { cursor };
             }
         }
+        self.grade(); // TUTOR-2
         if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
             let mode = if self.changes.is_some() { "CHANGES" } else { "TREE" };
             status = layout::stated(&tree, &format!("{slash}  {mode}"), room);

@@ -71,6 +71,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 
 - `Space` 是 leader 键。在前缀键（`Space`、`g`、`z`、`Z`、`[`、`]`，或 `d` 这样的操作符）上稍等片刻，会打开一个小的 which-key 窗口，列出接下来可以按的键；继续输入的效果与没有它时完全一样。
 - `:help` 和 `F1` 会打开一个可搜索的列表，列出每个按键和命令，并说明各自的作用；`:help tab` 能找到 `Tab`、`Shift-Tab` 和 `<Space>bp`。
+- `:tutor` 会在一份用完即弃的副本里打开约 15 分钟的简短课程（不会写入任何内容），练习做对后会自动标上 ✓；语言由 `LC_ALL`、`LC_MESSAGES`、`LANG` 决定，与本 README 相同的十种语言。
 - `<Space>bp` 会给每个标签页标上一个字母，按下该字母即可跳到对应的文件；`<Space>bc` 用同样的方式关闭标签页（有改动的文件保持打开，与 `:q` 一样）。第一次打开第二个文件时，会有提示告诉你 `Tab` 和 `Shift-Tab`，直到你用过它们三次为止。
 - 搜索的匹配项高亮显示时，状态栏会显示你位于第几个匹配项，以及一共有多少个：`[3/12]`。
 - `sim --help` 会打印用法和 sim 读取的环境变量（`NO_COLOR`、`SIM_ON_NORMAL`、`XDG_STATE_HOME`）；`sim --version` 会打印版本。两者都不会触碰终端。

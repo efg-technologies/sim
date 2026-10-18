@@ -71,6 +71,7 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 
 - `Space` es la tecla líder. Una pausa sobre un prefijo (`Space`, `g`, `z`, `Z`, `[`, `]` o un operador como `d`) abre una pequeña ventana which-key que lista las teclas que pueden venir a continuación; seguir escribiendo funciona exactamente igual que sin ella.
 - `:help` y `F1` abren una lista de todas las teclas y comandos en la que se puede buscar, con lo que hace cada una; `:help tab` encuentra `Tab`, `Shift-Tab` y `<Space>bp`.
+- `:tutor` abre unos quince minutos de lecciones breves en una copia desechable (no se escribe nada), con ejercicios que se marcan ✓ solos cuando los resuelves bien; habla tu idioma (`LC_ALL`, `LC_MESSAGES`, `LANG`), cualquiera de los diez de este README.
 - `<Space>bp` pone una letra en cada pestaña, y la letra salta a su archivo; `<Space>bc` hace lo mismo para cerrar una (un archivo con cambios sigue abierto, igual que con `:q`). Una pista nombra `Tab` y `Shift-Tab` la primera vez que hay un segundo archivo abierto, hasta que se han usado tres veces.
 - Mientras las coincidencias de una búsqueda están resaltadas, la línea de estado indica en cuál se está y cuántas hay, `[3/12]`.
 - `sim --help` imprime el uso y el entorno que lee sim (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` imprime la versión. Ninguno de los dos toca la terminal.

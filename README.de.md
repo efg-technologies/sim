@@ -71,6 +71,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 
 - `Space` ist die Leader-Taste. Eine Pause bei einem Präfix (`Space`, `g`, `z`, `Z`, `[`, `]` oder einem Operator wie `d`) öffnet ein kleines which-key-Fenster, das die Tasten auflistet, die als Nächstes kommen können; Weitertippen funktioniert genau wie ohne das Fenster.
 - `:help` und `F1` öffnen eine durchsuchbare Liste aller Tasten und Befehle, mit dem, was jede tut; `:help tab` findet `Tab`, `Shift-Tab` und `<Space>bp`.
+- `:tutor` öffnet etwa fünfzehn Minuten kurze Lektionen in einer Wegwerfkopie (es wird nichts geschrieben), mit Übungen, die sich selbst mit ✓ abhaken, wenn sie stimmen; es spricht deine Sprache (`LC_ALL`, `LC_MESSAGES`, `LANG`), eine der zehn dieses README.
 - `<Space>bp` setzt einen Buchstaben auf jeden Tab, und der Buchstabe springt zu dessen Datei; `<Space>bc` tut dasselbe zum Schließen eines Tabs (eine Datei mit Änderungen bleibt offen, wie bei `:q`). Ein Hinweis nennt `Tab` und `Shift-Tab`, sobald zum ersten Mal eine zweite Datei offen ist, bis Sie sie dreimal benutzt haben.
 - Solange die Treffer einer Suche hervorgehoben sind, sagt die Statuszeile, bei welchem davon Sie sind und wie viele es gibt, `[3/12]`.
 - `sim --help` gibt die Verwendung und die von sim gelesene Umgebung aus (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` gibt die Version aus. Keines von beiden fasst das Terminal an.

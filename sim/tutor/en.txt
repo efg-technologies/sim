@@ -1,0 +1,190 @@
+sim tutor: short lessons, about 15 minutes
+==========================================
+This is a scratch copy. Nothing you do here is written to a disk, so
+experiment freely. Press u to undo; type :q! and Enter to leave.
+
+Lines that start with [ ] are exercises. Do what they ask: the box
+turns from ✗ to ✓ as soon as the text is right (and back if you undo).
+
+Scroll with j and k, or Ctrl-d and Ctrl-u for half a page. To jump to
+a lesson, search for its title line: /^## 3 and Enter (^ is the start
+of a line, so only the title matches).
+
+  1 Moving around
+  2 Typing text
+  3 Deleting and changing
+  4 Undo
+  5 Copy and paste
+  6 Searching
+  7 Saving and quitting
+  8 What sim shows that other editors hide
+%editor
+  9 Finding files and looks
+%end
+
+## 1 Moving around
+
+h moves left, j down, k up, l right. The arrow keys work too.
+w goes to the start of the next word, b back to the start of a word.
+0 goes to the start of the line, $ to its end.
+gg goes to the first line of the file, G to the last.
+A number repeats a move: 3j goes down three lines.
+
+[ ] 1.1 Move to the x (w or l) and press x to delete it.
+a b c d x e f g
+@ a b c d  e f g
+
+[ ] 1.2 Go down 3 lines (3j), press $, delete the last character (x).
+one
+two
+three!
+@ one
+@ two
+@ three
+
+## 2 Typing text
+
+i starts typing before the cursor, a after it. I types at the start
+of the line, A at its end. o opens a new line below, O above.
+Esc ends typing. When unsure what mode you are in, press Esc: the
+bar at the bottom of the screen names the mode.
+
+[ ] 2.1 Type the missing 4 with i, then press Esc.
+1 2 3 5 6
+@ 1 2 3 4 5 6
+
+[ ] 2.2 Add " 3" at the end of the line with A, then Esc.
+1 2
+@ 1 2 3
+
+[ ] 2.3 Open a line below the 1 with o, type 2, then Esc.
+1
+3
+@ 1
+@ 2
+@ 3
+
+## 3 Deleting and changing
+
+x deletes the character under the cursor, dw a word, dd a line.
+cw changes a word: it deletes it and starts typing. r replaces one
+character. d and c take any move: d$ deletes to the end of the line,
+c2w changes two words.
+
+[ ] 3.1 Delete the second "two" with dw.
+one two two three
+@ one two three
+
+[ ] 3.2 Delete the line of x's with dd.
+keep
+xxxxx
+keep
+@ keep
+@ keep
+
+[ ] 3.3 Change the 9 to a 3 with cw (or r).
+1 2 9 4
+@ 1 2 3 4
+
+## 4 Undo
+
+u undoes the last change, Ctrl-r redoes what you undid. Both take a
+count: 3u undoes three changes.
+
+[ ] 4.1 Delete two words, then bring one back (lessons 3 and 4).
+1 2 3
+@ 2 3
+
+## 5 Copy and paste
+
+yy copies a line, p pastes it below the cursor, P above it. yw copies
+a word. What dd and dw delete is copied too: that is how text moves.
+
+[ ] 5.1 Copy the line with yy and paste it below with p.
+a b c
+@ a b c
+@ a b c
+
+[ ] 5.2 Move the 1 below the 3 (lessons 1, 3 and 5).
+1
+2
+3
+@ 2
+@ 3
+@ 1
+
+## 6 Searching
+
+/word and Enter find the next "word". n repeats the search, N goes
+the other way, * searches for the word under the cursor. :s/a/b/
+replaces on this line, :%s/a/b/g in the whole file. :noh clears the
+lit matches.
+
+[ ] 6.1 Search /zq7 (n: next match), then delete the word found.
+a b c d
+e f g h
+i j zq7 k
+l m n o
+@ a b c d
+@ e f g h
+@ i j k
+@ l m n o
+
+[ ] 6.2 Replace every a with b on this line: :s/a/b/g and Enter.
+a a a
+@ b b b
+
+## 7 Saving and quitting
+
+:w saves, :q quits, :wq does both, :q! quits and throws changes away.
+sim never loses text without your say: before :w! or :e! throws a
+version away (yours or the disk's), it copies that version to its own
+folder. If another program changes your file while you edit, sim
+merges the change or shows the conflict; it never overwrites silently.
+This tutor is a scratch copy: :w says no and writes nothing.
+
+[ ] 7.1 Put the lines in order (lessons 3 and 5).
+c 3
+a 1
+b 2
+@ a 1
+@ b 2
+@ c 3
+
+## 8 What sim shows that other editors hide
+
+A character that is not shown as itself (a control, a zero-width
+space, a right-to-left override) is drawn as a token such as <U+202E>
+or ^[ in a colored block, so it cannot hide in a file.
+
+[ ] 8.1 Delete the hidden character shown as a token.
+safe\u{200B}word
+@ safeword
+
+In a Markdown file, a link whose text names one address while its
+target is another is marked, so a link cannot say one place and go to
+another: [https://good.example](https://evil.example)
+%editor
+
+## 9 Finding files and looks
+
+Ctrl-p opens the file finder: type part of a name, Enter opens it.
+Ctrl-f searches inside the files of the project. Esc closes either.
+Ctrl-n shows or hides the tree. zl switches the look (calm, flat,
+depth); zi turns the icons on or off (they need a Nerd Font).
+<Space>bk tells where sim put the last version it kept. Press Space
+and wait: a menu names every key that can follow.
+
+[ ] 9.1 Open the file finder with Ctrl-p, then close it with Esc.
+@! finder
+[ ] 9.2 Search the files with Ctrl-f, then close it with Esc.
+@! grep
+[ ] 9.3 Show or hide the tree with Ctrl-n.
+@! tree
+[ ] 9.4 Switch the look with zl.
+@! look
+[ ] 9.5 Ask for the last kept version with <Space>bk.
+@! kept
+%end
+
+That is all. :q! leaves the tutor; :help lists every key.

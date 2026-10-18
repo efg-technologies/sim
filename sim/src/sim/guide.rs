@@ -109,6 +109,7 @@ impl Sim {
         let room = usize::from(self.size.0).saturating_sub(8); // (BUF-2's position, `  12/34`, follows a message)
         let said = self.kept.as_deref().map(|p| layout::tail(p, room));
         self.msg = Some(said.unwrap_or_else(|| "no other version was kept".into()));
+        self.saw_kept(); // TUTOR-2
     }
 
     /// MD-5, MD-6: `<Space>um` turns the read view of Markdown on and off for every file, and the

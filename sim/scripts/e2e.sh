@@ -42,6 +42,7 @@
 #   $NOCOLOR           set it before `start` to run sim with NO_COLOR=$NOCOLOR (COLOR-2); otherwise it is unset
 #   $TP                set it before `start` to run sim with TERM_PROGRAM=$TP (ghostty brings Nerd Font symbols,
 #                      ICON-1); otherwise the terminal is not known to bring any, whatever the user's is
+#   $LOCALE            set it before `start` to run sim with LANG=$LOCALE; otherwise en_US.UTF-8 (TUTOR-3)
 #   $HINT_TAB          set it before `start` to see the hint of KEY-6 (otherwise Tab counts as learned)
 #   $HINTED            set it before `start` to see the hint of ICON-1; otherwise the hint counts as given
 #   $ICONS_ON          set it in a case that draws icons: no other screen may have a private-use code point
@@ -99,7 +100,7 @@ start() {
   # sim's environment is the case's own (`env -i`): nothing of the terminal this runs in (COLORTERM, NO_COLOR,
   # TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_*, a locale) and no git configuration. Only PATH is the caller's
   # (or $SIM_PATH); TERM and TMUX are tmux's own (the pane's: this tmux sets them, whatever the user's terminal is).
-  cmd="cd $(shq "$W") && env -i PATH=$(shq "${SIM_PATH:-$PATH}") HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") TERM=\"\$TERM\" TMUX=\"\$TMUX\" TMUX_PANE=\"\$TMUX_PANE\" LANG=en_US.UTF-8 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null ${CT:+COLORTERM=$CT} ${NOCOLOR:+NO_COLOR=$NOCOLOR} ${TP:+TERM_PROGRAM=$TP} $(shq "$SIM_BIN")"
+  cmd="cd $(shq "$W") && env -i PATH=$(shq "${SIM_PATH:-$PATH}") HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") TERM=\"\$TERM\" TMUX=\"\$TMUX\" TMUX_PANE=\"\$TMUX_PANE\" LANG=${LOCALE:-en_US.UTF-8} GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null ${CT:+COLORTERM=$CT} ${NOCOLOR:+NO_COLOR=$NOCOLOR} ${TP:+TERM_PROGRAM=$TP} $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
   # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after sim exits.
@@ -2860,6 +2861,54 @@ md_10_a_definition_in_a_quote_raw_html_and_a_line_of_a_megabyte() {
   keys j
   keys j
   wait_for "NORMAL" # (sim answers with the line of a megabyte under the cursor)
+}
+
+# TUTOR-1, TUTOR-2: `:tutor` opens the lessons in a scratch buffer, an exercise turns from a cross to a check when the
+# text is right, and nothing typed there writes a file.
+tutor_1_tutor_opens_the_lessons_marks_an_exercise_done_and_writes_nothing() {
+  project
+  start src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed ":tutor"
+  keys Enter
+  wait_for "sim tutor: short lessons"
+  typed '/1\.1 Move'
+  keys Enter
+  wait_for "[✗] 1.1 Move"
+  typed "j0wwwwx"
+  wait_for "[✓] 1.1 Move"
+  wait_for "1.1 done"
+  typed ":w out.txt"
+  keys Enter
+  wait_for "scratch copy"
+  typed ":w! src/lib.rs"
+  keys Enter
+  wait_for "scratch copy"
+  [ ! -e "$W/out.txt" ]
+  [ "$(cat "$W/src/lib.rs")" = "fn lib() {}" ]
+  typed u
+  wait_for "[✗] 1.1 Move"
+  typed ":q!"
+  keys Enter
+  wait_for "src/lib.rs  1:1  NORMAL"
+}
+
+# TUTOR-3, TUTOR-1: the language is the locale's, and `sim --plain` has the tutor with eight lessons.
+tutor_3_the_locale_picks_the_language_and_plain_mode_has_eight_lessons() {
+  project
+  LOCALE=ja_JP.UTF-8
+  start --plain src/lib.rs
+  wait_for "src/lib.rs  1:1  NORMAL"
+  typed ":tutor"
+  keys Enter
+  wait_for "sim チュートリアル"
+  typed '/^## 8'
+  keys Enter
+  wait_for "## 8 他のエディタが隠すもの"
+  ! screen | grep -F -q "## 9"
+  typed ":q!"
+  keys Enter
+  wait_for "src/lib.rs  1:1  NORMAL"
 }
 
 # A case runs in a process of its own, traced (scripts/e2e-lib.sh says how and why).

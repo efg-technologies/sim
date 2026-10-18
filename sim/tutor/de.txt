@@ -1,0 +1,201 @@
+sim-Tutor: kurze Lektionen, etwa 15 Minuten
+===========================================
+Dies ist eine Wegwerfkopie. Nichts, was du hier tust, wird auf die
+Platte geschrieben, also probiere ruhig alles aus. Mit u machst du
+etwas rückgängig; tippe :q! und Enter zum Beenden.
+
+Zeilen, die mit [ ] beginnen, sind Übungen. Tu, was sie verlangen: Das
+Kästchen wechselt von ✗ zu ✓, sobald der Text stimmt (und zurück, wenn
+du rückgängig machst).
+
+Blättere mit j und k oder mit Ctrl-d und Ctrl-u eine halbe Seite. Um
+zu einer Lektion zu springen, suche ihre Titelzeile: /^## 3 und Enter
+(^ ist der Zeilenanfang, daher passt nur der Titel).
+
+  1 Bewegen
+  2 Text eingeben
+  3 Löschen und ändern
+  4 Rückgängig
+  5 Kopieren und einfügen
+  6 Suchen
+  7 Speichern und beenden
+  8 Was sim zeigt und andere Editoren verbergen
+%editor
+  9 Dateien finden und Aussehen
+%end
+
+## 1 Bewegen
+
+h geht nach links, j nach unten, k nach oben, l nach rechts. Die
+Pfeiltasten funktionieren auch.
+w springt zum Anfang des nächsten Wortes, b
+zurück zum Anfang eines Wortes.
+0 springt zum Zeilenanfang, $ zum Zeilenende.
+gg springt zur ersten Zeile der Datei, G zur letzten.
+Eine Zahl wiederholt eine Bewegung: 3j geht drei Zeilen nach unten.
+
+[ ] 1.1 Gehe zum x (mit w oder l) und lösche es mit x.
+a b c d x e f g
+@ a b c d  e f g
+
+[ ] 1.2 Drücke 3j, dann $ und x: Lösche das letzte Zeichen.
+one
+two
+three!
+@ one
+@ two
+@ three
+
+## 2 Text eingeben
+
+i tippt vor dem Cursor, a danach. I tippt am Zeilenanfang, A am
+Zeilenende. o öffnet darunter eine neue Zeile, O darüber. Esc beendet
+die Eingabe. Wenn du nicht weißt, in welchem Modus du bist, drücke
+Esc: Die Leiste unten am Bildschirm nennt den Modus.
+
+[ ] 2.1 Tippe die fehlende 4 mit i und drücke Esc.
+1 2 3 5 6
+@ 1 2 3 4 5 6
+
+[ ] 2.2 Hänge mit A " 3" ans Zeilenende an und drücke Esc.
+1 2
+@ 1 2 3
+
+[ ] 2.3 Öffne mit o eine Zeile unter der 1, tippe 2 und drücke Esc.
+1
+3
+@ 1
+@ 2
+@ 3
+
+## 3 Löschen und ändern
+
+x löscht das Zeichen unter dem Cursor, dw ein Wort, dd eine Zeile. cw
+ändert ein Wort: Es wird gelöscht und die Eingabe beginnt. r ersetzt
+ein Zeichen. d und c nehmen jede Bewegung: d$ löscht bis zum
+Zeilenende, c2w ändert zwei Wörter.
+
+[ ] 3.1 Lösche das zweite "two" mit dw.
+one two two three
+@ one two three
+
+[ ] 3.2 Lösche die Zeile mit den x mit dd.
+keep
+xxxxx
+keep
+@ keep
+@ keep
+
+[ ] 3.3 Ändere die 9 mit cw (oder r) in eine 3.
+1 2 9 4
+@ 1 2 3 4
+
+## 4 Rückgängig
+
+u macht die letzte Änderung rückgängig, Ctrl-r stellt wieder her, was
+du rückgängig gemacht hast. Beide nehmen eine Zahl: 3u macht drei
+Änderungen rückgängig.
+
+[ ] 4.1 Lösche zwei Wörter und hole eines zurück (Lektionen 3 und 4).
+1 2 3
+@ 2 3
+
+## 5 Kopieren und einfügen
+
+yy kopiert eine Zeile, p fügt sie unter dem Cursor ein, P darüber. yw
+kopiert ein Wort. Was dd und dw löschen, wird auch kopiert: So wird
+Text verschoben.
+
+[ ] 5.1 Kopiere die Zeile mit yy und füge sie mit p darunter ein.
+a b c
+@ a b c
+@ a b c
+
+[ ] 5.2 Verschiebe die 1 unter die 3 (Lektionen 1, 3 und 5).
+1
+2
+3
+@ 2
+@ 3
+@ 1
+
+## 6 Suchen
+
+/Wort und Enter finden das nächste „Wort“. n wiederholt die Suche, N
+sucht in die andere Richtung, * sucht das Wort unter dem Cursor.
+:s/a/b/ ersetzt in dieser Zeile, :%s/a/b/g in der ganzen Datei. :noh
+entfernt die Markierung der Treffer.
+
+[ ] 6.1 Suche /zq7 (n: nächster Treffer) und lösche das Wort.
+a b c d
+e f g h
+i j zq7 k
+l m n o
+@ a b c d
+@ e f g h
+@ i j k
+@ l m n o
+
+[ ] 6.2 Ersetze in dieser Zeile jedes a durch b: :s/a/b/g und Enter.
+a a a
+@ b b b
+
+## 7 Speichern und beenden
+
+:w speichert, :q beendet, :wq tut beides, :q! beendet und verwirft die
+Änderungen. sim verliert nie Text ohne dein Zutun: Bevor :w! oder :e!
+eine Version verwirft (deine oder die auf der Platte), kopiert es sie
+in einen eigenen Ordner. Ändert ein anderes Programm deine Datei,
+während du bearbeitest, führt sim die Änderung zusammen oder zeigt den
+Konflikt; es überschreibt nie stillschweigend.
+Dieser Tutor ist eine Wegwerfkopie: :w sagt nein und schreibt nichts.
+
+[ ] 7.1 Bringe die Zeilen in Reihenfolge (Lektionen 3 und 5).
+c 3
+a 1
+b 2
+@ a 1
+@ b 2
+@ c 3
+
+## 8 Was sim zeigt und andere Editoren verbergen
+
+Ein Zeichen, das nicht als es selbst angezeigt wird (ein
+Steuerzeichen, ein Leerzeichen der Breite null, eine
+Rechts-nach-links-Überschreibung), wird als Marke wie <U+202E> oder ^[
+in einem farbigen Block gezeichnet, damit es sich nicht in einer Datei
+verstecken kann.
+
+[ ] 8.1 Lösche das versteckte Zeichen, das als Marke angezeigt wird.
+safe\u{200B}word
+@ safeword
+
+In einer Markdown-Datei wird ein Link markiert, dessen Text eine
+Adresse nennt, während sein Ziel eine andere ist; so kann ein Link
+nicht einen Ort nennen und zu einem anderen führen:
+[https://good.example](https://evil.example)
+%editor
+
+## 9 Dateien finden und Aussehen
+
+Ctrl-p öffnet die Dateisuche: Tippe einen Teil des Namens, Enter
+öffnet. Ctrl-f sucht im Inhalt der Dateien des Projekts. Esc schließt
+beide. Ctrl-n zeigt oder verbirgt den Baum. zl wechselt das Aussehen
+(calm, flat, depth); zi schaltet die Icons ein oder aus (sie brauchen
+eine Nerd Font). <Space>bk sagt, wo sim die letzte aufbewahrte Version
+abgelegt hat. Drücke die Leertaste und warte: Ein Menü nennt jede
+Taste, die folgen kann.
+
+[ ] 9.1 Öffne die Dateisuche mit Ctrl-p und schließe sie mit Esc.
+@! finder
+[ ] 9.2 Durchsuche die Dateien mit Ctrl-f und schließe mit Esc.
+@! grep
+[ ] 9.3 Zeige oder verberge den Baum mit Ctrl-n.
+@! tree
+[ ] 9.4 Wechsle das Aussehen mit zl.
+@! look
+[ ] 9.5 Frage mit <Space>bk nach der letzten aufbewahrten Version.
+@! kept
+%end
+
+Das war's. :q! beendet den Tutor; :help listet alle Tasten auf.

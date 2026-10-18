@@ -71,6 +71,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 
 - `Space` é a tecla líder. Uma pausa em um prefixo (`Space`, `g`, `z`, `Z`, `[`, `]` ou um operador como `d`) abre uma pequena janela which-key que lista as teclas que podem vir em seguida; continuar digitando funciona exatamente como sem ela.
 - `:help` e `F1` abrem uma lista pesquisável de todas as teclas e comandos, com o que cada um faz; `:help tab` encontra `Tab`, `Shift-Tab` e `<Space>bp`.
+- `:tutor` abre cerca de quinze minutos de lições curtas em uma cópia descartável (nada é gravado), com exercícios que se marcam ✓ sozinhos quando você acerta; fala o seu idioma (`LC_ALL`, `LC_MESSAGES`, `LANG`), qualquer um dos dez deste README.
 - `<Space>bp` põe uma letra em cada aba, e a letra leva ao seu arquivo; `<Space>bc` faz o mesmo para fechar uma (um arquivo com mudanças continua aberto, como com `:q`). Uma dica cita `Tab` e `Shift-Tab` na primeira vez que um segundo arquivo é aberto, até você usá-las três vezes.
 - Enquanto as ocorrências de uma busca estão destacadas, a linha de status diz em qual delas você está e quantas existem, `[3/12]`.
 - `sim --help` imprime o uso e o ambiente que o sim lê (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` imprime a versão. Nenhum dos dois toca no terminal.

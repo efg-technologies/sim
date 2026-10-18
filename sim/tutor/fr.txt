@@ -1,0 +1,198 @@
+tutoriel de sim : leçons courtes, environ 15 minutes
+====================================================
+Ceci est une copie jetable. Rien de ce que vous faites ici n'est écrit
+sur le disque : expérimentez librement. Appuyez sur u pour annuler ;
+tapez :q! puis Entrée pour quitter.
+
+Les lignes qui commencent par [ ] sont des exercices. Faites ce
+qu'elles demandent : la case passe de ✗ à ✓ dès que le texte est
+correct (et revient si vous annulez).
+
+Défilez avec j et k, ou avec Ctrl-d et Ctrl-u pour une demi-page. Pour
+aller à une leçon, cherchez sa ligne de titre : /^## 3 puis Entrée (^
+est le début de ligne : seul le titre correspond).
+
+  1 Se déplacer
+  2 Saisir du texte
+  3 Supprimer et modifier
+  4 Annuler
+  5 Copier et coller
+  6 Rechercher
+  7 Enregistrer et quitter
+  8 Ce que sim montre et que d'autres éditeurs cachent
+%editor
+  9 Trouver des fichiers et l'apparence
+%end
+
+## 1 Se déplacer
+
+h va à gauche, j en bas, k en haut, l à
+droite. Les flèches marchent aussi.
+w va au début du mot suivant, b revient au début d'un mot.
+0 va au début de la ligne, $ à sa fin.
+gg va à la première ligne du fichier, G à la dernière.
+Un nombre répète un déplacement : 3j descend de trois lignes.
+
+[ ] 1.1 Allez jusqu'au x (avec w ou l) et supprimez-le avec x.
+a b c d x e f g
+@ a b c d  e f g
+
+[ ] 1.2 Faites 3j, puis $ et x : supprimez le dernier caractère.
+one
+two
+three!
+@ one
+@ two
+@ three
+
+## 2 Saisir du texte
+
+i saisit avant le curseur, a après. I saisit au début de la ligne, A à
+la fin. o ouvre une nouvelle ligne dessous, O dessus. Esc termine la
+saisie. Si vous ne savez plus dans quel mode vous êtes, appuyez sur
+Esc : la barre en bas de l'écran indique le mode.
+
+[ ] 2.1 Saisissez le 4 manquant avec i, puis appuyez sur Esc.
+1 2 3 5 6
+@ 1 2 3 4 5 6
+
+[ ] 2.2 Ajoutez " 3" à la fin de la ligne avec A, puis Esc.
+1 2
+@ 1 2 3
+
+[ ] 2.3 Ouvrez une ligne sous le 1 avec o, tapez 2, puis Esc.
+1
+3
+@ 1
+@ 2
+@ 3
+
+## 3 Supprimer et modifier
+
+x supprime le caractère sous le curseur, dw un mot, dd une ligne. cw
+change un mot : il le supprime et commence la saisie. r remplace un
+caractère. d et c acceptent tout déplacement : d$ supprime jusqu'à la
+fin de la ligne, c2w change deux mots.
+
+[ ] 3.1 Supprimez le deuxième "two" avec dw.
+one two two three
+@ one two three
+
+[ ] 3.2 Supprimez la ligne de x avec dd.
+keep
+xxxxx
+keep
+@ keep
+@ keep
+
+[ ] 3.3 Changez le 9 en 3 avec cw (ou r).
+1 2 9 4
+@ 1 2 3 4
+
+## 4 Annuler
+
+u annule la dernière modification, Ctrl-r rétablit ce que vous avez
+annulé. Les deux acceptent un nombre : 3u annule trois modifications.
+
+[ ] 4.1 Supprimez deux mots, puis récupérez-en un (leçons 3 et 4).
+1 2 3
+@ 2 3
+
+## 5 Copier et coller
+
+yy copie une ligne, p la colle sous le curseur, P au-dessus. yw copie
+un mot. Ce que dd et dw suppriment est aussi copié : c'est ainsi que
+le texte se déplace.
+
+[ ] 5.1 Copiez la ligne avec yy et collez-la dessous avec p.
+a b c
+@ a b c
+@ a b c
+
+[ ] 5.2 Déplacez le 1 sous le 3 (leçons 1, 3 et 5).
+1
+2
+3
+@ 2
+@ 3
+@ 1
+
+## 6 Rechercher
+
+/mot puis Entrée trouvent le « mot » suivant. n répète la recherche, N
+va dans l'autre sens, * cherche le mot sous le curseur. :s/a/b/
+remplace sur cette ligne, :%s/a/b/g dans tout le fichier. :noh efface
+la mise en évidence des correspondances.
+
+[ ] 6.1 Cherchez /zq7 (n : suivant) et supprimez le mot trouvé.
+a b c d
+e f g h
+i j zq7 k
+l m n o
+@ a b c d
+@ e f g h
+@ i j k
+@ l m n o
+
+[ ] 6.2 Remplacez chaque a par b ici : :s/a/b/g puis Entrée.
+a a a
+@ b b b
+
+## 7 Enregistrer et quitter
+
+:w enregistre, :q quitte, :wq fait les deux, :q! quitte en abandonnant
+les modifications. sim ne perd jamais de texte sans votre accord :
+avant que :w! ou :e! abandonne une version (la vôtre ou celle du
+disque), il la copie dans son propre dossier. Si un autre programme
+modifie votre fichier pendant que vous éditez, sim fusionne la
+modification ou montre le conflit ; il n'écrase jamais en silence.
+Ce tutoriel est une copie jetable : :w refuse et n'écrit rien.
+
+[ ] 7.1 Remettez les lignes dans l'ordre (leçons 3 et 5).
+c 3
+a 1
+b 2
+@ a 1
+@ b 2
+@ c 3
+
+## 8 Ce que sim montre et que d'autres éditeurs cachent
+
+Un caractère qui ne s'affiche pas tel quel (un caractère de contrôle,
+une espace de largeur nulle, un forçage de droite à gauche) est
+dessiné sous la forme d'un jeton comme <U+202E> ou ^[ dans un bloc
+coloré : il ne peut donc pas se cacher dans un fichier.
+
+[ ] 8.1 Supprimez le caractère caché, affiché sous forme de jeton.
+safe\u{200B}word
+@ safeword
+
+Dans un fichier Markdown, un lien dont le texte nomme une adresse
+alors que sa cible en est une autre est signalé : un lien ne peut pas
+annoncer un endroit et mener à un autre :
+[https://good.example](https://evil.example)
+%editor
+
+## 9 Trouver des fichiers et l'apparence
+
+Ctrl-p ouvre le chercheur de fichiers : tapez une partie d'un nom,
+Entrée l'ouvre. Ctrl-f cherche dans les fichiers du projet. Esc ferme
+l'un ou l'autre. Ctrl-n affiche ou masque l'arborescence. zl change
+l'apparence (calm, flat, depth) ; zi active ou désactive les icônes
+(elles demandent une Nerd Font). <Space>bk indique où sim a mis la
+dernière version qu'il a gardée. Appuyez sur Espace et attendez : un
+menu nomme chaque touche qui peut suivre.
+
+[ ] 9.1 Ouvrez le chercheur (Ctrl-p), puis fermez-le (Esc).
+@! finder
+[ ] 9.2 Cherchez dans les fichiers avec Ctrl-f, puis fermez avec Esc.
+@! grep
+[ ] 9.3 Affichez ou masquez l'arborescence avec Ctrl-n.
+@! tree
+[ ] 9.4 Changez l'apparence avec zl.
+@! look
+[ ] 9.5 Demandez la dernière version gardée avec <Space>bk.
+@! kept
+%end
+
+C'est tout. :q! quitte le tutoriel ; :help liste toutes les touches.

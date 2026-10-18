@@ -71,6 +71,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 
 - `Space` est la touche leader. Une pause sur un préfixe (`Space`, `g`, `z`, `Z`, `[`, `]`, ou un opérateur comme `d`) ouvre une petite fenêtre which-key qui liste les touches qui peuvent suivre ; continuer à taper fonctionne exactement comme sans elle.
 - `:help` et `F1` ouvrent une liste consultable de chaque touche et commande, avec ce que fait chacune ; `:help tab` trouve `Tab`, `Shift-Tab` et `<Space>bp`.
+- `:tutor` ouvre environ quinze minutes de leçons courtes dans une copie jetable (rien n’est écrit), avec des exercices qui se cochent ✓ tout seuls quand vous les réussissez ; il parle votre langue (`LC_ALL`, `LC_MESSAGES`, `LANG`), l’une des dix de ce README.
 - `<Space>bp` place une lettre sur chaque onglet, et la lettre mène à son fichier ; `<Space>bc` fait de même pour en fermer un (un fichier modifié reste ouvert, comme avec `:q`). Une astuce nomme `Tab` et `Shift-Tab` la première fois qu’un deuxième fichier est ouvert, jusqu’à ce que vous les ayez utilisées trois fois.
 - Tant que les occurrences d’une recherche sont mises en évidence, la ligne d’état indique sur quelle occurrence vous vous trouvez et combien il y en a, `[3/12]`.
 - `sim --help` affiche l’usage et l’environnement que lit sim (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`) ; `sim --version` affiche la version. Ni l’un ni l’autre ne touche au terminal.

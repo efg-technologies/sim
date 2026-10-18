@@ -35,7 +35,7 @@ pub(super) enum Pick {
 /// chars of its path that the query matched.
 #[derive(Default)]
 pub(super) struct Live {
-    kind: Pick,
+    pub(super) kind: Pick,
     query: String,
     generation: u64,
     groups: Vec<Group>,

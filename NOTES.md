@@ -10,6 +10,9 @@ The core's:
 
 The editor's:
 
+- The lessons of `:tutor` in German, Spanish, French, Korean, Portuguese (Brazil), Russian and the two Chinese are awaiting native review (English and Japanese excepted): they were written from the English by the model that built the rest, and a test holds the exercises in them to be the same in every language, but no native speaker has read their prose.
+- `:tutor` is typed on a command line, which needs a buffer: in an editor started with no file and none opened it is out of reach (there is no `sim tutor`, and `sim --tutor` would be a second way into the same buffer).
+- A tutor that remembers where the learner was (the exercises done), and one that tests the learner at the end: the lessons keep nothing between runs (the state directory is not written for a scratch copy, TUTOR-1), and the grade of the exercises is their marks.
 - Persistent undo across sessions (`undofile` in the author's nvim): needs a compact on-disk undo history per file; snapshots already cover crashes.
 - Reopen the last session's files when started in the same directory (persistence.nvim in the author's nvim).
 - The query of the picker edited in place (the cursor in the middle of it; it is typed at its end, as FIND-1's is, with only `Ctrl-w` and `Ctrl-u` to edit it), a click on a result (the mouse does nothing while the picker is open), scrolling the preview, and a preview of a file bigger than 2 MiB.

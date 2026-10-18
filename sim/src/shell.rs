@@ -143,6 +143,7 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
         tab_uses: front.tab_uses.unwrap_or_else(|| history.map_or(0, sio::load_tab_uses)),
         md: !plain && history.is_none_or(sio::load_md),
         chrome: true,
+        lang: crate::tutor::lang(&|k| env::var(k).ok()).into(),
     };
     let (sim, fx) = Sim::new(s, env);
     if sim.plain {
