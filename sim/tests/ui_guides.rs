@@ -276,3 +276,43 @@ fn ui_6_the_status_line_and_the_command_line_are_no_lines_of_the_text() {
         assert_eq!(r.text(), "int x;", "{skin:?}: the text is as it was");
     }
 }
+
+/// A row of an editor frame that shows a number the buffer has no line for (a stale frame, a row that only
+/// looks numbered) is no line of the text: the guides, the window of lines to color and the spans are not
+/// asked about it. A frame of two lines with a row `123` among them: the indent of line 123 was asked of
+/// the rope, which has two.
+#[test]
+fn ui_6_a_row_that_shows_a_number_the_buffer_has_no_line_for_is_no_line_of_the_text() {
+    use sim::layout::{LineUi, colors_with};
+    use sim_core::core::view::{Frame, Row, Shape};
+    let rows = ["   1 one", "   2 two", " 123 ghost", "x"]
+        .map(|t| Row { text: t.into(), ..Row::default() });
+    let frame = Frame {
+        width: 20,
+        height: 4,
+        rows: rows.to_vec(),
+        cursor: (0, 0),
+        shape: Shape::Block,
+        pal: None,
+    };
+    let text = |l: usize| ["one", "two"].get(l).map(|t| t.to_string());
+    let spans = |_: usize| None;
+    let ui = |l: usize| {
+        assert!(l < 2, "the guides of line {l} were asked of a buffer of two lines");
+        LineUi::default()
+    };
+    let colored = colors_with(&frame, 3, &text, &spans, Some(&ui), None, None);
+    assert_eq!(colored.win, Some((0, 1)), "the window is the two lines of the buffer");
+    assert_eq!(colored.looks.len(), 4);
+}
+
+/// `lead_of` is asked for the indent of a line: a line the buffer does not have is a blank one.
+#[test]
+fn ui_6_the_indent_of_a_line_the_buffer_does_not_have_is_blank() {
+    use sim::sim::lead_of;
+    let buf = sim_core::core::buffer::Buffer::decode(b"  two\n");
+    assert_eq!((lead_of(&buf, 0).cols, lead_of(&buf, 0).blank), (2, false));
+    for l in [1, 2, 99, usize::MAX] {
+        assert!(lead_of(&buf, l).blank, "line {l}");
+    }
+}

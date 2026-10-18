@@ -1868,9 +1868,9 @@ fn indent_of(buf: &Buffer) -> Indent {
     indent::detect(lines.iter().map(String::as_str))
 }
 
-/// The leading blanks of line `l` of a buffer, read off the rope with no copy.
-fn lead_of(buf: &Buffer, l: usize) -> Lead {
-    let line = buf.text.line(l);
+/// The leading blanks of line `l` of a buffer, read off the rope with no copy (public for its test).
+pub fn lead_of(buf: &Buffer, l: usize) -> Lead {
+    let Some(line) = buf.text.get_line(l) else { return Lead { blank: true, ..Lead::default() } };
     let (mut cols, mut tab, mut n) = (0u16, false, 0);
     for c in line.chars().take_while(|c| *c != '\n') {
         match c {

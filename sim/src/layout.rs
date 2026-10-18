@@ -1477,9 +1477,11 @@ pub fn colors_with<'a>(
     let (mut delim, mut framed, mut pipes, mut rule) = (false, false, (0, 0), false);
     for (i, row) in f.rows.iter().enumerate() {
         let (mut col, mut used, len) = (0, 0, row.text.chars().count().saturating_sub(gutter));
-        let starts = number(row, digits).filter(|_| i < body).and_then(|n| n.checked_sub(1));
-        if let Some(l) = starts {
-            (cs, sp, ci) = (text(l).unwrap_or_default().chars().collect(), spans(l), 0);
+        // (a row that shows a number the buffer has no line for is no line of the text)
+        let line = number(row, digits).filter(|_| i < body).and_then(|n| n.checked_sub(1));
+        let line = line.and_then(|l| Some((l, text(l)?)));
+        if let Some(&(l, ref t)) = line.as_ref() {
+            (cs, sp, ci) = (t.chars().collect(), spans(l), 0);
             win = Some((win.map_or(l, |w: (usize, usize)| w.0), l));
             // a fenced block, and a first-level heading (a faint band of its own)
             let has = |k: Look| sp.is_some_and(|s| s.iter().any(|s| s.1 == k));
@@ -1514,7 +1516,7 @@ pub fn colors_with<'a>(
                 .unwrap_or(0..0);
         }
         // (a row with no text and no number is past the end of the file, not the rest of a line)
-        md[i].band = if starts.is_some() || len > 0 { band } else { Band::None };
+        md[i].band = if line.is_some() || len > 0 { band } else { Band::None };
         let (mut map, mut edited) = (Remap::default(), false);
         if plan.is_some() {
             map.keep(0..gutter as u16, 0..gutter);
@@ -1606,7 +1608,7 @@ pub fn colors_with<'a>(
                 }
             }
             // UI-6: an indent guide where a blank is at a guide's column.
-            if starts.is_some() && cs[ci] == ' ' && lui.guides.contains(&(col as u16)) {
+            if line.is_some() && cs[ci] == ' ' && lui.guides.contains(&(col as u16)) {
                 let tone = if lui.scope == Some(col as u16) { Tone::Scope } else { Tone::Guide };
                 md[i].glyph.push(Glyph {
                     idx: gutter + used,
@@ -1636,14 +1638,14 @@ pub fn colors_with<'a>(
         }
         // MD-1: the end of the line may have something put in (the last cell of a table), and the
         // row has a map if the view changed it and the walk ended where the core's row does
-        let ended = ci == cs.len() && (starts.is_some() || len > 0);
+        let ended = ci == cs.len() && (line.is_some() || len > 0);
         if let Some((c, k)) = plan.as_ref().filter(|_| ended).and_then(|p| p.op(ci).fill) {
             map.fill(c, k);
             edited = true;
         }
         md[i].map = (plan.is_some() && edited && used == len).then_some(map);
         // UI-8: the rule of a thematic break goes on to the pane's edge.
-        if rule && ci == cs.len() && (starts.is_some() || len > 0) {
+        if rule && ci == cs.len() && (line.is_some() || len > 0) {
             let from = gutter + col;
             md[i].glyph.extend((from..usize::from(f.width)).map(|c| Glyph {
                 idx: gutter + used + (c - from),
@@ -1653,7 +1655,7 @@ pub fn colors_with<'a>(
             }));
         }
         // UI-6: a blank line has its guides past the end of its own blanks.
-        if starts.is_some() && ci == cs.len() {
+        if line.is_some() && ci == cs.len() {
             for &c in lui.guides.iter().filter(|&&c| usize::from(c) >= col) {
                 let tone = if lui.scope == Some(c) { Tone::Scope } else { Tone::Guide };
                 let at = gutter + usize::from(c) - col + used;
