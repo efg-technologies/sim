@@ -109,13 +109,13 @@ impl Budget {
 }
 
 /// MD-10: what a word of a link's text names: a host (as it is compared, and as it is written), a URL
-/// with an authority that cannot be read, or a path (and whether it is absolute).
+/// with an authority that cannot be read, or a path.
 enum Names {
     Host(String, String),
     /// a host with letters that are not ASCII (as lower case, without `www.`)
     Idn(String),
     Odd,
-    Path(String, bool),
+    Path(String),
 }
 
 /// MD-10: where a target goes: to a host, to a host as written with letters that are not ASCII, to a host
@@ -464,7 +464,8 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
 
 /// MD-10: what a word of a link's text names, if it looks like an address: a URL, a `www.` name, a host
 /// of a common top-level domain or of a country (any two letters but the ending of a source file), or a
-/// path (`/…`, `~/…`, `./…`, `../…`, or a name with a `/` and an extension).
+/// path (`/…`, `~/…`, `./…`, `../…`, or a name with a `/` and an extension; one whose first segment is a host
+/// is that host).
 fn address(w: &str) -> Option<Names> {
     // (a word that follows a label: `site:good.com`, `url=good.com`, `mailto:a@good.com`)
     if let Some((label, rest)) = w.split_once(['=', ':']) {
@@ -531,14 +532,20 @@ fn address(w: &str) -> Option<Names> {
     // (a path is rooted, or has a `/` and a file with a name and a lower case extension that has a letter:
     // not `HTTP/1.1`, not `owner/.github`, not `math/rand.Seed`)
     let (stem, ext) = w.rsplit('/').next().unwrap_or_default().rsplit_once('.').unwrap_or_default();
-    let abs = w.starts_with('/') || w.starts_with("~/");
-    let rooted = abs || w.starts_with("./") || w.starts_with("../");
+    let rooted = ["/", "~/", "./", "../"].iter().any(|r| w.starts_with(r));
     let named = w.contains('/')
         && !stem.is_empty()
         && (1..=8).contains(&ext.len())
         && ext.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
         && ext.bytes().any(|b| b.is_ascii_lowercase());
-    ((rooted || named) && !trimmed(w).is_empty()).then(|| Names::Path(trimmed(w).to_string(), abs))
+    // (a path whose first segment is a host is read as that host: `/good.com/login` names good.com, as a
+    // reader reads it, and a target that goes to another host lies about it)
+    if w.starts_with('/')
+        && let Some(h @ Names::Host(..)) = address(w.trim_start_matches('/'))
+    {
+        return Some(h);
+    }
+    ((rooted || named) && !trimmed(w).is_empty()).then(|| Names::Path(trimmed(w).to_string()))
 }
 
 /// MD-10: whether a link of `text` to `target` says one place and goes to another: some word of the
@@ -854,10 +861,11 @@ fn deceptive_as_written(text: &str, target: &str) -> bool {
                 Dest::Relative => !q.ends_with(u.as_str()),
                 _ => true,
             },
-            Names::Path(p, abs) => match dest {
+            // (a path is judged against a target that has no host; against one that has, the browser shows
+            // the host and a path says nothing of it)
+            Names::Path(p) => match &dest {
                 Dest::Relative => q.is_empty() || !(p.ends_with(q) || q.ends_with(&p)),
-                Dest::Opaque | Dest::Mail(_) => true,
-                _ => q.is_empty() || abs || !q.ends_with(&p),
+                d => matches!(d, Dest::Opaque | Dest::Mail(_)),
             },
         })
 }

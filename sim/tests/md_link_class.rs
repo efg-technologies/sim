@@ -580,9 +580,19 @@ fn md_10_what_the_real_files_showed_is_not_a_lie_and_what_hides_in_them_still_is
             &[],
         ),
         (
-            "a home is one",
-            "[~/notes.md](https://evil.com/other.md)",
-            &["https://evil.com/other.md"],
+            "a path is judged against a target with no host: a home is one",
+            "[~/notes.md](other/readme.md)",
+            &["other/readme.md"],
+        ),
+        (
+            "a path says nothing of a host, which the browser shows (46 of 128 marks, all honest)",
+            "[~/notes.md](https://evil.com/other.md) and [/r/rust](https://www.reddit.com/r/rust)",
+            &[],
+        ),
+        (
+            "a path whose first segment is a host names it",
+            "[/good.com/login](https://evil.com/login) and [/good.com/login](https://good.com/login)",
+            &["https://evil.com/login"],
         ),
         (
             "an emoji and a full stop",
