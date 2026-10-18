@@ -1327,7 +1327,14 @@ impl Sim {
         let lit = self.flash.as_ref().filter(|f| f.id == b.id && f.ver == buf.version());
         let wrote = self.wrote.as_ref().filter(|w| w.id == b.id && w.ver == buf.version());
         let guides = self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone()), wrote));
-        let line_ui = guides.as_ref().map(|g| move |l: usize| g.of(buf, l));
+        // UI-13: calm has no guides, and a yank is lit there too (the flash alone is asked for)
+        let calm = lit.filter(|_| guides.is_none()).map(|f| f.chars.clone());
+        let line_ui = |l: usize| match (&guides, &calm) {
+            (Some(g), _) => g.of(buf, l),
+            (_, Some(r)) => LineUi { flash: flash_in(buf, r, l), bare: true, ..LineUi::default() },
+            _ => LineUi::default(),
+        };
+        let have = guides.is_some() || calm.is_some();
         // MD-1: the lines the read view leaves as they are: the cursor's, and the selected ones
         let read = (self.md && is_markdown(b.app.path.as_deref())).then(|| {
             let (cl, last) = (buf.line_of(buf.cursor), |e: usize| buf.line_of(e.saturating_sub(1)));
@@ -1343,7 +1350,7 @@ impl Sim {
             digits(buf),
             &text,
             &spans,
-            line_ui.as_ref().map(|f| f as &dyn Fn(usize) -> LineUi),
+            have.then_some(&line_ui as &dyn Fn(usize) -> LineUi),
             read,
             md.then_some(&refs as &dyn Fn() -> Arc<lie::Refs>),
         );
@@ -1974,17 +1981,28 @@ impl Guides<'_> {
             .as_ref()
             .filter(|(run, c)| run.contains(&l) && guides.contains(c))
             .map(|s| s.1);
-        let (from, len) = (buf.start(l), buf.line_len(l));
-        let flash = self.flash.as_ref().and_then(|r| {
-            let (lo, hi) = (r.start.max(from), r.end.min(from + len));
-            (lo < hi).then(|| lo - from..hi - from)
-        });
+        let flash = self.flash.as_ref().and_then(|r| flash_in(buf, r, l));
         // UI-14: the matches of the search in this line, and the one the cursor is on.
         let hits = self.finder.and_then(|m| Some(m.ranges(&text_of(buf, l)?))).unwrap_or_default();
         let now =
             (self.at.0 == l).then(|| hits.iter().position(|r| r.contains(&self.at.1))).flatten();
-        LineUi { guides, scope, flash, wrote: self.wrote.binary_search(&l).is_ok(), hits, now }
+        LineUi {
+            flash,
+            wrote: self.wrote.binary_search(&l).is_ok(),
+            hits,
+            now,
+            guides,
+            scope,
+            bare: false,
+        }
     }
+}
+
+/// UI-13: the part of the buffer's chars `r` that is in line `l`, as chars of the line.
+fn flash_in(buf: &Buffer, r: &std::ops::Range<usize>, l: usize) -> Option<std::ops::Range<usize>> {
+    let (from, len) = (buf.start(l), buf.line_len(l));
+    let (lo, hi) = (r.start.max(from), r.end.min(from + len));
+    (lo < hi).then(|| lo - from..hi - from)
 }
 
 /// UI-10: the state words of the core's status line, which follow the position and the mode

@@ -6,9 +6,10 @@ mod common;
 use common::*;
 use sim::color::{Syntax, Tones};
 use sim::layout::Skin;
+use sim::paint::{Painter, Resolved, Resolver};
 use sim::sim::{FLASH_MS, SimEffect, SimEvent};
 use sim_core::core::app::Event;
-use sim_core::core::color::{Rgb, palette};
+use sim_core::core::color::{Rgb, apca, palette};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 
@@ -197,13 +198,121 @@ fn ui_13_whole_lines_are_lit_and_an_edit_puts_the_flash_out() {
 }
 
 #[test]
-fn ui_13_a_copied_path_and_calm_are_not_lit() {
+fn ui_13_a_copied_path_is_not_lit() {
     // `:copy`-like path copying puts a path on the clipboard, not text of the file's.
     let mut r = body("ui13-path", Skin::Flat, "one\ntwo\n", true);
     r.keys(":copy\n");
     assert!(flashes(&r).is_empty(), "{:?}", r.status());
-    // Calm has no accent: nothing is lit (the effect may be asked for, the screen has no paint).
-    let mut calm = body("ui13-calm", Skin::Calm, "one two\n", false);
-    calm.keys("yw");
-    assert!(calm.shot.paints.iter().all(Vec::is_empty));
+}
+
+/// The pages UI-13 and SYN-5 are checked on.
+const PAGES: [Rgb; 8] = [
+    (0x00, 0x00, 0x00),
+    (0x1e, 0x1e, 0x1e),
+    (0x28, 0x2c, 0x34),
+    (0x00, 0x2b, 0x36),
+    (0xff, 0xff, 0xff),
+    (0xfa, 0xfa, 0xfa),
+    (0xfd, 0xf6, 0xe3),
+    (0xef, 0xf1, 0xf5),
+];
+
+/// A calm Rig on the page `page` with the syntax `syn`.
+fn calm(name: &str, page: Rgb, syn: Syntax, files: &[&str]) -> Rig {
+    let mut r = rig_env(name, files, &["a.txt"], (80, 24), |e| {
+        (e.skin, e.syn, e.chrome) = (Skin::Calm, syn, false);
+    });
+    r.send(SimEvent::Term(Event::Bg(page)));
+    r
+}
+
+/// The cells of the row that has `what`, and the column `what` begins at (the text is ASCII).
+fn cells_of(r: &Rig, what: &str) -> (Vec<Resolved>, usize) {
+    let y = y_of(r, what);
+    (Resolver::new().row(&r.shot, y), r.shot.frame.rows[y].text.find(what).unwrap())
+}
+
+#[test]
+fn ui_13_calm_lights_a_yank_in_the_gray_of_a_selection_and_no_other_hue() {
+    for page in PAGES {
+        let mut syn = Syntax::new(true);
+        syn.bg(page);
+        let (gray, ink) = syn.sel().unwrap();
+        let mut r =
+            calm("ui13-calm", page, Syntax::new(true), &["a.txt=alpha beta gamma\nsecond\n"]);
+        r.keys("wyw"); // `beta `
+        let n = *flashes(&r).last().expect("asked for the end of the flash");
+        let (cells, at) = cells_of(&r, "alpha");
+        for k in 6..11 {
+            let c = &cells[at + k];
+            assert!(c.selected, "{page:?}: char {k} of what was taken");
+            assert_eq!((c.bg, c.fg), (Some(gray), Some(ink)), "{page:?}: char {k}");
+        }
+        for k in [0, 5, 11, 15] {
+            assert!(!cells[at + k].selected && cells[at + k].bg.is_none(), "{page:?}: char {k}");
+        }
+        // P3: a lightness step and no hue, at the floor of APCA for a patch that must be seen
+        // (|Lc| 15, the selection's), with UI-12's text on it
+        assert!(gray.0 == gray.1 && gray.1 == gray.2, "{page:?}: {gray:?} has a hue");
+        assert!(apca(gray, page).abs() >= 15.0, "{page:?}: {}", apca(gray, page));
+        assert!(apca(ink, gray).abs() >= 75.0, "{page:?}: {}", apca(ink, gray));
+        assert!(r.shot.paints.iter().all(Vec::is_empty), "calm draws no paint");
+        // Over, it is as it was; the text and the cursor's place are the yank's.
+        r.send(SimEvent::Unflash(n));
+        let (cells, _) = cells_of(&r, "alpha");
+        assert!(cells.iter().all(|c| !c.selected && c.bg.is_none()), "{page:?}: over");
+        assert_eq!(r.text(), "alpha beta gamma\nsecond");
+    }
+}
+
+#[test]
+fn ui_13_calm_lit_text_loses_its_syntax_hue_as_a_selection_does() {
+    let mut r = calm(
+        "ui13-calm-syn",
+        BG,
+        Syntax::new(true),
+        &["a.txt=fn main() {}\n", "b.rs=fn main() {}\n"],
+    );
+    r.keys(":e b.rs\n");
+    r.deliver_spans();
+    r.keys("yw"); // `fn `
+    let (cells, at) = cells_of(&r, "fn main");
+    let mut syn = Syntax::new(true);
+    syn.bg(BG);
+    let (gray, ink) = syn.sel().unwrap();
+    for k in 0..3 {
+        assert_eq!((cells[at + k].bg, cells[at + k].fg), (Some(gray), Some(ink)), "char {k}");
+    }
+}
+
+#[test]
+fn ui_13_calm_without_color_underlines_what_a_yank_took() {
+    // No truecolor (the selection is the core's underline there too) and NO_COLOR (COLOR-2): the
+    // underline is the cue, no color is written and the rest is as it was.
+    for (name, syn) in [("ui13-calm-8", Syntax::new(false)), ("ui13-calm-mono", Syntax::mono())] {
+        let mut r = calm(name, BG, syn, &["a.txt=alpha beta gamma\nsecond\n"]);
+        r.keys("wyw");
+        let n = *flashes(&r).last().expect("asked for the end of the flash");
+        let (cells, at) = cells_of(&r, "alpha");
+        for k in 0..16 {
+            assert_eq!(cells[at + k].attrs.underline(), (6..11).contains(&k), "{name}: char {k}");
+            assert!(cells[at + k].bg.is_none(), "{name}: char {k}");
+        }
+        let mut p = Painter::new(Vec::<u8>::new());
+        p.draw(r.shot.clone()).unwrap();
+        let text = String::from_utf8_lossy(&p.out).into_owned();
+        let before = &text[..text.find("beta ").unwrap()];
+        assert!(
+            before[before.rfind("\x1b[").unwrap()..].starts_with("\x1b[0;4"),
+            "{name}: {text:?}"
+        );
+        if syn.mono {
+            let on = text.split("\x1b[").skip(1).filter_map(|s| s.split_once('m')).map(|s| s.0);
+            let colors = on.flat_map(|p| p.split(';').filter_map(|n| n.parse::<u16>().ok()));
+            assert!(colors.filter(|n| matches!(n, 30..=48 | 90..=107)).count() == 0, "{name}");
+        }
+        r.send(SimEvent::Unflash(n));
+        let (cells, _) = cells_of(&r, "alpha");
+        assert!(cells.iter().all(|c| !c.attrs.underline()), "{name}: over");
+    }
 }

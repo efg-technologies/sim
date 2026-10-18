@@ -987,6 +987,13 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             // (inverse, the Painter's, sealed): the look of the URL or the link under it is not drawn
             line.looks.retain(|(r, _)| !m.lie.iter().any(|x| x.start < r.end && r.start < x.end));
             line.row.spans.extend(m.lie.iter().map(|r| (r.clone(), Style::Hidden)));
+            // UI-13: a yank is lit as a Visual selection is (SYN-5), in lightness alone: its gray
+            // ahead of the syntax looks, the core's underline where there is none
+            if gray {
+                line.looks.splice(0..0, m.flash.iter().map(|r| (r.clone(), Look::Sel)));
+            } else {
+                line.row.underline.extend(m.flash.iter().cloned());
+            }
         }
         // UI-5: the numbers as Neovim's `number` and `relativenumber` draw them: the cursor's line
         // is absolute, left-aligned, amber and bold; the others are the distance from it. In Insert
@@ -1378,6 +1385,9 @@ pub struct LineUi {
     pub scope: Option<u16>,
     /// UI-13: the chars of the line a yank has just taken.
     pub flash: Option<std::ops::Range<usize>>,
+    /// Calm: the interface is not drawn, so the marks of whitespace and the badges are not made;
+    /// the flash is the only thing asked for.
+    pub bare: bool,
     /// UI-19: whether another process has just written the line.
     pub wrote: bool,
     /// UI-14: the chars of the line that a search matches, and which of them is the current one.
@@ -1511,7 +1521,7 @@ pub fn colors_with<'a>(
             lie = line_marks(l, &cs, sp.map_or(&[][..], |s| &s[..]), text, refs, &mut budget);
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
-                .filter(|_| ui.is_some())
+                .filter(|_| ui.is_some() && !lui.bare)
                 .and_then(|s| todo_badge(&cs.iter().collect::<String>(), s))
                 .unwrap_or(0..0);
         }
@@ -1597,7 +1607,7 @@ pub fn colors_with<'a>(
             }
             // UI-6: the whitespace marks, dim: a tab as `»` and blanks to its width, a trailing blank
             // as `·`, a no-break space as `⍽`; an indent guide, drawn after, wins a blank.
-            if ui.is_some() {
+            if ui.is_some() && !lui.bare {
                 let at = (gutter + used, (gutter + col) as u16);
                 let mark = |ch: char| Glyph { idx: at.0, ch, col: at.1, tone: Tone::Dim };
                 match cs[ci] {

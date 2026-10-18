@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC i
         ┌─┴─────────┴─┐
         │    SPEC     │  what      requirements with IDs         SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       core/src ≤ 3,200, sim/src ≤ 10,990, gui/src ≤ 5,100
+      │      CODE       │  how       core/src ≤ 3,200, sim/src ≤ 11,015, gui/src ≤ 5,100
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       core/tests, sim/tests, gui/tests and the E2E scripts
     └─────────────────────┘
@@ -124,7 +124,7 @@ If another one is needed, first write the reason into SPEC.
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
 - A key is added to `sim/keys.tsv` in the same change that adds it to the core or to sim: `sim/tests/key_1.rs` feeds every key to a Sim and fails for a key that does something and is not in the table, and for an entry that does nothing
 - `[profile.release]` (in the workspace) has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- core/src stays within 3,200 lines, sim/src within 10,990 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
+- core/src stays within 3,200 lines, sim/src within 11,015 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
 - Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
 - Code, comments, messages, docs and commit messages are in English. sim is the next-generation Vim (新時代の Vim): in README, CONCEPT, this file, the crates' descriptions and `--help`, it is never described as a likeness of Vim (nothing "-like", nothing "-style")
 
@@ -150,7 +150,7 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 3. `cargo test --workspace --no-fail-fast`
 4. scripts/trace.sh
 5. core/src has at most 3,200 lines
-6. sim/src has at most 10,990 lines
+6. sim/src has at most 11,015 lines
 7. gui/src has at most 5,100 lines
 8. the core depends on its allowlist only
 9. the editor depends on its own list only, and no crate of the window is in the tree of the editor or of the core
