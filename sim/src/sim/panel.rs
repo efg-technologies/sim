@@ -30,6 +30,18 @@ pub(super) struct Search {
     at: PathBuf,
 }
 
+/// TREE-4 `Z`: the directory it opens everything below, and how many directories it has opened so far.
+pub(super) struct Spread {
+    dir: PathBuf,
+    n: usize,
+}
+
+/// TREE-4: the most directories one `Z` opens.
+const Z_MAX: usize = 200;
+
+/// The entries under the cursor and at the top of the panel, to put them back on their rows (`keep`).
+type Kept = (Option<TreeRow>, Option<TreeRow>);
+
 pub type Out<'a> = &'a mut Vec<SimEffect>;
 
 /// The match that comes last (`back`) or first of these in the order of the rows.
@@ -99,12 +111,32 @@ impl Sim {
         }
     }
 
+    /// TREE-2: the key after Ctrl-w: Neovim's window keys for the two panes. The panel stays open; a key that
+    /// goes to it opens it, and one that goes to the text takes the focus from it (with no file open there is
+    /// no text, and the focus stays). Any other key ends the prefix.
+    pub(super) fn win_key(&mut self, k: Key, out: Out) {
+        let here = self.panel.open && self.panel.focus;
+        let to_panel = match k {
+            Key::Char('w' | 'W' | 'p') | Key::Ctrl('w' | 'p') => !here,
+            Key::Char('h') | Key::Left | Key::Backspace | Key::Ctrl('h') => true,
+            Key::Char('t') | Key::Ctrl('t') => self.panel.open, // (closed: it is no window)
+            Key::Char('l' | 'b') | Key::Right | Key::Ctrl('l' | 'b') => false,
+            _ => return,
+        };
+        match (to_panel, here) {
+            (true, false) => self.show(out),
+            (false, _) if !self.bufs.is_empty() => self.panel.focus = false,
+            _ => {}
+        }
+    }
+
     /// TREE-4: a key while the panel has the focus.
     pub(super) fn panel_key(&mut self, k: Key, out: Out) {
         if self.panel.search.as_ref().is_some_and(|s| s.typing) {
             return self.search_key(k, out);
         }
-        self.panel.reveal = None; // a key of the user's own cancels a reveal still waiting for a listing
+        // a key of the user's own cancels a reveal, or a `Z`, still waiting for a listing
+        (self.panel.reveal, self.panel.spread) = (None, None);
         let browsing = self.panel.search.is_some();
         let last = self.view().visible().saturating_sub(1);
         let page = usize::from(self.geo().rows);
@@ -122,12 +154,21 @@ impl Sim {
                 cur
             }
             Key::Char('G') => last,
+            Key::Enter if self.row(cur).is_some_and(|r| r.is_dir && r.open) => return self.back(),
             Key::Char('l') | Key::Right | Key::Enter => return self.enter(out),
             Key::Char('h') | Key::Left => return self.back(),
+            Key::Char('C') => {
+                // Neo-tree's close_node: an open directory closes, anything else closes the one that holds it
+                if !self.row(cur).is_some_and(|r| r.is_dir && r.open) {
+                    self.back();
+                }
+                return self.back();
+            }
+            Key::Char('Z') => return self.spread_key(out),
             Key::Char('/') => return self.find(out),
             Key::Char('n' | 'N') if browsing => return self.step_match(k == Key::Char('N'), out),
             Key::Char('.') => return self.focus_toggle(out),
-            Key::Char('-') => {
+            Key::Char('-' | 'z') => {
                 let top = self.row(cur).and_then(|r| r.path.iter().next().map(PathBuf::from));
                 self.view_mut().collapse_all();
                 top.and_then(|p| self.view().row_of(&p)).unwrap_or(0)
@@ -181,16 +222,47 @@ impl Sim {
                 Some(format!("cannot read {}: {e}", layout::short(&name.to_string_lossy(), 32)));
             vec![]
         });
-        let kept =
-            self.focus.is_none().then(|| (self.row(self.panel.cur), self.row(self.panel.top)));
+        let kept = self.focus.is_none().then(|| self.kept());
         self.tree.insert_listing(rel, entries);
-        if let Some((cur, top)) = kept {
-            let find =
-                |r: Option<TreeRow>, old| r.and_then(|r| self.tree.row_of(&r.path)).unwrap_or(old);
-            (self.panel.cur, self.panel.top) =
-                (find(cur, self.panel.cur), find(top, self.panel.top));
-        }
+        kept.into_iter().for_each(|k| self.keep(k));
         self.reveal(out);
+        self.spread(out);
+    }
+
+    fn kept(&self) -> Kept {
+        (self.row(self.panel.cur), self.row(self.panel.top))
+    }
+
+    /// Puts the cursor and the first row back on the entries `kept` took, whatever came in above them.
+    fn keep(&mut self, (cur, top): Kept) {
+        let find =
+            |r: Option<TreeRow>, old| r.and_then(|r| self.tree.row_of(&r.path)).unwrap_or(old);
+        (self.panel.cur, self.panel.top) = (find(cur, self.panel.cur), find(top, self.panel.top));
+    }
+
+    /// `Z`: opens the directory under the cursor, or the one that holds the file, and everything below it.
+    fn spread_key(&mut self, out: Out) {
+        let Some(r) = self.row(self.panel.cur).filter(|_| self.focus.is_none()) else { return };
+        let dir = if r.is_dir { Some(r.path.as_path()) } else { r.path.parent() };
+        let dir = dir.unwrap_or(Path::new("")).to_path_buf();
+        self.panel.spread = Some(Spread { dir, n: 0 });
+        self.spread(out);
+    }
+
+    /// Opens the directories below a `Z`'s as far as the listings are there (the rest follows as they
+    /// arrive, as a reveal does), asks for the listings of those it opened, and says when the cap stopped it.
+    pub(super) fn spread(&mut self, out: Out) {
+        let Some(mut z) = self.panel.spread.take() else { return };
+        let (kept, marks) = (self.kept(), &self.marks);
+        let o = self.tree.expand_all(&z.dir, Z_MAX - z.n, &|p| marks.ignored(p));
+        self.keep(kept);
+        z.n += o.n;
+        out.extend(o.read.into_iter().map(|d| SimEffect::Read(self.root.join(d))));
+        if o.short {
+            self.msg = Some(format!("opened {Z_MAX} folders; stopped there (Z again goes on)"));
+        } else if o.waiting {
+            self.panel.spread = Some(z);
+        }
     }
 
     /// `:e dir` (BUF-1): the panel opens with that directory expanded and under the cursor.
@@ -366,7 +438,7 @@ impl Sim {
             for (i, p) in above.filter(|(_, p)| seen.insert(p.to_path_buf())) {
                 let name = p.file_name().unwrap_or_default().to_string_lossy().into_owned();
                 let dir = p.parent().unwrap_or(Path::new("")).to_path_buf();
-                kids.entry(dir).or_default().push(Entry { name, is_dir: i > 0 });
+                kids.entry(dir).or_default().push(Entry { name, is_dir: i > 0, link: false });
             }
         }
         let mut narrowed = Tree::default();

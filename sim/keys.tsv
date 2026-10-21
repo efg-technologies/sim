@@ -115,8 +115,10 @@ z i	n	icons on/off	Turns the icons of the tree, the tabs and the status line on 
 <Space> u m	nt	markdown read view on/off	Turns the read view of Markdown files on or off, for every file; the message says which. On, every line but the cursor's and the selected ones is drawn as it reads: the markers of emphasis and of inline code are not drawn, and a table is aligned by the width of its cells; the line you are on is always the file's own text. Off, the file is drawn as it is. The choice is remembered. In sim --plain there is no read view.
 j|<Down>	t	down	Moves the cursor one row down the tree.
 k|<Up>	t	up	Moves the cursor one row up the tree.
-l|<Right>|<CR>	t	open	Opens the directory under the cursor, or opens the file and gives it the focus; on an open directory it does nothing.
+l|<Right>	t	open	Opens the directory under the cursor, or opens the file and gives it the focus; on an open directory it does nothing.
+<CR>	t	open, or toggle a folder	Opens the file and gives it the focus; on a directory it opens it when it is closed and closes it when it is open (Neo-tree's open).
 h|<Left>	t	close, or up	Closes the directory under the cursor, or moves to its parent.
+C	t	close the folder	Closes the directory the cursor is in (Neo-tree's close_node): an open directory closes and the cursor stays; on a file or a closed directory the directory that holds it closes and the cursor goes onto it. At the top level it does nothing.
 g g	t	top	Moves to the first row.
 G	t	bottom	Moves to the last row.
 <C-d>	t	half page down	Moves the cursor half the panel down.
@@ -127,8 +129,16 @@ G	t	bottom	Moves to the last row.
 n|N	t	next/previous match	After a find in the tree, goes to the next or the previous match.
 .	t	changed and recent files	Narrows the tree to the files that changed, are open, or were opened recently; again to widen it.
 -	t	collapse all	Closes every directory; the cursor stays on the top-level entry that held it.
+z	t	collapse all	The same as -: closes every directory; the cursor stays on the top-level entry that held it (Neo-tree's close_all_nodes).
+Z	t	open folder and all below	Opens the directory under the cursor, or the one that holds the file, and every directory below it, as their listings arrive. It leaves closed what git ignores (target/, node_modules/) and symlinks, and stops at 200 directories (Z again goes on). The cursor stays on its entry.
 q	t	close the tree	Closes the panel; the text has the focus. In the changes view (<Space>ge) it goes back to the tree instead.
 <Esc>	t	back to the text	Gives the focus back to the text and leaves the panel open.
+<C-w>	nt	window keys	Waits for one key that moves the focus between the text and the tree, which stays open: w goes to the other one, h to the tree, l to the text. Any other key ends it and does nothing. Not taken where Ctrl-w is text: Insert mode, the command line, the picker.
+<C-w> w|<C-w>|W|p|<C-p>	nt	other pane	Moves the focus to the other of the two: from the text to the tree (opening it if it is closed), from the tree to the text. The tree stays open (Vim's window keys; Ctrl-n opens and closes).
+<C-w> h|<Left>|<C-h>|<BS>	nt	focus the tree	Moves the focus to the tree, opening it if it is closed. In the tree it does nothing.
+<C-w> l|<Right>|<C-l>	nt	focus the text	Moves the focus to the text; the tree stays open. In the text it does nothing.
+<C-w> t|<C-t>	nt	focus the tree if it is open	Moves the focus to the tree if it is open (the top-left window); with it closed there is none and nothing happens.
+<C-w> b|<C-b>	nt	focus the text (bottom right)	Moves the focus to the text (the bottom-right window); the tree stays open. In the text it does nothing.
 <Down>|<C-n>|<C-j>	p	next result	Moves the selection down the list; the preview follows.
 <Up>|<C-p>|<C-k>	p	previous result	Moves the selection up the list; the preview follows.
 <PageDown>|<PageUp>	p	page of results	Moves the selection a list's height.

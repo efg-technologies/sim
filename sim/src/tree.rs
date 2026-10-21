@@ -2,7 +2,7 @@
 //! The tree of the project (pure): entries in a stable order, expansion, and the visible rows.
 //! The data side only: keys, the panel and the background reads belong to the event loop.
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 /// One entry of a directory listing.
@@ -10,6 +10,18 @@ use std::path::{Path, PathBuf};
 pub struct Entry {
     pub name: String,
     pub is_dir: bool,
+    /// A symlink (`Z` follows none, TREE-4).
+    pub link: bool,
+}
+
+/// What `Tree::expand_all` did: the directories it opened, those of them that have no listing yet (to be
+/// read), whether an open directory below is still waiting for its listing, and whether it ran out of room.
+#[derive(Default)]
+pub struct Opened {
+    pub n: usize,
+    pub read: Vec<PathBuf>,
+    pub waiting: bool,
+    pub short: bool,
 }
 
 /// One visible row of the panel. `path` is relative to the root.
@@ -25,6 +37,7 @@ pub struct Row {
 struct Node {
     name: String,
     is_dir: bool,
+    link: bool,
     parent: usize,
     /// Child ids in display order; `None` until the listing has arrived.
     kids: Option<Vec<usize>>,
@@ -42,7 +55,7 @@ pub struct Tree {
 
 impl Node {
     fn new(name: String, is_dir: bool, parent: usize, open: bool) -> Node {
-        Node { name, is_dir, parent, kids: None, open, rows: 1 }
+        Node { name, is_dir, link: false, parent, kids: None, open, rows: 1 }
     }
 }
 
@@ -147,10 +160,12 @@ impl Tree {
         let mut kids = Vec::with_capacity(entries.len());
         for e in entries {
             let known = old.remove(&e.name).filter(|&k| self.nodes[k].is_dir == e.is_dir);
-            kids.push(known.unwrap_or_else(|| {
+            let k = known.unwrap_or_else(|| {
                 self.nodes.push(Node::new(e.name, e.is_dir, d, false));
                 self.nodes.len() - 1
-            }));
+            });
+            self.nodes[k].link = e.link;
+            kids.push(k);
         }
         self.nodes[d].kids = Some(kids);
         self.refresh(d);
@@ -170,6 +185,38 @@ impl Tree {
             self.nodes[i].open = false;
             self.refresh(i);
         }
+    }
+
+    /// TREE-4 `Z`: opens the directory `dir` and every directory below it whose listing is there, shallow ones
+    /// first, at most `room` of them. A link, a directory `skip` names and what is below them stay as they are.
+    pub fn expand_all(&mut self, dir: &Path, room: usize, skip: &dyn Fn(&Path) -> bool) -> Opened {
+        let mut o = Opened::default();
+        let top = self.find(dir).filter(|&i| self.nodes[i].is_dir);
+        let mut todo: VecDeque<_> = top.map(|i| (i, dir.to_path_buf())).into_iter().collect();
+        while let Some((i, path)) = todo.pop_front() {
+            if !self.nodes[i].open {
+                if o.n == room {
+                    o.short = true;
+                    continue;
+                }
+                (self.nodes[i].open, o.n) = (true, o.n + 1);
+                self.refresh(i);
+                if self.nodes[i].kids.is_none() {
+                    o.read.push(path.clone());
+                }
+            }
+            let Some(kids) = self.nodes[i].kids.clone() else {
+                o.waiting = true;
+                continue;
+            };
+            for k in kids.into_iter().filter(|&k| self.nodes[k].is_dir && !self.nodes[k].link) {
+                let below = path.join(&self.nodes[k].name);
+                if !skip(&below) {
+                    todo.push_back((k, below));
+                }
+            }
+        }
+        o
     }
 
     /// TREE-4 `-`: only the root stays open. Listings that have arrived are kept.

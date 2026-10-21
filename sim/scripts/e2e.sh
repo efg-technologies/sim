@@ -481,6 +481,33 @@ tree_2_ctrl_n_toggles_the_panel_and_esc_gives_the_focus_back() {
   screen | grep -F -q "   1 n main() {}"
 }
 
+tree_2_ctrl_w_moves_the_focus_between_the_text_and_the_panel_which_stays_open() {
+  project
+  start src/main.rs
+  wait_for "src/main.rs  1:1  NORMAL"
+  keys C-w
+  typed w # from the text with the panel closed: it opens, with the focus
+  wait_for "docs/  TREE"
+  keys C-w
+  typed l # the focus goes to the text; the panel stays
+  wait_for "src/main.rs  1:1  NORMAL"
+  screen | grep -F -q "▸ docs/"
+  keys C-w C-h # (a terminal sends byte 8 for Ctrl-h)
+  wait_for "docs/  TREE"
+  keys C-w C-w
+  wait_for "src/main.rs  1:1  NORMAL"
+  screen | grep -F -q "▸ docs/"
+  typed x # the text has the keys
+  wait_for "modified"
+  keys C-w
+  wait_for "other pane" # a pause on the prefix opens which-key
+  keys Escape
+  wait_gone "other pane"
+  keys C-w
+  typed w
+  wait_for "docs/  TREE"
+}
+
 tree_4_keys_move_expand_collapse_and_open() {
   project
   start
@@ -515,6 +542,37 @@ tree_4_keys_move_expand_collapse_and_open() {
   keys C-n
   typed q # q closes the panel
   wait_gone "▸ docs/"
+}
+
+tree_4_enter_toggles_a_folder_c_closes_the_one_it_is_in_and_big_z_opens_everything_below() {
+  project
+  mkdir -p "$W/zdeep/a/b" "$W/zdeep/c"
+  printf 'x\n' > "$W/zdeep/a/b/leaf.txt"
+  printf 'y\n' > "$W/zdeep/c/other.txt"
+  start
+  wait_for "docs/  TREE"
+  keys Enter # opens a folder
+  wait_for "guide.md"
+  keys Enter # and closes it again
+  wait_gone "guide.md"
+  typed j
+  wait_for "src/  TREE"
+  typed Z # a folder and everything below it
+  wait_for "lib.rs"
+  keys Down Down
+  wait_for "src/main.rs  TREE"
+  typed C # closes the folder that holds the file; the cursor goes onto it
+  wait_gone "main.rs"
+  wait_for "src/  TREE"
+  typed z # closes everything
+  wait_gone "lib.rs"
+  wait_for "src/  TREE" # (the cursor stays on the top-level entry that held it)
+  typed j
+  wait_for "zdeep/  TREE"
+  typed Z
+  wait_for "leaf.txt"
+  screen | grep -F -q "other.txt"
+  wait_for "zdeep/  TREE" # the cursor stayed on its entry
 }
 
 tree_5_directories_are_read_when_they_are_opened() {

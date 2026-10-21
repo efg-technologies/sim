@@ -34,7 +34,7 @@ use crate::tabs::{self, Tab};
 use crate::tree::{Entry, Row as TreeRow, Tree};
 use crossterm::event::MouseEvent;
 use live::{Live, Pick};
-use panel::Search;
+use panel::{Search, Spread};
 use ropey::Rope;
 use sim_core::core::app::{App, Effect, Event, Key, Read};
 use sim_core::core::buffer::Buffer;
@@ -330,6 +330,8 @@ pub struct Panel {
     /// A path (below the root) to show: its directories are expanded, step by step, as their
     /// listings arrive, and the cursor goes there.
     reveal: Option<PathBuf>,
+    /// TREE-4: the `Z` that waits for listings, if any.
+    spread: Option<Spread>,
     /// FIND-1: the search that runs, if any.
     search: Option<Search>,
     /// GREP-1: the content search that runs, if any.
@@ -411,6 +413,8 @@ pub struct Sim {
     /// KEY-2: what was typed after a Space that makes no sequence yet: `Some("")` after the Space,
     /// `Some("b")` after `<Space>b`.
     leader: Option<String>,
+    /// TREE-2: Ctrl-w was typed and waits for the key that sends the focus.
+    win: bool,
     /// KEY-5: the letters are on the tabs (`Some(false)` to show a file, `Some(true)` to close one).
     tabpick: Option<bool>,
     /// KEY-3: the number of the last pause asked for, and the prefix whose window is open.
@@ -631,6 +635,7 @@ impl Sim {
                 self.arm(&mut out);
             }
             SimEvent::Pause(n) => self.paused(n),
+            SimEvent::Help | SimEvent::BackTab if take(&mut self.win) => {} // (any key ends Ctrl-w's prefix)
             SimEvent::Help => self.help(String::new(), &mut out),
             SimEvent::Changes(r) => match r {
                 Ok(counts) if self.changes.is_some() => {
@@ -1171,12 +1176,16 @@ impl Sim {
         if let Some(close) = self.tabpick.take() {
             return self.pick_tab(k, close, out);
         }
+        if take(&mut self.win) {
+            return self.win_key(k, out);
+        }
         if self.leader.is_some() || (k == Key::Char(' ') && self.leads()) {
             return self.leader_key(k, out);
         }
         match k {
             // PICK-2: while a picker is open every key is its own (Ctrl-n and Ctrl-p move in it)
             _ if self.panel.live.is_some() => return self.live_key(k, out),
+            Key::Ctrl('w') if self.leads() => return self.win = true,
             Key::Ctrl('n') => return self.toggle(out),
             Key::Ctrl('p') => return self.live_start(Pick::Files, out),
             Key::Ctrl('f') => return self.live_start(Pick::Grep, out),

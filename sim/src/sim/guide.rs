@@ -1,4 +1,4 @@
-//! KEY-2, KEY-3, KEY-5, KEY-6, MD-5, MD-6
+//! KEY-2, KEY-3, KEY-5, KEY-6, MD-5, MD-6, TREE-2
 //! What guides the user's hands in sim's state (pure): the leader (Space and what follows it), the
 //! prefix that is typed and not complete, the pause after which which-key shows what can come next,
 //! the letters on the tabs, and the hint for Tab.
@@ -26,9 +26,12 @@ fn token(c: char) -> String {
 
 impl Sim {
     /// KEY-3: the keys of a sequence that is typed and not complete, as the key table writes them:
-    /// the leader's, an operator and what follows it, `g`, `z`, `Z`, `[`, `]`. Not a count, and not the
-    /// char that `f`, `t` and `r` wait for.
+    /// the leader's, Ctrl-w (TREE-2), an operator and what follows it, `g`, `z`, `Z`, `[`, `]`. Not a count,
+    /// and not the char that `f`, `t` and `r` wait for.
     pub fn prefix(&self) -> Vec<String> {
+        if self.win {
+            return vec!["<C-w>".into()];
+        }
         if let Some(l) = &self.leader {
             return ["<Space>".to_string()].into_iter().chain(l.chars().map(token)).collect();
         }
@@ -56,8 +59,8 @@ impl Sim {
         Some((p.iter().map(|t| keys::shown(t)).collect(), keys::next(p, self.key_mode())))
     }
 
-    /// KEY-2: whether a Space is the leader here: in Normal mode with nothing typed, and in the tree
-    /// unless it is taking a query or a `g`.
+    /// KEY-2: whether a Space is the leader here (and TREE-2's Ctrl-w the window key): in Normal mode with
+    /// nothing typed, and in the tree unless it is taking a query or a `g`.
     pub(super) fn leads(&self) -> bool {
         if self.panel.live.is_some() {
             return false;

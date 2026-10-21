@@ -158,10 +158,21 @@ fn print(r: &Rig) -> Fingerprint {
 /// The keys that do something after `prefix` (tokens already typed): those after which the Sim is not
 /// as it was. Each is tried on a Sim of its own, on all the threads there are (a Sim is slow to make
 /// in a debug build).
-fn handled(prefix: &[&Typed], names: &[(String, Typed)]) -> BTreeSet<String> {
+///
+/// `setup` is typed first: the state the keys are tried in (the text with the focus, by default).
+fn handled(prefix: &[&Typed], names: &[(String, Typed)], setup: &str) -> BTreeSet<String> {
     let count = |n: &str| n.len() == 1 && "123456789".contains(n);
-    // sim's own keys work whatever has been typed: a prefix does not hold them back
-    let keep = |n: &str| prefix.is_empty() || !(count(n) || GLOBAL.contains(&n));
+    // sim's own keys work whatever has been typed: a prefix does not hold them back. Ctrl-w (TREE-2) is
+    // the exception that holds back all but the two that are not keys: the next key ends it, whatever it is
+    // (and Ctrl-p is one of its keys)
+    let win = matches!(prefix, [Typed::K(Key::Ctrl('w'))]);
+    let own = if win { &GLOBAL[4..] } else { &GLOBAL[..] };
+    let keep = |n: &str| prefix.is_empty() || !(count(n) || own.contains(&n));
+    let made = || {
+        let mut r = rich();
+        r.keys(setup);
+        r
+    };
     let todo: Vec<&(String, Typed)> = names.iter().filter(|(n, _)| keep(n)).collect();
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(16);
     let part = todo.len().div_ceil(threads).max(1);
@@ -170,9 +181,10 @@ fn handled(prefix: &[&Typed], names: &[(String, Typed)]) -> BTreeSet<String> {
             .chunks(part)
             .map(|chunk| {
                 scope.spawn(move || {
-                    let base = print(&rich());
                     let did = |t: &Typed| {
-                        let mut r = rich();
+                        // (against the same Sim: the root's path may be on the screen, and it is another each time)
+                        let mut r = made();
+                        let base = print(&r);
                         prefix.iter().for_each(|p| feed(&mut r, **p));
                         feed(&mut r, *t);
                         print(&r) != base
@@ -219,7 +231,10 @@ fn compare(prefix: &[&str]) {
     let all = universe();
     let seq: Vec<Typed> = prefix.iter().map(|p| typed(p)).collect();
     let refs: Vec<&Typed> = seq.iter().collect();
-    let did = handled(&refs, &all);
+    // (after Ctrl-w what a key does depends on which pane has the focus: the text with the panel closed,
+    // the panel, the text with the panel open; the keys of the table are those any of them uses)
+    let setups: &[&str] = if prefix == ["<C-w>"] { &["", "<C-n>", "<C-n><Esc>"] } else { &[""] };
+    let did: BTreeSet<String> = setups.iter().flat_map(|s| handled(&refs, &all, s)).collect();
     let has = listed(prefix);
     let (undocumented, dead): (Vec<_>, Vec<_>) =
         (did.difference(&has).cloned().collect(), has.difference(&did).cloned().collect());
@@ -240,6 +255,11 @@ fn key_1_after_a_prefix_the_keys_that_do_something_are_the_table_s() {
         compare(&[prefix]);
     }
     compare(&["<Space>", "b"]);
+}
+
+#[test]
+fn key_1_after_ctrl_w_the_keys_that_do_something_are_the_table_s_in_any_pane() {
+    compare(&["<C-w>"]);
 }
 
 #[test]

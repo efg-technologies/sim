@@ -7,11 +7,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 fn d(name: &str) -> Entry {
-    Entry { name: name.into(), is_dir: true }
+    Entry { name: name.into(), is_dir: true, link: false }
 }
 
 fn f(name: &str) -> Entry {
-    Entry { name: name.into(), is_dir: false }
+    Entry { name: name.into(), is_dir: false, link: false }
 }
 
 fn names(t: &Tree) -> Vec<String> {
@@ -306,6 +306,7 @@ fn file_system() -> impl Strategy<Value = BTreeMap<PathBuf, Vec<Entry>>> {
                     let e = Entry {
                         name: p.file_name().unwrap().to_str().unwrap().into(),
                         is_dir: dirs.contains(p),
+                        link: false,
                     };
                     if !list.contains(&e) {
                         list.push(e);

@@ -196,7 +196,7 @@ fn icon_1_with_the_icons_on_they_are_drawn_and_zi_puts_them_out_and_back() {
     let mut r = dressed("icon-1-on", Skin::Depth, true);
     r.keys("<Down><CR>");
     assert!(private_use(&every_row(&r)).is_some(), "the tree has icons:\n{}", every_row(&r));
-    r.keys("<C-w>hzi");
+    r.keys("zi"); // (the text has the focus: the file was opened from the tree)
     assert_eq!(private_use(&every_row(&r)), None, "zi: off\n{}", every_row(&r));
     assert!(r.status().contains("icons off"), "{:?}", r.status());
     r.keys("zi");

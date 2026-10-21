@@ -78,7 +78,7 @@ impl Sim {
 
     /// A click on a row of the panel: the panel's cursor goes there and the panel has the focus;
     /// a file is opened and a directory toggled, as Enter would (TREE-4). The keys of the panel's
-    /// own cancel a reveal that is waiting, and so does a click; a search stops being typed.
+    /// own cancel a reveal (or a `Z`) that is waiting, and so does a click; a search stops being typed.
     fn click_panel(&mut self, y: usize, out: Out) {
         let i = self.panel.top + y;
         self.drag = None;
@@ -86,7 +86,7 @@ impl Sim {
             return;
         }
         self.msg = None;
-        self.panel.reveal = None;
+        (self.panel.reveal, self.panel.spread) = (None, None);
         self.panel.search.iter_mut().for_each(|s| s.typing = false);
         (self.panel.cur, self.panel.focus) = (i, true);
         match self.row(i) {

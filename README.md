@@ -70,7 +70,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 
 **Keys you can find**
 
-- `Space` is the leader key. A pause on a prefix (`Space`, `g`, `z`, `Z`, `[`, `]`, or an operator such as `d`) opens a small which-key window that lists the keys that can come next; typing on works exactly as without it.
+- `Space` is the leader key. A pause on a prefix (`Space`, `Ctrl-w`, `g`, `z`, `Z`, `[`, `]`, or an operator such as `d`) opens a small which-key window that lists the keys that can come next; typing on works exactly as without it.
 - `:help` and `F1` open a searchable list of every key and command, with what each one does; `:help tab` finds `Tab`, `Shift-Tab` and `<Space>bp`.
 - `:tutor` opens about fifteen minutes of short lessons in a scratch copy (nothing is written), with exercises that mark themselves ✓ as you get them right; it speaks your language (`LC_ALL`, `LC_MESSAGES`, `LANG`), any of the ten of this README.
 - `<Space>bp` puts a letter on each tab, and the letter jumps to its file; `<Space>bc` does the same to close one (a file with changes stays open, as with `:q`). A hint names `Tab` and `Shift-Tab` the first time a second file is open, until you have used them three times.
@@ -104,6 +104,8 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `Ctrl-p` | find files |
 | `Ctrl-f` | search file contents |
 | `.` | changed and recent files (in the tree) |
+| `Enter`, `C`, `z`, `Z` | in the tree: open or close a folder, close the folder you are in, close all, open a folder and everything below it (not what git ignores) |
+| `Ctrl-w w` | move the focus between the text and the tree, which stays open (`Ctrl-w h` the tree, `Ctrl-w l` the text) |
 | `Tab` | next file |
 | `Shift-Tab` | previous file |
 | `zh` | syntax colors on/off |

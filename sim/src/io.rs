@@ -208,9 +208,11 @@ pub fn read_dir(dir: &Path) -> Result<Vec<Entry>, String> {
         Ok(t) => t.is_dir(),
         Err(_) => false,
     };
-    let entries = list
-        .filter_map(Result::ok)
-        .map(|e| Entry { name: e.file_name().to_string_lossy().into_owned(), is_dir: is_dir(&e) });
+    let entries = list.filter_map(Result::ok).map(|e| Entry {
+        name: e.file_name().to_string_lossy().into_owned(),
+        is_dir: is_dir(&e),
+        link: e.file_type().is_ok_and(|t| t.is_symlink()),
+    });
     let mut entries: Vec<Entry> = entries.collect();
     tree::sort(&mut entries);
     Ok(entries)
