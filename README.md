@@ -12,15 +12,15 @@ Everything sim promises, it promises for every file open in it: **without an exp
 
 ## Install
 
-The binary is `sim`. The package is `sim-editor` on the AUR and crates.io, and `efg-technologies/tap/sim` on Homebrew; the library it is built on is `sim-editor-core` on crates.io.
+The binary is `sim`, and the package is `efg-technologies/tap/sim` on Homebrew. The AUR package and the crates (`sim-editor`, and `sim-editor-core`, the library it is built on) are not published yet.
 
-sim 0.1.0 is out. Install it with Homebrew:
+sim 0.2.0 is out. Install it with Homebrew:
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-The source of the release is on the [v0.1.0 release page](https://github.com/efg-technologies/sim/releases/tag/v0.1.0) (`sim-0.1.0.tar.gz`). To build it from source:
+The source of the release is on the [v0.2.0 release page](https://github.com/efg-technologies/sim/releases/tag/v0.2.0) (`sim-0.2.0.tar.gz`). To build it from source:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
@@ -49,7 +49,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 - Trailing blanks show as `·`, a no-break space as `⍽`, a tab as `»`.
 - When another process rewrites the open file, the changed lines flash for a moment and are then marked in the text, the box says how many changes are on disk, the tab shows `↯`, and the tree marks the file. `]c` and `[c` go to the next and the previous mark.
 - Changes against git HEAD show as gutter signs, a status letter for each file in the tree (a folder shows the letter of the strongest status below it) and `+n ~n -n` in the status line.
-- git is not run where the repository's own config could run a command (`core.fsmonitor`, a filter driver, and more): the box says `git not run` on the alert's block, and the status line names the key and the file. Where git does run with the repository's own `core.fsmonitor`, hooks path, filters or external diff turned off, the box says how many (`2 git settings off`).
+- git is not run where the repository's own config could run a command (`core.sshCommand`, an `include`, and more): the box says `git not run` on the alert's block, and the status line names the key and the file. Where git does run with the repository's own `core.fsmonitor`, hooks path, filters or external diff turned off, the box says how many (`2 git settings off`).
 - A Markdown link whose text names an address that its target is not (`[https://good.example](https://evil.example)`, a reference link `[good.example][1]` whose definition says another place, a link that goes over lines or has a backslash or an entity in its target, a raw HTML link `<a href="…">`) has its target, and for a reference its text, on the magenta block, in the read view and in calm too; the read view never hides a link's brackets or URL.
 
 **Refuses what it should, keeps your text**
@@ -104,7 +104,9 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `Ctrl-p` | find files |
 | `Ctrl-f` | search file contents |
 | `.` | changed and recent files (in the tree) |
-| `Enter`, `C`, `z`, `Z` | in the tree: open or close a folder, close the folder you are in, close all, open a folder and everything below it (not what git ignores) |
+| `Enter` | open or close a folder (in the tree) |
+| `C` | close the folder you are in (in the tree) |
+| `Z` | open a folder and everything below it, not what git ignores (in the tree) |
 | `Ctrl-w w` | move the focus between the text and the tree, which stays open (`Ctrl-w h` the tree, `Ctrl-w l` the text) |
 | `Tab` | next file |
 | `Shift-Tab` | previous file |
@@ -142,7 +144,7 @@ Vim, Neovim and Helix are mature editors and sim is new. Only what a primary sou
 
 What the others still do better, for now: Neovim and Helix ship a language-server client, Vim and Neovim have plugins and macros. sim has none of these yet.
 
-## Roadmap (planned, not shipped)
+Vim macros · clipboard integration beyond OSC 52 · a sandboxed language-server client · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
 
 Vim macros · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
 

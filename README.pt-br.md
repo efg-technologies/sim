@@ -12,15 +12,15 @@ Tudo o que o sim promete, ele promete para todo arquivo aberto nele: **sem uma a
 
 ## Instalação
 
-O binário é `sim`. O nome do pacote é `sim-editor` no AUR e no crates.io, e `efg-technologies/tap/sim` no Homebrew; a biblioteca sobre a qual ele é construído é `sim-editor-core`, no crates.io.
+O binário é `sim` e o pacote no Homebrew é `efg-technologies/tap/sim`. O pacote do AUR e os crates do crates.io (`sim-editor` e `sim-editor-core`, a biblioteca sobre a qual ele é construído) ainda não foram publicados.
 
-O sim 0.1.0 já foi publicado. Instale com o Homebrew:
+O sim 0.2.0 já foi publicado. Instale com o Homebrew:
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-O código-fonte da versão está na [página da versão v0.1.0 no GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.1.0) (`sim-0.1.0.tar.gz`). Para compilar a partir do código-fonte:
+O código-fonte da versão está na [página da versão v0.2.0 no GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.2.0) (`sim-0.2.0.tar.gz`). Para compilar a partir do código-fonte:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
@@ -49,7 +49,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 - Espaços no fim da linha aparecem como `·`, um espaço não separável como `⍽` e uma tabulação como `»`.
 - Quando outro processo reescreve o arquivo aberto, as linhas alteradas piscam por um instante e depois são marcadas no texto, a caixa indica quantas mudanças estão no disco, a aba mostra `↯` e a árvore marca o arquivo. `]c` e `[c` vão para a marca seguinte e para a anterior.
 - As mudanças em relação ao git HEAD aparecem como sinais na margem, uma letra de status para cada arquivo na árvore (uma pasta mostra a letra do status mais forte abaixo dela) e `+n ~n -n` na linha de status.
-- O git não é executado onde a configuração do próprio repositório poderia executar um comando (`core.fsmonitor`, um driver de filtro e mais): a caixa diz `git not run` sobre o bloco de alerta, e a linha de status indica a chave e o arquivo. Onde o git roda com configurações do próprio repositório desligadas (`core.fsmonitor`, o caminho dos hooks, filtros ou diff externo), a caixa diz quantas (`2 git settings off`).
+- O git não é executado onde a configuração do próprio repositório poderia executar um comando (`core.sshCommand`, um `include` e mais): a caixa diz `git not run` sobre o bloco de alerta, e a linha de status indica a chave e o arquivo. Onde o git roda com configurações do próprio repositório desligadas (`core.fsmonitor`, o caminho dos hooks, filtros ou diff externo), a caixa diz quantas (`2 git settings off`).
 - Um link de Markdown cujo texto nomeia um endereço que o destino não é (`[https://good.example](https://evil.example)`, também um link de referência `[good.example][1]` cuja definição leva a outro lugar, um link em várias linhas ou com barra invertida ou entidade no destino, um link de HTML `<a href="…">`) tem o destino, e numa referência também o texto, sobre o bloco magenta, na visão de leitura e também no calm; a visão de leitura nunca esconde os colchetes nem a URL de um link.
 
 **Recusa o que deve recusar e preserva o seu texto**
@@ -70,7 +70,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 
 **Teclas fáceis de encontrar**
 
-- `Space` é a tecla líder. Uma pausa em um prefixo (`Space`, `g`, `z`, `Z`, `[`, `]` ou um operador como `d`) abre uma pequena janela which-key que lista as teclas que podem vir em seguida; continuar digitando funciona exatamente como sem ela.
+- `Space` é a tecla líder. Uma pausa em um prefixo (`Space`, `Ctrl-w`, `g`, `z`, `Z`, `[`, `]` ou um operador como `d`) abre uma pequena janela which-key que lista as teclas que podem vir em seguida; continuar digitando funciona exatamente como sem ela.
 - `:help` e `F1` abrem uma lista pesquisável de todas as teclas e comandos, com o que cada um faz; `:help tab` encontra `Tab`, `Shift-Tab` e `<Space>bp`.
 - `:tutor` abre cerca de quinze minutos de lições curtas em uma cópia descartável (nada é gravado), com exercícios que se marcam ✓ sozinhos quando você acerta; fala o seu idioma (`LC_ALL`, `LC_MESSAGES`, `LANG`), qualquer um dos dez deste README.
 - `<Space>bp` põe uma letra em cada aba, e a letra leva ao seu arquivo; `<Space>bc` faz o mesmo para fechar uma (um arquivo com mudanças continua aberto, como com `:q`). Uma dica cita `Tab` e `Shift-Tab` na primeira vez que um segundo arquivo é aberto, até você usá-las três vezes.
@@ -104,6 +104,10 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `Ctrl-p` | encontrar arquivos |
 | `Ctrl-f` | buscar no conteúdo dos arquivos |
 | `.` | arquivos alterados e recentes (na árvore) |
+| `Enter` | abrir ou fechar uma pasta (na árvore) |
+| `C` | fechar a pasta em que você está (na árvore) |
+| `Z` | abrir uma pasta e tudo abaixo dela, exceto o que o git ignora (na árvore) |
+| `Ctrl-w w` | mover o foco entre o texto e a árvore, que continua aberta (`Ctrl-w h` a árvore, `Ctrl-w l` o texto) |
 | `Tab` | próximo arquivo |
 | `Shift-Tab` | arquivo anterior |
 | `zh` | cores de sintaxe ligadas ou desligadas |
@@ -142,7 +146,7 @@ O que os outros ainda fazem melhor, por enquanto: Neovim e Helix incluem um clie
 
 ## Roadmap (planejado, não lançado)
 
-Macros do Vim · integração com a área de transferência além do OSC 52 · um cliente de servidor de linguagem em sandbox · `:tutor` · uma árvore de diff do git · uma GUI com profundidade de verdade (um protótipo) · pacotes para o AUR e o crates.io.
+Macros do Vim · integração com a área de transferência além do OSC 52 · um cliente de servidor de linguagem em sandbox · uma GUI com profundidade de verdade (um protótipo) · pacotes para o AUR e o crates.io.
 
 ## Desenvolvimento
 

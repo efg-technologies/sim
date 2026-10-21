@@ -12,15 +12,15 @@ Tout ce que sim promet, il le promet pour chaque fichier ouvert dans l’éditeu
 
 ## Installation
 
-Le binaire est `sim`. Le nom du paquet est `sim-editor` sur l’AUR et crates.io, et `efg-technologies/tap/sim` sur Homebrew ; la bibliothèque sur laquelle il repose est `sim-editor-core`, sur crates.io.
+Le binaire s'appelle `sim` et le paquet Homebrew est `efg-technologies/tap/sim`. Le paquet AUR et les crates sur crates.io (`sim-editor` et `sim-editor-core`, la bibliothèque sur laquelle il repose) ne sont pas encore publiés.
 
-sim 0.1.0 est publié. Installez-le avec Homebrew :
+sim 0.2.0 est publié. Installez-le avec Homebrew :
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-Le code source de la version se trouve sur la [page de la version v0.1.0 sur GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.1.0) (`sim-0.1.0.tar.gz`). Pour le compiler depuis les sources :
+Le code source de la version se trouve sur la [page de la version v0.2.0 sur GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.2.0) (`sim-0.2.0.tar.gz`). Pour le compiler depuis les sources :
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
@@ -49,7 +49,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 - Les espaces en fin de ligne s’affichent en `·`, une espace insécable en `⍽`, une tabulation en `»`.
 - Quand un autre processus réécrit le fichier ouvert, les lignes modifiées clignotent un instant puis sont signalées dans le texte, l’encadré indique combien de modifications sont sur le disque, l’onglet affiche `↯` et l’arborescence marque le fichier. `]c` et `[c` mènent à la marque suivante et à la précédente.
 - Les écarts avec git HEAD apparaissent sous forme de signes dans la marge, d’une lettre d’état pour chaque fichier de l’arborescence (un dossier affiche la lettre de l’état le plus fort en dessous de lui) et de `+n ~n -n` dans la ligne d’état.
-- git n’est pas exécuté là où la configuration du dépôt lui-même pourrait lancer une commande (`core.fsmonitor`, un pilote de filtre, et d’autres) : l’encadré affiche `git not run` sur le bloc d’alerte, et la ligne d’état indique la clé et le fichier. Là où git s’exécute avec des réglages du dépôt désactivés (`core.fsmonitor`, le chemin des hooks, des filtres ou un diff externe), l’encadré en donne le nombre (`2 git settings off`).
+- git n’est pas exécuté là où la configuration du dépôt lui-même pourrait lancer une commande (`core.sshCommand`, un `include`, et d’autres) : l’encadré affiche `git not run` sur le bloc d’alerte, et la ligne d’état indique la clé et le fichier. Là où git s’exécute avec des réglages du dépôt désactivés (`core.fsmonitor`, le chemin des hooks, des filtres ou un diff externe), l’encadré en donne le nombre (`2 git settings off`).
 - Un lien Markdown dont le texte nomme une adresse que sa cible n’est pas (`[https://good.example](https://evil.example)`, aussi un lien de référence `[good.example][1]` dont la définition mène ailleurs, un lien sur plusieurs lignes ou avec une barre oblique inverse ou une entité dans la cible, un lien HTML `<a href="…">`) a sa cible, et pour une référence son texte, sur le bloc magenta, dans la vue de lecture et aussi en calm ; la vue de lecture ne cache jamais les crochets ni l’URL d’un lien.
 
 **Refuse ce qu’il doit refuser, conserve votre texte**
@@ -70,7 +70,7 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 
 **Des touches faciles à trouver**
 
-- `Space` est la touche leader. Une pause sur un préfixe (`Space`, `g`, `z`, `Z`, `[`, `]`, ou un opérateur comme `d`) ouvre une petite fenêtre which-key qui liste les touches qui peuvent suivre ; continuer à taper fonctionne exactement comme sans elle.
+- `Space` est la touche leader. Une pause sur un préfixe (`Space`, `Ctrl-w`, `g`, `z`, `Z`, `[`, `]`, ou un opérateur comme `d`) ouvre une petite fenêtre which-key qui liste les touches qui peuvent suivre ; continuer à taper fonctionne exactement comme sans elle.
 - `:help` et `F1` ouvrent une liste consultable de chaque touche et commande, avec ce que fait chacune ; `:help tab` trouve `Tab`, `Shift-Tab` et `<Space>bp`.
 - `:tutor` ouvre environ quinze minutes de leçons courtes dans une copie jetable (rien n’est écrit), avec des exercices qui se cochent ✓ tout seuls quand vous les réussissez ; il parle votre langue (`LC_ALL`, `LC_MESSAGES`, `LANG`), l’une des dix de ce README.
 - `<Space>bp` place une lettre sur chaque onglet, et la lettre mène à son fichier ; `<Space>bc` fait de même pour en fermer un (un fichier modifié reste ouvert, comme avec `:q`). Une astuce nomme `Tab` et `Shift-Tab` la première fois qu’un deuxième fichier est ouvert, jusqu’à ce que vous les ayez utilisées trois fois.
@@ -104,6 +104,10 @@ Nécessite Rust 1.88 ou plus récent. Fonctionne sous Linux et macOS, dans n’i
 | `Ctrl-p` | trouver des fichiers |
 | `Ctrl-f` | chercher dans le contenu des fichiers |
 | `.` | fichiers modifiés et récents (dans l’arborescence) |
+| `Enter` | ouvrir ou fermer un dossier (dans l’arborescence) |
+| `C` | fermer le dossier où l'on est (dans l’arborescence) |
+| `Z` | ouvrir un dossier et tout ce qu'il contient, sauf ce que git ignore (dans l’arborescence) |
+| `Ctrl-w w` | passer le focus du texte à l'arbre et inversement, l'arbre reste ouvert (`Ctrl-w h` l'arbre, `Ctrl-w l` le texte) |
 | `Tab` | fichier suivant |
 | `Shift-Tab` | fichier précédent |
 | `zh` | couleurs de syntaxe activées ou désactivées |
@@ -142,7 +146,7 @@ Là où les autres ont de l’avance, pour l’instant : Neovim et Helix intèg
 
 ## Feuille de route (prévu, pas livré)
 
-Macros de Vim · intégration du presse-papiers au-delà d’OSC 52 · un client de serveur de langage dans un bac à sable · `:tutor` · une arborescence des diffs git · une interface graphique avec une vraie profondeur (un prototype) · des paquets pour l’AUR et crates.io.
+Macros de Vim · intégration du presse-papiers au-delà d’OSC 52 · un client de serveur de langage dans un bac à sable · une interface graphique avec une vraie profondeur (un prototype) · des paquets pour l’AUR et crates.io.
 
 ## Développer sim
 

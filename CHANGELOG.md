@@ -6,8 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-21
+
 ### Added
 
+- `<C-w>` moves the focus between the text and the tree and leaves the tree open: `<C-w>w` (and `W`, `p`, `<C-w>`) goes to the other one, `<C-w>h` or `<C-w><Left>` to the tree (opening it), `<C-w>t` to the tree if it is open, `<C-w>l`, `<C-w><Right>` or `<C-w>b` to the text. Ctrl-n is as it was. Insert mode, the command line and the picker keep their Ctrl-w, and the rest of Neovim's `<C-w>` keys are not taken: sim has no split windows (TREE-2).
+- The tree's folder keys are Neo-tree's: Enter opens a closed folder and closes an open one, `C` closes the folder (or, on a file, the folder that holds it), `z` closes them all, and `Z` opens the folder under the cursor and every folder below it, never a git-ignored folder or a link, at most 200 a press (TREE-4).
 - The bar says `colors stopped` among its state words, for as long as it is so, for a file whose parse the highlighter gave up after 5 s (it was said once on the status line, where a key ended it) (SYN-3).
 - The changes view: `<Space>ge` opens the panel with only the files that differ from `HEAD`, staged and unstaged together and untracked ones too, in their folders. Each file shows its status letter and `+n −n` from `git diff --numstat HEAD` (an untracked file its line count) and each folder the sums. Deleted files are listed, and Enter opens `HEAD`'s version of one read-only, as a buffer named `HEAD:path` whose tab says so; a rename is one row, `old → new`, with a cut that keeps the new name whole and marks every cut with `…`. `<Space>ge` again, or `q`, goes back to the tree. In `sim --plain` the key is refused, naming plain mode (DIFF-1 to DIFF-6).
 - The editor's title is a breadcrumb, `src › sim.rs › leader_key`: the file's path below the root and the section the cursor is in, the nearest Markdown heading or the function, `impl`, class, struct, trait or module it is inside (found by a few string tests over the lines above it, not a parse). In depth it is the title of the editor's box, in flat it is at the right of the tab bar, and long ones are cut from the left with `…` (UI-18).
@@ -128,5 +132,6 @@ First public release: sim, the next-generation Vim. It shows even what is hidden
 - The boxes' titles say what the box is, with no number: the panel's says `files`, the editor's says nothing, since the file's name is in its tab (UI-16).
 - `sim --version` prints `sim 0.1.0` and exits 0. `sim --help` prints the usage, with the environment sim reads (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`), and exits 0. Any other argument that starts with `-` (and is not `--plain` or `--`) prints the same usage to stderr and exits 2. None of them touches the terminal (CLI-7, CLI-1).
 
-[Unreleased]: https://github.com/efg-technologies/sim/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/efg-technologies/sim/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/efg-technologies/sim/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/efg-technologies/sim/releases/tag/v0.1.0

@@ -12,15 +12,15 @@ sim 的每一項承諾，都適用於其中開啟的每一個檔案：**沒有�
 
 ## 安裝
 
-可執行檔是 `sim`。套件名稱在 AUR 與 crates.io 上是 `sim-editor`，在 Homebrew 上是 `efg-technologies/tap/sim`；它所依據的函式庫在 crates.io 上是 `sim-editor-core`。
+執行檔是 `sim`，Homebrew 上的套件名稱是 `efg-technologies/tap/sim`。AUR 套件與 crates.io 上的 crate（`sim-editor`，以及它所依賴的函式庫 `sim-editor-core`）尚未發布。
 
-sim 0.1.0 已經推出。可以用 Homebrew 安裝：
+sim 0.2.0 已經推出。可以用 Homebrew 安裝：
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-發行版本的原始碼在 [GitHub 的 v0.1.0 發行頁面](https://github.com/efg-technologies/sim/releases/tag/v0.1.0)（`sim-0.1.0.tar.gz`）。從原始碼建置：
+發行版本的原始碼在 [GitHub 的 v0.2.0 發行頁面](https://github.com/efg-technologies/sim/releases/tag/v0.2.0)（`sim-0.2.0.tar.gz`）。從原始碼建置：
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
@@ -49,7 +49,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 - 行尾空白顯示為 `·`，不換行空格顯示為 `⍽`，Tab 顯示為 `»`。
 - 當另一個行程改寫了開啟的檔案時，變更的行會先閃一下，再在文字中被標出，邊框上會寫明磁碟上有多少處變更，分頁顯示 `↯`，檔案樹也會標出該檔案。`]c` 與 `[c` 跳到下一個與上一個標記。
 - 與 git HEAD 的差異顯示為行號旁的標記、檔案樹中每個檔案的狀態字母（資料夾顯示其下最強狀態的字母），以及狀態列中的 `+n ~n -n`。
-- 如果儲存庫自身的設定可能執行指令（`core.fsmonitor`、過濾器驅動程式等），就不會執行 git：邊框上會以警示色塊寫出 `git not run`，狀態列會指出相關的鍵與檔案。若 git 在儲存庫自身的設定（`core.fsmonitor`、hooks 路徑、過濾器、外部 diff）被關閉後執行，邊框上會寫出被關閉的數量（`2 git settings off`）。
+- 如果儲存庫自身的設定可能執行指令（`core.sshCommand`、`include` 等），就不會執行 git：邊框上會以警示色塊寫出 `git not run`，狀態列會指出相關的鍵與檔案。若 git 在儲存庫自身的設定（`core.fsmonitor`、hooks 路徑、過濾器、外部 diff）被關閉後執行，邊框上會寫出被關閉的數量（`2 git settings off`）。
 - Markdown 連結的文字所稱的位址並不是其目標時（`[https://good.example](https://evil.example)`，也包括定義指向別處的參照式連結 `[good.example][1]`、跨多行的連結、目標裡帶反斜線或實體的連結、HTML 的 `<a href="…">` 連結），目標（參照式連結還有文字）會顯示在洋紅色色塊上；閱讀檢視與 calm 外觀中都一樣，閱讀檢視從不隱藏連結的方括號或 URL。
 
 **該拒絕的就拒絕，你的文字不會遺失**
@@ -70,7 +70,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 
 **找得到的按鍵**
 
-- `Space` 是 leader 鍵。在前綴鍵（`Space`、`g`、`z`、`Z`、`[`、`]`，或 `d` 這類運算子）上稍待片刻，會開啟一個小的 which-key 視窗，列出接下來可以按的鍵；繼續輸入的效果與沒有它時完全相同。
+- `Space` 是 leader 鍵。在前綴鍵（`Space`、`Ctrl-w`、`g`、`z`、`Z`、`[`、`]`，或 `d` 這類運算子）上稍待片刻，會開啟一個小的 which-key 視窗，列出接下來可以按的鍵；繼續輸入的效果與沒有它時完全相同。
 - `:help` 與 `F1` 會開啟一份可搜尋的清單，列出每個按鍵與指令，並說明各自的作用；`:help tab` 能找到 `Tab`、`Shift-Tab` 與 `<Space>bp`。
 - `:tutor` 會在一份用完即棄的副本裡開啟約 15 分鐘的簡短課程（不會寫入任何內容），練習做對後會自動標上 ✓；語言由 `LC_ALL`、`LC_MESSAGES`、`LANG` 決定，與本 README 相同的十種語言。
 - `<Space>bp` 會為每個分頁標上一個字母，按下該字母即可跳到對應的檔案；`<Space>bc` 以同樣的方式關閉分頁（有變更的檔案會保持開啟，與 `:q` 一樣）。第一次開啟第二個檔案時，會有提示告訴你 `Tab` 與 `Shift-Tab`，直到你用過它們三次為止。
@@ -104,6 +104,10 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `Ctrl-p` | 尋找檔案 |
 | `Ctrl-f` | 搜尋檔案內容 |
 | `.` | 有變更的與最近的檔案（在檔案樹中） |
+| `Enter` | 展開或收合資料夾（在檔案樹中） |
+| `C` | 收合所在的資料夾（在檔案樹中） |
+| `Z` | 展開資料夾及其下所有內容（git 忽略的除外）（在檔案樹中） |
+| `Ctrl-w w` | 在內文與樹之間切換焦點，樹保持開啟（`Ctrl-w h` 到樹，`Ctrl-w l` 到內文） |
 | `Tab` | 下一個檔案 |
 | `Shift-Tab` | 上一個檔案 |
 | `zh` | 開關語法色彩 |
@@ -142,7 +146,7 @@ Vim、Neovim 與 Helix 都是成熟的編輯器，而 sim 是新的。這裡只�
 
 ## 路線圖（規劃中，尚未推出）
 
-Vim 的巨集 · 超出 OSC 52 的剪貼簿整合 · 沙盒化的語言伺服器用戶端 · `:tutor` · git 差異樹 · 真正有層次感的 GUI（原型） · AUR 與 crates.io 的套件。
+Vim 的巨集 · 超出 OSC 52 的剪貼簿整合 · 沙盒化的語言伺服器用戶端 · 真正有層次感的 GUI（原型） · AUR 與 crates.io 的套件。
 
 ## 參與開發
 

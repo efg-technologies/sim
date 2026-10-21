@@ -1,6 +1,6 @@
 [package]
 name = "sim-editor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88" # `let` chains
 description = "sim: the next-generation Vim, in Rust. It shows even what is hidden, and loses nothing."
@@ -23,7 +23,7 @@ path = "src/main.rs"
 # for the terminal, at the same versions and features, so none of them adds code to the build (SPEC,
 # TREE-1). The core is the package `sim-editor-core` (see its Cargo.toml) and the crate `sim_core`.
 [dependencies]
-sim_core = { package = "sim-editor-core", path = "../core", version = "0.1.0" }
+sim_core = { package = "sim-editor-core", path = "../core", version = "0.2.0" }
 crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste"] }
 signal-hook = "0.3"
 unicode-width = { version = "0.2", default-features = false }

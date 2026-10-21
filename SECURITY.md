@@ -20,7 +20,8 @@ The report, the fix and the advisory are handled in the private advisory thread.
 
 | Version | Supported |
 |---|---|
-| 0.1.x | yes |
+| 0.2.x | yes |
+| 0.1.x | no |
 
 Nothing earlier was released.
 

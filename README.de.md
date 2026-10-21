@@ -12,15 +12,15 @@ Alles, was sim verspricht, verspricht es für jede darin geöffnete Datei: **ohn
 
 ## Installation
 
-Die Binärdatei heißt `sim`. Der Paketname lautet `sim-editor` im AUR und auf crates.io und `efg-technologies/tap/sim` bei Homebrew; die Bibliothek, auf der es aufbaut, heißt `sim-editor-core` auf crates.io.
+Das Programm heißt `sim`, das Homebrew-Paket `efg-technologies/tap/sim`. Das AUR-Paket und die Crates auf crates.io (`sim-editor` und `sim-editor-core`, die Bibliothek, auf der es aufbaut) sind noch nicht veröffentlicht.
 
-sim 0.1.0 ist veröffentlicht. Mit Homebrew installieren Sie es so:
+sim 0.2.0 ist veröffentlicht. Mit Homebrew installieren Sie es so:
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-Der Quellcode der Version liegt auf der [Release-Seite v0.1.0 auf GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.1.0) (`sim-0.1.0.tar.gz`). Aus dem Quellcode bauen:
+Der Quellcode der Version liegt auf der [Release-Seite v0.2.0 auf GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.2.0) (`sim-0.2.0.tar.gz`). Aus dem Quellcode bauen:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git
@@ -49,7 +49,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 - Leerzeichen am Zeilenende erscheinen als `·`, ein geschütztes Leerzeichen als `⍽`, ein Tabulator als `»`.
 - Schreibt ein anderer Prozess die geöffnete Datei neu, blinken die geänderten Zeilen kurz auf und werden dann im Text markiert, der Rahmen nennt die Zahl der Änderungen auf dem Datenträger, der Tab zeigt `↯`, und der Dateibaum markiert die Datei. `]c` und `[c` springen zur nächsten und zur vorherigen Markierung.
 - Änderungen gegenüber git HEAD erscheinen als Markierungen in der Randspalte, als Statusbuchstabe für jede Datei im Dateibaum (ein Ordner zeigt den Buchstaben des stärksten Status darunter) und als `+n ~n -n` in der Statuszeile.
-- git wird nicht ausgeführt, wo die eigene Konfiguration des Repositorys einen Befehl ausführen könnte (`core.fsmonitor`, ein Filtertreiber und mehr): Der Rahmen sagt `git not run` auf dem Warnblock, und die Statuszeile nennt den Schlüssel und die Datei. Läuft git, nachdem eigene Einstellungen des Repositorys (`core.fsmonitor`, Hooks-Pfad, Filter, externes Diff) abgeschaltet wurden, nennt der Rahmen die Zahl (`2 git settings off`).
+- git wird nicht ausgeführt, wo die eigene Konfiguration des Repositorys einen Befehl ausführen könnte (`core.sshCommand`, ein `include` und mehr): Der Rahmen sagt `git not run` auf dem Warnblock, und die Statuszeile nennt den Schlüssel und die Datei. Läuft git, nachdem eigene Einstellungen des Repositorys (`core.fsmonitor`, Hooks-Pfad, Filter, externes Diff) abgeschaltet wurden, nennt der Rahmen die Zahl (`2 git settings off`).
 - Ein Markdown-Link, dessen Text eine Adresse nennt, die sein Ziel nicht ist (`[https://good.example](https://evil.example)`, auch ein Referenz-Link `[good.example][1]`, dessen Definition woandershin zeigt, ein Link über mehrere Zeilen oder mit Backslash oder Entität im Ziel, ein HTML-Link `<a href="…">`), zeigt sein Ziel, bei einer Referenz auch seinen Text, auf dem magentafarbenen Block, in der Leseansicht und auch im Calm-Look; die Leseansicht versteckt von einem Link nie Klammern oder URL.
 
 **Lehnt ab, was abzulehnen ist, und bewahrt Ihren Text**
@@ -70,7 +70,7 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 
 **Tasten, die sich finden lassen**
 
-- `Space` ist die Leader-Taste. Eine Pause bei einem Präfix (`Space`, `g`, `z`, `Z`, `[`, `]` oder einem Operator wie `d`) öffnet ein kleines which-key-Fenster, das die Tasten auflistet, die als Nächstes kommen können; Weitertippen funktioniert genau wie ohne das Fenster.
+- `Space` ist die Leader-Taste. Eine Pause bei einem Präfix (`Space`, `Ctrl-w`, `g`, `z`, `Z`, `[`, `]` oder einem Operator wie `d`) öffnet ein kleines which-key-Fenster, das die Tasten auflistet, die als Nächstes kommen können; Weitertippen funktioniert genau wie ohne das Fenster.
 - `:help` und `F1` öffnen eine durchsuchbare Liste aller Tasten und Befehle, mit dem, was jede tut; `:help tab` findet `Tab`, `Shift-Tab` und `<Space>bp`.
 - `:tutor` öffnet etwa fünfzehn Minuten kurze Lektionen in einer Wegwerfkopie (es wird nichts geschrieben), mit Übungen, die sich selbst mit ✓ abhaken, wenn sie stimmen; es spricht deine Sprache (`LC_ALL`, `LC_MESSAGES`, `LANG`), eine der zehn dieses README.
 - `<Space>bp` setzt einen Buchstaben auf jeden Tab, und der Buchstabe springt zu dessen Datei; `<Space>bc` tut dasselbe zum Schließen eines Tabs (eine Datei mit Änderungen bleibt offen, wie bei `:q`). Ein Hinweis nennt `Tab` und `Shift-Tab`, sobald zum ersten Mal eine zweite Datei offen ist, bis Sie sie dreimal benutzt haben.
@@ -104,6 +104,10 @@ Benötigt Rust 1.88 oder neuer. Läuft unter Linux und macOS in jedem Terminal; 
 | `Ctrl-p` | Dateien finden |
 | `Ctrl-f` | Dateiinhalte durchsuchen |
 | `.` | geänderte und zuletzt geöffnete Dateien (im Dateibaum) |
+| `Enter` | einen Ordner öffnen oder schließen (im Dateibaum) |
+| `C` | den Ordner schließen, in dem man ist (im Dateibaum) |
+| `Z` | einen Ordner und alles darunter öffnen, außer dem, was git ignoriert (im Dateibaum) |
+| `Ctrl-w w` | den Fokus zwischen Text und Baum wechseln, der Baum bleibt offen (`Ctrl-w h` der Baum, `Ctrl-w l` der Text) |
 | `Tab` | nächste Datei |
 | `Shift-Tab` | vorherige Datei |
 | `zh` | Syntaxfarben an/aus |
@@ -142,7 +146,7 @@ Was die anderen vorerst noch besser können: Neovim und Helix liefern einen Lang
 
 ## Roadmap (geplant, nicht ausgeliefert)
 
-Vim-Makros · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · `:tutor` · ein git-Diff-Baum · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
+Vim-Makros · Zwischenablage-Integration über OSC 52 hinaus · ein Language-Server-Client in einer Sandbox · eine GUI mit echter Tiefe (ein Prototyp) · Pakete für AUR und crates.io.
 
 ## Entwicklung
 
