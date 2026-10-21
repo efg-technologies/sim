@@ -144,9 +144,9 @@ Vim, Neovim and Helix are mature editors and sim is new. Only what a primary sou
 
 What the others still do better, for now: Neovim and Helix ship a language-server client, Vim and Neovim have plugins and macros. sim has none of these yet.
 
-Vim macros · clipboard integration beyond OSC 52 · a sandboxed language-server client · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
+## Roadmap (planned, not shipped)
 
-Vim macros · clipboard integration beyond OSC 52 · a sandboxed language-server client · `:tutor` · a git diff tree · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
+Vim macros · clipboard integration beyond OSC 52 · a sandboxed language-server client · a GUI with real depth (a prototype) · packages for the AUR and crates.io.
 
 ## Working on it
 
