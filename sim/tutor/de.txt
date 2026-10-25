@@ -178,19 +178,22 @@ nicht einen Ort nennen und zu einem anderen führen:
 
 ## 9 Dateien finden und Aussehen
 
-Ctrl-p öffnet die Dateisuche: Tippe einen Teil des Namens, Enter
-öffnet. Ctrl-f sucht im Inhalt der Dateien des Projekts. Esc schließt
-beide. Ctrl-n zeigt oder verbirgt den Baum. zl wechselt das Aussehen
-(calm, flat, depth); zi schaltet die Icons ein oder aus (sie brauchen
-eine Nerd Font). <Space>bk sagt, wo sim die letzte aufbewahrte Version
-abgelegt hat. Drücke die Leertaste und warte: Ein Menü nennt jede
-Taste, die folgen kann.
+Ctrl-p sucht Dateien nach Namen; Enter öffnet ein Ergebnis. Ctrl-f
+sucht im Inhalt. Esc schließt beide.
+Ctrl-n öffnet und fokussiert den Baum, auch wenn er schon offen ist.
+Nur im Baum schließt es ihn; Esc geht zurück zum Text.
+Im Normalmodus oder im Baum wechselt Ctrl-w, dann w den Fokus und
+lässt den Baum offen.
+zl wechselt das Aussehen (calm, flat, depth); zi schaltet die Icons um
+(Nerd Font nötig).
+<Space>bk zeigt den Pfad der letzten aufbewahrten Version.
+Drücke die Leertaste und warte auf das Menü der nächsten Tasten.
 
 [ ] 9.1 Öffne die Dateisuche mit Ctrl-p und schließe sie mit Esc.
 @! finder
 [ ] 9.2 Durchsuche die Dateien mit Ctrl-f und schließe mit Esc.
 @! grep
-[ ] 9.3 Zeige oder verberge den Baum mit Ctrl-n.
+[ ] 9.3 Schließe den Baum mit zweimal Ctrl-n, dann drücke Esc.
 @! tree
 [ ] 9.4 Wechsle das Aussehen mit zl.
 @! look

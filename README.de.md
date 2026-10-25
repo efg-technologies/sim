@@ -14,13 +14,13 @@ Alles, was sim verspricht, verspricht es für jede darin geöffnete Datei: **ohn
 
 Das Programm heißt `sim`, das Homebrew-Paket `efg-technologies/tap/sim`. Das AUR-Paket und die Crates auf crates.io (`sim-editor` und `sim-editor-core`, die Bibliothek, auf der es aufbaut) sind noch nicht veröffentlicht.
 
-sim 0.2.0 ist veröffentlicht. Mit Homebrew installieren Sie es so:
+sim 0.2.1 ist veröffentlicht. Mit Homebrew installieren Sie es so:
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-Der Quellcode der Version liegt auf der [Release-Seite v0.2.0 auf GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.2.0) (`sim-0.2.0.tar.gz`). Aus dem Quellcode bauen:
+Der Quellcode der Version liegt auf der [Release-Seite v0.2.1 auf GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.2.1) (`sim-0.2.1.tar.gz`). Aus dem Quellcode bauen:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git

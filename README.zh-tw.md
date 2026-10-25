@@ -14,13 +14,13 @@ sim 的每一項承諾，都適用於其中開啟的每一個檔案：**沒有�
 
 執行檔是 `sim`，Homebrew 上的套件名稱是 `efg-technologies/tap/sim`。AUR 套件與 crates.io 上的 crate（`sim-editor`，以及它所依賴的函式庫 `sim-editor-core`）尚未發布。
 
-sim 0.2.0 已經推出。可以用 Homebrew 安裝：
+sim 0.2.1 已經推出。可以用 Homebrew 安裝：
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-發行版本的原始碼在 [GitHub 的 v0.2.0 發行頁面](https://github.com/efg-technologies/sim/releases/tag/v0.2.0)（`sim-0.2.0.tar.gz`）。從原始碼建置：
+發行版本的原始碼在 [GitHub 的 v0.2.1 發行頁面](https://github.com/efg-technologies/sim/releases/tag/v0.2.1)（`sim-0.2.1.tar.gz`）。從原始碼建置：
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git

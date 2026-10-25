@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-25
+
+### Fixed
+
+- The tutor's ten languages explain when Ctrl-n focuses or closes the tree and how Ctrl-w w moves focus while leaving it open; the window-key help includes every supported focus key.
+
 ## [0.2.0] - 2026-10-21
 
 ### Added
@@ -132,6 +138,7 @@ First public release: sim, the next-generation Vim. It shows even what is hidden
 - The boxes' titles say what the box is, with no number: the panel's says `files`, the editor's says nothing, since the file's name is in its tab (UI-16).
 - `sim --version` prints `sim 0.1.0` and exits 0. `sim --help` prints the usage, with the environment sim reads (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`), and exits 0. Any other argument that starts with `-` (and is not `--plain` or `--`) prints the same usage to stderr and exits 2. None of them touches the terminal (CLI-7, CLI-1).
 
-[Unreleased]: https://github.com/efg-technologies/sim/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/efg-technologies/sim/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/efg-technologies/sim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/efg-technologies/sim/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/efg-technologies/sim/releases/tag/v0.1.0

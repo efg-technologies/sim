@@ -162,17 +162,19 @@ safe\u{200B}word
 
 ## 9 尋找檔案與外觀
 
-Ctrl-p 開啟檔案尋找器：輸入名稱的一部分，按 Enter 開啟。Ctrl-f 在專案
-的檔案內容中搜尋。兩者都用 Esc 關閉。Ctrl-n 顯示或隱藏檔案樹。zl 切換
-外觀（calm、flat、depth）；zi 開關圖示（需要 Nerd Font）。<Space>bk 告
-訴你 sim 最後保留的版本在哪裡。按下 Space 並稍等：會出現一個選單，列出
-所有可接著按的鍵。
+Ctrl-p 依名稱尋找檔案，Enter 開啟結果。Ctrl-f 搜尋檔案內容。
+兩者都用 Esc 關閉。Ctrl-n 開啟檔案樹並移入焦點；已開啟時只移入焦點。
+僅在檔案樹有焦點時，Ctrl-n 才關閉它；Esc 返回本文。
+在 Normal 模式或檔案樹中，先按 Ctrl-w 再按 w 可切換焦點，
+檔案樹保持開啟。
+zl 切換外觀（calm、flat、depth）；zi 開關圖示（需要 Nerd Font）。
+<Space>bk 顯示最後保留的版本路徑。按 Space 並稍等可查看後續按鍵選單。
 
 [ ] 9.1 用 Ctrl-p 開啟檔案尋找器，再用 Esc 關閉。
 @! finder
 [ ] 9.2 用 Ctrl-f 搜尋檔案內容，再用 Esc 關閉。
 @! grep
-[ ] 9.3 用 Ctrl-n 顯示或隱藏檔案樹。
+[ ] 9.3 按兩次 Ctrl-n 關閉檔案樹，再按 Esc 返回。
 @! tree
 [ ] 9.4 用 zl 切換外觀。
 @! look

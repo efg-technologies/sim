@@ -176,19 +176,22 @@ sitio e ir a otro:
 
 ## 9 Buscar archivos y apariencia
 
-Ctrl-p abre el buscador de archivos: escribe parte de un nombre y
-Enter lo abre. Ctrl-f busca dentro de los archivos del proyecto. Esc
-cierra cualquiera de los dos. Ctrl-n muestra u oculta el árbol. zl
-cambia la apariencia (calm, flat, depth); zi activa o desactiva los
-iconos (necesitan una Nerd Font). <Space>bk dice dónde guardó sim la
-última versión. Pulsa Espacio y espera: un menú nombra cada tecla que
-puede seguir.
+Ctrl-p busca archivos por nombre; Enter abre un resultado. Ctrl-f
+busca su contenido. Esc cierra cualquiera de los dos.
+Ctrl-n abre y enfoca el árbol, o lo enfoca si ya está abierto.
+Solo desde el árbol lo cierra; Esc vuelve al texto.
+En modo Normal o en el árbol, Ctrl-w y luego w cambia el foco y deja
+el árbol abierto.
+zl cambia la apariencia (calm, flat, depth); zi alterna los iconos
+(requieren Nerd Font).
+<Space>bk muestra la ruta de la última versión guardada. Pulsa
+Espacio y espera el menú de las siguientes teclas.
 
 [ ] 9.1 Abre el buscador de archivos con Ctrl-p y ciérralo con Esc.
 @! finder
 [ ] 9.2 Busca en los archivos con Ctrl-f y ciérralo con Esc.
 @! grep
-[ ] 9.3 Muestra u oculta el árbol con Ctrl-n.
+[ ] 9.3 Pulsa Ctrl-n dos veces para cerrar el árbol y luego Esc.
 @! tree
 [ ] 9.4 Cambia la apariencia con zl.
 @! look

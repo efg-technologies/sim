@@ -14,13 +14,13 @@ sim이 하는 모든 약속은 sim에서 열려 있는 모든 파일에 대한 �
 
 실행 파일은 `sim`이고, Homebrew 패키지 이름은 `efg-technologies/tap/sim`입니다. AUR 패키지와 crates.io의 크레이트(`sim-editor`, 그리고 그 기반 라이브러리인 `sim-editor-core`)는 아직 공개하지 않았습니다.
 
-sim 0.2.0을 공개했습니다. Homebrew로 설치할 수 있습니다:
+sim 0.2.1을 공개했습니다. Homebrew로 설치할 수 있습니다:
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-릴리스의 소스는 [GitHub의 v0.2.0 릴리스](https://github.com/efg-technologies/sim/releases/tag/v0.2.0)(`sim-0.2.0.tar.gz`)에 있습니다. 소스에서 직접 빌드하려면 다음과 같이 합니다:
+릴리스의 소스는 [GitHub의 v0.2.1 릴리스](https://github.com/efg-technologies/sim/releases/tag/v0.2.1)(`sim-0.2.1.tar.gz`)에 있습니다. 소스에서 직접 빌드하려면 다음과 같이 합니다:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git

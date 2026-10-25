@@ -1987,7 +1987,7 @@ dependencies = [
 
 [[package]]
 name = "sim-editor"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "crossterm",
  "flate2",
@@ -2004,7 +2004,7 @@ dependencies = [
 
 [[package]]
 name = "sim-editor-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "crossterm",
  "notify",
@@ -2018,7 +2018,7 @@ dependencies = [
 
 [[package]]
 name = "sim-gui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytemuck",
  "cosmic-text",

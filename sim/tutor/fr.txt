@@ -175,19 +175,22 @@ annoncer un endroit et mener à un autre :
 
 ## 9 Trouver des fichiers et l'apparence
 
-Ctrl-p ouvre le chercheur de fichiers : tapez une partie d'un nom,
-Entrée l'ouvre. Ctrl-f cherche dans les fichiers du projet. Esc ferme
-l'un ou l'autre. Ctrl-n affiche ou masque l'arborescence. zl change
-l'apparence (calm, flat, depth) ; zi active ou désactive les icônes
-(elles demandent une Nerd Font). <Space>bk indique où sim a mis la
-dernière version qu'il a gardée. Appuyez sur Espace et attendez : un
-menu nomme chaque touche qui peut suivre.
+Ctrl-p cherche les fichiers par nom ; Entrée ouvre un résultat.
+Ctrl-f cherche leur contenu. Esc ferme l'un ou l'autre.
+Ctrl-n ouvre l'arborescence et y donne le focus, même déjà ouverte.
+Il ne la ferme que si elle a le focus ; Esc revient au texte.
+En mode Normal ou dans l'arbre, Ctrl-w puis w change le focus sans
+fermer l'arbre.
+zl change l'apparence (calm, flat, depth) ; zi active ou désactive les
+icônes (Nerd Font requise).
+<Space>bk donne le chemin de la dernière version gardée. Appuyez sur
+Espace et attendez le menu des touches suivantes.
 
 [ ] 9.1 Ouvrez le chercheur (Ctrl-p), puis fermez-le (Esc).
 @! finder
 [ ] 9.2 Cherchez dans les fichiers avec Ctrl-f, puis fermez avec Esc.
 @! grep
-[ ] 9.3 Affichez ou masquez l'arborescence avec Ctrl-n.
+[ ] 9.3 Fermez l'arbre avec deux Ctrl-n, puis appuyez sur Esc.
 @! tree
 [ ] 9.4 Changez l'apparence avec zl.
 @! look

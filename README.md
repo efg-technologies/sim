@@ -14,13 +14,13 @@ Everything sim promises, it promises for every file open in it: **without an exp
 
 The binary is `sim`, and the package is `efg-technologies/tap/sim` on Homebrew. The AUR package and the crates (`sim-editor`, and `sim-editor-core`, the library it is built on) are not published yet.
 
-sim 0.2.0 is out. Install it with Homebrew:
+sim 0.2.1 is out. Install it with Homebrew:
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-The source of the release is on the [v0.2.0 release page](https://github.com/efg-technologies/sim/releases/tag/v0.2.0) (`sim-0.2.0.tar.gz`). To build it from source:
+The source of the release is on the [v0.2.1 release page](https://github.com/efg-technologies/sim/releases/tag/v0.2.1) (`sim-0.2.1.tar.gz`). To build it from source:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git

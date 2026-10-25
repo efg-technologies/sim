@@ -14,13 +14,13 @@ Todo lo que sim promete, lo promete para cada archivo abierto en él: **sin una 
 
 El binario es `sim` y el paquete de Homebrew es `efg-technologies/tap/sim`. El paquete de AUR y los crates de crates.io (`sim-editor` y `sim-editor-core`, la biblioteca sobre la que se construye) aún no están publicados.
 
-sim 0.2.0 ya está publicado. Se instala con Homebrew:
+sim 0.2.1 ya está publicado. Se instala con Homebrew:
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-El código fuente de la versión está en la [página de la versión v0.2.0 en GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.2.0) (`sim-0.2.0.tar.gz`). Para compilarlo desde el código fuente:
+El código fuente de la versión está en la [página de la versión v0.2.1 en GitHub](https://github.com/efg-technologies/sim/releases/tag/v0.2.1) (`sim-0.2.1.tar.gz`). Para compilarlo desde el código fuente:
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git

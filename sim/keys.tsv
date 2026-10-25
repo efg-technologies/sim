@@ -133,7 +133,7 @@ z	t	collapse all	The same as -: closes every directory; the cursor stays on the 
 Z	t	open folder and all below	Opens the directory under the cursor, or the one that holds the file, and every directory below it, as their listings arrive. It leaves closed what git ignores (target/, node_modules/) and symlinks, and stops at 200 directories (Z again goes on). The cursor stays on its entry.
 q	t	close the tree	Closes the panel; the text has the focus. In the changes view (<Space>ge) it goes back to the tree instead.
 <Esc>	t	back to the text	Gives the focus back to the text and leaves the panel open.
-<C-w>	nt	window keys	Waits for one key that moves the focus between the text and the tree, which stays open: w goes to the other one, h to the tree, l to the text. Any other key ends it and does nothing. Not taken where Ctrl-w is text: Insert mode, the command line, the picker.
+<C-w>	nt	window keys	Waits for a key below: w and its aliases switch panes, h focuses the tree, t only if it is open, l and b the text. The tree stays open. An unlisted key ends it and does nothing. Taken only in Normal mode or the tree, with no command or query pending.
 <C-w> w|<C-w>|W|p|<C-p>	nt	other pane	Moves the focus to the other of the two: from the text to the tree (opening it if it is closed), from the tree to the text. The tree stays open (Vim's window keys; Ctrl-n opens and closes).
 <C-w> h|<Left>|<C-h>|<BS>	nt	focus the tree	Moves the focus to the tree, opening it if it is closed. In the tree it does nothing.
 <C-w> l|<Right>|<C-l>	nt	focus the text	Moves the focus to the text; the tree stays open. In the text it does nothing.
