@@ -293,25 +293,35 @@ fn tutor_2_the_exercises_of_the_lessons_can_be_done_with_the_keys_they_teach() {
 
 #[test]
 fn tutor_2_what_sim_adds_is_done_by_doing_it_and_stays_done() {
-    let mut r = rig_env("tutor-events", &FILES, &["a.txt"], (80, 24), |_| {});
-    r.keys(":tutor\n");
-    for (id, keys) in [
-        ("9.1", "<C-p><Esc>"),
-        ("9.2", "<C-f><Esc>"),
-        ("9.3", "<C-n><C-n>"),
-        ("9.4", "zl"),
-        ("9.5", "<Space>bk"),
-    ] {
-        goto(&mut r, id);
-        assert!(row(&r, &format!("{id} ")).contains("[✗]"), "{id}");
-        r.keys(keys);
-        r.keys("<Esc>");
-        goto(&mut r, id);
-        assert!(row(&r, &format!("{id} ")).contains("[✓]"), "{id} with {keys:?}");
+    for tree_open in [false, true] {
+        let mut r =
+            rig_env(&format!("tutor-events-{tree_open}"), &FILES, &["a.txt"], (80, 24), |_| {});
+        if tree_open {
+            r.keys("<C-n><Esc>");
+        }
+        assert_eq!(r.sim.panel.open, tree_open);
+        r.keys(":tutor\n");
+        for (id, keys) in [
+            ("9.1", "<C-p><Esc>"),
+            ("9.2", "<C-f><Esc>"),
+            ("9.3", "<C-n><C-n>"),
+            ("9.4", "zl"),
+            ("9.5", "<Space>bk"),
+        ] {
+            goto(&mut r, id);
+            assert!(row(&r, &format!("{id} ")).contains("[✗]"), "{id}");
+            r.keys(keys);
+            r.keys("<Esc>");
+            if id == "9.3" {
+                assert!(!r.sim.panel.open, "the taught keys close either initial tree state");
+            }
+            goto(&mut r, id);
+            assert!(row(&r, &format!("{id} ")).contains("[✓]"), "{id} with {keys:?}");
+        }
+        // the tree was shown and hidden again: it stays done
+        goto(&mut r, "9.3");
+        assert!(row(&r, "9.3 ").contains("[✓]"));
     }
-    // the tree was shown and hidden again: it stays done
-    goto(&mut r, "9.3");
-    assert!(row(&r, "9.3 ").contains("[✓]"));
 }
 
 #[test]

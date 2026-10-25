@@ -14,13 +14,13 @@ sim が約束することは、開いているどのファイルにも当ては�
 
 バイナリ名は `sim` で、Homebrew のパッケージ名は `efg-technologies/tap/sim` です。AUR のパッケージと crates.io のクレート（`sim-editor` と、土台になるライブラリの `sim-editor-core`）はまだ公開していません。
 
-sim 0.2.0 を公開しました。Homebrew なら次のコマンドで入ります。
+sim 0.2.1 を公開しました。Homebrew なら次のコマンドで入ります。
 
 ```sh
 brew install efg-technologies/tap/sim
 ```
 
-リリースのソースコードは [GitHub の v0.2.0 リリース](https://github.com/efg-technologies/sim/releases/tag/v0.2.0)(`sim-0.2.0.tar.gz`)にあります。ソースからビルドするには次のようにします。
+リリースのソースコードは [GitHub の v0.2.1 リリース](https://github.com/efg-technologies/sim/releases/tag/v0.2.1)(`sim-0.2.1.tar.gz`)にあります。ソースからビルドするには次のようにします。
 
 ```sh
 git clone https://github.com/efg-technologies/sim.git

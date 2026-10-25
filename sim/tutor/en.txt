@@ -168,18 +168,22 @@ another: [https://good.example](https://evil.example)
 
 ## 9 Finding files and looks
 
-Ctrl-p opens the file finder: type part of a name, Enter opens it.
-Ctrl-f searches inside the files of the project. Esc closes either.
-Ctrl-n shows or hides the tree. zl switches the look (calm, flat,
-depth); zi turns the icons on or off (they need a Nerd Font).
-<Space>bk tells where sim put the last version it kept. Press Space
-and wait: a menu names every key that can follow.
+Ctrl-p finds files by name; Enter opens a result. Ctrl-f searches
+file contents. Esc closes either.
+Ctrl-n opens and focuses the tree, or focuses it if already open.
+Only in the tree does Ctrl-n close it; Esc returns to the text.
+In Normal mode or the tree, Ctrl-w then w switches focus and keeps
+the tree open.
+zl changes the look (calm, flat, depth); zi toggles icons (a Nerd Font
+is needed).
+<Space>bk shows the last kept version's path. Press Space and wait
+for a menu of the next keys.
 
 [ ] 9.1 Open the file finder with Ctrl-p, then close it with Esc.
 @! finder
 [ ] 9.2 Search the files with Ctrl-f, then close it with Esc.
 @! grep
-[ ] 9.3 Show or hide the tree with Ctrl-n.
+[ ] 9.3 Press Ctrl-n twice to close the tree, then Esc.
 @! tree
 [ ] 9.4 Switch the look with zl.
 @! look

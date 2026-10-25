@@ -175,19 +175,22 @@ para outro:
 
 ## 9 Encontrar arquivos e aparência
 
-Ctrl-p abre o localizador de arquivos: digite parte de um nome e Enter
-abre. Ctrl-f pesquisa dentro dos arquivos do projeto. Esc fecha
-qualquer um dos dois. Ctrl-n mostra ou oculta a árvore. zl troca a
-aparência (calm, flat, depth); zi liga ou desliga os ícones (precisam
-de uma Nerd Font). <Space>bk diz onde o sim guardou a última versão.
-Pressione Espaço e espere: um menu mostra
-cada tecla que pode vir depois.
+Ctrl-p busca arquivos pelo nome; Enter abre um resultado. Ctrl-f
+busca o conteúdo. Esc fecha qualquer um dos dois.
+Ctrl-n abre e foca a árvore, ou a foca se já estiver aberta.
+Só na árvore ele a fecha; Esc volta ao texto.
+No modo Normal ou na árvore, Ctrl-w e depois w troca o foco e mantém
+a árvore aberta.
+zl troca a aparência (calm, flat, depth); zi alterna os ícones
+(precisam de uma Nerd Font).
+<Space>bk mostra o caminho da última versão guardada. Pressione
+Espaço e espere o menu das próximas teclas.
 
 [ ] 9.1 Abra o localizador de arquivos com Ctrl-p e feche com Esc.
 @! finder
 [ ] 9.2 Pesquise nos arquivos com Ctrl-f e feche com Esc.
 @! grep
-[ ] 9.3 Mostre ou oculte a árvore com Ctrl-n.
+[ ] 9.3 Pressione Ctrl-n duas vezes para fechar a árvore, depois Esc.
 @! tree
 [ ] 9.4 Troque a aparência com zl.
 @! look

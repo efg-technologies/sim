@@ -162,17 +162,19 @@ safe\u{200B}word
 
 ## 9 查找文件与外观
 
-Ctrl-p 打开文件查找器：输入名称的一部分，按 Enter 打开。Ctrl-f 在项目
-的文件内容中搜索。两者都用 Esc 关闭。Ctrl-n 显示或隐藏文件树。zl 切换
-外观（calm、flat、depth）；zi 开关图标（需要 Nerd Font）。<Space>bk 告
-诉你 sim 最后保留的版本在哪里。按下 Space 并稍等：会出现一个菜单，列出
-所有可接着按的键。
+Ctrl-p 按名称查找文件，Enter 打开结果。Ctrl-f 搜索文件内容。
+两者都用 Esc 关闭。Ctrl-n 打开文件树并移入焦点；已打开时只移入焦点。
+仅在文件树有焦点时，Ctrl-n 才关闭它；Esc 返回正文。
+在 Normal 模式或文件树中，先按 Ctrl-w 再按 w 可切换焦点，
+文件树保持打开。
+zl 切换外观（calm、flat、depth）；zi 开关图标（需要 Nerd Font）。
+<Space>bk 显示最后保留的版本路径。按 Space 并稍等可查看后续按键菜单。
 
 [ ] 9.1 用 Ctrl-p 打开文件查找器，再用 Esc 关闭。
 @! finder
 [ ] 9.2 用 Ctrl-f 搜索文件内容，再用 Esc 关闭。
 @! grep
-[ ] 9.3 用 Ctrl-n 显示或隐藏文件树。
+[ ] 9.3 按两次 Ctrl-n 关闭文件树，再按 Esc 返回。
 @! tree
 [ ] 9.4 用 zl 切换外观。
 @! look
