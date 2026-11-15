@@ -1005,8 +1005,42 @@ fn event_session(bytes: &[u8], steps: &[Step]) -> Result<(), String> {
         if loaded_clean && a.buf.dirty() {
             return Err(format!("{what}: a buffer just read from disk reads as modified"));
         }
+        // A `Quit` ends the session: the shell closes the file (BUF-3) and no event reaches this App
+        // again, so what would come after it is no session at all.
+        if fx.iter().any(|e| matches!(e, Effect::Quit(_))) {
+            return Ok(());
+        }
     }
     Ok(())
+}
+
+/// The trace a run of 150,000 cases once failed on: `:wq` is answered by `Saved`, which quits, and what
+/// came after it went to an App that the shell had closed. The session ends at its quit, so the steps
+/// after it are no session; and the quit is there, so the file was not left behind modified.
+#[test]
+fn vi_7_a_session_ends_at_its_quit_and_what_comes_after_is_no_session() {
+    use sim_core::core::app::Effect;
+    let steps = [
+        Step::Keys(":wq<CR>"),
+        Step::Disk(""),
+        Step::Saved(0),
+        Step::Keys("dd"),
+        Step::Keys(":e g<CR>"),
+        Step::Paste("a\nb\n"),
+        Step::Disk("other\n"),
+        Step::Opened("g"),
+    ];
+    assert_eq!(event_session(b"", &steps), Ok(()));
+    let mut a = app_with(Some("f"), b"", (40, 8));
+    let wrote = feed(&mut a, ":wq<CR>").into_iter().find_map(|e| match e {
+        Effect::Write { bytes, .. } => Some(bytes),
+        _ => None,
+    });
+    let disk = Event::Disk { bytes: Some(vec![]), hash: None, deadline: far(), seq: 0 };
+    a.update(disk);
+    let h = sim_core::core::buffer::hash(&wrote.unwrap());
+    let fx = a.update(Event::Saved(Ok((h, None)), 0));
+    assert!(fx.iter().any(|e| matches!(e, Effect::Quit(0))), "the save of :wq quits");
 }
 
 proptest! {
