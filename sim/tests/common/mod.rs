@@ -169,9 +169,13 @@ pub const LONG: &str = "docs/a-file-with-a-name-too-long-for-the-panel-to-show.m
 /// row is a layer of the screen).
 pub fn walk_to(r: &mut Rig, name: &str) {
     for _ in 0..40 {
-        let y = r.shot.frame.rows.iter().position(|row| row.text.contains(name));
+        // (the name may be in the text's title too: the changes view's preview, DIFF-7)
         let at = r.shot.layers.iter().find(|l| l.kind == LayerKind::Cursor);
-        if y.is_some() && y == at.map(|l| usize::from(l.rect.y)) {
+        let row = at.and_then(|l| r.shot.frame.rows.get(usize::from(l.rect.y)));
+        let (pw, _) = r.sim.widths();
+        if row.is_some_and(|row| {
+            row.text.chars().take(usize::from(pw) + 2).collect::<String>().contains(name)
+        }) {
             return;
         }
         r.keys("j");
@@ -476,6 +480,11 @@ impl Rig {
                     SimEffect::Preview(path) => {
                         self.jobs.push("preview");
                         self.queue.push_back(io::preview(&self.sim.root, &path));
+                    }
+                    SimEffect::Patch(req) => {
+                        self.jobs.push("patch");
+                        self.queue.push_back(io::patch(&self.sim.root, &req));
+                        self.log.push(SimEffect::Patch(req));
                     }
                     SimEffect::Read(dir) if self.defer => self.waiting.push(dir),
                     SimEffect::Read(dir) => {

@@ -1,4 +1,4 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3, DIFF-7, DIFF-9
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the watcher of the project, the history file in sim's state
 //! directory, and the search of the contents of files (the built-in reader and ripgrep) with the
@@ -6,8 +6,9 @@
 use crate::changes::{self, Counts};
 use crate::grep::{Batch, Group, HEAD, Line, MAX_LINES, Query, Request, is_binary, parse_rg};
 use crate::layout::{self, Skin};
+use crate::patch::{self, Patch};
 use crate::rank::History;
-use crate::sim::{DiffReq, Found, Hl, Id, Opened, Pv, Req, SimEvent};
+use crate::sim::{DiffReq, Found, Hl, Id, Opened, PatchReq, Pv, Req, SimEvent};
 use crate::syn::{Spans, Syn};
 use crate::tree::{self, Entry};
 use ropey::Rope;
@@ -81,6 +82,8 @@ pub enum Job {
     Md(bool),
     /// How many times Tab and Shift-Tab were used, to save (KEY-6).
     TabUses(u8),
+    /// Whether the panel shows the changes view, to save (DIFF-9).
+    View(bool),
     /// A snapshot that a dead session left for this file, to delete when ours replaces it.
     Hold(Id, String, u32),
     /// What this file's App asked of the journal: a `Snapshot`, an `Unsnapshot` (SAFE-6), a
@@ -126,6 +129,9 @@ pub fn journal_thread(
                 }
                 Job::TabUses(n) => {
                     hist.iter().filter_map(|d| save_tab_uses(d, n).err()).for_each(|e| say(1, e))
+                }
+                Job::View(on) => {
+                    hist.iter().filter_map(|d| save_view(d, on).err()).for_each(|e| say(1, e))
                 }
                 Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
                 Job::App(_, Effect::Remember { path, line, col }) => {
@@ -980,19 +986,26 @@ pub fn diff_thread(tx: Sender<SimEvent>, cwd: PathBuf) -> Sender<DiffReq> {
     jobs
 }
 
-/// DIFF-2: the thread that asks git for the numbers of the changes view, off the main thread (P4): of
-/// the requests waiting only the newest is run (the newest has the newest list of untracked files).
-pub fn changes_thread(tx: Sender<SimEvent>, root: PathBuf) -> Sender<Vec<PathBuf>> {
-    let (jobs, rx) = mpsc::channel::<Vec<PathBuf>>();
+/// DIFF-2, DIFF-7: a thread that runs `job` for the newest of the requests waiting for it (the newest has the
+/// newest list of untracked files, the file under the view's cursor) and sends its answer, off the main thread (P4).
+pub fn latest<T: Send + 'static>(
+    tx: Sender<SimEvent>,
+    job: impl Fn(T) -> SimEvent + Send + 'static,
+) -> Sender<T> {
+    let (jobs, rx) = mpsc::channel::<T>();
     thread::spawn(move || {
         while let Ok(first) = rx.recv() {
-            let newest = rx.try_iter().last().unwrap_or(first);
-            if tx.send(SimEvent::Changes(changes(&root, &newest))).is_err() {
+            if tx.send(job(rx.try_iter().last().unwrap_or(first))).is_err() {
                 return;
             }
         }
     });
     jobs
+}
+
+/// DIFF-2: the thread that asks git for the numbers of the changes view.
+pub fn changes_thread(tx: Sender<SimEvent>, root: PathBuf) -> Sender<Vec<PathBuf>> {
+    latest(tx, move |untracked: Vec<PathBuf>| SimEvent::Changes(changes(&root, &untracked)))
 }
 
 /// DIFF-3: HEAD's version of `path`, asked of git in a thread of its own (a blob can be big).
@@ -1045,6 +1058,31 @@ pub fn changes(root: &Path, untracked: &[PathBuf]) -> Result<Counts, String> {
 pub fn show_head(root: &Path, path: &str) -> Result<Vec<u8>, String> {
     let blob = git(root, &["show", &format!("HEAD:./{path}")])?;
     if blob.len() > SHOW_MAX { Err(format!("HEAD:{path} is over 20 MiB")) } else { Ok(blob) }
+}
+
+/// DIFF-7: the answer to `SimEffect::Patch`: the file's diff against HEAD (the empty tree before the first commit)
+/// with three lines of context, a rename's with its old name, through the guard (GIT-1, GIT-2: no external diff,
+/// no text conversion, no filter); an untracked file read as a preview is (`read_below`: at most 2 MiB, never
+/// through a link out of the root), all `+`. A diff over 2 MiB, and why git gave none, are said instead.
+pub fn patch(root: &Path, req: &PatchReq) -> SimEvent {
+    let names: Vec<String> =
+        req.old.iter().chain([&req.path]).map(|p| p.to_string_lossy().into_owned()).collect();
+    let diff = |base: &str| {
+        let mut args = vec!["diff", "--no-color", "-U3", "-M", base, "--"];
+        args.extend(names.iter().map(String::as_str));
+        git(root, &args)
+    };
+    let bytes = if req.new {
+        read_below(root, &req.path.to_string_lossy()).map(|b| patch::added(&b.unwrap_or_default()))
+    } else {
+        diff("HEAD").or_else(|e| if e.contains("'HEAD'") { diff(EMPTY_TREE) } else { Err(e) })
+    };
+    let shown = match bytes {
+        Ok(b) if b.len() as u64 > PREVIEW_MAX => Patch::note("the diff is over 2 MiB: not shown"),
+        Ok(b) => Patch::parse(&b),
+        Err(e) => Patch::note(&e),
+    };
+    SimEvent::Patched(req.n, shown)
 }
 
 /// MARK-1: what an answer of the status has: git's status, where the root lies below the top of the
@@ -1169,6 +1207,16 @@ pub fn load_tab_uses(dir: &Path) -> u8 {
 
 pub fn save_tab_uses(dir: &Path, n: u8) -> Result<(), String> {
     save_state(dir, "tab-uses", &format!("{n}\n"))
+}
+
+/// DIFF-9: whether the panel showed the changes view, as saved in `dir` (`view`, `changes` or `tree`); the tree
+/// when there is no choice yet, or the file says anything else.
+pub fn load_view(dir: &Path) -> bool {
+    fs::read_to_string(dir.join("view")).is_ok_and(|t| t.trim_end_matches('\n') == "changes")
+}
+
+pub fn save_view(dir: &Path, changes: bool) -> Result<(), String> {
+    save_state(dir, "view", if changes { "changes\n" } else { "tree\n" })
 }
 
 pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {
@@ -1378,9 +1426,14 @@ impl Inside {
     }
 }
 
-/// GREP-4: the answer to `SimEffect::Preview`: the file as the editor would read it, but no more
-/// than `PREVIEW_MAX` bytes of it. A file that is not there is empty, as `:e` makes it.
+/// GREP-4: the answer to `SimEffect::Preview`.
 pub fn preview(root: &Path, rel: &str) -> SimEvent {
+    SimEvent::Preview(Pv { path: rel.into(), file: read_below(root, rel) })
+}
+
+/// GREP-4, DIFF-7: a file as the editor would read it, but no more than `PREVIEW_MAX` bytes of it, and only a
+/// regular file below the root (GREP-7). A file that is not there is empty, as `:e` makes it.
+fn read_below(root: &Path, rel: &str) -> Result<Option<Vec<u8>>, String> {
     let read = || -> io::Result<Result<Option<Vec<u8>>, String>> {
         let mut f = File::open(root.join(rel))?;
         if f.metadata()?.len() > PREVIEW_MAX {
@@ -1390,12 +1443,11 @@ pub fn preview(root: &Path, rel: &str) -> SimEvent {
         f.read_to_end(&mut bytes)?;
         Ok(Ok(Some(bytes)))
     };
-    let file = match fs::symlink_metadata(root.join(rel)) {
+    match fs::symlink_metadata(root.join(rel)) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         _ if !Inside::new(root).ok(rel) => Err("not a file below the root".into()),
         _ => read().unwrap_or_else(|e| Err(why(&e))),
-    };
-    SimEvent::Preview(Pv { path: rel.into(), file })
+    }
 }
 
 /// GREP-5: what a search sends, in batches: groups are whole files, the first is sent as soon as

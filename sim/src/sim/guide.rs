@@ -36,7 +36,7 @@ impl Sim {
             return ["<Space>".to_string()].into_iter().chain(l.chars().map(token)).collect();
         }
         if self.panel.open && self.panel.focus {
-            return if self.panel.g { vec!["g".into()] } else { vec![] };
+            return self.panel.pre.map(token).into_iter().collect();
         }
         let Some(b) = self.bufs.get(self.cur) else { return vec![] };
         let vi = &b.app.vi;
@@ -66,7 +66,8 @@ impl Sim {
             return false;
         }
         if self.panel.open && self.panel.focus {
-            return !self.panel.g && !self.panel.search.as_ref().is_some_and(|s| s.typing);
+            return self.panel.pre.is_none()
+                && !self.panel.search.as_ref().is_some_and(|s| s.typing);
         }
         self.idle()
     }

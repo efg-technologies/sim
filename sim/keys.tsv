@@ -116,7 +116,7 @@ z i	n	icons on/off	Turns the icons of the tree, the tabs and the status line on 
 j|<Down>	t	down	Moves the cursor one row down the tree.
 k|<Up>	t	up	Moves the cursor one row up the tree.
 l|<Right>	t	open	Opens the directory under the cursor, or opens the file and gives it the focus; on an open directory it does nothing.
-<CR>	t	open, or toggle a folder	Opens the file and gives it the focus; on a directory it opens it when it is closed and closes it when it is open (Neo-tree's open).
+<CR>	t	open, or toggle a folder	Opens the file and gives it the focus; on a directory it opens it when it is closed and closes it when it is open (Neo-tree's open). In the changes view (<Space>ge) the file opens at the first line the hunk its preview shows changes.
 h|<Left>	t	close, or up	Closes the directory under the cursor, or moves to its parent.
 C	t	close the folder	Closes the directory the cursor is in (Neo-tree's close_node): an open directory closes and the cursor stays; on a file or a closed directory the directory that holds it closes and the cursor goes onto it. At the top level it does nothing.
 g g	t	top	Moves to the first row.
@@ -133,6 +133,11 @@ z	t	collapse all	The same as -: closes every directory; the cursor stays on the 
 Z	t	open folder and all below	Opens the directory under the cursor, or the one that holds the file, and every directory below it, as their listings arrive. It leaves closed what git ignores (target/, node_modules/) and symlinks, and stops at 200 directories (Z again goes on). The cursor stays on its entry.
 q	t	close the tree	Closes the panel; the text has the focus. In the changes view (<Space>ge) it goes back to the tree instead.
 <Esc>	t	back to the text	Gives the focus back to the text and leaves the panel open.
+] c	t	next hunk of the preview	In the changes view (<Space>ge) the text pane shows what the file under the cursor differs from HEAD by; ]c shows its next hunk, and past the last one the first hunk of the next file of the view.
+[ c	t	previous hunk of the preview	In the changes view, shows the previous hunk of the preview, and before the first one the last hunk of the previous file of the view.
+J	t	scroll the preview down	In the changes view, scrolls the diff in the text pane down by half the pane (the wheel over it scrolls it too).
+K	t	scroll the preview up	In the changes view, scrolls the diff in the text pane up by half the pane.
+f	t	FOLLOW on/off	In the changes view: while FOLLOW is on (the status line says FOLLOW) the cursor goes to the file another process wrote last. It is off when the view opens; nothing else moves the cursor.
 <C-w>	nt	window keys	Waits for a key below: w and its aliases switch panes, h focuses the tree, t only if it is open, l and b the text. The tree stays open. An unlisted key ends it and does nothing. Taken only in Normal mode or the tree, with no command or query pending.
 <C-w> w|<C-w>|W|p|<C-p>	nt	other pane	Moves the focus to the other of the two: from the text to the tree (opening it if it is closed), from the tree to the text. The tree stays open (Vim's window keys; Ctrl-n opens and closes).
 <C-w> h|<Left>|<C-h>|<BS>	nt	focus the tree	Moves the focus to the tree, opening it if it is closed. In the tree it does nothing.

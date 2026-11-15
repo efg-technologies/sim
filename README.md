@@ -49,6 +49,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 - Trailing blanks show as `·`, a no-break space as `⍽`, a tab as `»`.
 - When another process rewrites the open file, the changed lines flash for a moment and are then marked in the text, the box says how many changes are on disk, the tab shows `↯`, and the tree marks the file. `]c` and `[c` go to the next and the previous mark.
 - The whole project is watched, not only the open files: a write, a new file or a deletion anywhere below the root shows in the tree within a second with no key pressed (git's letter, a short flash of the row, and `↯` after the name until you have looked at the file), the changes view follows it, and a commit made outside clears the signs, in a linked worktree too. sim's own saves are no news; directories git ignores are not watched, and git is asked at most every 200 ms however busy the disk is. `sim --plain` watches the open file only.
+- The changes view (`<Space>ge`) is a watchtower: while it has the focus the text pane shows the diff of the file under its cursor, what went in red with `-` and what came in green with `+`, and both follow the disk with no key. A hidden char in a diff is its form, `]c` and `[c` walk the hunks into the next file, and Enter opens the file at the hunk. `f` turns FOLLOW on, and the cursor goes to the file another process wrote last; it is off until you turn it on, and nothing moves while it is off.
 - Changes against git HEAD show as gutter signs, a status letter for each file in the tree (a folder shows the letter of the strongest status below it) and `+n ~n -n` in the status line.
 - git is not run where the repository's own config could run a command (`core.sshCommand`, an `include`, and more): the box says `git not run` on the alert's block, and the status line names the key and the file. Where git does run with the repository's own `core.fsmonitor`, hooks path, filters or external diff turned off, the box says how many (`2 git settings off`).
 - A Markdown link whose text names an address that its target is not (`[https://good.example](https://evil.example)`, a reference link `[good.example][1]` whose definition says another place, a link that goes over lines or has a backslash or an entity in its target, a raw HTML link `<a href="…">`) has its target, and for a reference its text, on the magenta block, in the read view and in calm too; the read view never hides a link's brackets or URL.
@@ -119,6 +120,9 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `<Space>bc` | pick a tab to close |
 | `<Space>bk` | where the version a save or reload gave up went (`:w!`, `:e!`) |
 | `<Space>ge` | changes from HEAD |
+| `]c` / `[c` | next / previous hunk of the preview (in the changes view) |
+| `J` / `K` | scroll the preview (in the changes view) |
+| `f` | FOLLOW on/off (in the changes view) |
 | `<Space>gi` | what the guard did to this repository |
 | `<Space>um` | markdown read view on/off |
 | `F1` | help |

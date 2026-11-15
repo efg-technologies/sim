@@ -1,4 +1,4 @@
-//! GUI-4, WATCH-1, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6
+//! GUI-4, WATCH-1, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6, DIFF-7, DIFF-9
 //! The shell: what is done with the Effects `Sim::update` returns, apart from the terminal: read a
 //! directory, open, save and watch a file, ask git, highlight, search, snapshot, run a filter. The
 //! terminal's loop (`main.rs`) and a window's use this one code, so a window cannot do these things
@@ -14,7 +14,9 @@ use crate::color::Syntax;
 use crate::io::{self as sio, HlJob, Job, MERGE};
 use crate::layout::Skin;
 use crate::rank::History;
-use crate::sim::{DiffReq, Env, Id, PAUSE_MS, SPIN_MS, Sim, SimEffect, SimEvent, Start, start};
+use crate::sim::{
+    DiffReq, Env, Id, PAUSE_MS, PatchReq, SPIN_MS, Sim, SimEffect, SimEvent, Start, start,
+};
 use sim_core::core::app::{Effect, Event};
 use sim_core::core::buffer::hash;
 use sim_core::io::file::{self, read};
@@ -144,6 +146,7 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
         hint,
         tab_uses: front.tab_uses.unwrap_or_else(|| history.map_or(0, sio::load_tab_uses)),
         md: !plain && history.is_none_or(sio::load_md),
+        changes: !plain && history.is_some_and(sio::load_view),
         chrome: true,
         lang: crate::tutor::lang(&|k| env::var(k).ok()).into(),
     };
@@ -201,6 +204,7 @@ struct Threads {
     files: Sender<()>,
     git: Sender<()>,
     numbers: Sender<Vec<PathBuf>>,
+    patches: Sender<PatchReq>,
     reads: sio::Reads,
     watchers: HashMap<Id, Held>,
     pgids: HashMap<Id, u32>,
@@ -248,7 +252,7 @@ impl Shell {
     pub fn threads(cfg: Config, tx: Sender<SimEvent>) -> Shell {
         let (jobs, finished) =
             sio::journal_thread(cfg.state.clone(), cfg.history.clone(), tx.clone());
-        let (r1, r2) = (cfg.root.clone(), cfg.root.clone());
+        let (r1, r2, r3) = (cfg.root.clone(), cfg.root.clone(), cfg.root.clone());
         // WATCH-1: the project's watcher watches the directories of each list of files
         let (root, state) = (cfg.root.clone(), cfg.state.clone());
         let project = cfg.watch.then(|| sio::project(tx.clone(), root, state, sio::POLL));
@@ -264,6 +268,7 @@ impl Shell {
             }),
             git: sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2))),
             numbers: sio::changes_thread(tx.clone(), cfg.root.clone()), // DIFF-2
+            patches: sio::latest(tx.clone(), move |r: PatchReq| sio::patch(&r3, &r)), // DIFF-7
             reads: sio::Reads::default(),
             watchers: HashMap::new(),
             pgids: HashMap::new(),
@@ -388,6 +393,8 @@ impl Shell {
                 self.local.push(SimEvent::Changes(sio::changes(&root, &untracked)))
             }
             (SimEffect::Show(path), Work::Threads(t)) => sio::show_thread(t.tx.clone(), root, path),
+            (SimEffect::Patch(req), Work::Threads(t)) => drop(t.patches.send(req)),
+            (SimEffect::Patch(req), Work::Inline(_)) => self.local.push(sio::patch(&root, &req)),
             (SimEffect::Show(path), Work::Inline(_)) => {
                 let blob = sio::show_head(&root, &path);
                 self.local.push(SimEvent::Shown(path, blob));
@@ -413,11 +420,13 @@ impl Shell {
             (SimEffect::Icons(on), Work::Threads(t)) => drop(t.jobs.send(Job::Icons(on))),
             (SimEffect::TabUses(n), Work::Threads(t)) => drop(t.jobs.send(Job::TabUses(n))),
             (SimEffect::Md(on), Work::Threads(t)) => drop(t.jobs.send(Job::Md(on))),
+            (SimEffect::View(on), Work::Threads(t)) => drop(t.jobs.send(Job::View(on))),
             (
                 SimEffect::History(_)
                 | SimEffect::Look(_)
                 | SimEffect::Icons(_)
                 | SimEffect::Md(_)
+                | SimEffect::View(_)
                 | SimEffect::TabUses(_),
                 Work::Inline(_),
             ) => {}

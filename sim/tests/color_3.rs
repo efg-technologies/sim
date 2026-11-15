@@ -280,6 +280,19 @@ fn color_3_the_changes_view_says_what_a_file_is_by_its_letter_and_its_numbers() 
     golden("color_3_changes", &shot);
 }
 
+#[test]
+fn diff_7_with_no_color_a_line_that_went_and_one_that_came_are_told_by_their_signs() {
+    let mut r = scene("diff-7-mono");
+    r.keys("<C-n> ge");
+    walk_to(&mut r, "a.rs");
+    let (shot, grid) = stripped(&r);
+    // the preview: the `-` and `+` of git's lines are in the text, and no row of it needs a color
+    let (y, x) = find(&grid, "-l2");
+    let (z, _) = find(&grid, "+L2");
+    assert!(z > y && grid[y][x].0 == '-' && grid[z][x].0 == '+', "{shot}");
+    golden("diff_7_mono", &shot);
+}
+
 /// `n.md` with a table, open with the read view on, drawn with no color in `skin`.
 fn table_scene(name: &str, skin: Skin) -> Rig {
     let text = "# Notes\n\n| a | bb |\n|---|:-:|\n| 日本 | 2 |\n\nend\n";

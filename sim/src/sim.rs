@@ -1,4 +1,4 @@
-//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19
+//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -8,6 +8,7 @@ mod lesson;
 mod live;
 mod panel;
 mod ptr;
+mod tower;
 
 use crate::bar::{self, Bar, Block as BarBlock};
 use crate::changes::{Changes, Counts};
@@ -26,6 +27,7 @@ use crate::layout::{
 use crate::lie;
 use crate::marks::{Git, Marks};
 use crate::paint::{Layer, LayerKind, Look, Paint, Role, Screen};
+use crate::patch::Patch;
 use crate::pick;
 use crate::rank::History;
 use crate::search::Matcher;
@@ -161,6 +163,8 @@ pub enum SimEvent {
     Colors(Rgb, [Option<Rgb>; 8]),
     /// WATCH-1: what the project's watcher saw.
     Touched(Touched),
+    /// DIFF-7: the answer to the request of this number of `SimEffect::Patch`.
+    Patched(u64, Patch),
 }
 
 /// WATCH-1: a batch of what the project's watcher saw: the paths below the root that were written, made,
@@ -171,6 +175,17 @@ pub struct Touched {
     pub paths: Vec<(PathBuf, bool)>,
     pub many: bool,
     pub git: bool,
+}
+
+/// DIFF-7: what to ask git's diff of: the number of the request (an answer to an older one is dropped), the
+/// file (relative to the root), the old name of a rename, and whether git has no diff of it (it is untracked:
+/// all of it came).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchReq {
+    pub n: u64,
+    pub path: PathBuf,
+    pub old: Option<PathBuf>,
+    pub new: bool,
 }
 
 /// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
@@ -243,6 +258,10 @@ pub enum SimEffect {
     /// DIFF-3: ask git for HEAD's version of this file (relative to the root) and answer with
     /// `SimEvent::Shown`.
     Show(String),
+    /// DIFF-7: ask git for the diff of a file of the changes view and answer with `SimEvent::Patched`.
+    Patch(PatchReq),
+    /// DIFF-9: whether the panel shows the changes view, to remember.
+    View(bool),
     Quit(i32),
 }
 
@@ -360,8 +379,8 @@ pub struct Panel {
     /// The cursor row and the first row on screen.
     pub cur: usize,
     pub top: usize,
-    /// A `g` waits for a second one.
-    g: bool,
+    /// A `g` waits for a second one, or (DIFF-8, in the changes view) a `]` or a `[` for its `c`.
+    pre: Option<char>,
     /// A path (below the root) to show: its directories are expanded, step by step, as their
     /// listings arrive, and the cursor goes there.
     reveal: Option<PathBuf>,
@@ -396,6 +415,8 @@ pub struct Sim {
     off: Vec<String>,
     /// GIT-5: why git was not run (the message of its first refusal), for `<Space>gi`.
     why: Option<String>,
+    /// DIFF-7 to DIFF-10: the preview of the changes view, and FOLLOW.
+    tower: tower::Tower,
     /// SAFE-7: where the version that `:w!` or `:e!` gave up went, for `<Space>bk`.
     kept: Option<String>,
     /// MD-10: the reference links of the Markdown file shown, for the file and the version of its text.
@@ -496,6 +517,8 @@ pub struct Env {
     pub chrome: bool,
     /// TUTOR-3: the language of the locale (`tutor::lang`); none is English.
     pub lang: String,
+    /// DIFF-9: the panel shows the changes view (the saved choice).
+    pub changes: bool,
 }
 
 /// What `sim` was asked to open (TREE-1).
@@ -621,6 +644,9 @@ impl Sim {
         (sim.skin, sim.hook) = if plain { (Skin::Calm, None) } else { (env.skin, env.hook) };
         (sim.chrome, sim.home, sim.icons) = (env.chrome, env.home, env.icons);
         (sim.tab_uses, sim.md, sim.lang) = (env.tab_uses, env.md && !plain, env.lang);
+        if env.changes && !plain {
+            (sim.changes, sim.focus) = (Some(Changes::default()), Some(Tree::default())); // DIFF-9
+        }
         if sim.syn.mono {
             // COLOR-2: nothing asks the terminal, so the interface is laid out on a dark page, whose
             // colors the Painter does not write.
@@ -754,8 +780,10 @@ impl Sim {
                     }
                     self.off = off;
                     self.remark();
+                    self.tower.fresh = false; // (DIFF-9: the view is made: its cursor stays on its entry)
                     self.diff(self.id(), &mut out); // (a commit moves HEAD)
                     self.ask_changes(&mut out); // DIFF-1: and the view's numbers with it
+                    self.patch_again(&mut out); // DIFF-9: and its preview
                 }
                 Err(e) => {
                     let (norepo, skip) =
@@ -796,6 +824,7 @@ impl Sim {
                 self.lit.take_if(|l| l.1 == n);
             }
             SimEvent::Touched(t) => self.touched(t, &mut out),
+            SimEvent::Patched(n, p) => self.patched(n, p),
             SimEvent::Diff(id, r, lines) => {
                 if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
                     b.diff = r.ok().map(|out| Diff::parse(&out, lines));
@@ -901,6 +930,9 @@ impl Sim {
                 self.marks.wrote(&p);
             }
             gone |= !file && self.unseen.remove(&p);
+            if file && self.tower.follow {
+                self.tower.wrote = Some(p.clone()); // DIFF-10
+            }
             lit.push(p);
         }
         if gone {
@@ -1176,10 +1208,14 @@ impl Sim {
         if let (true, Some(path)) = (changed, path) {
             // WATCH-2: what another process wrote and the file marks is unseen; sim's own save is not
             let rel = self.cwd.join(path).strip_prefix(&self.root).map(Path::to_path_buf);
-            if let (true, Ok(rel)) = (marked, rel)
-                && self.unseen.insert(rel)
-            {
-                self.remark();
+            if let (true, Ok(rel)) = (marked, rel) {
+                if self.tower.follow {
+                    self.tower.wrote = Some(rel.clone()); // DIFF-10
+                }
+                if self.unseen.insert(rel) {
+                    self.remark();
+                }
+                self.follow();
             }
             self.git(out);
             self.diff(id, out);
@@ -1580,6 +1616,7 @@ impl Sim {
         self.fit();
         self.scroll();
         self.live_prepare(out);
+        self.tower_prepare(out);
         self.refresh_finder();
         self.refresh_count();
         let ((w, h), g) = (self.size, self.geo());
@@ -1640,7 +1677,11 @@ impl Sim {
         status = lesson::named(lesson, status); // TUTOR-1
         self.grade(); // TUTOR-2
         if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
-            let mode = if self.changes.is_some() { "CHANGES" } else { "TREE" };
+            let mode = match (self.changes.is_some(), self.tower.follow) {
+                (true, true) => "CHANGES  FOLLOW", // DIFF-10
+                (true, _) => "CHANGES",
+                _ => "TREE",
+            };
             status = layout::stated(&tree, &format!("{slash}  {mode}"), room);
         }
         if let (true, Some(s)) = (focus, &self.panel.search) {
@@ -1667,10 +1708,20 @@ impl Sim {
             let x = g.px + col.min(g.pw.saturating_sub(1));
             (cursor, shape) = ((x, g.y0 + i as u16), Shape::Block);
         }
-        let ch = self.changes();
-        let looked = self.bufs.get(self.cur).and_then(|b| Some(self.colors(b, b.frame.as_ref()?)));
-        let (colored, ask) = looked.unwrap_or_default();
-        let win = colored.win;
+        // DIFF-7: the preview of the changes view has the text pane while the view has the focus
+        let tower = self.towering() && self.tower.shown.as_ref().is_some_and(|p| p.drawn.is_some());
+        self.refresh_hits();
+        let crumb = if ui && !tower { self.crumb() } else { Default::default() };
+        let drawn = || self.tower.shown.as_ref().and_then(|p| Some((p, p.drawn.as_ref()?)));
+        let ch = if tower {
+            drawn().map(|d| d.1.ch.clone()).unwrap_or_default()
+        } else {
+            self.changes()
+        };
+        let shown = self.bufs.get(self.cur).filter(|_| !tower);
+        let (colored, ask) =
+            shown.and_then(|b| Some(self.colors(b, b.frame.as_ref()?))).unwrap_or_default();
+        let win = if tower { drawn().and_then(|d| d.1.win) } else { colored.win };
         if let (Some(req), Some(b)) = (ask, self.bufs.get_mut(self.cur)) {
             b.asked = Some((req.ver, req.from, req.n));
             out.push(SimEffect::Highlight(req));
@@ -1681,17 +1732,27 @@ impl Sim {
             (_, true, Some(i)) if self.panel.search.is_some() => Fade::Find(i),
             _ => Fade::None,
         };
-        self.refresh_hits();
-        let scroll = ui.then(|| self.scrollbar(win)).flatten();
+        let scroll = ui.then(|| self.scrollbar(win)).flatten().filter(|_| !tower);
         let home_root = tilde(&self.root, self.home.as_deref());
         let tabs = self.tabs();
-        let crumb = if ui { self.crumb() } else { Default::default() };
+        let crumb = match drawn().filter(|_| ui && tower) {
+            Some((p, _)) => {
+                let parts: Vec<String> =
+                    p.path.iter().map(|c| c.to_string_lossy().into_owned()).collect();
+                (parts.clone(), parts.len().saturating_sub(1)) // (the file's path, no section)
+            }
+            None => crumb,
+        };
         let deck = Deck {
             geo: g,
             tones: tones.as_ref(),
             fade,
             gray: self.syn.sel().is_some(),
-            app: self.bufs.get(self.cur).map(|b| &b.app),
+            app: if tower {
+                drawn().map(|d| &d.0.app)
+            } else {
+                self.bufs.get(self.cur).map(|b| &b.app)
+            },
             win,
             focus,
             chrome: ui.then(|| Chrome { icons: self.icons, root: &home_root, tabs, cur: self.cur }),
@@ -1702,10 +1763,18 @@ impl Sim {
                 (_, 0) => layout::Guard::None,
                 (_, n) => layout::Guard::Off(n),
             },
+            title: self.changes.as_ref().map(Changes::title),
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
-        let editor = match cur {
-            Some((b, f)) => Some(Ed {
+        let blank = vec![vec![]; drawn().map_or(0, |d| d.1.frame.rows.len())];
+        let editor = match (drawn().filter(|_| tower), cur) {
+            (Some((p, d)), _) => Some(Ed {
+                digits: digits(&p.app.buf),
+                ch,
+                crow: 0, // (the fog of depth from the first row: the hunk shown)
+                ..Ed::new(&d.frame, &blank)
+            }),
+            (_, Some((b, f))) => Some(Ed {
                 digits: digits(&b.app.buf),
                 ch,
                 crow: b.crow,
@@ -1715,7 +1784,7 @@ impl Sim {
                 extra: &colored.extra,
                 ..Ed::new(f, &colored.looks)
             }),
-            None => None,
+            _ => None,
         };
         let (mut rows, mut looks, mut paints) = layout::body(&deck, &marked, sel, editor.as_ref());
         let mut floats = vec![]; // GUI-1: the windows laid over the body
@@ -1789,8 +1858,9 @@ impl Sim {
             let kind = LayerKind::Box { focused: !open };
             out.push(Layer { kind, rect: rect(g.ex - 1, 0, g.sign + g.ew + 2, rows) });
         }
-        if let (true, Some(b)) = (ui, self.bufs.get(self.cur)) {
-            let kind = LayerKind::Text { sign: g.sign, gutter: digits(&b.app.buf) as u16 + 2 };
+        let shown = self.tower.shown.as_ref().filter(|_| self.towering()).map(|p| &p.app.buf);
+        if let (true, Some(b)) = (ui, shown.or(self.bufs.get(self.cur).map(|b| &b.app.buf))) {
+            let kind = LayerKind::Text { sign: g.sign, gutter: digits(b) as u16 + 2 };
             out.push(Layer { kind, rect: rect(g.ex, g.y0, g.sign + g.ew, g.rows) });
             if g.boxed || g.rule > 0 {
                 let x = g.ex + g.sign + g.ew;
@@ -1835,7 +1905,7 @@ impl Sim {
                 icon: None,
                 path: Some(&path),
                 modified: false,
-                notes: "",
+                notes: if self.changes.is_some() && self.tower.follow { "FOLLOW" } else { "" },
                 slot: None,
                 encoding: None,
                 eol: None,

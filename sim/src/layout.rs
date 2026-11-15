@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19, WATCH-2
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19, WATCH-2, DIFF-7, DIFF-9
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -556,6 +556,8 @@ pub struct Deck<'a> {
     pub crumb: (Vec<String>, usize),
     /// GIT-5: what the guard did to the repository.
     pub guard: Guard,
+    /// DIFF-9: what the panel's box says it is, where it is not `files` (the changes view and its sums).
+    pub title: Option<String>,
 }
 
 /// UI-2, UI-4: what the interface adds to a screen: whether the icons are drawn, the root as the
@@ -1131,8 +1133,11 @@ fn borders(d: &Deck) -> [Line; 2] {
     let s = |text: &str, p| (text.to_string(), p);
     let (pw, ew) = (g.pw + 2, g.ew + g.sign + 2);
     let (mut top, mut bottom) = (Line::default(), Line::default());
-    let mut files = vec![s("files", title(true))];
-    if let Some((w, p)) = words(usize::from(pw).saturating_sub(4 + 5 + 1)).filter(|_| g.pw > 0) {
+    let said = words(usize::from(pw).saturating_sub(4 + 5 + 1)).filter(|_| g.pw > 0);
+    // DIFF-9: the changes view's sums, in what the guard's words leave
+    let room = usize::from(pw).saturating_sub(4 + said.as_ref().map_or(0, |w| w.0.len() + 1));
+    let mut files = vec![s(&fit(d.title.as_deref().unwrap_or("files"), room).0, title(true))];
+    if let Some((w, p)) = said {
         files.extend([s("─", line(true)), (w, p)]); // (GIT-5, where the tree is)
     }
     if g.pw > 0 {

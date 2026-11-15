@@ -406,7 +406,9 @@ impl W {
                         io::grep(&req, None, &|| true, &mut |b| local.push(SimEvent::Grep(b)))
                     }
                     SimEffect::Preview(path) => local.push(io::preview(&self.sim.root, &path)),
+                    SimEffect::Patch(req) => local.push(io::patch(&self.sim.root, &req)),
                     SimEffect::Look(_)
+                    | SimEffect::View(_)
                     | SimEffect::Icons(_)
                     | SimEffect::Md(_)
                     | SimEffect::Diff(_)
@@ -509,9 +511,11 @@ impl W {
         let mouse = matches!(ev, SimEvent::Mouse(_));
         // WATCH-1: a batch of the project's watcher asks for listings, the list and git's status, and
         // lights rows: it opens, saves and moves nothing
+        // (the panel's cursor stays on its entry, whatever came above it, unless the entry is gone: TREE-5)
         let seen = |s: &Sim| {
             let bufs = s.bufs.iter().map(|b| (b.id, b.app.buf.cursor, b.app.buf.version()));
-            (s.cur, s.panel.open, s.panel.focus, s.panel.cur, bufs.collect::<Vec<_>>())
+            let at = s.row(s.panel.cur).map(|r| r.path);
+            (s.cur, s.panel.open, s.panel.focus, at, bufs.collect::<Vec<_>>())
         };
         let touch = matches!(ev, SimEvent::Touched(_)).then(|| seen(&self.sim));
         let before: Vec<(usize, String, bool, usize)> = self
@@ -535,7 +539,11 @@ impl W {
                 );
                 assert!(asked, "WATCH-1: a batch of the watcher asked for {e:?}");
             }
-            assert_eq!(was, seen(&self.sim), "WATCH-1: a batch of the watcher moved something");
+            let mut now = seen(&self.sim);
+            if was.3.as_ref().is_none_or(|p| self.sim.view().row_of(p).is_none()) {
+                now.3 = was.3.clone(); // (there was no entry, or it is gone)
+            }
+            assert_eq!(was, now, "WATCH-1: a batch of the watcher moved something");
         }
         if mouse {
             for e in &fx {

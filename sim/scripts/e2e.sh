@@ -398,8 +398,8 @@ gone() { ! screen | grep -F -q -- "$1"; }
 
 # What is left in si's state directory but the places where files were closed (CLI-6, which stay).
 # What the journal left in the state directory: not the places, and not the choices sim keeps beside it
-# (`look`, `history`, `icons`, and the marker of the hint, STATE-1).
-journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|tab-uses|no-hooks|md|\.migrated)$' || true; }
+# (`look`, `history`, `icons`, `view`, and the marker of the hint, STATE-1).
+journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|tab-uses|no-hooks|md|view|\.migrated)$' || true; }
 
 # After sim is gone: the normal screen is back and the tty is in cooked mode again.
 terminal_restored() {
@@ -3143,6 +3143,134 @@ watch_3_an_ignored_directory_is_not_watched() {
   tries=40
   while [ "$(runs)" = "$last" ] && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
   [ "$(runs)" != "$last" ]
+}
+
+# DIFF-7, DIFF-8: thirty lines committed in src/main.rs, then line 3 changed and line 25 deleted (two hunks), and a
+# line added to src/lib.rs (one hunk): the rows of the changes view are src/, lib.rs, main.rs.
+two_hunks() {
+  gitproject
+  i=1
+  while [ "$i" -le 30 ]; do printf 'l%s\n' "$i"; i=$((i + 1)); done > "$W/src/main.rs"
+  outside_git -C "$W" commit -q -am "thirty lines"
+  awk 'NR == 3 { print "L3"; next } NR != 25 { print }' "$W/src/main.rs" > "$W/main.new"
+  mv "$W/main.new" "$W/src/main.rs"
+  printf 'one\n' >> "$W/src/lib.rs"
+}
+
+# DIFF-7, DIFF-9: while the changes view has the focus the text pane shows the diff of the file under the cursor,
+# a line that came with `+` on the green tint (flat, with colors); a write from outside makes it again with no key.
+diff_9_an_outside_write_updates_the_preview_without_a_key() {
+  gitproject
+  printf 'one\n' >> "$W/src/lib.rs"
+  watched
+  typed " ge"
+  wait_row "lib.rs" "+1"
+  typed j
+  wait_for "@@ -1 +1,2 @@"
+  wait_for "+one"
+  screen_esc | grep -a -F "+one" | grep -a -q '48;2;' # (the row's tint)
+  sleep 0.5
+  printf 'two\n' >> "$W/src/lib.rs"
+  wait_for "+two" 2
+  wait_for "@@ -1 +1,3 @@"
+  wait_last "CHANGES"
+}
+
+# DIFF-7: a hidden char in a diff is drawn as its form, as in the text, and never reaches the terminal.
+diff_7_a_hidden_char_in_a_diff_is_its_form() {
+  gitproject
+  printf 'x\342\200\256y\n' >> "$W/src/lib.rs"
+  start
+  wait_for "▸ src/ ~"
+  typed " ge"
+  wait_for "lib.rs"
+  typed j
+  wait_for "+x<U+202E>y"
+  if screen | LC_ALL=C grep -q "$(printf '\342\200\256')"; then
+    echo "a U+202E is on the screen" >&2
+    return 1
+  fi
+}
+
+# DIFF-8: ]c shows the next hunk of the preview, and past the last one the next file's first; [c goes back.
+diff_8_bracket_c_walks_the_hunks_into_the_next_file() {
+  two_hunks
+  start
+  wait_for "▸ src/ ~"
+  typed " ge"
+  wait_for "main.rs"
+  typed j
+  wait_for "+one"
+  typed "]c"
+  wait_for "@@ -1,6 +1,6 @@"
+  wait_last "src/main.rs  CHANGES"
+  typed "]c"
+  wait_for "@@ -22,7 +22,6 @@" # (both hunks fit in the pane: the second is shown where the last page puts it)
+  wait_last "src/main.rs  CHANGES"
+  typed "[c[c"
+  wait_last "src/lib.rs  CHANGES"
+  wait_for "+one"
+}
+
+# DIFF-8: Enter opens the file at the first line the hunk shown changes.
+diff_8_enter_opens_the_file_at_the_hunk() {
+  two_hunks
+  start
+  wait_for "▸ src/ ~"
+  typed " ge"
+  wait_for "main.rs"
+  typed jj
+  wait_for "@@ -1,6 +1,6 @@"
+  typed "]c"
+  wait_for "@@ -22,7 +22,6 @@"
+  keys Enter
+  wait_for "src/main.rs  25:1  NORMAL"
+  screen | grep -F -q "l26"
+}
+
+# DIFF-9: which view the panel showed is remembered: sim started again shows the changes view.
+diff_9_the_changes_view_is_remembered() {
+  gitproject
+  printf 'one\n' >> "$W/src/lib.rs"
+  start
+  wait_for "▸ src/ ~"
+  typed " ge"
+  wait_for "CHANGES"
+  keys Escape
+  typed q
+  wait_exit
+  [ "$(cat "$XDG_STATE_HOME/sim/view")" = changes ]
+  restart
+  start
+  wait_for "lib.rs"
+  wait_last "CHANGES"
+  typed q
+  wait_last "TREE"
+}
+
+# DIFF-10: FOLLOW is a switch. Off, a write from outside moves nothing; `f` turns it on, the status line says
+# FOLLOW, and the view's cursor goes to the file written.
+diff_10_follow_takes_the_cursor_to_the_file_written_only_while_it_is_on() {
+  gitproject
+  printf 'one\n' >> "$W/src/lib.rs"
+  printf 'more\n' >> "$W/docs/guide.md"
+  start
+  wait_for "▸ src/ ~"
+  typed " ge"
+  wait_for "guide.md"
+  typed j
+  wait_for "+more"
+  wait_last "docs/guide.md  CHANGES"
+  printf 'two\n' >> "$W/src/lib.rs"
+  wait_row "lib.rs" "+2" 2
+  sleep 0.5
+  wait_last "docs/guide.md  CHANGES"
+  screen | grep -F -q "+more"
+  typed f
+  wait_last "docs/guide.md  CHANGES  FOLLOW"
+  printf 'three\n' >> "$W/src/lib.rs"
+  wait_last "src/lib.rs  CHANGES  FOLLOW" 2
+  wait_for "+three"
 }
 
 # The ASCII word $1 as tag characters (U+E0000 + each char, which UTF-8 writes as F3 A0 and two more bytes).

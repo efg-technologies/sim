@@ -1,4 +1,4 @@
-//! PTR-1, PTR-2, UI-4
+//! PTR-1, PTR-2, UI-4, DIFF-8
 //! The mouse (pure): a click in the panel acts on its row, a click in the text puts the cursor on
 //! the char under the pointer (through the composed frame, `layout::hit`), a drag selects as Visual
 //! mode does, and the wheel scrolls what is under the pointer. Nothing here edits: the mouse
@@ -46,6 +46,11 @@ impl Sim {
             K::Drag(B::Left) => self.drag(x.saturating_sub(g.tx()), y.min(g.rows - 1), out),
             K::Up(B::Left) => self.drag = None,
             K::ScrollUp | K::ScrollDown if panel => self.roll(m.kind == K::ScrollUp),
+            // DIFF-8: the wheel over the changes view's preview scrolls it
+            K::ScrollUp | K::ScrollDown if text && self.towering() => {
+                let n = NOTCH as isize;
+                self.roll_patch(if m.kind == K::ScrollUp { -n } else { n })
+            }
             K::ScrollUp | K::ScrollDown if text => self.wheel(m.kind == K::ScrollUp, out),
             _ => {}
         }
@@ -126,6 +131,9 @@ impl Sim {
     /// A press in the text: the text has the focus, and the cursor goes to the char under it. A
     /// drag may go on from here. On the command line nothing happens to the text.
     fn press(&mut self, x: u16, y: u16, out: Out) {
+        if self.towering() {
+            return self.panel.focus = false; // (DIFF-7: no char of the preview is the file's)
+        }
         let Some(b) = self.bufs.get(self.cur) else { return };
         let id = b.id;
         (self.msg, self.drag, self.panel.focus, self.z) = (None, None, false, false); // (a `z` waiting for its `h` is forgotten too)

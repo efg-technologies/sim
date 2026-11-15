@@ -347,7 +347,7 @@ fn watch_3_an_idle_project_asks_git_nothing() {
     let d = repository("w3-idle");
     fs::write(d.0.join("a.txt"), "changed, for a diff\n").unwrap();
     let rx = watching(&d.0, None, io::POLL);
-    // sim's own git (the status, the list, the numbers, the diff, HEAD's version) writes nothing that
+    // sim's own git (the status, the list, the numbers, the diffs, HEAD's version) writes nothing that
     // the watcher sees: it runs with `--no-optional-locks` (MARK-1)
     let root = fs::canonicalize(&d.0).unwrap();
     for _ in 0..3 {
@@ -356,6 +356,8 @@ fn watch_3_an_idle_project_asks_git_nothing() {
         io::changes(&root, &[]).unwrap();
         io::git_diff(&root, "a.txt").unwrap();
         io::show_head(&root, "a.txt").unwrap();
+        let req = sim::sim::PatchReq { n: 1, path: "a.txt".into(), old: None, new: false };
+        io::patch(&root, &req); // (DIFF-7's preview)
     }
     assert!(
         batches(&rx, Duration::from_millis(1500)).is_empty(),

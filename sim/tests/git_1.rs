@@ -283,6 +283,30 @@ fn git_2_an_external_diff_and_a_text_conversion_never_run() {
 }
 
 #[test]
+fn git_2_the_preview_s_diff_runs_no_external_diff_text_conversion_or_filter() {
+    // DIFF-7: the changes view's preview is a `git diff` of its own, through the same guard
+    let f = fx("g2-patch");
+    let ext = script(&f.tools, "extdiff", &f.witness, "");
+    let conv = script(&f.tools, "conv", &f.witness, "cat \"$1\"");
+    let filt = script(&f.tools, "filt", &f.witness, "cat");
+    config(&f.repo, "diff.external", &ext);
+    config(&f.repo, "diff.conv.textconv", &conv);
+    config(&f.repo, "filter.wit.clean", &filt);
+    std::fs::write(f.repo.join("x.dat"), "raw\nmore\n").unwrap();
+    std::fs::write(f.repo.join("a.f"), "one\ntwo\n").unwrap();
+    // the control: plain git runs the external diff
+    assert!(plain(&f.repo, &["diff", "HEAD", "--", "x.dat"]).status().unwrap().success());
+    assert!(!ran(&f.witness).is_empty(), "the control");
+    clear(&f.witness);
+    for path in ["x.dat", "a.f"] {
+        let req = sim::sim::PatchReq { n: 1, path: path.into(), old: None, new: false };
+        let sim::sim::SimEvent::Patched(1, p) = io::patch(&f.repo, &req) else { panic!() };
+        assert!(p.text.contains("+more") || p.text.contains("+two"), "{path}: {}", p.text);
+    }
+    assert_eq!(ran(&f.witness), Vec::<String>::new());
+}
+
+#[test]
 fn git_2_clean_and_process_filters_never_run_and_status_and_diff_answer() {
     for key in ["clean", "process"] {
         let f = fx(&format!("g2-{key}"));

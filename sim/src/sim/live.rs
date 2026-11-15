@@ -394,15 +394,20 @@ impl Sim {
         self.live_end(out);
         self.panel.reveal = Some(PathBuf::from(&path));
         self.reveal(out);
-        let at = self.root.join(&path);
-        let open =
-            self.bufs.iter().find(|b| b.app.path.as_ref().is_some_and(|p| self.cwd.join(p) == at));
-        let id = open.map(|b| b.id);
         let keys = match (line, col) {
             (0, _) => String::new(),
             (_, 0) => format!(":{line}\n"),
             _ => format!(":{line}\n{col}l"),
         };
+        self.open_at(self.root.join(&path), keys, out);
+    }
+
+    /// GREP-4, DIFF-8: opens the file `at` as the tree's Enter does and types `keys` into it (`:12\n`): once it
+    /// is read, or at once where it is open and its App is in Normal mode with nothing pending.
+    pub(super) fn open_at(&mut self, at: PathBuf, keys: String, out: Out) {
+        let open =
+            self.bufs.iter().find(|b| b.app.path.as_ref().is_some_and(|p| self.cwd.join(p) == at));
+        let id = open.map(|b| b.id);
         self.open(at, out);
         match id {
             Some(id) if self.idle() => {

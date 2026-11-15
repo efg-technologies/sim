@@ -17,6 +17,7 @@ pub mod lie;
 pub mod marks;
 pub mod md;
 pub mod paint;
+pub mod patch;
 pub mod pick;
 pub mod rank;
 pub mod search;

@@ -99,9 +99,13 @@ impl Headless {
     pub fn walk_to(&mut self, name: &str) -> &mut Headless {
         for _ in 0..80 {
             let s = self.screen();
-            let y = s.frame.rows.iter().position(|r| r.text.contains(name));
-            let at = s.layers.iter().find(|l| l.kind == LayerKind::Cursor);
-            if y.is_none() || y == at.map(|l| usize::from(l.rect.y)) {
+            let at = s.layers.iter().find(|l| l.kind == LayerKind::Cursor).map(|l| l.rect);
+            // (the cursor's row of the tree: the name may be the text's title too, DIFF-7)
+            let row = at.and_then(|a| Some((s.frame.rows.get(usize::from(a.y))?, a.x + a.w)));
+            let row = row.map(|(r, end)| r.text.chars().take(usize::from(end)).collect::<String>());
+            if !s.frame.rows.iter().any(|r| r.text.contains(name))
+                || row.is_some_and(|r| r.contains(name))
+            {
                 break;
             }
             self.keys("j");
