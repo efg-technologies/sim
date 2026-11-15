@@ -248,8 +248,8 @@ fn look_2_the_wrapped_rows_of_a_changed_line_have_a_gutter_bar() {
         .unwrap();
     assert!(next >= 4, "the line wraps: {}", dump(&r.shot.frame));
     assert!(text(&r, 0).chars().nth(usize::from(g.ex)) == Some('~'));
-    for y in 0..next {
-        assert_eq!(bg_at(&r.shot.paints[y], g.ex), Some(t.add), "row {y}: the bar is continuous");
+    for (y, row) in r.shot.paints.iter().enumerate().take(next) {
+        assert_eq!(bg_at(row, g.ex), Some(t.add), "row {y}: the bar is continuous");
     }
     assert_eq!(bg_at(&r.shot.paints[next], g.ex), None, "a row of no change has none");
     // Calm has the symbol of the first row only.

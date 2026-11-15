@@ -200,12 +200,8 @@ fn key_3_calm_draws_it_without_color_and_the_looks_with_the_interface_s_surface(
     r.pause();
     let ((top, _), rows) = window(&r).expect("calm has it too");
     assert!(rows[0].starts_with("╭─ <Space> ─"), "{rows:?}");
-    for y in top..top + rows.len() {
-        assert!(
-            r.shot.paints[y].iter().all(|(_, p)| p.fg.is_none() && p.bg.is_none()),
-            "row {y}: {:?}",
-            r.shot.paints[y]
-        );
+    for (y, row) in r.shot.paints.iter().enumerate().skip(top).take(rows.len()) {
+        assert!(row.iter().all(|(_, p)| p.fg.is_none() && p.bg.is_none()), "row {y}: {row:?}");
     }
     let mut d = rig_wk("k3-depth", Skin::Depth, (100, 24));
     d.keys(" ");
