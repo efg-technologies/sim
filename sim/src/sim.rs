@@ -1,4 +1,4 @@
-//! VI-15, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19
+//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -80,6 +80,29 @@ struct Wrote {
     n: u64,
 }
 
+/// WATCH-2: the rows lit for a write: the paths written, and the directories above them (a closed one is
+/// lit for what it hides).
+struct Lit {
+    paths: HashSet<PathBuf>,
+    above: HashSet<PathBuf>,
+}
+
+impl Lit {
+    fn new(paths: Vec<PathBuf>) -> Lit {
+        let (paths, mut above): (HashSet<PathBuf>, HashSet<PathBuf>) =
+            (paths.into_iter().collect(), HashSet::new());
+        for p in &paths {
+            for a in p.ancestors().skip(1) {
+                if above.contains(a) {
+                    break; // (the directories above it are there already)
+                }
+                above.insert(a.to_path_buf());
+            }
+        }
+        Lit { paths, above }
+    }
+}
+
 /// A file open in sim. Ids are never reused, so a late answer for a closed file is dropped.
 pub type Id = usize;
 
@@ -136,6 +159,18 @@ pub enum SimEvent {
     /// GUI-6: the background and the ANSI colors (0 to 7, those the window has) that a terminal
     /// would have answered with, told as they are: a window has none to ask.
     Colors(Rgb, [Option<Rgb>; 8]),
+    /// WATCH-1: what the project's watcher saw.
+    Touched(Touched),
+}
+
+/// WATCH-1: a batch of what the project's watcher saw: the paths below the root that were written, made,
+/// moved or deleted (relative to it), each with whether it is a file now; that there were more than it
+/// names (`many`: anything may have changed); and that git's own files moved (HEAD, the index, a branch).
+#[derive(Debug, Default)]
+pub struct Touched {
+    pub paths: Vec<(PathBuf, bool)>,
+    pub many: bool,
+    pub git: bool,
 }
 
 /// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
@@ -365,7 +400,11 @@ pub struct Sim {
     kept: Option<String>,
     /// MD-10: the reference links of the Markdown file shown, for the file and the version of its text.
     refs: RefCell<Option<(Id, u64, Arc<lie::Refs>)>>,
-    disk: HashSet<PathBuf>,
+    /// WATCH-2: the files another process wrote that have not been looked at since; the files sim itself
+    /// wrote, until the watcher has told of them; and the rows lit for a write that has just come.
+    unseen: HashSet<PathBuf>,
+    mine: HashSet<PathBuf>,
+    lit: Option<(Lit, u64)>,
     marks: Marks,
     no_repo: bool,
     /// MARK-1: git was not run because the repository's config could run commands (told once).
@@ -754,7 +793,9 @@ impl Sim {
             SimEvent::Unflash(n) => {
                 self.flash.take_if(|f| f.n == n);
                 self.wrote.take_if(|w| w.n == n);
+                self.lit.take_if(|l| l.1 == n);
             }
+            SimEvent::Touched(t) => self.touched(t, &mut out),
             SimEvent::Diff(id, r, lines) => {
                 if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
                     b.diff = r.ok().map(|out| Diff::parse(&out, lines));
@@ -833,10 +874,63 @@ impl Sim {
         out.extend((!self.no_repo && !self.plain).then_some(SimEffect::Status));
     }
 
-    /// MARK-1: the marks from git's status and the paths seen changing on disk.
+    /// MARK-1: the marks from git's status and the files that are unseen (WATCH-2).
     fn remark(&mut self) {
-        self.marks = Marks::new(&self.status.0, &self.status.1, &self.disk);
+        self.marks = Marks::new(&self.status.0, &self.status.1, &self.unseen);
         self.refocus();
+    }
+
+    /// WATCH-1, WATCH-2: what the project's watcher saw. A file that is not open and that another process
+    /// wrote is unseen, and its row is lit (an open file's own watcher tells of it, DISK-1; sim's own writes
+    /// and what git ignores are no news). The open directories that hold what changed are read again, the
+    /// list of files when a file came or went, and git's status. Nothing is opened, and no cursor moves.
+    fn touched(&mut self, t: Touched, out: &mut Vec<SimEffect>) {
+        let open: Vec<PathBuf> = self.bufs.iter().filter_map(|b| self.rel(b)).collect();
+        let (mut lit, mut dirs, mut list, mut ask) =
+            (vec![], HashSet::new(), t.many, t.git || t.many);
+        let mut gone = false;
+        for (p, file) in t.paths {
+            dirs.insert(p.parent().map(Path::to_path_buf).unwrap_or_default());
+            if self.mine.remove(&p) || open.contains(&p) || self.marks.ignored(&p) {
+                continue;
+            }
+            let name = p.to_string_lossy();
+            list |= !file || self.files.binary_search_by(|f| f.as_str().cmp(&name)).is_err();
+            ask = true;
+            if file && self.unseen.insert(p.clone()) {
+                self.marks.wrote(&p);
+            }
+            gone |= !file && self.unseen.remove(&p);
+            lit.push(p);
+        }
+        if gone {
+            self.remark();
+        } else if !lit.is_empty() {
+            self.refocus(); // (MARK-3's narrowed tree has the unseen files)
+        }
+        if !lit.is_empty() {
+            self.flash_gen += 1;
+            self.lit = Some((Lit::new(lit), self.flash_gen));
+            out.push(SimEffect::Flash(self.flash_gen, WROTE_MS));
+        }
+        let shown = self.tree.open_dirs();
+        if t.many {
+            dirs.extend(shown.iter().cloned().chain([PathBuf::new()]));
+        }
+        for d in dirs.into_iter().filter(|d| d.as_os_str().is_empty() || shown.contains(d)) {
+            let at = if d.as_os_str().is_empty() { self.root.clone() } else { self.root.join(d) };
+            out.push(SimEffect::Read(at));
+        }
+        out.extend(list.then_some(SimEffect::Files));
+        if ask {
+            self.git(out);
+        }
+    }
+
+    /// A file's path below the root (none for a file outside it, or with no name).
+    fn rel(&self, b: &Buf) -> Option<PathBuf> {
+        let path = self.cwd.join(b.app.path.as_ref()?);
+        path.strip_prefix(&self.root).ok().map(Path::to_path_buf)
     }
 
     /// UI-11: finds the lines the last `/` search matches in the current file, for the scrollbar, when
@@ -1061,6 +1155,7 @@ impl Sim {
             b.lit = lit_after(b.lit, (k, mode, idle, slash), &was, &b.app.search);
         }
         let (yank, ver) = (yanked(&b.app, took), b.app.buf.version());
+        let marked = disk && !b.app.buf.marks.is_empty();
         self.run(id, fx, out);
         if let Some(chars) = yank {
             // UI-13: the text a yank took is lit for a moment, as the author's `on_yank` does.
@@ -1073,11 +1168,17 @@ impl Sim {
             wrote.sort_unstable();
             self.flash_gen += 1;
             self.wrote = Some(Wrote { id, ver, lines: wrote, n: self.flash_gen });
+            // WATCH-2: and so is its row in the tree
+            let row = self.bufs.iter().find(|b| b.id == id).and_then(|b| self.rel(b));
+            self.lit = row.map(|r| (Lit::new(vec![r]), self.flash_gen));
             out.push(SimEffect::Flash(self.flash_gen, WROTE_MS));
         }
         if let (true, Some(path)) = (changed, path) {
-            if let Ok(rel) = self.cwd.join(path).strip_prefix(&self.root) {
-                self.disk.insert(rel.into());
+            // WATCH-2: what another process wrote and the file marks is unseen; sim's own save is not
+            let rel = self.cwd.join(path).strip_prefix(&self.root).map(Path::to_path_buf);
+            if let (true, Ok(rel)) = (marked, rel)
+                && self.unseen.insert(rel)
+            {
                 self.remark();
             }
             self.git(out);
@@ -1103,7 +1204,14 @@ impl Sim {
                 | Effect::Remember { .. }
                 | Effect::Keep { .. }
                     if scratch => {}
-                e => out.push(SimEffect::App(id, e)),
+                e => {
+                    if let Effect::Write { path, .. } = &e {
+                        let below =
+                            self.cwd.join(path).strip_prefix(&self.root).map(Path::to_path_buf);
+                        self.mine.extend(below.ok()); // WATCH-2: no news when the watcher tells of it
+                    }
+                    out.push(SimEffect::App(id, e))
+                }
             }
         }
         if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
@@ -1457,13 +1565,18 @@ impl Sim {
 
     /// UI-3: the open file's path below the root, if it is below it.
     fn open_path(&self) -> Option<PathBuf> {
-        let path = self.cwd.join(self.bufs.get(self.cur)?.app.path.as_ref()?);
-        path.strip_prefix(&self.root).ok().map(Path::to_path_buf)
+        self.rel(self.bufs.get(self.cur)?)
     }
 
     /// The whole screen: the panel, the current file and the status line (BUF-2: `2/5` is
     /// appended when more than one file is open).
     fn frame(&mut self, out: &mut Vec<SimEffect>) -> Screen {
+        // WATCH-2: the file shown has been looked at once no mark of DISK-6 is left in it
+        let clean = self.bufs.get(self.cur).is_some_and(|b| b.app.buf.marks.is_empty());
+        let clean = clean && !self.unseen.is_empty();
+        if clean && self.open_path().is_some_and(|p| self.unseen.remove(&p)) {
+            self.remark();
+        }
         self.fit();
         self.scroll();
         self.live_prepare(out);
@@ -1857,8 +1970,13 @@ impl Sim {
         let view = self.changes.as_ref();
         let old = view.and_then(|_| m.renamed_from(p));
         let shown = old.map(|o| moved(o, &r));
+        let lit = self.lit.as_ref().is_some_and(|(l, _)| {
+            l.paths.contains(p) || (r.is_dir && !r.open && l.above.contains(p))
+        });
         let mark = Mark {
-            change: file && if ui { m.on_disk(p) } else { m.changed(p) && view.is_none() },
+            change: file && if ui { m.unseen(p) } else { m.changed(p) && view.is_none() },
+            unseen: file && m.unseen(p),
+            lit,
             below: r.is_dir && !ui && view.is_none() && m.changed_below(p),
             likely: file && likely.iter().any(|l| Path::new(&l.0) == p),
             hit,

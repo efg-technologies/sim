@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19, WATCH-2
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -88,10 +88,13 @@ pub fn stated(path: &str, state: &str, max: usize) -> String {
 /// name of a file, `below` the `~` of a directory), MARK-2 (`likely`, the `•`), and FIND-1
 /// (`hit`: none when no search runs; bold for a match or a directory leading to one, dimmed else).
 /// For the interface (UI-3): the file's git status, the strongest one below a directory (`dot`),
-/// whether git ignores it, and whether it is the open file's row.
+/// whether git ignores it, and whether it is the open file's row. WATCH-2: whether the file is unseen
+/// (`↯` after its name), and whether the row is lit for a write that has just come.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Mark {
     pub change: bool,
+    pub unseen: bool,
+    pub lit: bool,
     pub below: bool,
     pub likely: bool,
     pub hit: Option<bool>,
@@ -117,6 +120,7 @@ pub fn label(r: &tree::Row, m: &Mark) -> (String, String, String) {
         let (mark, below) = (if r.open { "▾ " } else { "▸ " }, if m.below { " ~" } else { "" });
         (format!("{indent}{mark}"), format!("{}/", r.name), format!("{below}{words}"))
     } else {
+        let words = if m.unseen { format!(" ↯{words}") } else { words };
         (format!("{indent}{}", if m.likely { "• " } else { "  " }), r.name.clone(), words)
     }
 }
@@ -586,6 +590,13 @@ fn ink_of(t: &Tones, red: bool) -> Paint {
     Paint { bg: Some(bg), fg: Some(fg), cue: Cue::Solid, role: Role::Patch, ..Paint::default() }
 }
 
+/// UI-19, WATCH-2: what another process has just written is lit: the change's solid green, bold.
+fn came(t: &Tones) -> Paint {
+    let (green, green_on) = t.add_solid();
+    let (bg, fg) = (Some(green), Some(green_on));
+    Paint { bg, fg, bold: true, cue: Cue::Solid, role: Role::Patch, ..Paint::default() }
+}
+
 /// A row of the panel, `pw` columns: the name with its marks (on green if the file changed), the
 /// selected row underlined; or, in a content search, a row of its results (GREP-3).
 fn panel_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: Option<&Tones>) -> Line {
@@ -599,6 +610,7 @@ fn panel_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: Option<&Ton
         let (start, end) = (wide(&pre), wide(&pre) + wide(&name));
         line.put(&format!("{pre}{name}{post}"), Paint::default());
         let used = end + wide(&post);
+        line.paints.extend(t.filter(|_| m.lit).map(|t| (start as u16..used as u16, came(t))));
         if m.change {
             line.row.spans.push((start as u16..end as u16, Style::Change));
             line.paints.extend(t.map(|t| (start as u16..end as u16, ink_of(t, false))));
@@ -656,9 +668,17 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
     }
     let start = line.cols;
     let text = if r.is_dir && !icons { format!("{}/", r.name) } else { r.name.clone() };
-    let text = cut(r, &text, room.saturating_sub(usize::from(line.cols)));
+    let arrow = if m.unseen { 2 } else { 0 };
+    let text = cut(r, &text, room.saturating_sub(usize::from(line.cols) + arrow));
     put(&mut line, &text, Paint::default());
-    let (name, used) = (start..line.cols, line.cols);
+    let name = start..line.cols;
+    if m.unseen {
+        put(&mut line, " ↯", ink(t.change_fg(Chg::Add))); // WATCH-2: COLOR-3's arrow, as a tab's
+    }
+    let used = line.cols;
+    if m.lit {
+        line.paints.insert(0, (start..used, came(t))); // (over the name's own colors: the first paint wins)
+    }
     if m.change {
         line.row.spans.push((name.clone(), Style::Change));
         line.paints.push((name.clone(), ink_of(t, false)));
@@ -802,13 +822,12 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     let hit = Paint { bg: Some(back), cue: Cue::Under, ..patch };
     // UI-19: the lines another process wrote are the change's solid green, bold, under the yank's accent
     // (brighter than the block of the words that came, which an added line has whole: else it would not show)
-    let (green, green_on) = t.add_solid();
-    let came = Paint { bg: Some(green), fg: Some(green_on), bold: true, cue: Cue::Solid, ..patch };
+    let written = came(t);
     // MD-10 first (the alert), then these, all before every paint the row has: a changed row has its
     // words and its tint already, and the first paint of a cell wins
     let mut front: Paints = m.lie.iter().map(|r| (r.clone(), alert_block(t))).collect();
     front.extend(m.flash.iter().map(|r| (r.clone(), flash)));
-    front.extend(m.wrote.iter().map(|r| (r.clone(), came)));
+    front.extend(m.wrote.iter().map(|r| (r.clone(), written)));
     front.extend(m.now.iter().map(|r| (r.clone(), now)));
     front.extend(m.hit.iter().map(|r| (r.clone(), hit)));
     line.paints.splice(0..0, front);

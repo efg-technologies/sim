@@ -57,12 +57,13 @@ fn plain_1_a_privileged_world_makes_every_front_end_plain_and_gives_it_no_rg_and
         !on.state.join("no-hooks").exists(),
         "git is not run, so git's hooks have no directory"
     );
+    assert!(!on.begun.cfg.watch, "WATCH-1: nothing is watched but the open file");
     // the sudoedit case: the parent says it, and the uid is not 0
     let sudo = begin_in(&dir.0, &["a.txt"], io::privileged(1000, Some("sudoedit\n")), None);
     assert!(sudo.begun.sim.plain && sudo.begun.cfg.rg.is_none());
     // and `--plain` in a world that is not privileged is plain too (the flag and the world are both heard)
     let flag = begin_in(&dir.0, &["--plain", "a.txt"], false, None);
-    assert!(flag.begun.sim.plain && flag.begun.cfg.rg.is_none());
+    assert!(flag.begun.sim.plain && flag.begun.cfg.rg.is_none() && !flag.begun.cfg.watch);
 }
 
 #[test]

@@ -34,6 +34,7 @@ fn plain_1_a_world_that_is_not_privileged_gets_a_sim_that_runs_programs() {
     assert!(!on.begun.sim.plain && filter::programs_allowed());
     assert_eq!(on.begun.cfg.rg, Some(on.bin.join("rg")), "the rg on the PATH");
     assert!(on.state.join("no-hooks").is_dir(), "git's hooks are pointed at a directory of ours");
+    assert!(on.begun.cfg.watch, "WATCH-1: the project is watched");
 }
 
 #[test]

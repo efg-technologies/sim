@@ -1,4 +1,4 @@
-//! GUI-4, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6
+//! GUI-4, WATCH-1, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6
 //! The shell: what is done with the Effects `Sim::update` returns, apart from the terminal: read a
 //! directory, open, save and watch a file, ask git, highlight, search, snapshot, run a filter. The
 //! terminal's loop (`main.rs`) and a window's use this one code, so a window cannot do these things
@@ -44,6 +44,8 @@ pub struct Config {
     pub history: Option<PathBuf>,
     /// The `rg` to search with, if any (GREP-8).
     pub rg: Option<PathBuf>,
+    /// WATCH-1: whether the project is watched (not in plain mode, PLAIN-1).
+    pub watch: bool,
 }
 
 /// What the system says about the world a front end starts in (PLAIN-1, SAFE-6, STATE-1): whether it is
@@ -158,6 +160,7 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
         state: world.state,
         history: world.history,
         rg,
+        watch: !sim.plain,
     };
     Begun { sim, fx, cfg, keys, moved: world.moved }
 }
@@ -246,12 +249,19 @@ impl Shell {
         let (jobs, finished) =
             sio::journal_thread(cfg.state.clone(), cfg.history.clone(), tx.clone());
         let (r1, r2) = (cfg.root.clone(), cfg.root.clone());
+        // WATCH-1: the project's watcher watches the directories of each list of files
+        let (root, state) = (cfg.root.clone(), cfg.state.clone());
+        let project = cfg.watch.then(|| sio::project(tx.clone(), root, state, sio::POLL));
         let t = Threads {
             saves: sio::save_thread(cfg.state.clone(), tx.clone()),
             highlights: sio::highlight_thread(tx.clone()),
             diffs: sio::diff_thread(tx.clone(), cfg.cwd.clone()), // UI-5: off the main thread
             greps: sio::Greps::new(tx.clone(), cfg.rg.clone()),
-            files: sio::worker(tx.clone(), move || SimEvent::Files(sio::files(&r1))),
+            files: sio::worker(tx.clone(), move || {
+                let files = sio::files(&r1);
+                project.iter().for_each(|p| p.files(&files));
+                SimEvent::Files(files)
+            }),
             git: sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2))),
             numbers: sio::changes_thread(tx.clone(), cfg.root.clone()), // DIFF-2
             reads: sio::Reads::default(),

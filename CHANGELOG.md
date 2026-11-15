@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- The whole project is watched (WATCH-1 to WATCH-3): a write, a creation, a deletion or a rename anywhere below the root is taken in within a second with no key typed, where it showed only when the panel was opened. git's letters in the tree, the rows of new and deleted files, the changes view's rows and numbers and the shown file's signs follow the disk; a commit, a checkout or an add made outside asks git again (in a linked worktree too: git's directories come from `git rev-parse --absolute-git-dir --git-common-dir`). A file another process wrote has `↯` after its name in the tree (in every look, with no color too) until it has been looked at, and its row (or the closed folder that hides it) is lit for 400 ms when the write comes. The watcher is a thread of the shell that watches the root, the directories of the list of files and git's directories, never a directory git ignores, the state directory or sim's own temporary files; it names paths and reads no file. git is asked at most once at a time and no more often than every `max(200 ms, 4 x its last run)`; where the system refuses a watch, the project is looked at every 5 s and the status line says so once. `sim --plain` watches the open file only. `notify`, which the core uses already, is a direct dependency of the editor for it.
+
+### Changed
+
+- The green row of a file in the tree means "written by another process and not yet looked at": it goes once the file has been shown with no mark of a change on disk left in it, and sim's own saves no longer make it (it stayed for the whole session, saves included) (WATCH-2).
+- The changes view lists only what git says differs from HEAD: a file that only changed on disk is no row of it.
+
 ## [0.2.1] - 2026-10-25
 
 ### Fixed

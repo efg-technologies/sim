@@ -1,7 +1,8 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
-//! and highlight, git, the list of files, the history file in sim's state directory, and the
-//! search of the contents of files (the built-in reader and ripgrep) with the preview's read.
+//! and highlight, git, the list of files, the watcher of the project, the history file in sim's state
+//! directory, and the search of the contents of files (the built-in reader and ripgrep) with the
+//! preview's read.
 use crate::changes::{self, Counts};
 use crate::grep::{Batch, Group, HEAD, Line, MAX_LINES, Query, Request, is_binary, parse_rg};
 use crate::layout::{self, Skin};
@@ -667,18 +668,272 @@ impl Reads {
 }
 
 /// A background job that never runs twice at once: a request while it runs is one more run
-/// after it, however many requests came (FIND-3, MARK-1). Its answer goes to `tx`.
+/// after it, however many requests came (FIND-3, MARK-1). Its answer goes to `tx`. WATCH-3: and it
+/// starts no sooner than `pace` of the last run after that run started.
 pub fn worker(tx: Sender<SimEvent>, job: impl Fn() -> SimEvent + Send + 'static) -> Sender<()> {
     let (ask, rx) = mpsc::channel();
     thread::spawn(move || {
         while rx.recv().is_ok() {
             rx.try_iter().for_each(drop);
+            let t = Instant::now();
             if tx.send(job()).is_err() {
+                return;
+            }
+            thread::sleep(pace(t.elapsed()).saturating_sub(t.elapsed()));
+        }
+    });
+    ask
+}
+
+/// WATCH-3: the least time from the start of a run of git's to the start of the next, after one that took
+/// `took`: four times as long, and never less than 200 ms, so that a storm of events costs git a share of
+/// one core that does not grow with the repository.
+pub fn pace(took: Duration) -> Duration {
+    (took * 4).max(Duration::from_millis(200))
+}
+
+/// WATCH-1: how long the project's watcher gathers what it sees before it tells sim; WATCH-3: how many
+/// paths a batch names (past that it says only that there were many), and how often the project is
+/// looked at where the system refuses a watch.
+const GATHER: Duration = Duration::from_millis(100);
+const MANY: usize = 1_000;
+pub const POLL: Duration = Duration::from_secs(5);
+
+/// WATCH-1: the handle of the project's watcher. What it is told is a list of paths: the directories to
+/// watch (relative to the root, so the root itself, the empty path, is among them), or what the system saw
+/// (absolute; none when it lost track). One channel of a type the shell has already, for the binary's size.
+pub struct Project(Sender<Vec<PathBuf>>);
+
+impl Project {
+    /// The list of files has come (FIND-3): its directories are the ones watched.
+    pub fn files(&self, files: &[String]) {
+        drop(self.0.send(dirs_of(files)));
+    }
+}
+
+/// WATCH-1, WATCH-3: the directories to watch for a list of files (relative to the root): the root and every
+/// directory that holds a listed file, with the directories above it, and never a `.git`. A directory git
+/// ignores holds no listed file (FIND-3), so it is not among them.
+pub fn dirs_of(files: &[String]) -> Vec<PathBuf> {
+    let mut all: HashSet<PathBuf> = HashSet::from([PathBuf::new()]);
+    for f in files {
+        Path::new(f).ancestors().skip(1).take_while(|a| all.insert(a.to_path_buf())).for_each(drop);
+    }
+    let git = |d: &PathBuf| d.components().any(|c| c.as_os_str() == ".git");
+    all.into_iter().filter(|d| !git(d)).collect()
+}
+
+/// WATCH-1: git's directories for the repository of `root`, as git says them (a linked worktree's `.git` is
+/// a file, and its HEAD and index are apart from the common directory's config, branches and hooks): the
+/// work tree's own, the common one, its `refs/heads` and its `hooks`. None where git is not run.
+pub fn git_dirs(root: &Path) -> Vec<PathBuf> {
+    let out =
+        git(root, &["rev-parse", "--absolute-git-dir", "--git-common-dir"]).unwrap_or_default();
+    let real = |p: PathBuf| fs::canonicalize(&p).unwrap_or(p);
+    let mut dirs: Vec<PathBuf> =
+        String::from_utf8_lossy(&out).lines().map(|l| real(root.join(l))).collect();
+    let common = dirs.get(1).cloned();
+    dirs.extend(common.iter().flat_map(|c| [c.join("refs/heads"), c.join("hooks")]));
+    dirs.dedup();
+    dirs
+}
+
+/// WATCH-1, WATCH-3: what the project's watcher keeps.
+struct Watcher {
+    tx: Sender<SimEvent>,
+    root: PathBuf,
+    state: Option<PathBuf>,
+    gits: Vec<PathBuf>,
+    w: Option<notify::RecommendedWatcher>,
+    /// The directories (relative to the root) whose entries count, and whether a list of files has set them.
+    have: HashSet<PathBuf>,
+    listed: bool,
+    /// FSEvents (macOS) is one stream for the root, made again for every watch added: one recursive
+    /// watch, filtered by the same directories.
+    deep: bool,
+    refused: bool,
+    poll: Duration,
+    batch: crate::sim::Touched,
+    due: Option<Instant>,
+}
+
+impl Watcher {
+    fn watch(&mut self, at: &Path, deep: bool) -> bool {
+        use notify::{ErrorKind, RecursiveMode, Watcher as _};
+        let mode = if deep { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+        // (a directory gone since the list was made: the event of its going is on its way)
+        let gone = |k: &ErrorKind| match k {
+            ErrorKind::Io(e) => e.kind() == io::ErrorKind::NotFound,
+            k => matches!(k, ErrorKind::PathNotFound),
+        };
+        let Some(w) = self.w.as_mut() else { return false };
+        match w.watch(at, mode) {
+            Ok(()) => true,
+            Err(e) if gone(&e.kind) => false,
+            Err(e) => self.refuse(&e.to_string()),
+        }
+    }
+
+    /// WATCH-3: the system refused a watch: the project is looked at every `poll` from now on, said once.
+    fn refuse(&mut self, why: &str) -> bool {
+        if !std::mem::replace(&mut self.refused, true) {
+            let say =
+                format!("the project is looked at every {:?}: cannot watch it ({why})", self.poll);
+            drop(self.tx.send(SimEvent::Notice(say)));
+        }
+        false
+    }
+
+    /// The directories to watch now; those that are new since a list came are told as touched, so that
+    /// what was written in them before their watch began is looked for once more.
+    fn dirs(&mut self, dirs: Vec<PathBuf>) {
+        let state =
+            |d: &PathBuf| self.state.as_ref().is_some_and(|s| self.root.join(d).starts_with(s));
+        let want: HashSet<PathBuf> = dirs.into_iter().filter(|d| !state(d)).collect();
+        if !self.deep {
+            for d in self.have.iter().filter(|d| !want.contains(*d)) {
+                drop(self.w.as_mut().map(|w| notify::Watcher::unwatch(w, &self.root.join(d))));
+            }
+            let new: Vec<PathBuf> =
+                want.iter().filter(|d| !self.have.contains(*d)).cloned().collect();
+            for d in new {
+                if self.watch(&self.root.join(&d), false) && self.listed {
+                    self.touch(d);
+                }
+            }
+        }
+        (self.have, self.listed) = (want, true);
+    }
+
+    fn touch(&mut self, rel: PathBuf) {
+        self.batch.paths.push((rel, false));
+        self.soon();
+    }
+
+    /// The batch is told `GATHER` after the first thing in it.
+    fn soon(&mut self) {
+        self.due.get_or_insert_with(|| Instant::now() + GATHER);
+    }
+
+    /// What the system saw: paths below the root, or a move in git's own directories (none: it lost track,
+    /// and anything may have changed). sim's own temporary files (`.{name}.sim-*`), the state directory and
+    /// what is below a `.git` are not news.
+    fn event(&mut self, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            self.batch.many = true;
+            return self.soon();
+        }
+        for p in paths {
+            if self.gits.iter().any(|g| p.parent() == Some(g)) {
+                self.batch.git |= p.extension().is_none_or(|x| x != "lock");
+                self.soon();
+                continue;
+            }
+            let Ok(rel) = p.strip_prefix(&self.root) else { continue };
+            let temp = rel
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .is_none_or(|n| n.starts_with('.') && n.contains(".sim-"));
+            let git = rel.components().any(|c| c.as_os_str() == ".git");
+            let state = self.state.as_ref().is_some_and(|s| p.starts_with(s));
+            let seen = self.have.contains(rel.parent().unwrap_or(Path::new("")));
+            if !(temp || git || state) && seen {
+                self.touch(rel.to_path_buf());
+            }
+        }
+    }
+
+    /// Tells sim what the batch has: each path once, and whether it is a file now. False when sim is gone.
+    fn flush(&mut self) -> bool {
+        self.due = None;
+        let mut b = std::mem::take(&mut self.batch);
+        let mut once = HashSet::new();
+        b.paths.retain(|(p, _)| once.insert(p.clone()));
+        if b.paths.len() > MANY {
+            (b.paths, b.many) = (vec![], true);
+        }
+        for (p, file) in &mut b.paths {
+            *file = fs::metadata(self.root.join(&p)).is_ok_and(|m| m.is_file());
+        }
+        self.tx.send(SimEvent::Touched(b)).is_ok()
+    }
+}
+
+/// WATCH-1, WATCH-3: the project's watcher, on a thread of its own: it watches the root, the directories the
+/// list of files has (`Project::files`) and git's directories, and tells sim what changed below the root
+/// (`SimEvent::Touched`) in batches of `GATHER`. It names paths and reads no file. Where the system refuses a
+/// watch, it says so once and tells sim every `poll` that anything may have changed.
+pub fn project(
+    tx: Sender<SimEvent>,
+    root: PathBuf,
+    state: Option<PathBuf>,
+    poll: Duration,
+) -> Project {
+    let (me, rx) = mpsc::channel();
+    let fs = me.clone();
+    thread::spawn(move || {
+        let made = notify::recommended_watcher(move |e: notify::Result<notify::Event>| {
+            let paths = match e {
+                Ok(e) if matches!(e.kind, notify::EventKind::Access(_)) => return,
+                Ok(e) if !e.need_rescan() => e.paths,
+                _ => vec![], // (a queue that overflowed, or the system lost track)
+            };
+            drop(fs.send(paths));
+        });
+        let (deep, gits) = (cfg!(target_os = "macos"), git_dirs(&root));
+        let mut w = Watcher {
+            w: None,
+            have: HashSet::new(),
+            listed: false,
+            refused: false,
+            batch: Default::default(),
+            due: None,
+            tx,
+            root: root.clone(),
+            state,
+            gits: gits.clone(),
+            deep,
+            poll,
+        };
+        match made {
+            Ok(made) => w.w = Some(made),
+            Err(e) => drop(w.refuse(&e.to_string())),
+        }
+        if deep {
+            w.watch(&root, true);
+        }
+        for g in &gits {
+            w.watch(g, false);
+        }
+        w.dirs(vec![PathBuf::new()]);
+        w.listed = false;
+        let mut next: Option<Instant> = None;
+        loop {
+            if w.refused {
+                next.get_or_insert_with(|| Instant::now() + poll);
+            }
+            let until = [w.due, next].into_iter().flatten().min();
+            let got = match until {
+                Some(t) => rx.recv_timeout(t.saturating_duration_since(Instant::now())),
+                None => rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+            };
+            match got {
+                Ok(dirs) if dirs.iter().any(|d| d.as_os_str().is_empty()) => w.dirs(dirs),
+                Ok(paths) => w.event(paths),
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            let now = Instant::now();
+            if next.is_some_and(|t| t <= now) {
+                (w.batch.many, next) = (true, Some(now + poll));
+                w.due.get_or_insert(now);
+            }
+            if w.due.is_some_and(|d| d <= now) && !w.flush() {
                 return;
             }
         }
     });
-    ask
+    Project(me)
 }
 
 /// UI-5: what a file differs from HEAD by, as `git diff -U0` says it, for the signs of the sign

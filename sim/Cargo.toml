@@ -49,6 +49,11 @@ two-face = { version = "0.5", default-features = false, features = ["syntect-fan
 # gzip decoder, which is another one, was 33 KB).
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 
+# WATCH-1: the watcher of the project (the root, the directories of its files, git's directory). The core
+# watches each open file with this crate (DISK-1), at this version and with these features, so no crate
+# is added and `Cargo.lock` gains one line.
+notify = "8.2"
+
 [dev-dependencies]
 proptest = "1"
 

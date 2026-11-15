@@ -180,10 +180,10 @@ fn mark_1_a_file_that_changed_on_disk_while_sim_runs_is_marked_even_without_git(
     assert_eq!(r.panel()[0], "▾ sub/ ~");
     assert_eq!(changed(&r), ["b.txt"]);
     assert_eq!(r.selected().as_deref(), Some("▾ sub/ ~"));
-    // Saving a file is a change on disk too.
+    // Saving a file is sim's own write, which is no news (WATCH-2).
     let mut r = rig("m1-save", &["a.txt=one\n", "c.txt"], &["a.txt"]);
     r.keys("x:w\n<C-n>");
-    assert_eq!(changed(&r), ["a.txt"]);
+    assert_eq!(changed(&r), Vec::<String>::new());
 }
 
 #[test]
