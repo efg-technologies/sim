@@ -529,3 +529,17 @@ fn watch_3_bench_a_storm_of_events_asks_git_a_bounded_number_of_times() {
         "a batch is cheap on the main thread"
     );
 }
+
+#[test]
+fn watch_2_a_panel_too_narrow_for_a_deep_row_and_its_arrow_cuts_them_at_its_edge() {
+    // (found by the model: a file one folder down in a panel of 5 columns, with its arrow, took 6)
+    let mut r = rig_sized("w2-narrow", &["sub/f3=x\n", "a=y\n"], &[], (16, 6));
+    r.keys("l");
+    r.send(touched(&[("sub/f3", true)]));
+    let (pw, _) = r.sim.widths();
+    assert_eq!(pw, 5);
+    for row in &r.screen.rows {
+        assert!(width(&row.text) <= 16, "{:?} is wider than the screen", row.text);
+    }
+    assert!(r.panel().iter().all(|l| width(l) <= usize::from(pw)), "{:?}", r.panel());
+}

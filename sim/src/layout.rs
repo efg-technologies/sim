@@ -607,9 +607,10 @@ fn panel_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: Option<&Ton
         let wide = |s: &str| fit(s, usize::MAX).1;
         let room = usize::from(pw).saturating_sub(wide(&pre) + wide(&post));
         let name = cut(r, &name, room);
-        let (start, end) = (wide(&pre), wide(&pre) + wide(&name));
-        line.put(&format!("{pre}{name}{post}"), Paint::default());
-        let used = end + wide(&post);
+        // (a panel too narrow for a deep row and its marks keeps what fits of it, cut at its edge)
+        let (text, used) = fit(&format!("{pre}{name}{post}"), usize::from(pw));
+        let (start, end) = (wide(&pre).min(used), (wide(&pre) + wide(&name)).min(used));
+        line.put(&text, Paint::default());
         line.paints.extend(t.filter(|_| m.lit).map(|t| (start as u16..used as u16, came(t))));
         if m.change {
             line.row.spans.push((start as u16..end as u16, Style::Change));
