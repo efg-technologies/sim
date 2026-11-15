@@ -2994,6 +2994,157 @@ md_11_a_callout_is_the_kinds_word_in_place_of_its_marker_and_the_cursors_line_is
   ! screen | grep -F -q "Warning"
 }
 
+# WATCH-1: git as the cases run it outside sim, with a name for the commits.
+outside_git() { git -c user.name=sim -c user.email=sim@example.com "$@"; }
+
+# WATCH-1: a project open in flat with colors, the tree with git's letters in it, once git's first answer is
+# in (the branch on the bar; a key is typed only before the writes from outside that a case waits for).
+watched() {
+  look flat
+  CT=truecolor
+  start "$@"
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_last "$(git -C "$W" symbolic-ref --short HEAD)"
+}
+
+# The row with TEXT stops having PATTERN (a basic regex), within S seconds (5 by default).
+wait_row_gone() {
+  tries=$((${3:-5} * 20))
+  while screen 2> /dev/null | grep -F -- "$1" | grep -q -- "$2"; do
+    if [ "$tries" -le 0 ]; then
+      echo "timed out waiting for the row with $1 to lose: $2" >&2
+      return 1
+    fi
+    sleep 0.05
+    tries=$((tries - 1))
+  done
+}
+
+# WATCH-1, WATCH-2: a file that is not open, written from outside, has git's letter and the arrow of a write
+# not yet seen within a second, and no key is typed.
+watch_1_a_file_that_is_not_open_is_marked_within_a_second_of_an_outside_write() {
+  gitproject
+  watched
+  wait_for "▸ src/"
+  sleep 0.5
+  t0=$(now_ms)
+  printf 'written by another process\n' >> "$W/README.md"
+  wait_row "README.md" '↯ *M' 2
+  t1=$(now_ms)
+  [ $((t1 - t0)) -lt 1000 ] || { echo "it took $((t1 - t0)) ms" >&2; false; }
+  gone ".gitignore ↯"
+}
+
+# WATCH-1: a file made from outside has its row, and a deleted one the letter of its folder, with no key.
+watch_1_a_new_file_and_a_deleted_one_show_without_a_key() {
+  gitproject
+  watched
+  wait_for "▸ src/"
+  printf 'new\n' > "$W/NEW.md"
+  rm "$W/src/main.rs"
+  wait_row "NEW.md" '↯ *U'
+  wait_row "▸ src/" 'src/ *D '
+}
+
+# WATCH-1, DIFF-1: the changes view follows what is written outside: its numbers and its rows, with no key.
+watch_1_the_changes_view_follows_outside_writes() {
+  gitproject
+  printf 'one\n' >> "$W/src/lib.rs"
+  watched
+  wait_for "▸ src/"
+  typed " ge"
+  wait_for "CHANGES"
+  wait_row "lib.rs" "+1"
+  sleep 1 # (what the opening of the view asked of git has been answered: what follows is the watcher's)
+  printf 'two\nthree\n' >> "$W/src/lib.rs"
+  printf 'x\ny\nz\n' > "$W/docs/new.md"
+  wait_row "lib.rs" "+3"
+  wait_row "new.md" "+3"
+  screen | grep -F -q "CHANGES"
+}
+
+# WATCH-1, UI-5: a commit made outside moves HEAD: the signs of the open file go, and so does git's letter.
+watch_1_a_commit_made_outside_clears_the_signs() {
+  gitproject
+  printf 'added line\n' >> "$W/src/lib.rs"
+  watched src/lib.rs
+  wait_row "added line" '▎ *1 added line'
+  outside_git -C "$W" commit -q -am "outside"
+  wait_row_gone "added line" '▎ *1 added line'
+}
+
+# WATCH-1: in a linked worktree (its `.git` is a file; HEAD and the index are under the common directory's
+# `worktrees/`), a write from outside is marked and a commit there clears the signs and the letters.
+watch_1_it_works_in_a_linked_worktree() {
+  gitproject
+  outside_git -C "$W" worktree add -q "$CASE_DIR/wt" -b side
+  W=$CASE_DIR/wt
+  printf 'added line\n' >> "$W/src/lib.rs"
+  watched src/lib.rs
+  wait_row "added line" '▎ *1 added line'
+  keys C-n
+  wait_for "▸ src/"
+  printf 'written in the worktree\n' >> "$W/README.md"
+  wait_row "README.md" '↯ *M' 2
+  outside_git -C "$W" commit -q -am "in the worktree"
+  wait_row_gone "README.md" '↯ *M'
+  wait_row_gone "added line" '▎ *1 added line'
+  wait_row "README.md" '↯'
+}
+
+# WATCH-2: a file written from outside keeps its arrow until it has been opened, and sim's own save of it
+# makes none, though it is not the file shown when it is saved.
+watch_2_a_file_is_marked_until_it_is_opened_and_sim_s_own_save_is_not() {
+  gitproject
+  watched
+  wait_for "▸ src/"
+  printf 'written by another process\n' >> "$W/README.md"
+  wait_row "README.md" '↯'
+  typed G
+  keys Enter
+  wait_for "written by another process"
+  keys C-n
+  wait_row_gone "README.md" '↯'
+  keys Escape
+  typed x
+  typed ":e src/lib.rs"
+  keys Enter
+  wait_for "fn lib() {}"
+  typed x
+  typed ":wa"
+  keys Enter
+  wait_content "$W/README.md" "$(printf 'eadme\nwritten by another process')"
+  wait_content "$W/src/lib.rs" "n lib() {}"
+  keys C-n
+  sleep 0.5 # (the watcher has told of both saves)
+  ! screen | grep -F "README.md" | grep -q '↯'
+}
+
+# WATCH-3: what is written in a directory that git ignores is not watched: a git that counts its runs, first
+# on the PATH, is run no more for a thousand files written in `target/`; one write elsewhere runs it.
+watch_3_an_ignored_directory_is_not_watched() {
+  gitproject
+  mkdir -p "$CASE_DIR/bin"
+  printf '#!/bin/sh\necho run >> "%s"\nexec "%s" "$@"\n' "$CASE_DIR/git.log" "$(command -v git)" > "$CASE_DIR/bin/git"
+  chmod +x "$CASE_DIR/bin/git"
+  SIM_PATH="$CASE_DIR/bin:$PATH"
+  start
+  wait_for "▸ src/"
+  # git's runs of the start are over when the count has not moved for a second
+  runs() { wc -l < "$CASE_DIR/git.log" | tr -d ' '; }
+  last=-1
+  tries=20
+  while [ "$(runs)" != "$last" ] && [ "$tries" -gt 0 ]; do last=$(runs); sleep 1; tries=$((tries - 1)); done
+  i=0
+  while [ "$i" -lt 1000 ]; do printf 'built\n' > "$W/target/$i.o"; i=$((i + 1)); done
+  sleep 1.5
+  [ "$(runs)" = "$last" ] || { echo "git ran $(($(runs) - last)) times for an ignored directory" >&2; false; }
+  printf 'news\n' >> "$W/README.md" # the control: a write that is watched does run it
+  tries=40
+  while [ "$(runs)" = "$last" ] && [ "$tries" -gt 0 ]; do sleep 0.05; tries=$((tries - 1)); done
+  [ "$(runs)" != "$last" ]
+}
+
 # The ASCII word $1 as tag characters (U+E0000 + each char, which UTF-8 writes as F3 A0 and two more bytes).
 tags() {
   printf '%s' "$1" | od -An -v -tu1 | tr -s ' ' '\n' | while read -r b; do

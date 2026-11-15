@@ -3,7 +3,9 @@
 //! `Sim::update` with random, interleaved events over several files, two names of one file,
 //! a symlink, a hard link, a file that does not exist yet, snapshots a dead session left, and an
 //! outside process that appends to files, replaces them, deletes them or moves them away, and
-//! names that hold an escape sequence or a line break (the panel must not send them raw). Words are the unit of account: `mt*` are typed by the
+//! names that hold an escape sequence or a line break (the panel must not send them raw); the project's
+//! watcher tells of each of those writes too (WATCH-1), whether the file is open or not, and a batch of it
+//! never opens, saves or moves anything. Words are the unit of account: `mt*` are typed by the
 //! user, `rc*` come from a recovered snapshot, `ex*` are written by the outside process. A word
 //! typed into one file must never show up in another (ids never cross), a word must never be lost
 //! (it is on the disk, in a snapshot, or was discarded on purpose), and the screen must stay whole.
@@ -26,7 +28,7 @@ use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use proptest::prelude::*;
 use sim::io::{self, Job};
 use sim::layout::Skin;
-use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, start};
+use sim::sim::{Env, Req, Sim, SimEffect, SimEvent, Touched, start};
 use sim_core::core::app::{Effect, Event};
 use sim_core::core::buffer::hash;
 use sim_core::io::file::{self, Saved};
@@ -505,6 +507,13 @@ impl W {
             self.size = ((*w).max(1), (*h).max(2));
         }
         let mouse = matches!(ev, SimEvent::Mouse(_));
+        // WATCH-1: a batch of the project's watcher asks for listings, the list and git's status, and
+        // lights rows: it opens, saves and moves nothing
+        let seen = |s: &Sim| {
+            let bufs = s.bufs.iter().map(|b| (b.id, b.app.buf.cursor, b.app.buf.version()));
+            (s.cur, s.panel.open, s.panel.focus, s.panel.cur, bufs.collect::<Vec<_>>())
+        };
+        let touch = matches!(ev, SimEvent::Touched(_)).then(|| seen(&self.sim));
         let before: Vec<(usize, String, bool, usize)> = self
             .sim
             .bufs
@@ -514,6 +523,20 @@ impl W {
             })
             .collect();
         let fx = self.sim.update(ev);
+        if let Some(was) = touch {
+            for e in &fx {
+                let asked = matches!(
+                    e,
+                    SimEffect::Render(_)
+                        | SimEffect::Read(_)
+                        | SimEffect::Files
+                        | SimEffect::Status
+                        | SimEffect::Flash(..)
+                );
+                assert!(asked, "WATCH-1: a batch of the watcher asked for {e:?}");
+            }
+            assert_eq!(was, seen(&self.sim), "WATCH-1: a batch of the watcher moved something");
+        }
         if mouse {
             for e in &fx {
                 match e {
@@ -852,6 +875,13 @@ impl W {
         self.externals.push((fid, t));
         let target = file::resolve(&p.to_string_lossy());
         self.flag(&target);
+        self.touched(fid, true);
+    }
+
+    /// WATCH-1: the project's watcher tells of a write to a file below the root, open or not.
+    fn touched(&mut self, fid: usize, file: bool) {
+        let paths = vec![(PathBuf::from(NAMES[fid][0]), file)];
+        self.chan.push_back(SimEvent::Touched(Touched { paths, ..Touched::default() }));
     }
 
     /// An outside process deletes a file or moves it away (the hard link and its twin stay).
@@ -866,6 +896,7 @@ impl W {
         if gone.is_ok() {
             self.forced.insert(fid); // its outside words went with it
             self.flag(&target);
+            self.touched(fid, false);
         }
     }
 

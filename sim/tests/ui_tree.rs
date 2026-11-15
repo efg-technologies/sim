@@ -91,9 +91,9 @@ fn ui_3_a_directory_shows_the_strongest_status_below_it_and_ignored_entries_cove
 
 #[test]
 fn ui_3_a_change_on_disk_is_not_a_git_status_and_git_s_changes_are_not_on_disk() {
-    let disk: HashSet<PathBuf> = [PathBuf::from("a/b.rs")].into();
-    let m = Marks::new(b" M c.rs\0", "", &disk);
-    assert!(m.on_disk(Path::new("a/b.rs")) && !m.on_disk(Path::new("c.rs")));
+    let unseen: HashSet<PathBuf> = [PathBuf::from("a/b.rs")].into();
+    let m = Marks::new(b" M c.rs\0", "", &unseen);
+    assert!(m.unseen(Path::new("a/b.rs")) && !m.unseen(Path::new("c.rs")));
     assert!(
         m.changed(Path::new("c.rs")) && m.changed(Path::new("a/b.rs")),
         "MARK-1's set has both"

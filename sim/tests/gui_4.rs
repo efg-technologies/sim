@@ -28,7 +28,8 @@ struct Rig {
 }
 
 fn config(cwd: &Path, state: &Path) -> Config {
-    Config { cwd: cwd.into(), root: cwd.into(), state: Some(state.into()), history: None, rg: None }
+    let (root, state) = (cwd.into(), Some(state.into()));
+    Config { cwd: cwd.into(), root, state, history: None, rg: None, watch: false }
 }
 
 fn env(cwd: &Path) -> Env {

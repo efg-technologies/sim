@@ -9,7 +9,7 @@ use common::*;
 use sim::color::Syntax;
 use sim::layout::Skin;
 use sim::paint::Painter;
-use sim::sim::{SimEffect, SimEvent};
+use sim::sim::{SimEffect, SimEvent, Touched};
 use sim_core::core::app::{Event, Key};
 use std::time::{Duration, Instant};
 
@@ -268,6 +268,26 @@ fn panel(b: &mut Bench) -> Times {
     out
 }
 
+/// WATCH-1: the motions of `motions` while the project's watcher tells of writes: a batch of 50 files of
+/// the tree (unseen, their rows lit) before every fourth key, timed as a key is (it is an event on the
+/// main thread too).
+fn touched(b: &mut Bench) -> Times {
+    let keys = common::keys("jjjjkkkkwwbb");
+    let mut out = vec![];
+    for round in 0..240 {
+        let paths = (0..50).map(|i| {
+            let n = (round * 50 + i) % 300;
+            (std::path::PathBuf::from(format!("dir{}/file{n}.rs", n % 12)), true)
+        });
+        let t = Touched { paths: paths.collect(), ..Touched::default() };
+        out.push((b.one(SimEvent::Touched(t)), Key::Char('t')));
+        for k in keys.iter().skip(round % 3 * 4).take(4) {
+            out.push((b.one(SimEvent::Term(Event::Key(*k))), *k));
+        }
+    }
+    out
+}
+
 /// UI-14: the motions of `motions` with the matches of a search lit in every line on screen.
 fn lit(b: &mut Bench) -> Times {
     b.r.keys("/let\n");
@@ -387,7 +407,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     for skin in [Skin::Calm, Skin::Depth] {
         for size in [(80, 24), (240, 60)] {
             type Kind = fn(&mut Bench) -> Times;
-            let kinds: [(&str, Kind); 10] = [
+            let kinds: [(&str, Kind); 11] = [
                 ("motions", motions),
                 ("insert", inserts),
                 ("delete", deletes),
@@ -398,6 +418,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
                 ("help", help),
                 ("changes", changes),
                 ("lit", lit),
+                ("touched", touched),
             ];
             for (name, run) in kinds {
                 // `SPEED_1_ONLY=lit` runs the kinds named, for a look at one of them
@@ -421,8 +442,13 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
                     b.spent.0 / t.len() as u32,
                     b.spent.1 / t.len() as u32
                 );
-                if name == "mouse" {
-                    for label in ['c', 'd', 'w', 'r'] {
+                let labels: &[char] = match name {
+                    "mouse" => &['c', 'd', 'w', 'r'],
+                    "touched" => &['t', 'j', 'k', 'w', 'b'], // (`t` is a batch of the watcher's)
+                    _ => &[],
+                };
+                {
+                    for &label in labels {
                         let of: Times =
                             t.iter().copied().filter(|k| k.1 == Key::Char(label)).collect();
                         eprintln!(

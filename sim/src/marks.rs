@@ -1,6 +1,6 @@
-//! MARK-1, UI-3, UI-10, DIFF-1, DIFF-4
+//! MARK-1, UI-3, UI-10, DIFF-1, DIFF-4, WATCH-2
 //! Which files get the change color and which directories get `~` (pure), from the output of
-//! `git status --porcelain=v1 -z` and the paths seen changing on disk; and, for the interface,
+//! `git status --porcelain=v1 -z` and the files that are unseen (WATCH-2); and, for the interface,
 //! each path's git status (`M A U D R !`), the strongest status below each directory, and which
 //! entries git ignores.
 use std::collections::{HashMap, HashSet};
@@ -56,8 +56,8 @@ fn branch(entry: &str) -> String {
 pub struct Marks {
     files: HashSet<PathBuf>,
     dirs: HashSet<PathBuf>,
-    /// The paths that changed on disk while sim ran.
-    disk: HashSet<PathBuf>,
+    /// WATCH-2: the files another process wrote that have not been looked at since.
+    unseen: HashSet<PathBuf>,
     git: HashMap<PathBuf, Git>,
     below: HashMap<PathBuf, Git>,
     ignored: HashSet<PathBuf>,
@@ -69,10 +69,10 @@ pub struct Marks {
 impl Marks {
     /// `status` is git's output. Its paths are relative to the top of the repository, so
     /// `prefix` is where the root lies below it (`git rev-parse --show-prefix`: empty at the top,
-    /// else `sub/dir/`); changes outside the root are left out. `disk` are the paths (relative
-    /// to the root) that changed while sim was running. Entries `!! path` are what git ignores
+    /// else `sub/dir/`); changes outside the root are left out. `unseen` are the files (relative
+    /// to the root) another process wrote that have not been looked at since (WATCH-2). Entries `!! path` are what git ignores
     /// (UI-3): a directory has a `/` at its end.
-    pub fn new(status: &[u8], prefix: &str, disk: &HashSet<PathBuf>) -> Marks {
+    pub fn new(status: &[u8], prefix: &str, unseen: &HashSet<PathBuf>) -> Marks {
         let mut m = Marks::default();
         let rel = |p: &[u8]| String::from_utf8_lossy(p).strip_prefix(prefix).map(PathBuf::from);
         let mut fields = status.split(|&b| b == 0).filter(|f| !f.is_empty());
@@ -106,11 +106,23 @@ impl Marks {
                 }
             }
         }
-        for p in disk {
-            m.disk.insert(p.clone());
+        for p in unseen {
+            m.unseen.insert(p.clone());
             m.add(Some(p.clone()));
         }
         m
+    }
+
+    /// WATCH-2: another process wrote a file: it is unseen, as `new` would have it, without the status
+    /// read again (a storm of writes costs each batch its own paths, not the whole status).
+    pub fn wrote(&mut self, path: &Path) {
+        self.unseen.insert(path.to_path_buf());
+        self.files.insert(path.to_path_buf());
+        for a in path.ancestors().skip(1).take_while(|a| !a.as_os_str().is_empty()) {
+            if !self.dirs.insert(a.to_path_buf()) {
+                break; // (the directories above it are there already)
+            }
+        }
     }
 
     fn add(&mut self, path: Option<PathBuf>) {
@@ -134,11 +146,13 @@ impl Marks {
         self.files.iter()
     }
 
-    /// DIFF-1: every file that differs from HEAD, as the changes view lists them: a rename is its new
-    /// name only (the old one is no row of its own).
+    /// DIFF-1: every file that differs from HEAD, as the changes view lists them: git's, and a rename is
+    /// its new name only (the old one is no row of its own); an unseen file that git has no entry for is
+    /// no change from HEAD (WATCH-2).
     pub fn differing(&self) -> impl Iterator<Item = &PathBuf> {
         let old = |p: &PathBuf| self.renamed.values().any(|o| o == p);
-        self.files.iter().filter(move |p| !old(p))
+        let unseen = |p: &PathBuf| self.unseen.contains(p) && !self.git.contains_key(p);
+        self.files.iter().filter(move |p| !old(p) && !unseen(p))
     }
 
     /// DIFF-2: the files git has no entry for: the untracked ones, whose lines the view counts.
@@ -168,9 +182,10 @@ impl Marks {
         self.dirs.contains(dir)
     }
 
-    /// UI-3: whether the file changed on disk while sim ran (the green of flat and depth).
-    pub fn on_disk(&self, path: &Path) -> bool {
-        self.disk.contains(path)
+    /// UI-3, WATCH-2: whether another process wrote the file and it has not been looked at since (the
+    /// green of flat and depth, and `↯`).
+    pub fn unseen(&self, path: &Path) -> bool {
+        self.unseen.contains(path)
     }
 
     /// UI-3: the git status of a file.

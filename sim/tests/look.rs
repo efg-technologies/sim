@@ -260,7 +260,14 @@ fn look_2_the_wrapped_rows_of_a_changed_line_have_a_gutter_bar() {
 }
 #[test]
 fn look_2_the_tree_row_of_a_changed_file_is_tinted_across_the_panel() {
-    let r = marked("l2-tree", Skin::Flat, (80, 24));
+    let mut r = marked("l2-tree", Skin::Flat, (80, 24));
+    // (once the flash of the write is over, WATCH-2: what stays is the tint)
+    let flashes: Vec<u64> = r
+        .log
+        .iter()
+        .filter_map(|e| if let SimEffect::Flash(n, _) = e { Some(*n) } else { None })
+        .collect();
+    flashes.into_iter().for_each(|n| r.send(SimEvent::Unflash(n)));
     let (g, t) = (r.sim.geo(), tones());
     // The name is on green (`  a.rs` after the marker), the rest of the row is the tint.
     let p = &r.shot.paints[0];

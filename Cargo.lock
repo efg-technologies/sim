@@ -1991,6 +1991,7 @@ version = "0.2.1"
 dependencies = [
  "crossterm",
  "flate2",
+ "notify",
  "proptest",
  "regex-lite",
  "ropey",

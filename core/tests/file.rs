@@ -231,6 +231,7 @@ fn safe_2_without_a_private_state_directory_an_in_place_save_refuses() {
         fs::hard_link(&f, f.with_file_name("other")).unwrap();
         let open = f.with_file_name("open");
         DirBuilder::new().mode(0o755).create(&open).unwrap();
+        fs::set_permissions(&open, Permissions::from_mode(0o755)).unwrap();
         symlink(&st, f.with_file_name("link")).unwrap();
         let state = state.map(|n| f.with_file_name(n));
         let r = save(f.to_str().unwrap(), NEW, None, state.as_deref());

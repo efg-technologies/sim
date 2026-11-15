@@ -199,9 +199,11 @@ fn buf_1_a_disk_change_to_a_file_that_is_not_on_screen_is_merged_there() {
     assert_eq!(r.text(), "B1\nB2");
     assert_eq!(r.sim.bufs[0].app.buf.text.to_string(), "ONE\ntwo", "a.txt took it in");
     assert!(!r.sim.bufs[0].app.buf.marks.is_empty(), "and marked it");
-    // Nothing on screen moved; the only news is the change color on a.txt in the panel (MARK-1).
+    // Nothing on screen moved; the only news is the change color on a.txt in the panel (MARK-1) and
+    // the arrow after its name (WATCH-2).
     let mut after = r.screen.rows.clone();
     after[0].spans.retain(|s| s.1 != sim_core::core::view::Style::Change);
+    after[0].text = after[0].text.replacen(" ↯", "  ", 1);
     assert_eq!(after, before.rows, "nothing on screen moved");
     assert!(r.screen.rows[0].spans.iter().any(|s| s.1 == sim_core::core::view::Style::Change));
     // A change to the file on screen merges there, and only there.
