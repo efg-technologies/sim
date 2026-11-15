@@ -1,4 +1,4 @@
-//! KEY-2, KEY-3, KEY-5, KEY-6, MD-5, MD-6, TREE-2
+//! KEY-2, KEY-3, KEY-5, KEY-6, MD-5, MD-6, TREE-2, GIT-6
 //! What guides the user's hands in sim's state (pure): the leader (Space and what follows it), the
 //! prefix that is typed and not complete, the pause after which which-key shows what can come next,
 //! the letters on the tabs, and the hint for Tab.
@@ -95,7 +95,7 @@ impl Sim {
     /// The names come from the repository's config and are cut and made safe where they are drawn.
     fn guard_key(&mut self) {
         let tail = |k: &String| layout::tail(k, 30);
-        self.msg = Some(match (&self.why, self.off.is_empty()) {
+        let said: String = match (&self.why, self.off.is_empty()) {
             _ if self.plain => "plain mode: no git".into(),
             (Some(why), _) => why.clone(),
             _ if self.no_repo => "git: no repository here".into(),
@@ -104,7 +104,10 @@ impl Sim {
                 format!("git: turned off the repository's {}", names.join(", "))
             }
             (None, true) => "git: nothing of this repository's config is turned off".into(),
-        });
+        };
+        // GIT-6: the hooks written while sim runs first: they are what the user's git will run
+        let hooks = (!self.hooks.is_empty()).then(|| super::hooks_said(&self.hooks) + " · ");
+        self.msg = Some(hooks.unwrap_or_default() + &said);
     }
 
     /// SAFE-7: `<Space>bk` says again where the version that `:w!` or `:e!` gave up went, alone on the line;

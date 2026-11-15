@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19, WATCH-2, DIFF-7, DIFF-9
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19, WATCH-2, DIFF-7, DIFF-9, GIT-6
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -509,21 +509,22 @@ pub enum Guard {
     Refused,
 }
 
-/// GIT-5: the words the frame says of the guard, in the first form that fits `room` columns.
-fn guard_words(g: Guard, room: usize) -> Option<String> {
+/// GIT-5: the words the frame says of the guard, and GIT-6 of a hook written while sim runs (`hook`), in the
+/// first form that fits `room` columns: both, the hook's words alone, the guard's alone.
+fn guard_words(g: Guard, hook: bool, room: usize) -> Option<String> {
     let forms = match g {
-        Guard::None => return None,
-        Guard::Refused => vec![" git not run ".to_string(), " no git ".into()],
+        Guard::None => vec![String::new()],
+        Guard::Refused => vec!["git not run".to_string(), "no git".into()],
         Guard::Off(n) => {
             let s = if n == 1 { "" } else { "s" };
-            vec![
-                format!(" {n} git setting{s} off "),
-                format!(" git: {n} off "),
-                format!(" {n} off "),
-            ]
+            vec![format!("{n} git setting{s} off"), format!("git: {n} off"), format!("{n} off")]
         }
     };
-    forms.into_iter().find(|w| w.len() <= room)
+    let hooks: &[&str] = if hook { &["hook written", "hook"] } else { &[] };
+    let both = hooks.iter().flat_map(|h| forms.iter().map(move |f| format!("{f}, {h}")));
+    let both = both.filter(|w| !w.starts_with(", "));
+    let words = both.chain(hooks.iter().map(|h| h.to_string())).chain(forms.iter().cloned());
+    words.filter(|w| !w.is_empty()).map(|w| format!(" {w} ")).find(|w| w.len() <= room)
 }
 
 /// The color of a box's lines (LOOK-3): the focused one's, the other's, or (GIT-5) the alert's for both
@@ -554,8 +555,9 @@ pub struct Deck<'a> {
     /// UI-18: the parts of the breadcrumb (the path's components and the section) and the index of the
     /// file's, none where the interface does not draw it.
     pub crumb: (Vec<String>, usize),
-    /// GIT-5: what the guard did to the repository.
+    /// GIT-5: what the guard did to the repository; GIT-6: whether a hook was written while sim runs.
     pub guard: Guard,
+    pub hook: bool,
     /// DIFF-9: what the panel's box says it is, where it is not `files` (the changes view and its sums).
     pub title: Option<String>,
 }
@@ -723,7 +725,7 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
 }
 
 /// UI-2: the first row of the panel: the root, home-relative, in bold, with the open folder.
-fn header_line(pw: u16, root: &str, icons: bool, guard: Guard, t: &Tones) -> Line {
+fn header_line(pw: u16, root: &str, icons: bool, (guard, hook): (Guard, bool), t: &Tones) -> Line {
     let mut line = Line::default();
     let bar = Paint { bg: Some(t.bar), role: Role::Bar, ..Paint::default() };
     line.put(" ", bar);
@@ -732,7 +734,7 @@ fn header_line(pw: u16, root: &str, icons: bool, guard: Guard, t: &Tones) -> Lin
     }
     // GIT-5: the words for the guard at the right end, if the root keeps room for six columns
     let left = usize::from(pw).saturating_sub(usize::from(line.cols) + 1);
-    let words = guard_words(guard, left.saturating_sub(6));
+    let words = guard_words(guard, hook, left.saturating_sub(6));
     let room = left - words.as_ref().map_or(0, |w| w.len() + 1);
     line.put(&tail(root, room), Paint { bold: true, ..bar });
     if let Some(w) = words {
@@ -1129,7 +1131,8 @@ fn borders(d: &Deck) -> [Line; 2] {
     let own = |panel: bool| panel == d.focus; // whether that box has the focus
     let line = |panel| paint(t.map(|t| box_ink(t, d.guard, own(panel))), false);
     let title = |panel| paint(t.filter(|_| !own(panel)).map(|t| t.dim), true);
-    let words = |room: usize| t.and_then(|t| Some((guard_words(d.guard, room)?, alert_block(t))));
+    let words =
+        |room: usize| t.and_then(|t| Some((guard_words(d.guard, d.hook, room)?, alert_block(t))));
     let s = |text: &str, p| (text.to_string(), p);
     let (pw, ew) = (g.pw + 2, g.ew + g.sign + 2);
     let (mut top, mut bottom) = (Line::default(), Line::default());
@@ -1239,7 +1242,8 @@ pub fn body(
     };
     if let (Some(c), Some(t), true) = (&d.chrome, t, g.head > 0) {
         let p = (g.pw > 0).then(|| {
-            header_line(g.pw, c.root, c.icons, if g.boxed { Guard::None } else { d.guard }, t)
+            let said = if g.boxed { (Guard::None, false) } else { (d.guard, d.hook) };
+            header_line(g.pw, c.root, c.icons, said, t)
         });
         let end = if g.boxed {
             edge(false)

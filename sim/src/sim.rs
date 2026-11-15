@@ -1,4 +1,4 @@
-//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9
+//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -175,6 +175,8 @@ pub struct Touched {
     pub paths: Vec<(PathBuf, bool)>,
     pub many: bool,
     pub git: bool,
+    /// GIT-6: the names in the hooks directory that moved, each with whether an executable file is there now.
+    pub hooks: Vec<(String, bool)>,
 }
 
 /// DIFF-7: what to ask git's diff of: the number of the request (an answer to an older one is dropped), the
@@ -415,6 +417,8 @@ pub struct Sim {
     off: Vec<String>,
     /// GIT-5: why git was not run (the message of its first refusal), for `<Space>gi`.
     why: Option<String>,
+    /// GIT-6: the hooks written into the hooks directory while sim runs that are there now.
+    hooks: Vec<String>,
     /// DIFF-7 to DIFF-10: the preview of the changes view, and FOLLOW.
     tower: tower::Tower,
     /// SAFE-7: where the version that `:w!` or `:e!` gave up went, for `<Space>bk`.
@@ -778,7 +782,7 @@ impl Sim {
                             layout::tail(first, 30)
                         ));
                     }
-                    self.off = off;
+                    (self.off, self.skipped, self.why) = (off, false, None); // (GIT-6: judged again)
                     self.remark();
                     self.tower.fresh = false; // (DIFF-9: the view is made: its cursor stays on its entry)
                     self.diff(self.id(), &mut out); // (a commit moves HEAD)
@@ -792,6 +796,12 @@ impl Sim {
                     self.why = skip.then(|| e.clone()).or(self.why.take());
                     // Told once (MARK-1), not again at every opening of the panel
                     let told = skip && replace(&mut self.skipped, true);
+                    if skip {
+                        // GIT-6: a refusal takes the marks, the signs and the numbers away
+                        self.status = Default::default();
+                        self.bufs.iter_mut().for_each(|b| b.diff = None);
+                        self.remark();
+                    }
                     if self.changes.take().is_some() {
                         // DIFF-1: there is no view to make: it is left, and says why
                         self.focus = None;
@@ -918,6 +928,18 @@ impl Sim {
         let (mut lit, mut dirs, mut list, mut ask) =
             (vec![], HashSet::new(), t.many, t.git || t.many);
         let mut gone = false;
+        self.no_repo &= !t.git; // GIT-6: the repository's config may be another now: the guard judges it again
+        let mut hooks = vec![];
+        for (name, there) in t.hooks {
+            self.hooks.retain(|h| *h != name);
+            if there {
+                self.hooks.push(name.clone());
+                hooks.push(name);
+            }
+        }
+        if !hooks.is_empty() {
+            self.msg = Some(hooks_said(&hooks));
+        }
         for (p, file) in t.paths {
             dirs.insert(p.parent().map(Path::to_path_buf).unwrap_or_default());
             if self.mine.remove(&p) || open.contains(&p) || self.marks.ignored(&p) {
@@ -1763,6 +1785,7 @@ impl Sim {
                 (_, 0) => layout::Guard::None,
                 (_, n) => layout::Guard::Off(n),
             },
+            hook: !self.hooks.is_empty(),
             title: self.changes.as_ref().map(Changes::title),
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
@@ -1827,7 +1850,8 @@ impl Sim {
                 looks.push(vec![]);
                 // What says that git was not run, for safety, is the alert's (UI-1): hidden, and
                 // dangerous if it were not so.
-                let alert = tones.as_ref().filter(|_| ui && status.starts_with(GIT_SKIPPED));
+                let said = status.starts_with(GIT_SKIPPED) || hook_line(&status); // (GIT-6)
+                let alert = tones.as_ref().filter(|_| ui && said);
                 let ink = |t: &Tones| Paint {
                     fg: Some(t.alert_fg()),
                     role: Role::Alert,
@@ -2266,6 +2290,19 @@ fn state_words(status: &str, line: usize, col: usize) -> String {
     let notes = rest.split_once("  ").map_or("", |(_, n)| n.trim());
     let said_elsewhere = |n: &str| matches!(n, "modified" | "CRLF" | "BOM");
     notes.split(" · ").filter(|n| !said_elsewhere(n)).collect::<Vec<_>>().join(" · ")
+}
+
+/// GIT-6: what is said of hooks written into the hooks directory: their names, and that sim does not run them
+/// and the user's git does.
+fn hooks_said(names: &[String]) -> String {
+    let (s, it) = if names.len() == 1 { ("", "it") } else { ("s", "them") };
+    let names: Vec<String> = names.iter().map(|n| format!("hooks/{n}")).collect();
+    format!("hook{s} written: {}: sim does not run {it}, your git will", names.join(", "))
+}
+
+/// GIT-6: whether a line is what `hooks_said` says (the status line has it in the alert's color).
+fn hook_line(s: &str) -> bool {
+    s.starts_with("hook written: ") || s.starts_with("hooks written: ")
 }
 
 /// UI-2: `path` as the header shows it: `~/...` below `$HOME`, `~` for `$HOME`, else as it is.

@@ -3273,6 +3273,54 @@ diff_10_follow_takes_the_cursor_to_the_file_written_only_while_it_is_on() {
   wait_for "+three"
 }
 
+# GIT-6: the repository's config written from outside is judged again within a second, with no key: the frame
+# says `git not run` while a key could run a command, and not after it is gone; what the key names never runs.
+git_6_a_config_written_from_outside_is_judged_again_within_a_second() {
+  gitproject
+  look depth
+  CT=truecolor
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_last "$(git -C "$W" symbolic-ref --short HEAD)"
+  wait_for "╭─files"
+  sleep 0.5
+  t0=$(now_ms)
+  git -C "$W" config core.sshCommand "touch '$CASE_DIR/ran'"
+  wait_for " git not run " 2
+  t1=$(now_ms)
+  [ $((t1 - t0)) -lt 1000 ] || { echo "it took $((t1 - t0)) ms" >&2; false; }
+  screen_esc | head -1 | grep -a -q '48;2;[0-9;]*m git not run ' # the alert's block
+  git -C "$W" config --unset core.sshCommand
+  wait_gone "git not run" 2
+  [ ! -e "$CASE_DIR/ran" ]
+}
+
+# GIT-6: an executable hook written into the hooks directory from outside is told on the status line in the alert's
+# color with its name and on the frame, <Space>gi says it again, and sim never runs it (your git does: the control).
+git_6_a_hook_written_from_outside_is_told_and_never_run() {
+  gitproject
+  look depth
+  CT=truecolor
+  start
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_last "$(git -C "$W" symbolic-ref --short HEAD)"
+  printf '#!/bin/sh\ntouch "%s"\n' "$CASE_DIR/ran" > "$W/.git/hooks/pre-commit"
+  chmod +x "$W/.git/hooks/pre-commit"
+  wait_for "hook written: hooks/pre-commit: sim does not run it, your git will" 2
+  wait_for " hook written "
+  screen_esc | grep -a "sim does not run it" | grep -a -q '38;2;' # (the alert's color)
+  typed j
+  wait_gone "sim does not run it"
+  screen | head -1 | grep -F -q " hook written "
+  typed " gi"
+  wait_for "hook written: hooks/pre-commit"
+  printf 'more\n' >> "$W/README.md" # (sim's git runs again, for the watcher's news)
+  wait_row "README.md" "M"
+  [ ! -e "$CASE_DIR/ran" ]
+  outside_git -C "$W" commit -q -am "the control"
+  [ -e "$CASE_DIR/ran" ]
+}
+
 # The ASCII word $1 as tag characters (U+E0000 + each char, which UTF-8 writes as F3 A0 and two more bytes).
 tags() {
   printf '%s' "$1" | od -An -v -tu1 | tr -s ' ' '\n' | while read -r b; do

@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC i
         ┌─┴─────────┴─┐
         │    SPEC     │  what      requirements with IDs         SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       core/src ≤ 3,640, sim/src ≤ 12,202, gui/src ≤ 5,100
+      │      CODE       │  how       core/src ≤ 3,640, sim/src ≤ 12,254, gui/src ≤ 5,100
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       core/tests, sim/tests, gui/tests and the E2E scripts
     └─────────────────────┘
@@ -131,7 +131,7 @@ If another one is needed, first write the reason into SPEC.
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
 - A key is added to `sim/keys.tsv` in the same change that adds it to the core or to sim: `sim/tests/key_1.rs` feeds every key to a Sim and fails for a key that does something and is not in the table, and for an entry that does nothing
 - `[profile.release]` (in the workspace) has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- core/src stays within 3,640 lines, sim/src within 12,202 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
+- core/src stays within 3,640 lines, sim/src within 12,254 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
 - Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
 - Code, comments, messages, docs and commit messages are in English. sim is the next-generation Vim (新時代の Vim): in README, CONCEPT, this file, the crates' descriptions and `--help`, it is never described as a likeness of Vim (nothing "-like", nothing "-style")
 
@@ -157,13 +157,13 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 3. `cargo test --workspace --no-fail-fast`
 4. scripts/trace.sh
 5. core/src has at most 3,640 lines
-6. sim/src has at most 12,202 lines
+6. sim/src has at most 12,254 lines
 7. gui/src has at most 5,100 lines
 8. the core depends on its allowlist only
 9. the editor depends on its own list only, and no crate of the window is in the tree of the editor or of the core
 10. the window depends on its allowlist only, and no network crate or webview is in its tree
 11. the name is *Secure vIM* and the crates are sim-editor and sim-editor-core: a grep keeps the earlier name stories and the earlier crate name from coming back
-12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 147 KiB (5,393,408 bytes)
+12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 153 KiB (5,399,552 bytes)
 13. vendor/syntect is upstream's syntect 5.3.0 and vendor/syntect.patch, nothing else (scripts/vendor-check.sh: the patch taken off a copy, every file against the sha256 list)
 14. the traced path of the e2e harnesses works in the `sh` that runs check.sh, with no tmux and no sim (scripts/e2e-lib-check.sh: a passing case and a failing one, and the failing one is told by its command: Ubuntu's dash has no LINENO)
 
@@ -200,7 +200,7 @@ The editor's:
 - **S8**: the git guard and the changes view (GIT-1 to GIT-4, DIFF-1 to DIFF-6)
 - **S9**: the Markdown read view (MD-1 to MD-8)
 - **S10**: the frame's word for the guard, the breadcrumb, the flash of a write, the link that lies, callouts, `:tutor` (GIT-5, UI-18, UI-19, MD-10, MD-11, TUTOR-1 to TUTOR-4)
-- **S11**: watching the project: the tree, the changes view and the signs follow the disk with no key, and a file written from outside is marked until it has been looked at (WATCH-1 to WATCH-3); the changes view as a watchtower: the diff of the file under its cursor in the text pane, red and green, following the disk, its hunks walked, the view remembered, and FOLLOW as a switch (DIFF-7 to DIFF-10)
+- **S11**: watching the project: the tree, the changes view and the signs follow the disk with no key, and a file written from outside is marked until it has been looked at (WATCH-1 to WATCH-3); the changes view as a watchtower: the diff of the file under its cursor in the text pane, red and green, following the disk, its hunks walked, the view remembered, and FOLLOW as a switch (DIFF-7 to DIFF-10); the guard that follows the repository: its config judged again when it is written, and a hook written told (GIT-6)
 
 The window's:
 

@@ -1,4 +1,4 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3, DIFF-7, DIFF-9
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3, DIFF-7, DIFF-9, GIT-6
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the watcher of the project, the history file in sim's state
 //! directory, and the search of the contents of files (the built-in reader and ripgrep) with the
@@ -750,6 +750,8 @@ struct Watcher {
     root: PathBuf,
     state: Option<PathBuf>,
     gits: Vec<PathBuf>,
+    /// GIT-6: the hooks directory among them.
+    hooks: Option<PathBuf>,
     w: Option<notify::RecommendedWatcher>,
     /// The directories (relative to the root) whose entries count, and whether a list of files has set them.
     have: HashSet<PathBuf>,
@@ -830,6 +832,17 @@ impl Watcher {
             return self.soon();
         }
         for p in paths {
+            // GIT-6: a name git could run as a hook (githooks(5): lowercase letters, digits and `-`)
+            if self.hooks.is_some() && p.parent() == self.hooks.as_deref() {
+                let name =
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let hook = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-';
+                if !name.is_empty() && name.bytes().all(hook) {
+                    self.batch.hooks.push((name, false));
+                    self.soon();
+                }
+                continue;
+            }
             if self.gits.iter().any(|g| p.parent() == Some(g)) {
                 self.batch.git |= p.extension().is_none_or(|x| x != "lock");
                 self.soon();
@@ -860,6 +873,14 @@ impl Watcher {
         }
         for (p, file) in &mut b.paths {
             *file = fs::metadata(self.root.join(&p)).is_ok_and(|m| m.is_file());
+        }
+        // GIT-6: each hook once (a set of paths, which the binary has: a sort of these pairs cost 7 KB), and
+        // whether it is a file that can run now
+        let mut named = HashSet::new();
+        b.hooks.retain(|(n, _)| named.insert(PathBuf::from(n)));
+        for (name, there) in &mut b.hooks {
+            let m = self.hooks.as_ref().and_then(|h| fs::metadata(h.join(&name)).ok());
+            *there = m.is_some_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
         }
         self.tx.send(SimEvent::Touched(b)).is_ok()
     }
@@ -897,6 +918,7 @@ pub fn project(
             tx,
             root: root.clone(),
             state,
+            hooks: gits.last().filter(|g| g.ends_with("hooks")).cloned(),
             gits: gits.clone(),
             deep,
             poll,
