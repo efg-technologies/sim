@@ -2784,10 +2784,10 @@ ui_19_the_lines_another_process_wrote_are_lit_for_a_moment_and_then_marked() {
 }
 
 # MD-10: a link whose text is an address that its target is not has its target in the alert's block, in
-# a raw line and in a line of the read view; one that says what it is does not; and the read view hides
-# none of it.
+# a raw line and in a line of the read view; one that says what it is does not (on a line with one that lies,
+# so that the read view draws it whole, MD-12); and the read view hides none of it.
 md_10_a_link_that_says_one_place_and_goes_to_another_has_its_target_marked() {
-  printf '[https://good.example/docs](https://evil.example/login) raw\n\n[https://good.example/docs](https://evil.example/login) **read**\n[docs](https://fine.example/docs)\n' > "$W/a.md"
+  printf '[https://good.example/docs](https://evil.example/login) raw\n\n[https://good.example/docs](https://evil.example/login) **read**\n[docs](https://fine.example/docs) and [x.example](https://evil.example/x)\n' > "$W/a.md"
   markdown on
   look depth
   CT=truecolor
@@ -2796,6 +2796,7 @@ md_10_a_link_that_says_one_place_and_goes_to_another_has_its_target_marked() {
   wait_for "evil.example/login"
   wait_for "https://good.example/docs](https://evil.example/login) read" # the read view: `**` gone, the link whole
   [ "$(screen_esc | grep -a -c '48;2;[0-9;]*mhttps://evil.example/login')" -eq 2 ] # both lines
+  screen | grep -F -q "[docs](https://fine.example/docs)"
   ! screen_esc | grep -a 'fine.example' | grep -aq '48;2;[0-9;]*mhttps://fine.example' # the honest one is not
 }
 
@@ -2992,6 +2993,26 @@ md_11_a_callout_is_the_kinds_word_in_place_of_its_marker_and_the_cursors_line_is
   keys j
   wait_for "[!WARNING]" # the cursor's line is the file's own
   ! screen | grep -F -q "Warning"
+}
+
+# MD-12: a link reads as its text off the cursor's line; a line where one lies keeps every link whole, with the lie
+# lit; and the cursor's line shows the targets.
+md_12_a_link_reads_as_its_text_and_a_line_with_one_that_lies_keeps_its_links_whole() {
+  printf '# t\n\nSee [the docs](https://docs.example/a) now.\n\n[a.example](https://evil.example/x) or [docs](https://docs.example/a).\n' > "$W/a.md"
+  markdown on
+  look flat
+  CT=truecolor
+  start a.md
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "See the docs now." # (the first frame is raw: the highlighter has not answered yet)
+  ! screen | grep -F -q "docs.example/a) now"
+  screen | grep -F -q "[a.example](https://evil.example/x) or [docs](https://docs.example/a)."
+  screen_esc | grep -a 'or ' | grep -aq '48;2;[0-9;]*mhttps://evil.example/x' # the lie, in the alert's block
+  ! screen_esc | grep -a 'or ' | grep -aq '48;2;[0-9;]*mhttps://docs.example/a' # the honest one beside it is not
+  typed jj
+  wait_for "See [the docs](https://docs.example/a) now." # the cursor's line is the file's own
+  typed jj
+  wait_for "See the docs now."
 }
 
 # WATCH-1: git as the cases run it outside sim, with a name for the commits.

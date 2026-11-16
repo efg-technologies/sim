@@ -1,6 +1,6 @@
-//! MD-1 to MD-7: the read view of a Markdown file. The plan of a line (pure), then the screens
-//! (Rig): which lines are raw, what is never hidden, how a table is aligned, the key, plain mode
-//! and the pointer.
+//! MD-1 to MD-7, MD-12: the read view of a Markdown file. The plan of a line (pure), then the
+//! screens (Rig): which lines are raw, what is never hidden, how a table is aligned, the key, plain
+//! mode and the pointer, and a link that reads as its text where its line has nothing that lies.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
@@ -13,7 +13,7 @@ use sim::sim::{SimEffect, SimEvent};
 use sim::syn::{Spans, Syn};
 use sim_core::core::app::Event;
 use sim_core::core::color::{Rgb, palette};
-use sim_core::core::view::{Frame, Row, Shape};
+use sim_core::core::view::{Frame, Row, Shape, show};
 
 const BG: Rgb = (0x1e, 0x1e, 0x1e);
 
@@ -37,13 +37,19 @@ fn render(plan: &Plan, cs: &[char]) -> String {
 
 /// The lines of `text` as the read view draws them, none of them raw (`raw`: the lines that are).
 fn drawn(text: &str, raw: std::ops::Range<usize>, pane: usize) -> Vec<String> {
+    drawn_with(text, raw, pane, true)
+}
+
+/// `drawn`, with `honest` saying whether MD-10 gave the lines no mark (MD-12).
+fn drawn_with(text: &str, raw: std::ops::Range<usize>, pane: usize, honest: bool) -> Vec<String> {
     let lines: Vec<String> = text.lines().map(str::to_string).collect();
     let sp = spans_of(&lines);
     let read = Read::new(0..lines.len(), raw, pane, &|l| lines.get(l).cloned(), &|l| sp.get(l));
     (0..lines.len())
         .map(|l| {
             let cs: Vec<char> = lines[l].chars().collect();
-            read.plan(l, &cs, &sp[l]).map_or_else(|| lines[l].clone(), |p| render(&p, &cs))
+            let plan = read.plan(l, &cs, &sp[l], honest);
+            plan.map_or_else(|| lines[l].clone(), |p| render(&p, &cs))
         })
         .collect()
 }
@@ -77,17 +83,48 @@ fn md_1_front_matter_and_a_fenced_block_are_not_read_and_nor_is_a_table_without_
     let read =
         Read::new(0..3, 99..99, 80, &|l| lines.get(l).cloned(), &|l| (l != 2).then(|| &sp[l]));
     let cs: Vec<char> = lines[2].chars().collect();
-    assert_eq!(read.plan(2, &cs, &sp[2]), None, "a table with a row that has no spans is raw");
+    assert_eq!(
+        read.plan(2, &cs, &sp[2], true),
+        None,
+        "a table with a row that has no spans is raw"
+    );
+}
+
+/// MD-12: the chars a link may leave out, found from the chars alone: the brackets and the target of
+/// each `[text](target)` whose `[` has no `!` or backslash before it, whose text has no bracket and a
+/// char that is not a blank, and whose target is ASCII and graphic and none of `(`, `)`, `<`, `>`, `\`.
+fn link_chars(cs: &[char]) -> Vec<bool> {
+    let mut out = vec![false; cs.len()];
+    for o in (0..cs.len()).filter(|&o| cs[o] == '[') {
+        let Some(c) = (o + 1..cs.len()).find(|&k| matches!(cs[k], '[' | ']')) else { continue };
+        let plain = |x: &char| x.is_ascii_graphic() && !"()<>\\".contains(*x);
+        let Some(e) = (c + 2..cs.len()).find(|&k| !plain(&cs[k])) else { continue };
+        let text = cs[o + 1..c].iter().any(|x| !x.is_whitespace());
+        if o > 0 && matches!(cs[o - 1], '!' | '\\') || cs[c] != ']' || cs.get(c + 1) != Some(&'(') {
+            continue;
+        }
+        if text && e > c + 2 && cs[e] == ')' {
+            out[o] = true;
+            (c..=e).for_each(|k| out[k] = true);
+        }
+    }
+    out
 }
 
 #[test]
-fn md_2_no_plan_leaves_out_a_char_that_markup_or_a_table_does_not_name() {
-    const PIECES: [&str; 22] = [
+fn md_2_no_plan_leaves_out_a_char_that_markup_a_table_or_a_link_does_not_name() {
+    // (the second three rows: links, which MD-12 may draw as their text, and the pieces of some)
+    #[rustfmt::skip]
+    const PIECES: [&str; 39] = [
         "*", "**", "_", "`", "|", "-", ":", " ", "  ", "a", "bc", "日", "\u{202e}", "\u{200b}",
         "\x1b", "\u{85}", "[", "](", ")", "#", "\\", "\u{feff}",
+        "[a](b)", "](https://x.y/z)", "![", "<", ">", "\"t\"", "(", "\t", "\u{200d}", "\u{fe0f}",
+        "\u{2066}", "é", "[a](日)", "[a](x\u{202e}y)", "[b](\x1b)", "[c](d e)", "[a](b(c))",
     ];
-    let hostile =
-        |c: char| c.is_control() || matches!(c, '\u{200b}' | '\u{202e}' | '\u{feff}' | '\u{61c}');
+    let hostile = |c: char| {
+        c.is_control() || "\u{200b}\u{202e}\u{feff}\u{61c}\u{200d}\u{fe0f}\u{2066}".contains(c)
+    };
+    let mut linked = 0;
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
     for round in 0..300 {
         let mut doc = String::new();
@@ -107,16 +144,25 @@ fn md_2_no_plan_leaves_out_a_char_that_markup_or_a_table_does_not_name() {
         let sp = spans_of(&lines);
         let read =
             Read::new(0..lines.len(), 99..99, 100, &|l| lines.get(l).cloned(), &|l| sp.get(l));
-        for (l, line) in lines.iter().enumerate() {
+        // (MD-12: a line that MD-10 marked has its links whole; one it did not may have them go)
+        for (l, line, honest) in
+            lines.iter().enumerate().flat_map(|(l, x)| [(l, x, false), (l, x, true)])
+        {
             let cs: Vec<char> = line.chars().collect();
-            let Some(plan) = read.plan(l, &cs, &sp[l]) else { continue };
+            let Some(plan) = read.plan(l, &cs, &sp[l], honest) else { continue };
+            let link = link_chars(&cs);
             for (i, &c) in cs.iter().enumerate() {
                 if !plan.op(i).hide {
                     continue;
                 }
                 let named =
                     [Why::Markup, Why::Blank, Why::Rule].into_iter().any(|w| may_hide(c, w));
-                assert!(named && !hostile(c), "left out {c:?} of {line:?} in\n{doc}");
+                let why = if honest { "" } else { " (a line with a mark)" };
+                assert!(
+                    (named || honest && link[i]) && !hostile(c),
+                    "left out {c:?} at {i} of {line:?}{why} in\n{doc}"
+                );
+                linked += usize::from(c == '(');
             }
             // every hostile char of the line is in what is drawn, as many times as it is in the line
             let out = render(&plan, &cs);
@@ -126,6 +172,7 @@ fn md_2_no_plan_leaves_out_a_char_that_markup_or_a_table_does_not_name() {
             }
         }
     }
+    assert!(linked > 50, "the lines have links that are drawn as their text: {linked}");
 }
 
 #[test]
@@ -178,6 +225,97 @@ fn md_4_a_table_that_is_too_wide_or_has_a_cell_too_many_is_raw_whole() {
         ["| a *b* c"],
         "a run of pipe lines that is no table is raw"
     );
+}
+
+#[test]
+fn md_12_a_link_is_drawn_as_its_text_where_its_line_has_no_mark() {
+    let text = "See [the docs](https://docs.example/a?b=c#d) and [e](f) here.\n\n- [a](b)\n\n# [a](b)\n\n\
+                [`c`](u) and [**b**](u) and [[a](b) and [a](b)[c](d)\n\n<a href=\"x\">[a](b)</a>\n";
+    let d = drawn(text, 99..99, 100);
+    assert_eq!(d[0], "See the docs and e here.");
+    assert_eq!(d[2], "- a", "{d:?}");
+    assert_eq!(d[4], "# a", "{d:?}");
+    // (the highlighter calls no marker the emphasis of a link's text, MD-2; a `[` before a link is text)
+    assert_eq!(d[6], "c and **b** and [a and ac", "{d:?}");
+    assert_eq!(d[8], "<a href=\"x\">a</a>", "{d:?}");
+    // a line that MD-10 gave a mark keeps every link whole, and so does the cursor's
+    let first = text.lines().next().unwrap();
+    assert_eq!(drawn_with(text, 99..99, 100, false)[0], first);
+    assert_eq!(drawn_with(text, 99..99, 100, false)[2], "- [a](b)");
+    assert_eq!(drawn(text, 0..1, 100)[0], first);
+}
+
+#[test]
+fn md_12_a_link_whose_shape_or_target_is_not_plain_is_drawn_whole() {
+    let whole = [
+        "a [t](b \"title\") z",
+        "a [t](<b>) z",
+        "a [t][r] z",
+        "a <https://x.example> z",
+        "a ![t](b.png) z",
+        "a [![i](s.png)](t) z",
+        "a \\[t](b) z",
+        "a [](b) z",
+        "a [ ](b) z",
+        "a [t]( b ) z",
+        "a [t](b\tc) z",
+        "a [t](b(c)) z",
+        "a [t](b\\)c) z",
+        "a [t](b\\c) z",
+        "a [t](b<c) z",
+        "a [t](b>c) z",
+        "a [t](日) z",
+        "a [t](https://例え.jp) z",
+        "a [t](b\u{202e}c) z",
+        "a [t](b\u{200b}c) z",
+        "a [t](b\x1bc) z",
+        "a [t](b\u{e0041}c) z",
+        "a [t\\]u](b) z",
+        "a [t]u](b) z",
+        "a [❤\u{fe0f}](u) z",
+        "a [\u{200d}t](u) z",
+    ];
+    let text: String = whole.iter().map(|l| format!("{l}\n\n")).collect();
+    let d = drawn(&text, 99..99, 100);
+    for (k, l) in whole.iter().enumerate() {
+        assert_eq!(d[2 * k], *l, "{l:?}");
+    }
+    // a link over lines, a table's row (its widths are all its rows'), a fence and front matter
+    for doc in [
+        "a [t\nu](b) z\n",
+        "| [t](b) | c |\n|---|---|\n| d | e |\n",
+        "x\n\n```\n[t](b)\n```\n",
+        "---\ntitle: [t](b)\n---\n",
+    ] {
+        let d = drawn(doc, 99..99, 100);
+        let raw: Vec<&str> = doc.lines().collect();
+        assert!(d.iter().zip(&raw).all(|(x, r)| !r.contains("](") || x == r), "{doc:?}: {d:?}");
+    }
+}
+
+#[test]
+fn md_12_only_a_bracket_and_a_plain_ascii_char_of_a_target_may_go_and_no_char_shown_in_another_form()
+ {
+    for c in ['[', ']', '(', ')'] {
+        assert!(may_hide(c, Why::Link), "{c:?}");
+    }
+    for c in ['!', '<', '>', '\\', ' ', 'a', '*', '`', '\u{202e}'] {
+        assert!(!may_hide(c, Why::Link), "{c:?}");
+    }
+    for c in "azAZ09/:.#?=&%~-_*+@!$',;[]{}|^`\"".chars() {
+        assert!(may_hide(c, Why::Target), "{c:?}");
+    }
+    for c in ['(', ')', '<', '>', '\\', ' ', '\t', '\x7f', '\u{a0}', '日', 'é', 'ｇ', 'о'] {
+        assert!(!may_hide(c, Why::Target), "{c:?}");
+    }
+    // SAFE-8, SAFE-10: no char that is shown in another form may go, for a link or for anything else
+    let mut n = 0;
+    for c in (0..=0x10_ffffu32).filter_map(char::from_u32).filter(|&c| show(&[c], 0).is_some()) {
+        let whys = [Why::Markup, Why::Blank, Why::Rule, Why::Callout, Why::Link, Why::Target];
+        assert!(!whys.into_iter().any(|w| may_hide(c, w)), "{c:?}");
+        n += 1;
+    }
+    assert!(n > 800_000, "{n} chars are shown in another form");
 }
 
 // ---- the screens ----
@@ -502,4 +640,105 @@ fn md_4_a_table_that_the_window_has_not_all_of_is_asked_for_whole_and_then_read(
         "{b:?}"
     );
     assert!(!b.iter().any(|x| x.contains("**row**")), "the markers are gone: {b:?}");
+}
+
+/// MD-12: a line of links that are honest, a line where one lies beside an honest one, and the end.
+const LINKED: &str = "# t\n\nSee [the docs](https://docs.example/a) and [b](https://b.example).\n\n\
+                      [a.example](https://evil.example/x) or [docs](https://docs.example/a).\n\nend\n";
+
+#[test]
+fn md_12_a_link_is_its_text_and_a_line_with_one_that_lies_keeps_every_link_whole() {
+    for skin in [Skin::Calm, Skin::Flat, Skin::Depth] {
+        let mut r = md_rig("md-dark", LINKED, skin, (90, 14));
+        let b = body(&r);
+        assert!(has(&b, "See the docs and b."), "{skin:?}: {b:?}");
+        let lies = "[a.example](https://evil.example/x) or [docs](https://docs.example/a).";
+        assert!(has(&b, lies), "{skin:?}: {b:?}");
+        // the target that lies is the alert's (MD-10), the honest one beside it is not, and the text of
+        // a link drawn as its text has a link's look: underlined
+        let out = draw(r.shot.clone());
+        assert_eq!(seq(&out, "https://evil.example/x"), alert(skin), "{skin:?}");
+        assert_ne!(seq(&out, "https://docs.example/a"), alert(skin), "{skin:?}");
+        assert!(seq(&out, "the docs").contains(";4"), "{skin:?}: {}", seq(&out, "the docs"));
+        assert_eq!(
+            out.matches("https://docs.example/a").count(),
+            1,
+            "{skin:?}: only on the lie's line"
+        );
+        // the cursor's line is raw: the targets are read there
+        r.keys("jj");
+        let b = body(&r);
+        assert!(
+            has(&b, "See [the docs](https://docs.example/a) and [b](https://b.example)."),
+            "{skin:?}: {b:?}"
+        );
+        assert!(has(&b, lies), "{skin:?}: {b:?}");
+        assert_eq!(r.text(), LINKED.trim_end_matches('\n'), "the file is as it was");
+    }
+}
+
+#[test]
+fn md_12_a_click_on_a_link_s_text_after_a_link_that_went_is_the_file_s_char() {
+    const LINE: &str = "See [a](https://a.example) and [the docs](https://docs.example) now.";
+    let mut r = md_rig("md-dark-click", &format!("# t\n\n{LINE}\n"), Skin::Depth, (80, 14));
+    let g = r.sim.geo();
+    let y = body(&r).iter().position(|x| x == "See a and the docs now.").unwrap();
+    // the `d` of `docs`: the point is taken back past the link that went before it
+    let x = usize::from(g.tx()) + 5 + "See a and the ".len();
+    r.click(x as u16, y as u16);
+    let a = r.app();
+    let line = a.buf.line_of(a.buf.cursor);
+    let col = a.buf.cursor - a.buf.start(line);
+    assert_eq!(line, 2);
+    assert_eq!(&LINE[col..col + 4], "docs", "col {col}");
+    assert!(has(&body(&r), LINE), "now raw");
+}
+
+#[test]
+fn md_12_a_search_shows_the_target_it_goes_to() {
+    let text = "# t\n\nSee [the docs](https://docs.example/a) now.\n\nAnd [b](https://docs.example/b) too.\n";
+    let mut r = md_rig("md-dark-search", text, Skin::Depth, (80, 12));
+    r.keys("/docs.example\n");
+    r.deliver_spans();
+    let b = body(&r);
+    assert!(
+        has(&b, "See [the docs](https://docs.example/a) now.") && has(&b, "And b too."),
+        "{b:?}"
+    );
+    r.keys("n");
+    r.deliver_spans();
+    let b = body(&r);
+    assert!(
+        has(&b, "See the docs now.") && has(&b, "And [b](https://docs.example/b) too."),
+        "{b:?}"
+    );
+}
+
+#[test]
+fn md_12_a_char_shown_in_another_form_in_a_target_keeps_the_link_whole_on_the_screen() {
+    // SAFE-8: the C0 controls (the line break is the line's end), DEL, the C1 controls, the bidi
+    // controls, U+200B and U+FEFF; and a few more of SAFE-10's
+    let c0 = (0..0x20u32).filter(|&c| c != 0x0a);
+    let bidi = [0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068];
+    let more = [0x2069, 0x200b, 0xfeff, 0x200d, 0xad, 0xe0041, 0x180e, 0x2060, 0x61c];
+    let chars: Vec<char> = c0
+        .chain([0x7f])
+        .chain(0x80..0xa0)
+        .chain(bidi)
+        .chain(more)
+        .filter_map(char::from_u32)
+        .collect();
+    let text: String = std::iter::once("# t\n".to_string())
+        .chain(chars.iter().map(|c| format!("[docs](https://x.example/a{c}b) z\n")))
+        .collect();
+    for skin in [Skin::Calm, Skin::Depth] {
+        let r = md_rig("md-dark-safe8", &text, skin, (80, chars.len() as u16 + 4));
+        let b = body(&r);
+        let whole = b.iter().filter(|x| x.starts_with("[docs](https://x.example/a")).count();
+        assert_eq!(whole, chars.len(), "{skin:?}: every link is whole: {b:#?}");
+        assert!(!b.iter().any(|x| x.starts_with("docs")), "{skin:?}: none is its text: {b:#?}");
+        // and each char is drawn in its form, where the tab is blanks
+        let forms = b.iter().filter(|x| x.contains("<U+") || x.contains('^')).count();
+        assert_eq!(forms, chars.len() - 1, "{skin:?}: {b:#?}");
+    }
 }

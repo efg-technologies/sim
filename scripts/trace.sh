@@ -10,7 +10,7 @@
 #   - an ID is not listed in any `//!` header,
 # or when any test is named after an ID that is not in SPEC.
 # The milestones are three lines of work in one SPEC: M for the core, S for the editor and G for the
-# window, and .milestone holds the current one of each (`M5 S11 G1`).
+# window, and .milestone holds the current one of each (`M5 S12 G1`).
 # POSIX sh + awk only, so it also runs on macOS.
 set -eu
 

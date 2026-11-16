@@ -90,7 +90,7 @@ fn drawn(text: &str, raw: std::ops::Range<usize>, icons: bool) -> Vec<String> {
     (0..lines.len())
         .map(|l| {
             let cs: Vec<char> = lines[l].chars().collect();
-            let Some(plan) = read.plan(l, &cs, &sp[l]) else { return lines[l].clone() };
+            let Some(plan) = read.plan(l, &cs, &sp[l], true) else { return lines[l].clone() };
             let mut out = String::new();
             for i in 0..=cs.len() {
                 let op = plan.op(i);
@@ -151,7 +151,7 @@ fn md_11_a_plan_leaves_out_only_the_chars_of_a_marker_that_is_exactly_a_kinds() 
     read.calls = callouts(0..lines.len(), &at, &|l| sp.get(l));
     for b in &read.calls.clone() {
         let cs: Vec<char> = lines[b.lines.start].chars().collect();
-        let plan = read.plan(b.lines.start, &cs, &sp[b.lines.start]).unwrap();
+        let plan = read.plan(b.lines.start, &cs, &sp[b.lines.start], true).unwrap();
         for (i, c) in cs.iter().enumerate() {
             assert_eq!(plan.op(i).hide, b.marker.contains(&i), "{c:?} at {i} of {:?}", cs);
         }

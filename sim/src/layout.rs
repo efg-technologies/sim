@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19, WATCH-2, DIFF-7, DIFF-9, GIT-6
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, MD-12, UI-19, WATCH-2, DIFF-7, DIFF-9, GIT-6
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -1559,11 +1559,8 @@ pub fn colors_with<'a>(
                 cs.iter().position(|&c| c == '|').unwrap_or(0),
                 cs.iter().rposition(|&c| c == '|').unwrap_or(0),
             );
-            plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s));
-            (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
-            call = calls.iter().find(|b| b.lines.contains(&l));
-            head = call.is_some_and(|b| b.lines.start == l);
-            // MD-10: the targets of the links of this line that say another place
+            // MD-10: the targets of the links of this line that say another place; MD-12: a line
+            // with none has its links drawn as their text
             lie = line_marks(
                 l,
                 &cs,
@@ -1572,6 +1569,10 @@ pub fn colors_with<'a>(
                 given.as_ref().map(|m| m.refs),
                 &mut budget,
             );
+            plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s, lie.is_empty()));
+            (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
+            call = calls.iter().find(|b| b.lines.contains(&l));
+            head = call.is_some_and(|b| b.lines.start == l);
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
                 .filter(|_| ui.is_some() && !lui.bare)
