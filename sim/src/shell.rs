@@ -417,7 +417,7 @@ impl Shell {
             (SimEffect::Diff(req), Work::Threads(t)) => drop(t.diffs.send(req)),
             (SimEffect::Diff(req), Work::Inline(_)) => {
                 let answer = sio::diff(&cwd, &req);
-                self.local.push(SimEvent::Diff(req.id, answer, req.lines));
+                self.local.push(SimEvent::Diff(req, answer));
             }
             (SimEffect::History(h), Work::Threads(t)) => drop(t.jobs.send(Job::History(h))),
             (SimEffect::Look(k), Work::Threads(t)) => drop(t.jobs.send(Job::Look(k))),

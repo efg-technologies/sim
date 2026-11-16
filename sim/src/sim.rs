@@ -1,9 +1,10 @@
-//! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2, JUMP-1, OPEN-1, OPEN-2
+//! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2, JUMP-1, OPEN-1, OPEN-2, DIFF-11
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
 //! are in `panel.rs`, the search of file contents in `live.rs`.
 mod guide;
+mod hunk;
 mod jump;
 mod lesson;
 mod live;
@@ -145,9 +146,9 @@ pub enum SimEvent {
     Grep(grep::Batch),
     /// GREP-4: the answer to `SimEffect::Preview`.
     Preview(Pv),
-    /// UI-5: git's diff of a file against HEAD (or why there is none), and how many lines the file
-    /// had when it was asked for.
-    Diff(Id, Result<Vec<u8>, String>, usize),
+    /// UI-5: git's diff of a file against HEAD (or why there is none), for the request it answers (how many
+    /// lines the file had, and the version of its text, DIFF-11).
+    Diff(DiffReq, Result<Vec<u8>, String>),
     /// UI-13: the flash of a yank, the one with this number, is over.
     Unflash(u64),
     /// PICK-5: the spinner of the search of this generation is to show its next frame.
@@ -201,6 +202,7 @@ pub struct DiffReq {
     pub id: Id,
     pub path: String,
     pub lines: usize,
+    pub ver: u64,
 }
 
 /// GREP-4: a file read for the preview: the name asked for (relative to the root) and what the
@@ -455,7 +457,7 @@ pub struct Sim {
     pal: Option<Palette>,
     syn: Syntax,
     hl_off: bool,
-    /// SYN-2 and the like: `z` or `g` typed in Normal mode with nothing pending, waiting for its key.
+    /// SYN-2 and the like: `z`, `g`, `[` or `]` typed in Normal mode with nothing pending, waiting for its key.
     z: Option<char>,
     /// LOOK-1: the look, and the colors it adds to the palette (none without a palette or truecolor, LOOK-8).
     pub skin: Skin,
@@ -851,9 +853,9 @@ impl Sim {
             SimEvent::Patched(n, p) => self.patched(n, p),
             SimEvent::Sought(_, Some(at), keys) => self.open_at(at, keys, &mut out),
             SimEvent::Sought(name, None, _) => self.msg = Some(format!("gf: no file {name}")),
-            SimEvent::Diff(id, r, lines) => {
-                if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
-                    b.diff = r.ok().map(|out| Diff::parse(&out, lines));
+            SimEvent::Diff(q, r) => {
+                if let Some(b) = self.bufs.iter_mut().find(|b| b.id == q.id) {
+                    b.diff = r.ok().map(|out| Diff { ver: q.ver, ..Diff::parse(&out, q.lines) });
                 }
             }
         }
@@ -1175,7 +1177,7 @@ impl Sim {
     fn diff(&self, id: Id, out: &mut Vec<SimEffect>) {
         let req = self.bufs.iter().find(|b| b.id == id && !is_head(b)).and_then(|b| {
             let path = b.app.path.clone()?;
-            Some(DiffReq { id, path, lines: b.app.buf.lines() })
+            Some(DiffReq { id, path, lines: b.app.buf.lines(), ver: b.app.buf.version() })
         });
         out.extend(req.filter(|_| !self.no_repo && !self.plain).map(SimEffect::Diff));
     }
@@ -1425,12 +1427,18 @@ impl Sim {
         let after = |p: char, c: char| self.z == Some(p) && k == Key::Char(c);
         let (zh, zl, zi, gf, gx) =
             (after('z', 'h'), after('z', 'l'), after('z', 'i'), after('g', 'f'), after('g', 'x'));
-        self.z = if let Key::Char(c @ ('z' | 'g')) = k { self.idle().then_some(c) } else { None };
+        let hunk = (after(']', 'h') || after('[', 'h')).then_some(self.z == Some('['));
+        self.z = match k {
+            Key::Char(c @ ('z' | 'g' | '[' | ']')) => self.idle().then_some(c),
+            _ => None,
+        };
         self.to(id, Event::Key(k), out);
         if gf && !self.plain {
-            return self.gf(out); // OPEN-1 (the core does nothing with `gf` and `gx`)
+            return self.gf(out); // OPEN-1 (the core does nothing with `gf`, `gx`, `]h` and `[h`)
         } else if gx {
             return self.gx(out); // OPEN-2
+        } else if let Some(back) = hunk {
+            return self.walk_hunks(back); // DIFF-11
         }
         if zh {
             self.hl_off = !self.hl_off;

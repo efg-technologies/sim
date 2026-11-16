@@ -476,7 +476,7 @@ impl Rig {
                     SimEffect::Diff(req) => {
                         self.jobs.push("diff");
                         let answer = io::diff(&self.cwd, &req);
-                        self.queue.push_back(SimEvent::Diff(req.id, answer, req.lines));
+                        self.queue.push_back(SimEvent::Diff(req, answer));
                     }
                     SimEffect::Preview(path) => {
                         self.jobs.push("preview");

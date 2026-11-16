@@ -1,4 +1,4 @@
-//! KEY-2, KEY-3, KEY-5, KEY-6, KEY-7, MD-5, MD-6, TREE-2, GIT-6
+//! KEY-2, KEY-3, KEY-5, KEY-6, KEY-7, MD-5, MD-6, TREE-2, GIT-6, DIFF-11
 //! What guides the user's hands in sim's state (pure): the leader (Space and what follows it), the
 //! prefix that is typed and not complete, the pause after which which-key shows what can come next,
 //! the letters on the tabs, and the hint for Tab.
@@ -88,6 +88,7 @@ impl Sim {
             (Some("f"), 'k') => self.help(String::new(), out),
             (Some("g"), 'e' | 'g') => self.changes_key(out),
             (Some("g"), 'i') => self.guard_key(),
+            (Some("g"), 'r') => self.reset_hunk(), // DIFF-11
             (Some("b"), 'p' | 'c') => self.tab_pick(c == 'c', out),
             (Some("b"), 'k') => self.kept_key(),
             _ => {}

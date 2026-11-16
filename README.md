@@ -108,6 +108,8 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `(` `"` … | typed in pairs in Insert mode; the closing char steps over, Backspace takes an empty pair |
 | `Alt-j` / `Alt-k` | move the line (the selected lines) down / up; `Alt-h` / `Alt-l` indent out / in |
 | `]c` | next change from outside |
+| `]h` / `[h` | next / previous hunk against HEAD |
+| `<Space>gr` | give the hunk under the cursor back to HEAD, as one edit that `u` undoes (nothing is written until `:w`) |
 | `[c` | previous change from outside |
 | `:s` | substitute |
 | `:{range}!cmd` | filter |

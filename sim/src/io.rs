@@ -1000,7 +1000,7 @@ pub fn diff_thread(tx: Sender<SimEvent>, cwd: PathBuf) -> Sender<DiffReq> {
                 latest.insert(r.id, r);
             }
             for (_, r) in latest {
-                if tx.send(SimEvent::Diff(r.id, diff(&cwd, &r), r.lines)).is_err() {
+                if tx.send(SimEvent::Diff(r.clone(), diff(&cwd, &r))).is_err() {
                     return;
                 }
             }

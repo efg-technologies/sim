@@ -544,7 +544,8 @@ fn diff_6_the_keys_are_in_the_table_so_which_key_and_help_show_them() {
         [
             ("e".to_string(), "changes from HEAD".to_string()),
             ("g".to_string(), "changes from HEAD".to_string()), // (KEY-7: Diffview's key)
-            ("i".to_string(), "what the guard did".to_string())
+            ("i".to_string(), "what the guard did".to_string()),
+            ("r".to_string(), "reset the hunk to HEAD".to_string()) // (DIFF-11)
         ]
     );
     assert!(next(&["<Space>".to_string(), "g".to_string()], 't').iter().any(|r| r.0 == "e"));

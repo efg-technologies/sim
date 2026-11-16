@@ -3458,6 +3458,41 @@ open_1_gf_opens_the_file_under_the_cursor_at_its_line() {
   [ ! -e "$W/nope.rs" ]
 }
 
+# DIFF-11: ]h goes to the next hunk against HEAD, <Space>gr gives it back to HEAD as one edit that u undoes, and
+# nothing is written until :w.
+diff_11_space_g_r_gives_the_hunk_back_and_u_undoes_it() {
+  printf 'one\ntwo\nthree\nfour\n' > "$W/a.txt"
+  outside_git -C "$W" init -q
+  outside_git -C "$W" add -A
+  outside_git -C "$W" commit -q -m init
+  printf 'one\nTWO\nthree\nFOUR\n' > "$W/a.txt"
+  start a.txt
+  wait_for "a.txt  1:1  NORMAL"
+  tries=50 # (until git's diff has come: before it there is no hunk)
+  until screen | grep -F -q "a.txt  2:1"; do
+    typed ']h'
+    sleep 0.1
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ]
+  done
+  typed ' gr'
+  wait_for "hunk reset: 1 line (u undoes)"
+  screen | grep -F -q "two"
+  [ "$(cat "$W/a.txt")" = "$(printf 'one\nTWO\nthree\nFOUR')" ]
+  typed u
+  wait_for "TWO"
+  typed ' gr'
+  wait_for "hunk reset: 1 line (u undoes)"
+  typed ':w'
+  keys Enter
+  tries=50
+  until [ "$(cat "$W/a.txt")" = "$(printf 'one\ntwo\nthree\nFOUR')" ]; do
+    sleep 0.1
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ]
+  done
+}
+
 # A case runs in a process of its own, traced (scripts/e2e-lib.sh says how and why).
 if [ "${1:-}" = "--run-one" ]; then
   run_one "$2"
