@@ -552,12 +552,17 @@ fn mark_1_core_hookspath_does_not_stop_git_and_no_hook_runs() {
         repo(&work, &["a.txt=aaaa\n", "sub/b.rs", "c.rs"]);
         let path = if relative { ".husky/_" } else { hooks.to_str().unwrap() };
         git(&work, &["config", "core.hooksPath", path]);
-        // `a.txt` is a file that git must read again (the same size, an mtime that moved): a
-        // plain `git status` then writes the index, and that runs `post-index-change`.
+        // `a.txt` and `c.rs` are files that git must read again (the same size, an mtime that
+        // moved). `c.rs` is found the same, so a plain `git status` writes its new stat into the
+        // index, and that runs `post-index-change`. (`a.txt` alone, which differs, wrote the index
+        // only while the entries were racily clean, written in the same second as the index: a
+        // slow runner, macOS's on CI, crossed a second between them now and then.)
         std::fs::write(work.join("a.txt"), "bbbb\n").unwrap();
-        let file = std::fs::File::options().write(true).open(work.join("a.txt")).unwrap();
-        file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
-            .unwrap();
+        for f in ["a.txt", "c.rs"] {
+            let file = std::fs::File::options().write(true).open(work.join(f)).unwrap();
+            file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
+                .unwrap();
+        }
         make(&work, &["sub/new.rs"]);
         // Sim's own calls: they give the marks, and no hook ran.
         let (status, prefix) = (io::git_status(&work).unwrap(), io::git_prefix(&work).unwrap());
