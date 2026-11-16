@@ -129,6 +129,10 @@ const WORDS: &[&str] = &[
     "one,two",
     "end;",
     "a",
+    // (VI-19: the case operators, and backtick quotes)
+    "Foo",
+    "BAR",
+    "`q x`",
 ];
 
 fn gen_text(r: &mut Rng, indent: bool) -> String {
@@ -193,7 +197,7 @@ fn command(r: &mut Rng, text: &str, seeded: &mut bool) -> String {
             r,
             &[
                 "h", "j", "k", "l", "w", "b", "e", "W", "B", "E", "0", "^", "$", "gg", "G", "%",
-                "find", "find", "w", "e", "b", "w", "$", "j", "k",
+                "find", "find", "w", "e", "b", "w", "$", "j", "k", "{", "}",
             ],
         );
         let c = count(r);
@@ -203,7 +207,7 @@ fn command(r: &mut Rng, text: &str, seeded: &mut bool) -> String {
         format!(
             "{}{}",
             pick(r, &["i", "a"]),
-            pick(r, &["w", "W", "\"", "'", "(", ")", "[", "{", "}", "<lt>", "b", "B"])
+            pick(r, &["w", "W", "\"", "'", "(", ")", "[", "{", "}", "<lt>", "b", "B", "p", "`"])
         )
     };
     let typed = |r: &mut Rng| -> String {
@@ -226,10 +230,10 @@ fn command(r: &mut Rng, text: &str, seeded: &mut bool) -> String {
         );
         format!("{t}<Esc>")
     };
-    match r.below(30) {
+    match r.below(32) {
         0..=5 => {
             // operator + motion / object / doubled
-            let op = pick(r, &["d", "c", "y", ">", "<", "d", "c", "d"]);
+            let op = pick(r, &["d", "c", "y", ">", "<", "d", "c", "d", "gU", "gu", "g~"]);
             let op = if op == "<" { "<lt>" } else { op };
             let c = count(r);
             let tgt = match r.below(10) {
@@ -315,6 +319,9 @@ fn command(r: &mut Rng, text: &str, seeded: &mut bool) -> String {
         )
         .replace("c", "cq<Esc>"),
         28 => format!(":{}<CR>", 1 + r.below(4)),
+        // VI-19: `~` with a count, and a selection made, left and taken again with `gv`
+        29 => format!("{}~", count(r)),
+        30 => format!("{}{}<Esc>gv{}", pick(r, &["v", "V"]), motion(r), pick(r, &["d", "y", "U"])),
         _ => format!("{}dd{}", count(r), pick(r, &["p", "P", "u", ""])),
     }
 }
@@ -747,9 +754,10 @@ fn known(keys: &str) -> Option<&'static str> {
         if b[i - 1].is_ascii_digit() && b[i..].starts_with(&['%']) {
             return Some("count before % (VI-1 Decided)");
         }
+        let op = if b[i] == 'g' { 2 } else { 1 }; // (`gU`, `gu`, `g~`)
         if b[i - 1].is_ascii_digit()
-            && matches!(b[i], 'd' | 'c' | 'y' | '>')
-            && matches!(b.get(i + 1), Some('i' | 'a'))
+            && matches!(b[i], 'd' | 'c' | 'y' | '>' | 'g')
+            && matches!(b.get(i + op), Some('i' | 'a'))
         {
             return Some("count on a text object (VI-1 Decided)");
         }

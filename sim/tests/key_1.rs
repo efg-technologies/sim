@@ -123,7 +123,7 @@ fn universe() -> Vec<(String, Typed)> {
 /// and something to redo and to repeat, marks of changes from the disk above and below the cursor, the
 /// cursor in the middle of a word inside quotes, braces, parentheses, brackets and angle brackets.
 fn rich() -> Rig {
-    let line = |i: usize| format!("<x [a (b {{c '\"d\"' e}} f) g] y> foo {i} foo bar\n");
+    let line = |i: usize| format!("<x [a (b {{c '\"d\"' e}} f) g] y> foo {i} foo bar `q`\n");
     let text: String = (1..=80).map(line).collect();
     let mut r = rig_env(
         "k1-rich",
@@ -200,7 +200,9 @@ fn handled(prefix: &[&Typed], names: &[(String, Typed)], setup: &str) -> BTreeSe
 /// The keys that sim takes before the core's parser sees them: with a prefix typed they end it, and are
 /// not keys after it.
 const GLOBAL: [&str; 6] = ["<C-n>", "<C-p>", "<C-f>", "<C-s>", "<F1>", "<S-Tab>"];
-/// The operators, as the table writes their keys (`g c` is `gc`, VI-18).
+/// The operators, as the table writes their keys (`g c` is `gc`, VI-18). The case operators (`gu`, `gU`,
+/// `g~`, VI-19) are not here: on a char with no case, or one in the case already, they change nothing,
+/// which is no sign that a motion after them is not bound (after `g` they are seen to be keys).
 const OPERATORS: [&str; 7] = ["d", "c", "y", "<lt>", ">", "!", "g c"];
 
 /// The keys the table has after `prefix` in Normal mode (and, after an operator, for `o`), without the

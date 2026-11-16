@@ -77,6 +77,13 @@ const ATOMS: &[&str] = &[
     "gcj",
     "Vjgc",
     "gcG",
+    "gUU",
+    "g~j",
+    "guk",
+    "5~",
+    "dip",
+    "d}",
+    "y}",
 ];
 
 #[derive(Clone, Debug)]

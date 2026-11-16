@@ -1,4 +1,4 @@
-//! VI-17
+//! VI-17, VI-19
 //! Marks: `m{a-z}` sets one, `'` and `` ` `` go to one, `''` goes back to where the last jump was
 //! made from; they move with the edits and are listed by `:marks`.
 use super::app::App;
@@ -158,7 +158,7 @@ impl App {
     /// A motion that jumps (`G` `gg` `n` `N` `*` `#` `%` `/` a mark) is about to move the cursor: here is
     /// the place `''` goes back to.
     pub(super) fn jumped(&mut self, k: char) {
-        if "GgnN*#%'`/".contains(k) {
+        if "GgnN*#%'`/{}".contains(k) {
             self.jump_from(self.here());
         }
     }

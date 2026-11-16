@@ -130,6 +130,8 @@ pub struct App {
     pub(super) anchor: usize,
     /// Where the range of the last operator's motion starts (VI-18: `gc` leaves the cursor there).
     pub(super) from: usize,
+    /// The mode of the last Visual selection, for `gv` (VI-19).
+    pub(super) vis: Mode,
     /// The lines of `'<` and `'>`.
     pub(super) marks: (usize, usize),
     /// The registers (VI-15).
@@ -155,7 +157,9 @@ pub struct App {
     /// Set while a Visual-mode operation, and the Insert session it may start, is typed: none of
     /// it is a Normal-mode change, so `.` must not replay it.
     no_rec: bool,
-    changed: bool,
+    /// The keys typed since Normal mode was idle changed the text (or are a change that changed nothing,
+    /// as `gul` on a digit: `.` repeats them all the same, VI-19).
+    pub(super) changed: bool,
     /// `.` is replaying keys: another `.` among them does nothing.
     pub(super) replaying: bool,
     /// Set when an operator found nothing to act on.

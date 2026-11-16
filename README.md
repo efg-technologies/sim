@@ -98,6 +98,9 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `"a` | a register: `"ayw` yanks into `a`, `"ap` puts it (`:registers` lists them) |
 | `ma` | set a mark; `'a` goes to its line, `` `a `` to its place; `:marks` lists them |
 | `gcc` | comment or uncomment the line (`gc{motion}` the lines a motion covers, `gc` in Visual mode the selection's) |
+| `{` / `}` | previous / next paragraph (`dap`, `yip`: a paragraph) |
+| `gv` | select the last selection again |
+| `gU` / `gu` / `~` | upper case / lower case / the other case (`gUiw`, `guu`) |
 | `]c` | next change from outside |
 | `[c` | previous change from outside |
 | `:s` | substitute |

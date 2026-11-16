@@ -22,6 +22,8 @@ T {char}	nvo	until character backward	Like F, but stops one character after the 
 ;	nvo	repeat find	Repeats the last f, F, t or T in the same direction.
 ,	nvo	repeat find backward	Repeats the last f, F, t or T in the opposite direction.
 %	nvo	matching bracket	Moves from a bracket ( ) [ ] { } at or after the cursor on this line to its partner, skipping nested pairs.
+{	nvo	previous paragraph	Moves back to the empty line before the paragraph (a run of lines with text), or to the first line; with a count, that many paragraphs. d{ takes what is between.
+}	nvo	next paragraph	Moves on to the empty line after the paragraph (a run of lines with text), or to the end of the last line; with a count, that many paragraphs. d} deletes to the end of the paragraph.
 n	nvo	next match	Moves to the next match of the last search, wrapping round the end of the file, and lights the matches. The status line says which one it is, [3/12].
 N	nvo	previous match	Moves to the previous match of the last search, wrapping round the start of the file.
 *	nvo	search word forward	Searches for the word under the cursor, as a whole word, and moves to its next occurrence.
@@ -33,8 +35,10 @@ N	nvo	previous match	Moves to the previous match of the last search, wrapping ro
 1|2|3|4|5|6|7|8|9	nvo	count	A number before a command repeats it that many times: 3dd, 5j, 2w, 10x. A 0 typed after a number is part of it; alone, 0 is the start of the line.
 i w|W	ov	inner word	The word under the cursor, without the blanks around it (iw), or the WORD (iW): diw deletes it, ciw changes it, yiw yanks it, viw selects it.
 a w|W	ov	around word	The word under the cursor with the blanks after it, or before it when there are none (aw), or the WORD (aW).
-i "|'	ov	inner quotes	The text between the pair of quotes on this line that holds the cursor, without the quotes: ci" changes it.
-a "|'	ov	around quotes	The same with the quotes, and the blanks after the closing one.
+i "|'|`	ov	inner quotes	The text between the pair of quotes (" ' or `) on this line that holds the cursor, without the quotes: ci" changes it.
+a "|'|`	ov	around quotes	The same with the quotes, and the blanks after the closing one.
+i p	ov	inner paragraph	The paragraph the cursor is in, as whole lines: the run of lines with text, or the run of blank lines (whitespace only) when the cursor is on one. vip selects it in V-LINE mode.
+a p	ov	around paragraph	The paragraph and the blank lines after it, or before it when there are none after; on blank lines, those and the paragraph after them.
 i (|)	ov	inner parentheses	The text between the parentheses that hold the cursor, nested pairs counted, without them: ci( changes it. A ( or a ) after i or a means the same.
 a (|)	ov	around parentheses	The same with the parentheses.
 i [|]	ov	inner brackets	The text between the square brackets that hold the cursor, without them.
@@ -50,6 +54,9 @@ y	nv	yank	y{motion} copies the text to the unnamed register and to the system cl
 >	nv	indent	>{motion} puts one level of indent on the lines the motion covers; >> is the current line; in Visual mode > indents the selection.
 !	nv	filter	!{motion} opens the command line with the range of lines, ready for a command: !! is the current line, and :{range}!cmd runs the lines through cmd and replaces them with what it prints, as one undo step. Ctrl-c cancels a filter that runs. Not in plain mode.
 g c	nv	comment toggle	gc{motion} (or the selection) comments the lines, or uncomments them when every line that is not blank is commented, as Neovim's gc does. The comment string comes from the file name: // for Rust, C and TypeScript, # for Python, shell and YAML, -- for Lua, <!-- --> for Markdown and HTML, /* */ for CSS; a file whose string is not known says so, and nothing changes. One toggle is one undo step, . repeats it, and no register is touched.
+g u	nv	lowercase	gu{motion} (or the selection) makes the text lower case; guu does the line. A char whose other case is more than one char stays as it is. . repeats it.
+g U	nv	uppercase	gU{motion} (or the selection) makes the text upper case; gUU does the line. ß becomes ẞ, as in vim. . repeats it.
+g ~	nv	toggle case	g~{motion} (or the selection) turns lower case into upper case and upper into lower; g~~ does the line. . repeats it.
 d d	n	delete lines	Deletes the current line, or that many lines with a count (3dd).
 c c	n	change lines	Deletes the current line's text, keeping its indent, and starts Insert mode.
 y y	n	yank lines	Yanks the current line, or that many lines with a count (3yy).
@@ -57,6 +64,9 @@ y y	n	yank lines	Yanks the current line, or that many lines with a count (3yy).
 > >	n	indent line	Puts one level of indent on the current line.
 ! !	n	filter line	Opens the command line with the current line as the range, ready for :{range}!cmd.
 g c c	n	comment line	Comments the line, or uncomments it, as Neovim's gcc does; a count does that many lines.
+g u u	n	lowercase line	Makes the line lower case; with a count, that many lines.
+g U U	n	uppercase line	Makes the line upper case; with a count, that many lines.
+g ~ ~	n	toggle case of line	Turns the case of every letter of the line around; with a count, that many lines.
 D	n	delete to end of line	Deletes from the cursor to the end of the line, as d$.
 C	n	change to end of line	Deletes from the cursor to the end of the line and starts Insert mode, as c$.
 Y	n	yank to end of line	Yanks from the cursor to the end of the line, as y$. In vi Y yanks the whole line (yy does that here).
@@ -71,13 +81,17 @@ p	n	paste after	Puts the unnamed register (what was last deleted or yanked), or 
 P	n	paste before	Like p, before the cursor or above the line.
 J	n	join lines	Joins the next line to this one with a single blank; with a count, that many lines.
 r {char}	n	replace character	Replaces the character under the cursor with the one you type; with a count, that many characters.
+~	nv	toggle case	Turns the case of the character under the cursor around and moves right; with a count, that many characters of the line. In Visual mode, the case of the selection.
 u	n	undo	Undoes the last change, one step at a time. A change that came from the disk and was merged in is a step too.
 U	n	redo	Redoes what u undid. In vi U undoes a whole line; here it is the key beside u and does what Ctrl-r does.
 <C-r>	n	redo	Redoes what u undid.
 .	n	repeat last change	Repeats the last change: its keys, with a new count if you give one (3.). Undo is not a change, so . keeps repeating the last real one.
+g v	n	last selection again	Selects again what the last Visual selection selected, in the same mode; its ends move with the edits as marks do. Says so when there was none.
 v	nv	visual	Starts Visual mode on the character, or leaves it. Motions extend the selection, an operator works on it, o jumps to its other end, and i and a with an object select it. The selection is underlined, or gray where the terminal has truecolor.
 V	nv	visual line	Starts Visual mode on whole lines, or leaves it.
 o	v	other end of selection	Moves the cursor to the other end of the selection.
+u	v	lowercase	Makes the selection lower case (as gu does).
+U	v	uppercase	Makes the selection upper case (as gU does).
 <Esc>	nvi	back to Normal	Leaves Insert mode, Visual mode or a half-typed command. In Normal mode with nothing typed it puts the search highlight out (as :noh does).
 <C-c>	nv	cancel	Cancels a half-typed command or Visual mode; with a filter running it cancels the filter; with nothing to cancel it says q to quit.
 " {char}	nv	register (a-z A-Z 0-9 - _ + *)	Names the register for the next yank, delete, change or put: "ayw yanks into a, "ap puts it. a-z keep their text and A-Z add to it; "0 is the last yank, "1-"9 the last deletes of a line or more ("1p then . puts "2p), "- the small deletes, "_ drops the text, "" is the unnamed one. "+ and "* write the system clipboard (also through tmux) and cannot be read: paste with the terminal. They live in memory only, shared by the open files.

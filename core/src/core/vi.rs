@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15, VI-17, VI-18
+//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19
 //! Key sequence to Command: counts, operators and prefixes in Normal and Visual mode, and the
 //! editing of the command line.
 use super::app::Key;
@@ -34,13 +34,14 @@ pub const PGDN: char = '\u{e001}';
 pub const PGUP: char = '\u{e002}';
 pub const HALF_DN: char = '\x04';
 pub const HALF_UP: char = '\x15';
-/// `gc` (VI-18), the operator of two keys.
+/// `gc` (VI-18), the operator of two keys, and `gv` (VI-19). (`gu`, `gU` and `g~` are `u`, `U` and `~`.)
 pub const GC: char = '\u{e003}';
+pub const GV: char = '\u{e004}';
 // `VERTICAL` and `MOTIONS` spell the private chars above (and Ctrl-d, Ctrl-u) out.
 /// The motions that keep the wanted column.
 pub const VERTICAL: &str = "jk\x04\x15\u{e001}\u{e002}";
 /// The keys that only move the cursor (and, after an operator, make a range).
-pub const MOTIONS: &str = "hjklwbeWBE0^$GgfFtT;,%nN*#'`\u{e000}\u{e001}\u{e002}\x04\x15";
+pub const MOTIONS: &str = "hjklwbeWBE0^$GgfFtT;,%nN*#'`{}\u{e000}\u{e001}\u{e002}\x04\x15";
 
 /// The char a key stands for in Normal and Visual mode.
 #[rustfmt::skip]
@@ -87,7 +88,11 @@ impl Parser {
 
     /// The keys of a command that is typed and not complete: its operator, then its prefix (`d`, `g`, `di`).
     pub fn pending(&self) -> String {
-        let keys = |c: char| if c == GC { "gc".into() } else { c.to_string() };
+        let keys = |c: char| match c {
+            GC => "gc".into(),
+            'u' | 'U' | '~' => format!("g{c}"), // (an operator, so typed after `g`)
+            c => c.to_string(),
+        };
         self.op.into_iter().chain(self.pre).map(keys).collect()
     }
 
@@ -138,7 +143,8 @@ impl Parser {
                 }
                 (Key::Char('g'), 'g') | (Key::Char('z'), 'z') | (Key::Char('Z' | 'Q'), 'Z')
                 | (Key::Char('c'), '[' | ']') | (Key::Char(_), 'f' | 'F' | 't' | 'T' | 'r' | 'i' | 'a' | 'm' | '\'' | '`') => self.emit(self.op, p, Some(c)),
-                (Key::Char('c'), 'g') => self.operator(GC, vis),
+                (Key::Char(o @ ('c' | 'u' | 'U' | '~')), 'g') => self.operator(if o == 'c' { GC } else { o }, vis),
+                (Key::Char('v'), 'g') if self.op.is_none() && !vis => self.emit(None, GV, None),
                 _ => self.reset(),
             };
         }
@@ -150,8 +156,8 @@ impl Parser {
             self.n = self.n.saturating_mul(10).saturating_add(c as usize - '0' as usize);
             return None;
         }
-        if "dcy<>!".contains(c) {
-            // (`gcc` is `gc` doubled)
+        if "dcy<>!".contains(c) || self.op == Some(c) || (vis && "uU~".contains(c)) {
+            // (`gcc` is `gc` doubled, `guu` is `gu`; in Visual mode `u` and `U` change the case)
             return self.operator(if c == 'c' && self.op == Some(GC) { GC } else { c }, vis);
         }
         if self.op.is_some() && !(MOTIONS.contains(c) || "ia".contains(c)) {
