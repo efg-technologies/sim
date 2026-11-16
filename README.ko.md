@@ -1,20 +1,20 @@
 [English](README.md) | [日本語](README.ja.md) | [简体中文](README.zh-cn.md) | [繁體中文](README.zh-tw.md) | **한국어** | [Español](README.es.md) | [Português (Brasil)](README.pt-br.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Русский](README.ru.md)
 
-# sim, 차세대 Vim
+# Sim, 차세대 Vim
 
-**sim**(*sim editor*라고도 부르며, *Secure vIM*의 줄임말입니다)은 차세대 Vim입니다. Rust로 처음부터 작성했고, Vim의 모달 편집과 핵심 키를 그대로 유지합니다. 모드라인을 읽지 않고, 플러그인을 불러오지 않으며, 네트워크 연결도 열지 않습니다. 그리고 보통은 숨어 있는 것을 화면에 드러냅니다. 보이지 않는 문자, 에디터 밖에서 일어난 쓰기, 코드를 실행하게 될 저장소가 그것입니다.
+**Sim**(*Sim editor*라고도 부르며, *Secure vIM*의 줄임말입니다)은 차세대 Vim입니다. Rust로 처음부터 작성했고, Vim의 모달 편집과 핵심 키를 그대로 유지합니다. 모드라인을 읽지 않고, 플러그인을 불러오지 않으며, 네트워크 연결도 열지 않습니다. 그리고 보통은 숨어 있는 것을 화면에 드러냅니다. 보이지 않는 문자, 에디터 밖에서 일어난 쓰기, 코드를 실행하게 될 저장소가 그것입니다.
 
 **플러그인 없음. 모드라인 없음. 네트워크 없음.**
 
 웹사이트: <https://sim.efg-technologies.com/ko/> · Linux 및 macOS · MIT OR Apache-2.0 · [변경 내역](CHANGELOG.md) · [보안 정책](SECURITY.md)
 
-sim이 하는 모든 약속은 sim에서 열려 있는 모든 파일에 대한 약속입니다. **명시적인 동작 없이는 누구의 텍스트도 사라지지 않습니다.** 내 텍스트도, 다른 프로세스의 텍스트도 마찬가지입니다.
+Sim이 하는 모든 약속은 Sim에서 열려 있는 모든 파일에 대한 약속입니다. **명시적인 동작 없이는 누구의 텍스트도 사라지지 않습니다.** 내 텍스트도, 다른 프로세스의 텍스트도 마찬가지입니다.
 
 ## 설치
 
 실행 파일은 `sim`이고, Homebrew 패키지 이름은 `efg-technologies/tap/sim`입니다. AUR 패키지와 crates.io의 크레이트(`sim-editor`, 그리고 그 기반 라이브러리인 `sim-editor-core`)는 아직 공개하지 않았습니다.
 
-sim 0.2.1을 공개했습니다. Homebrew로 설치할 수 있습니다:
+Sim 0.2.1을 공개했습니다. Homebrew로 설치할 수 있습니다:
 
 ```sh
 brew install efg-technologies/tap/sim
@@ -35,10 +35,10 @@ AUR 패키지 `sim-editor`와 crates.io의 `sim-editor`, `sim-editor-core`는 �
 ```sh
 export EDITOR=sim                     # Claude Code의 Ctrl-g, crontab -e, …
 git config --global core.editor sim   # git commit (ZZ는 커밋, :cq는 중단)
-export SUDO_EDITOR='sim --plain'      # sudoedit (Linux에서는 sim이 알아서 plain 모드가 됩니다)
+export SUDO_EDITOR='sim --plain'      # sudoedit (Linux에서는 Sim이 알아서 plain 모드가 됩니다)
 ```
 
-Rust 1.88 이상이 필요합니다. Linux와 macOS의 아무 터미널에서나 동작하며, 터미널이 지원하면 색, kitty 키보드 프로토콜, OSC 52를 사용합니다(Ghostty, kitty, WezTerm, tmux). git과 ripgrep은 선택 사항이며, `PATH`에 있으면 sim이 사용합니다. 아이콘에는 Nerd Font가 필요합니다. Ghostty, kitty, WezTerm에서는 켜진 채로, 그 밖의 터미널에서는 꺼진 채로 시작하며 힌트가 한 번만 나오고, `zi`로 켜고 끌 수 있습니다. 자세한 내용은 [설치 페이지](https://sim.efg-technologies.com/ko/install/)에 있습니다.
+Rust 1.88 이상이 필요합니다. Linux와 macOS의 아무 터미널에서나 동작하며, 터미널이 지원하면 색, kitty 키보드 프로토콜, OSC 52를 사용합니다(Ghostty, kitty, WezTerm, tmux). git과 ripgrep은 선택 사항이며, `PATH`에 있으면 Sim이 사용합니다. 아이콘에는 Nerd Font가 필요합니다. Ghostty, kitty, WezTerm에서는 켜진 채로, 그 밖의 터미널에서는 꺼진 채로 시작하며 힌트가 한 번만 나오고, `zi`로 켜고 끌 수 있습니다. 자세한 내용은 [설치 페이지](https://sim.efg-technologies.com/ko/install/)에 있습니다.
 
 ## 기능
 
@@ -75,9 +75,9 @@ Rust 1.88 이상이 필요합니다. Linux와 macOS의 아무 터미널에서나
 - `:tutor`는 약 15분 분량의 짧은 수업을 일회용 복사본으로 엽니다 (아무것도 저장되지 않습니다). 연습 문제는 맞게 고치면 스스로 ✓로 표시됩니다. 언어는 `LC_ALL`, `LC_MESSAGES`, `LANG`으로 정해지며, 이 README와 같은 열 가지입니다.
 - `<Space>bp`는 각 탭에 글자를 붙이고, 그 글자를 누르면 해당 파일로 이동합니다. `<Space>bc`는 같은 방식으로 탭을 닫습니다(변경 사항이 있는 파일은 `:q`와 마찬가지로 열린 채로 남습니다). 두 번째 파일이 처음 열릴 때 `Tab`과 `Shift-Tab`을 알려 주는 힌트가 표시되며, 이 키를 세 번 쓸 때까지 계속됩니다.
 - 검색 결과가 강조 표시되어 있는 동안, 상태 줄에 커서가 몇 번째 결과에 있는지와 전체 개수가 `[3/12]`처럼 표시됩니다.
-- `sim --help`는 사용법과 sim이 읽는 환경 변수(`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`)를 출력하고, `sim --version`은 버전을 출력합니다. 둘 다 터미널을 건드리지 않습니다.
+- `sim --help`는 사용법과 Sim이 읽는 환경 변수(`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`)를 출력하고, `sim --version`은 버전을 출력합니다. 둘 다 터미널을 건드리지 않습니다.
 
-## 한 화면으로 보는 sim
+## 한 화면으로 보는 Sim
 
 | 키 | 동작 |
 |---|---|
@@ -123,26 +123,26 @@ Rust 1.88 이상이 필요합니다. Linux와 macOS의 아무 터미널에서나
 | `F1` | 도움말 |
 | `:help` | 도움말 |
 
-나머지는 모두 vi입니다. 모션, 오퍼레이터, 텍스트 오브젝트, 횟수, `.`, 비주얼 모드, `:s`, 범위 지정이 그렇습니다. `Y`는 줄 끝까지 yank하고, `U`는 다시 실행(redo)하며, 레지스터 이름이 없는 모든 yank는 OSC 52를 통해 시스템 클립보드에도 들어갑니다(tmux 안에서도 마찬가지입니다. `"ay`처럼 이름을 붙이면 sim 안에만 남습니다). 파일을 다시 열면 마지막으로 있던 위치로 돌아갑니다. IME가 켜져 있어도 전각 키가 명령으로 동작하며, `SIM_ON_NORMAL='fcitx5-remote -c'`를 지정하면 노멀 모드로 돌아올 때마다 IME가 꺼집니다(예전 이름인 `SI_ON_NORMAL`도 계속 동작합니다). 모든 키는 하나의 표 `sim/keys.tsv`에 있으며, `:help`와 which-key가 이 표를 읽고 테스트가 이 표를 키의 실제 동작과 대조합니다. 전체 목록은 [문서 페이지](https://sim.efg-technologies.com/ko/docs/)에 있습니다.
+나머지는 모두 vi입니다. 모션, 오퍼레이터, 텍스트 오브젝트, 횟수, `.`, 비주얼 모드, `:s`, 범위 지정이 그렇습니다. `Y`는 줄 끝까지 yank하고, `U`는 다시 실행(redo)하며, 레지스터 이름이 없는 모든 yank는 OSC 52를 통해 시스템 클립보드에도 들어갑니다(tmux 안에서도 마찬가지입니다. `"ay`처럼 이름을 붙이면 Sim 안에만 남습니다). 파일을 다시 열면 마지막으로 있던 위치로 돌아갑니다. IME가 켜져 있어도 전각 키가 명령으로 동작하며, `SIM_ON_NORMAL='fcitx5-remote -c'`를 지정하면 노멀 모드로 돌아올 때마다 IME가 꺼집니다(예전 이름인 `SI_ON_NORMAL`도 계속 동작합니다). 모든 키는 하나의 표 `sim/keys.tsv`에 있으며, `:help`와 which-key가 이 표를 읽고 테스트가 이 표를 키의 실제 동작과 대조합니다. 전체 목록은 [문서 페이지](https://sim.efg-technologies.com/ko/docs/)에 있습니다.
 
 ## 보안 모델
 
-직접 작성하지 않은 파일과 저장소를 열게 됩니다. 공격자가 통제하는 것은 그 내용이지 사용자의 컴퓨터가 아닙니다. sim은 그 내용이 사용자에게서 숨지 못하고, 에디터의 설정을 바꾸지 못하며, 에디터가 코드를 실행하게 만들지 못하도록 하려고 합니다. sim은 **샌드박스가 아닙니다**. 사용자의 권한으로 실행되고, 다른 문자 체계의 비슷하게 생긴 글자는 감지하지 못하며, 주장의 근거는 독립적인 감사가 아니라 프로젝트 자체의 사양과 테스트입니다. 언어 서버는 아직 만들어지지 않았으며, 샌드박스 안에서 실행되는 클라이언트를 계획하고 있습니다. 취약점을 신고하려면 [보안 정책](SECURITY.md)을 읽어 주세요.
+직접 작성하지 않은 파일과 저장소를 열게 됩니다. 공격자가 통제하는 것은 그 내용이지 사용자의 컴퓨터가 아닙니다. Sim은 그 내용이 사용자에게서 숨지 못하고, 에디터의 설정을 바꾸지 못하며, 에디터가 코드를 실행하게 만들지 못하도록 하려고 합니다. Sim은 **샌드박스가 아닙니다**. 사용자의 권한으로 실행되고, 다른 문자 체계의 비슷하게 생긴 글자는 감지하지 못하며, 주장의 근거는 독립적인 감사가 아니라 프로젝트 자체의 사양과 테스트입니다. 언어 서버는 아직 만들어지지 않았으며, 샌드박스 안에서 실행되는 클라이언트를 계획하고 있습니다. 취약점을 신고하려면 [보안 정책](SECURITY.md)을 읽어 주세요.
 
 위협을 하나씩 짚은 전체 위협 모델은 [보안 페이지](https://sim.efg-technologies.com/ko/security/)에 있습니다. 세 편의 장문 글이 더 깊이 다룹니다. [숨은 문자와 양방향 문자](https://sim.efg-technologies.com/blog/hidden-characters/), [코드를 실행하는 저장소](https://sim.efg-technologies.com/blog/repositories-that-run-code/), [안전한 저장과 비밀 정보](https://sim.efg-technologies.com/blog/safe-saves/)입니다.
 
 ## Vim, Neovim, Helix와의 비교
 
-Vim, Neovim, Helix는 성숙한 에디터이고 sim은 새로 나온 에디터입니다. 1차 출처가 말하는 내용만 비교하며, [비교 페이지](https://sim.efg-technologies.com/ko/compare/)에 모든 출처가 인용되어 있습니다(2026-10-17에 확인: Vim 9.2.1202, Neovim 0.12.6, Helix 25.07.1).
+Vim, Neovim, Helix는 성숙한 에디터이고 Sim은 새로 나온 에디터입니다. 1차 출처가 말하는 내용만 비교하며, [비교 페이지](https://sim.efg-technologies.com/ko/compare/)에 모든 출처가 인용되어 있습니다(2026-10-17에 확인: Vim 9.2.1202, Neovim 0.12.6, Helix 25.07.1).
 
-| | Vim | Neovim | Helix | sim |
+| | Vim | Neovim | Helix | Sim |
 |---|---|---|---|---|
 | 확장 | Vim script, 패키지 | Lua, Vim script | 릴리스에는 플러그인 시스템 없음. Steel PR [#8675](https://github.com/helix-editor/helix/pull/8675)는 초안 | 의도적으로 없음 |
 | 모드라인 | 켜짐(root는 꺼짐). [9.2.0350](https://github.com/vim/vim/commit/4c2879471)부터 `'modelinestrict'` | 켜짐(root는 꺼짐) | 해석하지 않음([#729](https://github.com/helix-editor/helix/issues/729)) | 읽지 않음 |
 | 프로젝트별 설정 | `'exrc'`, 기본값 꺼짐 | `'exrc'`, 신뢰 목록 | 25.07.1에서 `.helix/config.toml`을 불러옴. 신뢰 기능은 개발 브랜치에 있음 | 존재하지 않음 |
 | U+202E 등 | `<202e>` | `<202e>` | 25.07.1에는 표시 없음(저희 테스트, [#11255](https://github.com/helix-editor/helix/issues/11255)) | 마젠타 블록 위의 `<U+202E>` |
 
-다른 에디터가 아직은 더 잘하는 부분: Neovim과 Helix는 언어 서버 클라이언트를 제공하고, Vim과 Neovim에는 플러그인과 매크로가 있습니다. sim에는 아직 이 중 어느 것도 없습니다.
+다른 에디터가 아직은 더 잘하는 부분: Neovim과 Helix는 언어 서버 클라이언트를 제공하고, Vim과 Neovim에는 플러그인과 매크로가 있습니다. Sim에는 아직 이 중 어느 것도 없습니다.
 
 ## 로드맵(예정, 미제공)
 
@@ -150,7 +150,7 @@ Vim 매크로 · OSC 52를 넘어서는 클립보드 연동 · 샌드박스 안�
 
 ## 개발에 참여하기
 
-sim은 두 개의 크레이트로 이루어진 하나의 프로그램입니다. **코어**(`sim-editor-core`, `core/` 안: 버퍼, vi 문법, 저장, 다른 프로세스가 쓰는 내용과의 병합, 터미널)와 **에디터**(`sim-editor`, `sim/` 안: 트리, 파일 찾기, 검색, 마크, 구문, 외관, 마우스를 갖춘 `sim` 바이너리)입니다. 각 선택의 이유는 그 근거가 된 조사와 함께 [CONCEPT.md](CONCEPT.md)에 있습니다. sim이 해야 할 일은 [SPEC.md](SPEC.md)에 있으며, 모든 요구 사항에는 ID가 있고 모든 ID에는 테스트가 있습니다.
+Sim은 두 개의 크레이트로 이루어진 하나의 프로그램입니다. **코어**(`sim-editor-core`, `core/` 안: 버퍼, vi 문법, 저장, 다른 프로세스가 쓰는 내용과의 병합, 터미널)와 **에디터**(`sim-editor`, `sim/` 안: 트리, 파일 찾기, 검색, 마크, 구문, 외관, 마우스를 갖춘 `sim` 바이너리)입니다. 각 선택의 이유는 그 근거가 된 조사와 함께 [CONCEPT.md](CONCEPT.md)에 있습니다. Sim이 해야 할 일은 [SPEC.md](SPEC.md)에 있으며, 모든 요구 사항에는 ID가 있고 모든 ID에는 테스트가 있습니다.
 
 피라미드: [CONCEPT](CONCEPT.md)(왜) → [SPEC](SPEC.md)(무엇을, ID와 함께) → `core/src`와 `sim/src`(어떻게) → 테스트(증명). 변경은 아래로 흐르고, 증명은 위로 흐릅니다. 규칙은 [CLAUDE.md](CLAUDE.md)에 있습니다.
 

@@ -1,20 +1,20 @@
 [English](README.md) | [日本語](README.ja.md) | [简体中文](README.zh-cn.md) | [繁體中文](README.zh-tw.md) | [한국어](README.ko.md) | **Español** | [Português (Brasil)](README.pt-br.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Русский](README.ru.md)
 
-# sim, el Vim de nueva generación
+# Sim, el Vim de nueva generación
 
-**sim** (también llamado *sim editor*, abreviatura de *Secure vIM*) es el Vim de nueva generación: escrito desde cero en Rust, conserva la edición modal y las teclas esenciales de Vim. No lee modelines, no carga plugins y no abre ninguna conexión de red, y muestra en pantalla lo que normalmente queda oculto: caracteres invisibles, escrituras desde fuera del editor y repositorios que ejecutarían código.
+**Sim** (también llamado *Sim editor*, abreviatura de *Secure vIM*) es el Vim de nueva generación: escrito desde cero en Rust, conserva la edición modal y las teclas esenciales de Vim. No lee modelines, no carga plugins y no abre ninguna conexión de red, y muestra en pantalla lo que normalmente queda oculto: caracteres invisibles, escrituras desde fuera del editor y repositorios que ejecutarían código.
 
 **Sin plugins. Sin modelines. Sin red.**
 
 Sitio web: <https://sim.efg-technologies.com/es/> · Linux y macOS · MIT OR Apache-2.0 · [Registro de cambios](CHANGELOG.md) · [Política de seguridad](SECURITY.md)
 
-Todo lo que sim promete, lo promete para cada archivo abierto en él: **sin una acción explícita, el texto de nadie se pierde**, ni el propio ni el de otro proceso.
+Todo lo que Sim promete, lo promete para cada archivo abierto en él: **sin una acción explícita, el texto de nadie se pierde**, ni el propio ni el de otro proceso.
 
 ## Instalación
 
 El binario es `sim` y el paquete de Homebrew es `efg-technologies/tap/sim`. El paquete de AUR y los crates de crates.io (`sim-editor` y `sim-editor-core`, la biblioteca sobre la que se construye) aún no están publicados.
 
-sim 0.2.1 ya está publicado. Se instala con Homebrew:
+Sim 0.2.1 ya está publicado. Se instala con Homebrew:
 
 ```sh
 brew install efg-technologies/tap/sim
@@ -35,10 +35,10 @@ Después, si se quiere usar como editor:
 ```sh
 export EDITOR=sim                     # Ctrl-g de Claude Code, crontab -e, …
 git config --global core.editor sim   # git commit (ZZ confirma, :cq cancela)
-export SUDO_EDITOR='sim --plain'      # sudoedit (en Linux sim ya es plain por sí mismo)
+export SUDO_EDITOR='sim --plain'      # sudoedit (en Linux Sim ya es plain por sí mismo)
 ```
 
-Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal; se usan los colores, el protocolo de teclado de kitty y OSC 52 cuando la terminal los ofrece (Ghostty, kitty, WezTerm, tmux). git y ripgrep son opcionales: sim los usa cuando están en `PATH`. Los iconos requieren una Nerd Font; empiezan activados en Ghostty, kitty y WezTerm y desactivados en el resto, con una pista que se muestra una sola vez, y `zi` los activa y los desactiva. Más información en la [página de instalación](https://sim.efg-technologies.com/es/install/).
+Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal; se usan los colores, el protocolo de teclado de kitty y OSC 52 cuando la terminal los ofrece (Ghostty, kitty, WezTerm, tmux). git y ripgrep son opcionales: Sim los usa cuando están en `PATH`. Los iconos requieren una Nerd Font; empiezan activados en Ghostty, kitty y WezTerm y desactivados en el resto, con una pista que se muestra una sola vez, y `zi` los activa y los desactiva. Más información en la [página de instalación](https://sim.efg-technologies.com/es/install/).
 
 ## Qué hace
 
@@ -75,9 +75,9 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 - `:tutor` abre unos quince minutos de lecciones breves en una copia desechable (no se escribe nada), con ejercicios que se marcan ✓ solos cuando los resuelves bien; habla tu idioma (`LC_ALL`, `LC_MESSAGES`, `LANG`), cualquiera de los diez de este README.
 - `<Space>bp` pone una letra en cada pestaña, y la letra salta a su archivo; `<Space>bc` hace lo mismo para cerrar una (un archivo con cambios sigue abierto, igual que con `:q`). Una pista nombra `Tab` y `Shift-Tab` la primera vez que hay un segundo archivo abierto, hasta que se han usado tres veces.
 - Mientras las coincidencias de una búsqueda están resaltadas, la línea de estado indica en cuál se está y cuántas hay, `[3/12]`.
-- `sim --help` imprime el uso y el entorno que lee sim (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` imprime la versión. Ninguno de los dos toca la terminal.
+- `sim --help` imprime el uso y el entorno que lee Sim (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` imprime la versión. Ninguno de los dos toca la terminal.
 
-## sim en una pantalla
+## Sim en una pantalla
 
 | Teclas | Qué hacen |
 |---|---|
@@ -123,26 +123,26 @@ Requiere Rust 1.88 o posterior. Funciona en Linux y macOS, en cualquier terminal
 | `F1` | ayuda |
 | `:help` | ayuda |
 
-Todo lo demás es vi: movimientos, operadores, objetos de texto, contadores, `.`, modo Visual, `:s`, rangos. `Y` copia hasta el final de la línea, `U` rehace, y cada yank sin nombre de registro llega también al portapapeles del sistema mediante OSC 52, también a través de tmux (`"ay`, con nombre, se queda en sim). Al volver a abrir un archivo, el cursor queda donde se dejó. Con el IME activado, las teclas de ancho completo funcionan como comandos; `SIM_ON_NORMAL='fcitx5-remote -c'` desactiva el IME cada vez que se vuelve al modo Normal (`SI_ON_NORMAL`, su nombre antiguo, sigue funcionando). Cada tecla está en una sola tabla, `sim/keys.tsv`, que leen `:help` y which-key y que las pruebas comprueban frente a lo que hacen las teclas. La lista completa está en la [página de documentación](https://sim.efg-technologies.com/es/docs/).
+Todo lo demás es vi: movimientos, operadores, objetos de texto, contadores, `.`, modo Visual, `:s`, rangos. `Y` copia hasta el final de la línea, `U` rehace, y cada yank sin nombre de registro llega también al portapapeles del sistema mediante OSC 52, también a través de tmux (`"ay`, con nombre, se queda en Sim). Al volver a abrir un archivo, el cursor queda donde se dejó. Con el IME activado, las teclas de ancho completo funcionan como comandos; `SIM_ON_NORMAL='fcitx5-remote -c'` desactiva el IME cada vez que se vuelve al modo Normal (`SI_ON_NORMAL`, su nombre antiguo, sigue funcionando). Cada tecla está en una sola tabla, `sim/keys.tsv`, que leen `:help` y which-key y que las pruebas comprueban frente a lo que hacen las teclas. La lista completa está en la [página de documentación](https://sim.efg-technologies.com/es/docs/).
 
 ## Modelo de seguridad
 
-Se abren archivos y repositorios que no se han escrito. El atacante controla su contenido, no la máquina del usuario. sim procura que ese contenido no pueda ocultarse, no pueda reconfigurar el editor y no pueda hacer que el editor ejecute código. **No es un sandbox**: se ejecuta con los privilegios del usuario, no detecta letras parecidas de otras escrituras y sus afirmaciones proceden de la especificación y las pruebas del propio proyecto, no de una auditoría independiente. Todavía no hay servidores de lenguaje; hay previsto un cliente en un sandbox. Para informar de una vulnerabilidad, véase la [política de seguridad](SECURITY.md).
+Se abren archivos y repositorios que no se han escrito. El atacante controla su contenido, no la máquina del usuario. Sim procura que ese contenido no pueda ocultarse, no pueda reconfigurar el editor y no pueda hacer que el editor ejecute código. **No es un sandbox**: se ejecuta con los privilegios del usuario, no detecta letras parecidas de otras escrituras y sus afirmaciones proceden de la especificación y las pruebas del propio proyecto, no de una auditoría independiente. Todavía no hay servidores de lenguaje; hay previsto un cliente en un sandbox. Para informar de una vulnerabilidad, véase la [política de seguridad](SECURITY.md).
 
 El modelo de amenazas completo, amenaza por amenaza, está en la [página de seguridad](https://sim.efg-technologies.com/es/security/). Tres artículos extensos profundizan más: [caracteres ocultos y bidireccionales](https://sim.efg-technologies.com/blog/hidden-characters/), [repositorios que ejecutan código](https://sim.efg-technologies.com/blog/repositories-that-run-code/) y [guardados seguros y secretos](https://sim.efg-technologies.com/blog/safe-saves/).
 
 ## Comparación con Vim, Neovim y Helix
 
-Vim, Neovim y Helix son editores maduros y sim es nuevo. Solo se compara lo que dice una fuente primaria; la [página de comparación](https://sim.efg-technologies.com/es/compare/) las cita todas (comprobado el 2026-10-17: Vim 9.2.1202, Neovim 0.12.6, Helix 25.07.1).
+Vim, Neovim y Helix son editores maduros y Sim es nuevo. Solo se compara lo que dice una fuente primaria; la [página de comparación](https://sim.efg-technologies.com/es/compare/) las cita todas (comprobado el 2026-10-17: Vim 9.2.1202, Neovim 0.12.6, Helix 25.07.1).
 
-| | Vim | Neovim | Helix | sim |
+| | Vim | Neovim | Helix | Sim |
 |---|---|---|---|---|
 | Extensiones | Vim script, paquetes | Lua, Vim script | ningún sistema de plugins en una versión publicada; el PR de Steel [#8675](https://github.com/helix-editor/helix/pull/8675) es un borrador | ninguna, por diseño |
 | Modelines | activadas (desactivadas para root); `'modelinestrict'` desde [9.2.0350](https://github.com/vim/vim/commit/4c2879471) | activadas (desactivadas para root) | no las interpreta ([#729](https://github.com/helix-editor/helix/issues/729)) | nunca se leen |
 | Configuración local del proyecto | `'exrc'`, desactivada por defecto | `'exrc'`, lista de confianza | `.helix/config.toml` se carga en la 25.07.1; la confianza (trust) está en la rama de desarrollo | no existe |
 | U+202E y similares | `<202e>` | `<202e>` | sin marcador en la 25.07.1 (nuestra prueba; [#11255](https://github.com/helix-editor/helix/issues/11255)) | `<U+202E>` sobre un bloque magenta |
 
-En qué siguen siendo mejores los demás, por ahora: Neovim y Helix incluyen un cliente de servidores de lenguaje, y Vim y Neovim tienen plugins y macros. sim todavía no tiene nada de esto.
+En qué siguen siendo mejores los demás, por ahora: Neovim y Helix incluyen un cliente de servidores de lenguaje, y Vim y Neovim tienen plugins y macros. Sim todavía no tiene nada de esto.
 
 ## Hoja de ruta (prevista, no publicada)
 
@@ -150,7 +150,7 @@ Macros de Vim · integración con el portapapeles más allá de OSC 52 · un cli
 
 ## Desarrollo
 
-sim es un programa en dos crates: el **núcleo** (`sim-editor-core`, en `core/`: el búfer, la gramática de vi, los guardados, la fusión con lo que escriben otros procesos, la terminal) y el **editor** (`sim-editor`, en `sim/`: el binario `sim`, con el árbol, la búsqueda de archivos, la búsqueda de texto, las marcas, la sintaxis, las apariencias y el ratón). El porqué de cada decisión está en [CONCEPT.md](CONCEPT.md), junto con la investigación en la que se apoya. Lo que sim debe hacer está en [SPEC.md](SPEC.md): cada requisito tiene un ID, y cada ID tiene pruebas.
+Sim es un programa en dos crates: el **núcleo** (`sim-editor-core`, en `core/`: el búfer, la gramática de vi, los guardados, la fusión con lo que escriben otros procesos, la terminal) y el **editor** (`sim-editor`, en `sim/`: el binario `sim`, con el árbol, la búsqueda de archivos, la búsqueda de texto, las marcas, la sintaxis, las apariencias y el ratón). El porqué de cada decisión está en [CONCEPT.md](CONCEPT.md), junto con la investigación en la que se apoya. Lo que Sim debe hacer está en [SPEC.md](SPEC.md): cada requisito tiene un ID, y cada ID tiene pruebas.
 
 La pirámide: [CONCEPT](CONCEPT.md) (por qué) → [SPEC](SPEC.md) (qué, con IDs) → `core/src` y `sim/src` (cómo) → pruebas (evidencia). Los cambios fluyen hacia abajo; la evidencia fluye hacia arriba. [CLAUDE.md](CLAUDE.md) contiene las reglas.
 

@@ -17,10 +17,10 @@ fn vi_22_alt_j_and_alt_k_move_the_line_with_a_count_as_far_as_there_are_lines() 
         ("a1\nb2\nc|3\nd4", "<M-k>", "a1\nc|3\nb2\nd4"),
         ("a1\nb2\n|c3\nd4", "<M-k><M-k>", "|c3\na1\nb2\nd4"),
         ("|a1\nb2\nc3\nd4", "<M-k>", "|a1\nb2\nc3\nd4"),
-        // (sim: each move is one undo step, as the brief has it; mini.move makes consecutive ones one)
+        // (Sim: each move is one undo step, as the brief has it; mini.move makes consecutive ones one)
         ("a|1\nb2\nc3", "<M-j>u", "a|1\nb2\nc3"),
         ("a|1\nb2\nc3", "<M-j><M-j>u", "b2\na|1\nc3"),
-        // (sim: `.` repeats a move, as it repeats any change; mini.move's cannot be repeated)
+        // (Sim: `.` repeats a move, as it repeats any change; mini.move's cannot be repeated)
         ("a|1\nb2\nc3", "<M-j>.", "b2\nc3\na|1"),
     ]);
 }

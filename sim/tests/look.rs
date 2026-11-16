@@ -1,4 +1,4 @@
-//! LOOK-1 to LOOK-8: the three looks of sim's screen, from `Sim::update` to the Screen it asks the
+//! LOOK-1 to LOOK-8: the three looks of Sim's screen, from `Sim::update` to the Screen it asks the
 //! shell to draw. The palette is the one of `#1e1e1e` and the terminal has truecolor, unless a
 //! test says otherwise.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap

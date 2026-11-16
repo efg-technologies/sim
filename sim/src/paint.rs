@@ -1,5 +1,5 @@
 //! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8, COLOR-1, COLOR-2, GUI-1, GUI-2, GUI-3, DARK-2
-//! What sim draws beyond the core's four styles: the looks a char can have, the Screen that carries
+//! What Sim draws beyond the core's four styles: the looks a char can have, the Screen that carries
 //! them with the core's Frame, and the Painter that writes a Screen to the terminal, row by row. The
 //! four styles are the core's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
 //! What each cell finally is (`Resolved`) is settled here once, for the Painter's bytes and for a

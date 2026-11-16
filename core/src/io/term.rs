@@ -11,7 +11,7 @@ use std::time::Instant;
 /// Alternate screen, bracketed paste, kitty keyboard protocol (disambiguate escape codes).
 pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?2004h\x1b[>1u";
 /// The query for the terminal's background color (OSC 11, VIS-4): sent after `ENTER` unless the
-/// startup keys quit already, since the answer of a terminal arrives after sim is gone then.
+/// startup keys quit already, since the answer of a terminal arrives after Sim is gone then.
 pub const ASK: &[u8] = b"\x1b]11;?\x1b\\";
 /// Undoes `ENTER`, and gives the cursor back its default shape and visibility.
 pub const LEAVE: &[u8] = b"\x1b[<1u\x1b[?2004l\x1b[?1049l\x1b[0 q\x1b[?25h";
@@ -31,7 +31,7 @@ pub fn leave(out: &mut impl Write) {
     let _ = crossterm::terminal::disable_raw_mode();
 }
 
-/// Turns a crossterm event into an `Event`; keys sim has no use for are dropped. A lone Esc needs
+/// Turns a crossterm event into an `Event`; keys Sim has no use for are dropped. A lone Esc needs
 /// no timeout here: with the kitty flags on, the terminal sends Esc as `CSI 27 u`, and crossterm
 /// reads a bare `0x1b` with no bytes behind it as Esc at once.
 pub fn convert(ev: Ev) -> Option<Event> {

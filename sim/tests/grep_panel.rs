@@ -1,4 +1,4 @@
-//! GREP-1, GREP-3, GREP-4, GREP-5, GREP-6, GREP-7: the content search driven through sim's state
+//! GREP-1, GREP-3, GREP-4, GREP-5, GREP-6, GREP-7: the content search driven through Sim's state
 //! (`Sim::update`), with the shell's search and preview played by the test at once. Its results are
 //! the list of the picker (PICK-1 to PICK-5), whose presentation `pick.rs` tests.
 #![allow(clippy::unwrap_used, clippy::single_range_in_vec_init)] // helpers; the tests themselves may unwrap
@@ -595,7 +595,7 @@ fn grep_6_the_pane_s_title_is_the_path_and_line_made_to_fit() {
 }
 
 /// Neither the rows of the screen nor the bytes the painter writes for it hold anything that is
-/// not sim's own (see `foreign`).
+/// not Sim's own (see `foreign`).
 fn assert_safe(r: &Rig, what: &str) {
     let all = r.screen.rows.iter().map(|r| r.text.as_str()).collect::<String>();
     assert!(!all.chars().any(|c| c.is_control() || oracle::must_hide(c as u32)), "{what}: {all:?}");

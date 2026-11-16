@@ -1,6 +1,6 @@
 //! GUI-1, GUI-3
-//! One settled frame of sim, as the renderer needs it: the resolved cells, the tones, the layers sim
-//! says it has and the cursor. Taken from the `Screen` sim just drew.
+//! One settled frame of Sim, as the renderer needs it: the resolved cells, the tones, the layers Sim
+//! says it has and the cursor. Taken from the `Screen` Sim just drew.
 use crate::api::*;
 use crate::cells::{Grid, grid};
 use crate::metrics::Metrics;

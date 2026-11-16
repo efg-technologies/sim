@@ -1,20 +1,20 @@
 **English** | [日本語](README.ja.md) | [简体中文](README.zh-cn.md) | [繁體中文](README.zh-tw.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Português (Brasil)](README.pt-br.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Русский](README.ru.md)
 
-# sim, the next-generation Vim
+# Sim, the next-generation Vim
 
-**sim** (also called *sim editor*, short for *Secure vIM*) is the next-generation Vim: written from scratch in Rust, it keeps Vim's modal editing and core keys. It reads no modelines, loads no plugins and opens no network connection, and it puts on screen what is usually hidden: invisible characters, writes from outside the editor, repositories that would run code.
+**Sim** (also called *Sim editor*, short for *Secure vIM*) is the next-generation Vim: written from scratch in Rust, it keeps Vim's modal editing and core keys. It reads no modelines, loads no plugins and opens no network connection, and it puts on screen what is usually hidden: invisible characters, writes from outside the editor, repositories that would run code.
 
 **No plugins. No modelines. No network.**
 
 Website: <https://sim.efg-technologies.com> · Linux and macOS · MIT OR Apache-2.0 · [Changelog](CHANGELOG.md) · [Security policy](SECURITY.md)
 
-Everything sim promises, it promises for every file open in it: **without an explicit action, nobody's text is lost**, yours or another process's.
+Everything Sim promises, it promises for every file open in it: **without an explicit action, nobody's text is lost**, yours or another process's.
 
 ## Install
 
 The binary is `sim`, and the package is `efg-technologies/tap/sim` on Homebrew. The AUR package and the crates (`sim-editor`, and `sim-editor-core`, the library it is built on) are not published yet.
 
-sim 0.2.1 is out. Install it with Homebrew:
+Sim 0.2.1 is out. Install it with Homebrew:
 
 ```sh
 brew install efg-technologies/tap/sim
@@ -35,10 +35,10 @@ Then, if you like it as your editor:
 ```sh
 export EDITOR=sim                     # Claude Code's Ctrl-g, crontab -e, …
 git config --global core.editor sim   # git commit (ZZ commits, :cq aborts)
-export SUDO_EDITOR='sim --plain'      # sudoedit (sim is plain there by itself on Linux)
+export SUDO_EDITOR='sim --plain'      # sudoedit (Sim is plain there by itself on Linux)
 ```
 
-Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the kitty keyboard protocol and OSC 52 are used when the terminal offers them (Ghostty, kitty, WezTerm, tmux). git and ripgrep are optional: sim uses them when they are on `PATH`. Icons need a Nerd Font; they start on in Ghostty, kitty and WezTerm and off elsewhere, with a one-time hint, and `zi` turns them on and off. More on the [install page](https://sim.efg-technologies.com/install/).
+Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the kitty keyboard protocol and OSC 52 are used when the terminal offers them (Ghostty, kitty, WezTerm, tmux). git and ripgrep are optional: Sim uses them when they are on `PATH`. Icons need a Nerd Font; they start on in Ghostty, kitty and WezTerm and off elsewhere, with a one-time hint, and `zi` turns them on and off. More on the [install page](https://sim.efg-technologies.com/install/).
 
 ## What it does
 
@@ -48,10 +48,10 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 - What else cannot be seen is drawn the same way: a tag character (how an instruction is smuggled to a language model), a variation selector (how code was hidden in published packages), a Hangul filler or a soft hyphen inside a name, a zero-width joiner that joins nothing, a line separator, a code point nobody has assigned. Names in the tree, the tabs, the search and the status line are drawn like the text. Emoji sequences, flags, keycaps and the icons of a Nerd Font stay as they are. A kanji followed by an ideographic variation selector shows the selector, too.
 - Trailing blanks show as `·`, a no-break space as `⍽`, a tab as `»`.
 - When another process rewrites the open file, the changed lines flash for a moment and are then marked in the text, the box says how many changes are on disk, the tab shows `↯`, and the tree marks the file. `]c` and `[c` go to the next and the previous mark.
-- The whole project is watched, not only the open files: a write, a new file or a deletion anywhere below the root shows in the tree within a second with no key pressed (git's letter, a short flash of the row, and `↯` after the name until you have looked at the file), the changes view follows it, and a commit made outside clears the signs, in a linked worktree too. sim's own saves are no news; directories git ignores are not watched, and git is asked at most every 200 ms however busy the disk is. `sim --plain` watches the open file only.
+- The whole project is watched, not only the open files: a write, a new file or a deletion anywhere below the root shows in the tree within a second with no key pressed (git's letter, a short flash of the row, and `↯` after the name until you have looked at the file), the changes view follows it, and a commit made outside clears the signs, in a linked worktree too. Sim's own saves are no news; directories git ignores are not watched, and git is asked at most every 200 ms however busy the disk is. `sim --plain` watches the open file only.
 - The changes view (`<Space>ge`) is a watchtower: while it has the focus the text pane shows the diff of the file under its cursor, what went in red with `-` and what came in green with `+`, and both follow the disk with no key. A hidden char in a diff is its form, `]c` and `[c` walk the hunks into the next file, and Enter opens the file at the hunk. `f` turns FOLLOW on, and the cursor goes to the file another process wrote last; it is off until you turn it on, and nothing moves while it is off.
 - Changes against git HEAD show as gutter signs, a status letter for each file in the tree (a folder shows the letter of the strongest status below it) and `+n ~n -n` in the status line.
-- git is not run where the repository's own config could run a command (`core.sshCommand`, an `include`, and more): the box says `git not run` on the alert's block, and the status line names the key and the file. Where git does run with the repository's own `core.fsmonitor`, hooks path, filters or external diff turned off, the box says how many (`2 git settings off`). The guard follows the repository while sim runs: its config written from outside is judged again within a second, and an executable hook written into `.git/hooks` is told, with its name, in the alert's color: sim does not run it, and your git will.
+- git is not run where the repository's own config could run a command (`core.sshCommand`, an `include`, and more): the box says `git not run` on the alert's block, and the status line names the key and the file. Where git does run with the repository's own `core.fsmonitor`, hooks path, filters or external diff turned off, the box says how many (`2 git settings off`). The guard follows the repository while Sim runs: its config written from outside is judged again within a second, and an executable hook written into `.git/hooks` is told, with its name, in the alert's color: Sim does not run it, and your git will.
 - A Markdown link whose text names an address that its target is not (`[https://good.example](https://evil.example)`, a reference link `[good.example][1]` whose definition says another place, a link that goes over lines or has a backslash or an entity in its target, a raw HTML link `<a href="…">`) has its target, and for a reference its text, on the magenta block, in the read view and in calm too; the read view draws an honest link as its text off the cursor's line, but such a link, and every link on its line, stays whole.
 
 **Refuses what it should, keeps your text**
@@ -77,9 +77,9 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 - `:tutor` opens about fifteen minutes of short lessons in a scratch copy (nothing is written), with exercises that mark themselves ✓ as you get them right; it speaks your language (`LC_ALL`, `LC_MESSAGES`, `LANG`), any of the ten of this README.
 - `<Space>bp` puts a letter on each tab, and the letter jumps to its file; `<Space>bc` does the same to close one (a file with changes stays open, as with `:q`). A hint names `Tab` and `Shift-Tab` the first time a second file is open, until you have used them three times.
 - While the matches of a search are lit, the status line says which one you are at and how many there are, `[3/12]`.
-- `sim --help` prints the usage and the environment sim reads (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` prints the version. Neither touches the terminal.
+- `sim --help` prints the usage and the environment Sim reads (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` prints the version. Neither touches the terminal.
 
-## sim in one screen
+## Sim in one screen
 
 | Keys | What they do |
 |---|---|
@@ -115,7 +115,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `:{range}!cmd` | filter |
 | `:r file` / `:r !cmd` | put a file's lines / what a command prints below the line |
 | `:seen` | clear change marks |
-| `:bd` | close the file, as `:q`; the last one leaves the tree, not sim |
+| `:bd` | close the file, as `:q`; the last one leaves the tree, not Sim |
 | `:xa` / `:wqa` | save every modified file and quit (a file that cannot be saved stays open) |
 | `Ctrl-n` | toggle the tree |
 | `Ctrl-p` | find files |
@@ -147,26 +147,26 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `F1` | help |
 | `:help` | help |
 
-Everything else is vi: motions, operators, text objects, counts, `.`, Visual mode, `:s`, ranges. `Y` yanks to the end of the line, `U` redoes, and every yank without a register name also reaches the system clipboard through OSC 52, also through tmux (`"ay`, with a name, stays in sim). Opening a file again puts you where you left it. With the IME on, full-width keys work as commands; `SIM_ON_NORMAL='fcitx5-remote -c'` turns the IME off whenever you return to Normal mode (`SI_ON_NORMAL`, its old name, still works). Every key is in one table, `sim/keys.tsv`, which `:help` and which-key read, and which the tests check against what the keys do. The full list is on the [docs page](https://sim.efg-technologies.com/docs/).
+Everything else is vi: motions, operators, text objects, counts, `.`, Visual mode, `:s`, ranges. `Y` yanks to the end of the line, `U` redoes, and every yank without a register name also reaches the system clipboard through OSC 52, also through tmux (`"ay`, with a name, stays in Sim). Opening a file again puts you where you left it. With the IME on, full-width keys work as commands; `SIM_ON_NORMAL='fcitx5-remote -c'` turns the IME off whenever you return to Normal mode (`SI_ON_NORMAL`, its old name, still works). Every key is in one table, `sim/keys.tsv`, which `:help` and which-key read, and which the tests check against what the keys do. The full list is on the [docs page](https://sim.efg-technologies.com/docs/).
 
 ## Security model
 
-You open files and repositories you did not write. The attacker controls their content, not your machine. sim tries to make sure that content cannot hide from you, cannot reconfigure the editor, and cannot make the editor run code. It is **not a sandbox**: it runs with your privileges, it does not detect look-alike letters from other scripts, and its claims come from the project's own spec and tests, not from an independent audit. Language servers are not built yet; a sandboxed client is planned. To report a vulnerability, read the [security policy](SECURITY.md).
+You open files and repositories you did not write. The attacker controls their content, not your machine. Sim tries to make sure that content cannot hide from you, cannot reconfigure the editor, and cannot make the editor run code. It is **not a sandbox**: it runs with your privileges, it does not detect look-alike letters from other scripts, and its claims come from the project's own spec and tests, not from an independent audit. Language servers are not built yet; a sandboxed client is planned. To report a vulnerability, read the [security policy](SECURITY.md).
 
 The full threat model, one threat at a time, is on the [security page](https://sim.efg-technologies.com/security/). Three long articles go deeper: [hidden and bidirectional characters](https://sim.efg-technologies.com/blog/hidden-characters/), [repositories that run code](https://sim.efg-technologies.com/blog/repositories-that-run-code/), and [safe saves and secrets](https://sim.efg-technologies.com/blog/safe-saves/).
 
 ## Compared with Vim, Neovim and Helix
 
-Vim, Neovim and Helix are mature editors and sim is new. Only what a primary source says is compared; the [comparison page](https://sim.efg-technologies.com/compare/) cites all of it (checked on 2026-10-17: Vim 9.2.1202, Neovim 0.12.6, Helix 25.07.1).
+Vim, Neovim and Helix are mature editors and Sim is new. Only what a primary source says is compared; the [comparison page](https://sim.efg-technologies.com/compare/) cites all of it (checked on 2026-10-17: Vim 9.2.1202, Neovim 0.12.6, Helix 25.07.1).
 
-| | Vim | Neovim | Helix | sim |
+| | Vim | Neovim | Helix | Sim |
 |---|---|---|---|---|
 | Extensions | Vim script, packages | Lua, Vim script | no plugin system in a release; Steel PR [#8675](https://github.com/helix-editor/helix/pull/8675) is a draft | none, by design |
 | Modelines | on (off for root); `'modelinestrict'` since [9.2.0350](https://github.com/vim/vim/commit/4c2879471) | on (off for root) | not parsed ([#729](https://github.com/helix-editor/helix/issues/729)) | never read |
 | Project-local config | `'exrc'`, off by default | `'exrc'`, trust list | `.helix/config.toml` loaded in 25.07.1; trust is on the development branch | none exists |
 | U+202E and friends | `<202e>` | `<202e>` | no marker in 25.07.1 (our test; [#11255](https://github.com/helix-editor/helix/issues/11255)) | `<U+202E>` on a magenta block |
 
-What the others still do better, for now: Neovim and Helix ship a language-server client, Vim and Neovim have plugins and macros. sim has none of these yet.
+What the others still do better, for now: Neovim and Helix ship a language-server client, Vim and Neovim have plugins and macros. Sim has none of these yet.
 
 ## Roadmap (planned, not shipped)
 
@@ -174,7 +174,7 @@ Vim macros · clipboard integration beyond OSC 52 · a sandboxed language-server
 
 ## Working on it
 
-sim is one program in two crates: the **core** (`sim-editor-core`, in `core/`: the buffer, vi's grammar, saves, the merge with what other processes write, the terminal) and the **editor** (`sim-editor`, in `sim/`: the binary `sim`, with the tree, finding, search, marks, syntax, the looks and the mouse). The why behind each choice is in [CONCEPT.md](CONCEPT.md), with the research it rests on. What sim must do is in [SPEC.md](SPEC.md): every requirement has an ID, and every ID has tests.
+Sim is one program in two crates: the **core** (`sim-editor-core`, in `core/`: the buffer, vi's grammar, saves, the merge with what other processes write, the terminal) and the **editor** (`sim-editor`, in `sim/`: the binary `sim`, with the tree, finding, search, marks, syntax, the looks and the mouse). The why behind each choice is in [CONCEPT.md](CONCEPT.md), with the research it rests on. What Sim must do is in [SPEC.md](SPEC.md): every requirement has an ID, and every ID has tests.
 
 The pyramid: [CONCEPT](CONCEPT.md) (why) → [SPEC](SPEC.md) (what, with IDs) → `core/src` and `sim/src` (how) → tests (proof). Changes flow down; proof flows up. [CLAUDE.md](CLAUDE.md) holds the rules.
 

@@ -4,7 +4,7 @@ version = "0.2.1"
 edition = "2024"
 rust-version = "1.88" # `let` chains
 publish = false
-description = "A window for sim: its depth look drawn for real (layers, elevation, soft shadows). A renderer and an input adapter; the editor is sim's."
+description = "A window for Sim: its depth look drawn for real (layers, elevation, soft shadows). A renderer and an input adapter; the editor is Sim's."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/efg-technologies/sim"
 default-run = "sim-gui"
@@ -27,8 +27,8 @@ path = "src/bin/gui-shots.rs"
 [dependencies]
 sim = { package = "sim-editor", path = "../sim", version = "0.2.1" }
 sim_core = { package = "sim-editor-core", path = "../core", version = "0.2.1" }
-# The event types of sim's input path (`KeyEvent`, `MouseEvent`), at the same version and features
-# as sim; no terminal is read.
+# The event types of Sim's input path (`KeyEvent`, `MouseEvent`), at the same version and features
+# as Sim; no terminal is read.
 crossterm = { version = "0.29", default-features = false, features = ["events", "bracketed-paste"] }
 # The window and its input: keys with the text a layout made, the input method, the pointer.
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }

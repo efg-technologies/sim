@@ -71,7 +71,7 @@ fn md_11_a_quote_is_a_callout_where_githubs_renderer_makes_an_alert_of_it() {
 
 #[test]
 fn md_11_where_sim_does_not_follow_github_a_quote_stays_a_quote() {
-    // GitHub makes an alert of a quote indented by one to three blanks, and sim leaves it plain: in a
+    // GitHub makes an alert of a quote indented by one to three blanks, and Sim leaves it plain: in a
     // list item GitHub leaves it plain too, and a line cannot tell the two apart
     assert_eq!(found("  > [!CAUTION]\n  > body\n"), []);
     assert_eq!(found("- item\n\n  > [!NOTE]\n  > in a list\n"), []);

@@ -1,7 +1,7 @@
 #!/bin/sh
 # End-to-end tests of the core: run `sim --plain` inside tmux and look at the screen. Plain mode is
 # the core alone (a calm look, one file, no panel, no git, rg, language server, filter or hook of
-# the editor's), so these are the cases of the program sim was folded from, run against sim.
+# the editor's), so these are the cases of the program Sim was folded from, run against Sim.
 #
 #   sh core/scripts/e2e.sh [prefix]
 #
@@ -13,7 +13,7 @@
 # This never touches the user's tmux: every case starts its own tmux server on its own socket
 # (-L sim-e2e-<pid>), so options and paste buffers set by one case never reach another. It reads no
 # config (-f /dev/null) and sets escape-time to 0, so tmux itself never delays an Escape.
-# Each case also gets its own HOME and XDG_STATE_HOME, and sim runs in an environment of its own (`env -i`:
+# Each case also gets its own HOME and XDG_STATE_HOME, and Sim runs in an environment of its own (`env -i`:
 # PATH, HOME, the state directory, tmux's TERM and TMUX, a UTF-8 LANG, no git configuration), none of the
 # variables of the terminal this runs in (COLORTERM, NO_COLOR, TERM_PROGRAM, and what Ghostty, kitty and
 # WezTerm set), so a case is the same in a developer's Ghostty and on a CI runner. The hint of ICON-1
@@ -67,7 +67,7 @@ start() {
   if [ -d "$XDG_STATE_HOME" ] && [ ! -e "$XDG_STATE_HOME/sim/icons-hint" ]; then
     mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"
   fi
-  # sim's environment is the case's own (`env -i`): nothing of the terminal this runs in (COLORTERM, NO_COLOR,
+  # Sim's environment is the case's own (`env -i`): nothing of the terminal this runs in (COLORTERM, NO_COLOR,
   # TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_*, a locale) and no git configuration. Only PATH is the caller's;
   # TERM and TMUX are tmux's own (the pane's: this tmux sets them, whatever the user's terminal is).
   cmd="cd $(shq "$CASE_DIR") && env -i PATH=$(shq "$PATH") HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") TERM=\"\$TERM\" TMUX=\"\$TMUX\" TMUX_PANE=\"\$TMUX_PANE\" LANG=en_US.UTF-8 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null $(shq "$SIM_BIN")"
@@ -778,7 +778,7 @@ vi_17_a_mark_follows_its_line_and_goes_back() {
   printf 'new\none\ntwo\nhree\nfour\n' | cmp - "$CASE_DIR/f"
 }
 
-# VI-22: tmux speaks no kitty protocol, so Alt-j reaches sim as Esc and j: in Normal mode it moves the line,
+# VI-22: tmux speaks no kitty protocol, so Alt-j reaches Sim as Esc and j: in Normal mode it moves the line,
 # and in Insert mode the same bytes are Esc, then `j`.
 vi_22_alt_j_moves_the_line_and_in_insert_mode_is_esc_then_j() {
   printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
@@ -866,7 +866,7 @@ vi_13_zz_saves_and_quits() {
 cli_5_the_intro_shows_until_the_first_key() {
   start
   wait_for "The next-generation Vim that shows even what is hidden."
-  for k in "sim 0." "i / Esc" "Ctrl-s" "ZZ" "ZQ" "]c / [c"; do
+  for k in "Sim 0." "i / Esc" "Ctrl-s" "ZZ" "ZQ" "]c / [c"; do
     screen | grep -F -q -- "$k"
   done
   [ "$(screen | grep -c .)" -le 12 ]
@@ -1278,7 +1278,7 @@ vis_4_a_quit_at_startup_leaves_no_answer_in_the_shell() {
   if grep -a -F -q ']11;?' "$CASE_DIR/out"; then fail "si +q asked the terminal for its background"; fi
 }
 
-# The hook is `SIM_ON_NORMAL`; `SI_ON_NORMAL`, its name before sim was one program, is still read, and
+# The hook is `SIM_ON_NORMAL`; `SI_ON_NORMAL`, its name before Sim was one program, is still read, and
 # the new name wins when both are set (VI-11).
 vi_11_the_hook_is_sim_on_normal_and_the_old_name_still_works() {
   SIM_BIN=$SIM_FULL
@@ -1304,7 +1304,7 @@ vi_11_the_hook_is_sim_on_normal_and_the_old_name_still_works() {
 
 # PLAIN-1: `sim --plain` runs no program of its own: no git, no rg, no language server, no filter
 # and no hook. A git and an rg that leave a mark when they run, first on the PATH, prove it; the
-# same two are run by sim without --plain.
+# same two are run by `sim` without `--plain`.
 plain_1_runs_no_program_of_its_own() {
   mkdir "$CASE_DIR/bin"
   for p in git rg; do
@@ -1330,7 +1330,7 @@ plain_1_runs_no_program_of_its_own() {
   typed ":q"
   keys Enter
   wait_for "exit=0"
-  # sim without --plain does run the git on the PATH (and the hook).
+  # `sim` without `--plain` does run the git on the PATH (and the hook).
   restart
   SIM_BIN=$SIM_FULL
   wrap "PATH=$CASE_DIR/bin:$PATH" "SIM_ON_NORMAL=echo new >> $CASE_DIR/hook.log"
@@ -1345,7 +1345,7 @@ plain_1_runs_no_program_of_its_own() {
 }
 
 # STATE-1: what the state directory of the program that was called si holds (the snapshot of an
-# unsaved edit, the copies of the versions given up, the places) is copied into sim's once, so that
+# unsaved edit, the copies of the versions given up, the places) is copied into Sim's once, so that
 # nothing is lost, and the old directory is left exactly as it was.
 state_1_what_si_kept_is_copied_into_sims_state_directory_and_si_is_left_alone() {
   printf 'one\ntwo\n' > "$CASE_DIR/f"

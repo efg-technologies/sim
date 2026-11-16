@@ -165,7 +165,7 @@ fn vi_15_a_yank_into_the_clipboard_leaves_zero_alone_and_is_the_register_plus() 
     assert_eq!(
         status(&screen(&mut a)),
         "\"\" beta⏎ · \"+ beta⏎ · \"0 alpha⏎ · \"a beta⏎",
-        "the unnamed register points to \"+, \"0 is the plain yank's, and sim shows what it sent"
+        "the unnamed register points to \"+, \"0 is the plain yank's, and Sim shows what it sent"
     );
     let mut a = app("alpha\nbeta");
     feed(&mut a, "yyj\"*yy:reg\n");
@@ -182,7 +182,7 @@ fn vi_15_a_yank_into_the_clipboard_leaves_zero_alone_and_is_the_register_plus() 
         ("|ab cd", "\"+dw\"-p", "|cd"),
         ("|a\nb", "\"+dd\"1p", "b\n|a"),
     ]);
-    // Reading it stays refused, and what sim sent is shown, not read from the clipboard.
+    // Reading it stays refused, and what Sim sent is shown, not read from the clipboard.
     let mut a = app("ab cd");
     feed(&mut a, "\"+yw\"+p:reg\n");
     assert_eq!(text(&a), "ab cd");

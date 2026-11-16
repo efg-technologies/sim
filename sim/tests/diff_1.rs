@@ -1,5 +1,5 @@
 //! DIFF-1, DIFF-2, DIFF-3, DIFF-4, DIFF-5, DIFF-6: the changes view of the panel (`<Space>ge`), driven
-//! through sim's state with real repositories made under a private temporary directory.
+//! through Sim's state with real repositories made under a private temporary directory.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;

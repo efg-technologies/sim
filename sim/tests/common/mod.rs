@@ -18,7 +18,7 @@ impl Drop for TempDir {
 
 /// Made here and never before: `mkdir` (not `create_dir_all`) fails on a name that exists, a link
 /// planted at a guessable name too, and the next name is tried. Private (0700), as a state directory
-/// is (SAFE-6, STATE-1): sim keeps its choices only in such a directory.
+/// is (SAFE-6, STATE-1): Sim keeps its choices only in such a directory.
 pub fn temp_dir(name: &str) -> TempDir {
     use std::os::unix::fs::DirBuilderExt;
     static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -35,7 +35,7 @@ pub fn temp_dir(name: &str) -> TempDir {
 
 /// The environment a test gives the real binary: its own, and nothing of the terminal the tests run in
 /// (a developer's sets TERM, COLORTERM, TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_* and TMUX; a CI runner
-/// sets no TERM), so a run is the same on both. Only PATH comes from the caller, for the programs sim
+/// sets no TERM), so a run is the same on both. Only PATH comes from the caller, for the programs Sim
 /// runs; HOME and the state directory are `home`, and no git configuration is read.
 pub fn clean_env<'a>(
     c: &'a mut std::process::Command,
@@ -66,7 +66,7 @@ pub fn make(dir: &Path, files: &[&str]) {
 }
 
 /// The names of `names` that `write` (what makes the file) accepts. A name that the file system refuses
-/// with EILSEQ ("Illegal byte sequence") cannot exist there, which says nothing of sim: it is left out
+/// with EILSEQ ("Illegal byte sequence") cannot exist there, which says nothing of Sim: it is left out
 /// and printed, and the others are still made. Any other error is a failure.
 ///
 /// APFS refuses a name with a code point that Unicode 9.0 leaves unassigned: Apple's APFS FAQ says it
@@ -191,7 +191,7 @@ pub const CHANGED_FILES: [&str; 4] = [
     "old/gone.rs=a\nb\nc\nd\n",
 ];
 
-/// What `begin_in` made: sim as a front end gets it, and the directories of its world.
+/// What `begin_in` made: Sim as a front end gets it, and the directories of its world.
 pub struct Started {
     pub begun: sim::shell::Begun,
     /// The world's state directory, and the one directory its `PATH` has, with an `rg` in it.
@@ -563,7 +563,7 @@ impl Rig {
 
     /// Types keys (si's notation).
     pub fn keys(&mut self, s: &str) -> &mut Rig {
-        // `<S-Tab>` and `<F1>` are events of sim's own: the core's `Key` has neither
+        // `<S-Tab>` and `<F1>` are events of Sim's own: the core's `Key` has neither
         let mut rest = s;
         while !rest.is_empty() {
             let cut =
@@ -985,7 +985,7 @@ pub fn release_only() {
     );
 }
 
-/// What is not sim's own in the bytes a Painter wrote: a control char other than the ESC that
+/// What is not Sim's own in the bytes a Painter wrote: a control char other than the ESC that
 /// starts one of its CSI sequences (`ESC [ params final`), a C1 control, and any char that SAFE-10
 /// says is hidden (the names these tests use hold no emoji, so none is a legitimate use).
 pub fn foreign(bytes: &[u8]) -> Vec<String> {

@@ -1,5 +1,5 @@
 //! TREE-2, TREE-4, TREE-5, FIND-1, FIND-2, MARK-3, DIFF-1, DIFF-3, DIFF-5, DIFF-8, DIFF-9, DIFF-10
-//! The panel's side of sim's state (pure): its keys, the directories it reveals as their listings
+//! The panel's side of Sim's state (pure): its keys, the directories it reveals as their listings
 //! arrive, the search that lights up matches, and the narrowed tree.
 use super::{Sim, SimEffect};
 use crate::find::{Found, Query};

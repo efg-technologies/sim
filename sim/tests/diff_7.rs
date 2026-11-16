@@ -2,7 +2,7 @@
 //! text pane shows the diff of the file under its cursor (red `-`, green `+`, the numbers of the file),
 //! drawn through a core App that is never given a key; its hunks are walked and scrolled, Enter opens the
 //! file at the hunk, it follows the disk, the view is remembered, and FOLLOW is a switch. Driven through
-//! sim's state with real repositories under a private temporary directory.
+//! Sim's state with real repositories under a private temporary directory.
 #![allow(clippy::unwrap_used, clippy::panic)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;

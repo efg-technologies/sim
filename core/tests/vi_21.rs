@@ -1,5 +1,5 @@
 //! VI-21 (the pairs that typing makes, mini.pairs' defaults). Rows are (before, keys, after); `|` is the cursor.
-//! Neovim 0.12.6 with mini.pairs gave every `after` but those of Enter between brackets, where sim puts the
+//! Neovim 0.12.6 with mini.pairs gave every `after` but those of Enter between brackets, where Sim puts the
 //! line between them a unit further in (the owner's Neovim indents there: `smartindent`, the languages'
 //! indent rules).
 mod common;

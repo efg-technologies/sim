@@ -9,7 +9,7 @@ use std::process::Command;
 const README: &str = "\
 # Lantern
 
-A tiny made-up project that **sim** opens in a window, to show what is hidden.
+A tiny made-up project that **Sim** opens in a window, to show what is hidden.
 
 ## Usage
 
@@ -110,7 +110,7 @@ One note per line, no markup.
 pub const NIHONGO: &str = "\
 # ランタン
 
-夕暮れに灯りがともる、小さな架空のプロジェクトです。**sim** は見えないものを見えるようにします。
+夕暮れに灯りがともる、小さな架空のプロジェクトです。**Sim** は見えないものを見えるようにします。
 
 ## 使い方
 

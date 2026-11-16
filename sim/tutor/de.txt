@@ -1,4 +1,4 @@
-sim-Tutor: kurze Lektionen, etwa 15 Minuten
+Sim-Tutor: kurze Lektionen, etwa 15 Minuten
 ===========================================
 Dies ist eine Wegwerfkopie. Nichts, was du hier tust, wird auf die
 Platte geschrieben, also probiere ruhig alles aus. Mit u machst du
@@ -19,7 +19,7 @@ zu einer Lektion zu springen, suche ihre Titelzeile: /^## 3 und Enter
   5 Kopieren und einfügen
   6 Suchen
   7 Speichern und beenden
-  8 Was sim zeigt und andere Editoren verbergen
+  8 Was Sim zeigt und andere Editoren verbergen
 %editor
   9 Dateien finden und Aussehen
 %end
@@ -143,10 +143,10 @@ a a a
 ## 7 Speichern und beenden
 
 :w speichert, :q beendet, :wq tut beides, :q! beendet und verwirft die
-Änderungen. sim verliert nie Text ohne dein Zutun: Bevor :w! oder :e!
+Änderungen. Sim verliert nie Text ohne dein Zutun: Bevor :w! oder :e!
 eine Version verwirft (deine oder die auf der Platte), kopiert es sie
 in einen eigenen Ordner. Ändert ein anderes Programm deine Datei,
-während du bearbeitest, führt sim die Änderung zusammen oder zeigt den
+während du bearbeitest, führt Sim die Änderung zusammen oder zeigt den
 Konflikt; es überschreibt nie stillschweigend.
 Dieser Tutor ist eine Wegwerfkopie: :w sagt nein und schreibt nichts.
 
@@ -158,7 +158,7 @@ b 2
 @ b 2
 @ c 3
 
-## 8 Was sim zeigt und andere Editoren verbergen
+## 8 Was Sim zeigt und andere Editoren verbergen
 
 Ein Zeichen, das nicht als es selbst angezeigt wird (ein
 Steuerzeichen, ein Leerzeichen der Breite null, eine

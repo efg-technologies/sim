@@ -1,4 +1,4 @@
-//! BUF-1, BUF-3: a model of sim's shell (one event channel, a save thread, a watcher and a filter for
+//! BUF-1, BUF-3: a model of Sim's shell (one event channel, a save thread, a watcher and a filter for
 //! each file, late directory listings, late highlights, the real journal thread) driving
 //! `Sim::update` with random, interleaved events over several files, two names of one file,
 //! a symlink, a hard link, a file that does not exist yet, snapshots a dead session left, and an
@@ -1108,7 +1108,7 @@ fn run(rec: u8, size: (u16, u16), ops: &[Op]) -> Result<(), String> {
     if w.quit.is_none() {
         w.chan.push_back(SimEvent::Signal(15));
         w.drain();
-        assert_eq!(w.quit, Some(143), "a signal ends sim");
+        assert_eq!(w.quit, Some(143), "a signal ends Sim");
     }
     w.finish();
     stat(0);

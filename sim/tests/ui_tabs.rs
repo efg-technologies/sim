@@ -1,5 +1,5 @@
 //! UI-4: the tab bar, as bufferline draws it: the names, the window of tabs when they do not fit,
-//! what a tab says about its file, and where a click lands (pure), and the bar in sim's state.
+//! what a tab says about its file, and where a click lands (pure), and the bar in Sim's state.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
@@ -137,7 +137,7 @@ fn ui_4_where_tabs_are_hidden_the_bar_has_arrows_that_switch_to_the_previous_and
     assert_eq!(hit(&tabs, false, 3, 40, 39), Some(Hit::Next));
 }
 
-// ---- in sim's state ----
+// ---- in Sim's state ----
 
 /// `a.rs`, `b.rs` and `sub/a.rs` open (in that order) in the interface.
 fn open3(name: &str, size: (u16, u16)) -> Rig {

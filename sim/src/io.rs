@@ -1,6 +1,6 @@
 //! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3, DIFF-7, DIFF-9, GIT-6, OPEN-2
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
-//! and highlight, git, the list of files, the watcher of the project, the history file in sim's state
+//! and highlight, git, the list of files, the watcher of the project, the history file in Sim's state
 //! directory, and the search of the contents of files (the built-in reader and ripgrep) with the
 //! preview's read.
 use crate::changes::{self, Counts};
@@ -59,7 +59,7 @@ pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
         Some(Found(s, file.display().to_string(), age, Instant::now() + MERGE))
     });
     let place = state.filter(|_| !unnamed).and_then(|state| journal::place(state, &key));
-    // A listing shows a name that is not UTF-8 with U+FFFD, and every path in sim is text: that
+    // A listing shows a name that is not UTF-8 with U+FFFD, and every path in Sim is text: that
     // name is no file, and opening it as a new one would create it under another name (SAFE-8).
     let file = if unnamed {
         Ok(None)
@@ -233,7 +233,7 @@ pub const GIT_SKIPPED: &str = "git skipped: ";
 pub const PLAIN_RUNS_NOTHING: &str = "plain mode runs no program";
 
 /// VI-11: the command that runs when Normal mode is entered: `SIM_ON_NORMAL`, else `SI_ON_NORMAL`,
-/// the name it had before sim was one program; an empty one counts as unset.
+/// the name it had before Sim was one program; an empty one counts as unset.
 pub fn hook(sim: Option<String>, si: Option<String>) -> Option<String> {
     sim.filter(|h| !h.is_empty()).or(si.filter(|h| !h.is_empty()))
 }
@@ -314,7 +314,7 @@ const UNREADABLE: &str = "this repository's config cannot be read";
 /// `program` or `hook`. `core.fsmonitor` is one by its variable. It is a class, not a list of
 /// what git runs today, so that a setting git adds later is in it too; `status`, `ls-files` and
 /// `rev-parse` use few of them. `core.hooksPath` is not one: hooks run in commands that write,
-/// and with `--no-optional-locks` none of sim's four writes the index. A key that has no section
+/// and with `--no-optional-locks` none of Sim's four writes the index. A key that has no section
 /// is not one git writes.
 fn holds_command(key: &[u8]) -> bool {
     let (section, var) = (key.split(|&b| b == b'.').next(), key.rsplit(|&b| b == b'.').next());
@@ -394,7 +394,7 @@ pub fn use_no_hooks(state: &Path) {
     drop(no_hooks_dir(state).map(|d| NO_HOOKS.set(d)));
 }
 
-/// GIT-1: the start of every git command line of sim's: no shell; the monitor and the hooks off;
+/// GIT-1: the start of every git command line of Sim's: no shell; the monitor and the hooks off;
 /// no optional lock (a status that does not write the index); `diff.submodule=short`, since a
 /// repository's own `diff.submodule = diff` makes git start a child `git diff` in a submodule, under
 /// the submodule's own config, which the guard never read (flags like `--no-ext-diff` do not reach
@@ -411,9 +411,9 @@ fn command(dir: &Path) -> Command {
         .current_dir(dir)
         .env("LC_ALL", "C")
         .env("GIT_LITERAL_PATHSPECS", "1")
-        // Git never fetches for sim: in a partial clone with objects missing a `git status`
+        // Git never fetches for Sim: in a partial clone with objects missing a `git status`
         // would, from the promisor remote, and run what the repository says serves a fetch (its
-        // `uploadpack`, an `ext::` url) or ask for a password on the terminal sim draws on.
+        // `uploadpack`, an `ext::` url) or ask for a password on the terminal Sim draws on.
         .env("GIT_NO_LAZY_FETCH", "1")
         .env("GIT_ALLOW_PROTOCOL", "sim-none")
         .env("GIT_TERMINAL_PROMPT", "0");
@@ -536,7 +536,7 @@ fn lfs_harmless(key: &[u8]) -> bool {
         || (rest.len() > var.len() && matches!(var, b"access" | b"locksverify"))
 }
 
-/// What git said when it failed, as sim says it: "not a git repository" is told from the rest.
+/// What git said when it failed, as Sim says it: "not a git repository" is told from the rest.
 fn failed(dir: &Path, cmd: &str, err: &[u8]) -> String {
     let err = String::from_utf8_lossy(err);
     let err = err.lines().next().unwrap_or_default();
@@ -559,7 +559,7 @@ fn output(mut c: Command, dir: &Path, cmd: &str) -> Result<Vec<u8>, String> {
 /// first): `command`, the neutralized filters of the repository (GIT-2) and the flags of the
 /// subcommand. It is not built where the repository's config could make git run a command that
 /// none of these stops (GIT-3; MARK-1's message names the key). The config is read by git itself, so
-/// that sim cannot read it differently from git. Listing config runs nothing: `builtin/config.c`
+/// that Sim cannot read it differently from git. Listing config runs nothing: `builtin/config.c`
 /// only parses it and prints (the one command it can start is `config --edit`'s editor); hooks,
 /// filters and the monitor belong to commands that use the index or the work tree. In a directory
 /// that is no repository the list is the user's own and git then says so itself. An unreadable or
@@ -699,7 +699,7 @@ pub fn pace(took: Duration) -> Duration {
     (took * 4).max(Duration::from_millis(200))
 }
 
-/// WATCH-1: how long the project's watcher gathers what it sees before it tells sim; WATCH-3: how many
+/// WATCH-1: how long the project's watcher gathers what it sees before it tells Sim; WATCH-3: how many
 /// paths a batch names (past that it says only that there were many), and how often the project is
 /// looked at where the system refuses a watch.
 const GATHER: Duration = Duration::from_millis(100);
@@ -825,7 +825,7 @@ impl Watcher {
     }
 
     /// What the system saw: paths below the root, or a move in git's own directories (none: it lost track,
-    /// and anything may have changed). sim's own temporary files (`.{name}.sim-*`), the state directory and
+    /// and anything may have changed). Sim's own temporary files (`.{name}.sim-*`), the state directory and
     /// what is below a `.git` are not news.
     fn event(&mut self, paths: Vec<PathBuf>) {
         if paths.is_empty() {
@@ -863,7 +863,7 @@ impl Watcher {
         }
     }
 
-    /// Tells sim what the batch has: each path once, and whether it is a file now. False when sim is gone.
+    /// Tells Sim what the batch has: each path once, and whether it is a file now. False when Sim is gone.
     fn flush(&mut self) -> bool {
         self.due = None;
         let mut b = std::mem::take(&mut self.batch);
@@ -888,9 +888,9 @@ impl Watcher {
 }
 
 /// WATCH-1, WATCH-3: the project's watcher, on a thread of its own: it watches the root, the directories the
-/// list of files has (`Project::files`) and git's directories, and tells sim what changed below the root
+/// list of files has (`Project::files`) and git's directories, and tells Sim what changed below the root
 /// (`SimEvent::Touched`) in batches of `GATHER`. It names paths and reads no file. Where the system refuses a
-/// watch, it says so once and tells sim every `poll` that anything may have changed.
+/// watch, it says so once and tells Sim every `poll` that anything may have changed.
 pub fn project(
     tx: Sender<SimEvent>,
     root: PathBuf,
@@ -967,13 +967,13 @@ pub fn project(
 
 /// UI-5: what a file differs from HEAD by, as `git diff -U0` says it, for the signs of the sign
 /// column and the counts of the status line. It runs through the same guard and the same hardened
-/// environment as every git of sim's (`git`, `run`): no external diff and no text conversion
+/// environment as every git of Sim's (`git`, `run`): no external diff and no text conversion
 /// (those are commands a repository can name), no color, and nothing fetched.
 pub fn git_diff(dir: &Path, name: &str) -> Result<Vec<u8>, String> {
     git(dir, &git_diff_args(name))
 }
 
-/// UI-5: the arguments of that diff; `git_command` adds the flags of every diff of sim's (GIT-1: no
+/// UI-5: the arguments of that diff; `git_command` adds the flags of every diff of Sim's (GIT-1: no
 /// external diff, no text conversion, and no submodule looked at: a file is never one, and no child
 /// git runs, nor reads a submodule's own config).
 pub fn git_diff_args(name: &str) -> [&str; 6] {
@@ -1348,7 +1348,7 @@ pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<HlJob> {
 /// line, then a `/*`), so every request runs in a thread of its own that the highlighter waits for
 /// `budget` (and 100 us a line); a request that does not finish is given up: the file is plain
 /// from then on, the user is told once, and the highlighter goes on with a new one for the other
-/// files. The thread that loops stays, busy, until sim ends: nothing in Rust stops a thread.
+/// files. The thread that loops stays, busy, until Sim ends: nothing in Rust stops a thread.
 pub fn highlight_thread_within(tx: Sender<SimEvent>, budget: Duration) -> Sender<HlJob> {
     let (jobs, rx) = mpsc::channel::<HlJob>();
     thread::spawn(move || {

@@ -1,6 +1,6 @@
 //! UI-13: the feel of the author's Neovim: a yank is lit for 150 ms, and `n`, `N`, `*`, `#`, Ctrl-d
 //! and Ctrl-u put the line they land on in the middle of the screen (si does that already: the tests
-//! pin it, since sim relies on it).
+//! pin it, since Sim relies on it).
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;

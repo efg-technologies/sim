@@ -1,4 +1,4 @@
-//! OPEN-1: `gf` opens the file named under the cursor, in sim: a path with `:line[:col]`, beside the file
+//! OPEN-1: `gf` opens the file named under the cursor, in Sim: a path with `:line[:col]`, beside the file
 //! first and then in the root; a Markdown link's target; a name that does not exist says so.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;

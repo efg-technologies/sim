@@ -1,5 +1,5 @@
 //! GUI-16
-//! Box-drawing and block chars drawn as shapes, not glyphs. sim writes its guides, rules, signs and
+//! Box-drawing and block chars drawn as shapes, not glyphs. Sim writes its guides, rules, signs and
 //! bars with these chars (a terminal draws them itself, to the cell's edge, so they join); a font's
 //! versions never quite meet at the cell edge and are not the same weight in every font. Each is a
 //! few rectangles in a cell, in fractions of its width and height; the thickness of a line is the

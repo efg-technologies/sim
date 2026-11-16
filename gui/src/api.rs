@@ -1,6 +1,6 @@
 //! GUI-8
-//! The one file that names sim's types (the editor `sim` and its core `sim_core`). Everything else
-//! in this crate reaches sim through here, so a renamed or moved item of sim is one edit, and a test
+//! The one file that names Sim's types (the editor `sim` and its core `sim_core`). Everything else
+//! in this crate reaches Sim through here, so a renamed or moved item of Sim is one edit, and a test
 //! (`tests/api_seam.rs`) fails when another file names them.
 pub use crossterm::event::{
     Event as CtEvent, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,

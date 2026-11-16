@@ -1,7 +1,7 @@
 // Two small pipelines, no loops, no data-dependent branching beyond a few ifs on per-instance
 // constants, no compute: a rounded surface (a signed-distance box with a soft shadow, a rim and a
 // sheen) and a textured glyph quad. Colors are sRGB-encoded numbers blended as they are, the way a
-// terminal blends them, so a color sim derives is the color on the screen.
+// terminal blends them, so a color Sim derives is the color on the screen.
 
 struct Globals {
     size: vec2<f32>,

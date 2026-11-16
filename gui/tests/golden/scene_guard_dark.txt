@@ -81,7 +81,7 @@ layer 0
   text [156 96] "made-up" #eaeaea
   text [236 96] "project" #eaeaea
   text [316 96] "that" #eaeaea
-  text [366 96] "sim" #eaeaea bold
+  text [366 96] "Sim" #eaeaea bold
   text [406 96] "opens" #eaeaea
   text [466 96] "in" #eaeaea
   text [496 96] "a" #eaeaea

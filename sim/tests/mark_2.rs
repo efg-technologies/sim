@@ -1,5 +1,5 @@
 //! MARK-2: the likelihood of opening a file from the history of opening files, and the history
-//! file in sim's state directory.
+//! file in Sim's state directory.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;

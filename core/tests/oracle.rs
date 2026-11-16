@@ -10,7 +10,7 @@
 //! for in `SIM_ORACLE_MINI`, else in `~/.local/share/nvim/lazy/mini.nvim`), or `pairs` (VI-21: Insert
 //! mode with brackets, quotes, Backspace, `.` and undo, against mini.pairs with its defaults), or `move`
 //! (VI-22: Alt-h/j/k/l with counts, in Normal and V-LINE mode, against mini.move with its defaults but
-//! `reindent_linewise`, which sim does not do).
+//! `reindent_linewise`, which Sim does not do).
 //! Every divergence is printed grouped by the first command; the test only fails with
 //! `SIM_ORACLE_STRICT=1`. Not every divergence is a bug: several are SPEC "Decided" items (see the
 //! report), which `known()` filters.
@@ -389,7 +389,7 @@ fn reg_command(r: &mut Rng, st: &mut Reg) -> String {
     };
     let count = |r: &mut Rng| pick(r, &["", "", "", "", "2", "3"]);
     // A yank with a motion that goes up or to the ends of the file leaves vim's cursor at the start of
-    // the lines, and sim's in its column: that is not the registers' (and the cursor drives what comes
+    // the lines, and Sim's in its column: that is not the registers' (and the cursor drives what comes
     // next), so a yank has no such motion here.
     let target = |r: &mut Rng, yank: bool| {
         let t = pick(
@@ -512,7 +512,7 @@ fn mark_command(r: &mut Rng) -> String {
 }
 
 /// One command of the comment mode (VI-18). `.` only after a `gc` of Normal mode: Neovim's `.` would
-/// repeat the case before, and repeats Visual mode's (VI-2 Decided: sim does not).
+/// repeat the case before, and repeats Visual mode's (VI-2 Decided: Sim does not).
 fn comment_command(r: &mut Rng, dot: bool) -> String {
     match r.below(if dot { 10 } else { 9 }) {
         0..=2 => format!("{}gcc", pick(r, &["", "", "2", "3"])),
@@ -578,7 +578,7 @@ fn pairs_command(r: &mut Rng, dot: bool) -> String {
 }
 
 /// One command of the move mode (VI-22): Alt-h/j/k/l with or without a count, the same in V-LINE mode, or
-/// a motion. (No undo: mini.move makes consecutive moves one undo step, sim one each, as VI-22 has it.)
+/// a motion. (No undo: mini.move makes consecutive moves one undo step, Sim one each, as VI-22 has it.)
 fn move_command(r: &mut Rng) -> String {
     let alt = |r: &mut Rng| {
         format!("{}<M-{}>", pick(r, &["", "", "2", "3"]), pick(r, &["j", "k", "h", "l"]))
@@ -775,7 +775,7 @@ fn dump_marks(a: &sim_core::core::app::App) -> String {
 /// takes nothing (VI-8 Decided: the registers stay as they were, where vim's empty yank empties its
 /// register and points the unnamed one to it), a buffer that has nothing left in it, or a `d{motion}`
 /// over more than one line (vim makes it linewise when only blanks come before it and nothing after;
-/// sim does not, and the register's type and the text follow from that: not the registers' doing).
+/// Sim does not, and the register's type and the text follow from that: not the registers' doing).
 fn degenerate(c: &Case) -> bool {
     let run = || {
         let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
@@ -807,7 +807,7 @@ fn degenerate(c: &Case) -> bool {
 }
 
 /// Whether a mark case empties the buffer at some point: vim then drops every mark with the lines, and
-/// sim keeps the one empty line a buffer has (and its marks), a difference no one can type into.
+/// Sim keeps the one empty line a buffer has (and its marks), a difference no one can type into.
 fn emptied(c: &Case) -> bool {
     let run = || {
         let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
@@ -823,7 +823,7 @@ fn emptied(c: &Case) -> bool {
 }
 
 /// Whether a mark case undoes after a change command that changed nothing (`dw` on an empty line): vim
-/// records an undo step for it and sim does not, so the `u` goes to a different change.
+/// records an undo step for it and Sim does not, so the `u` goes to a different change.
 fn blank_step(c: &Case) -> bool {
     let run = || {
         let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
@@ -847,7 +847,7 @@ fn blank_step(c: &Case) -> bool {
 
 /// Whether a surround case has a `gsd` or `gsr` that finds nothing, or a `gsa` whose motion or object
 /// finds nothing: mini then leaves the chars of the surrounding, and every key after them, to be read as
-/// commands (sim reads the whole command and changes nothing, VI-20), and its cursor is left elsewhere.
+/// commands (Sim reads the whole command and changes nothing, VI-20), and its cursor is left elsewhere.
 fn surround_failed(c: &Case) -> bool {
     let run = || {
         let mut a = app_with(Some("a.rs"), format!("{}\n", c.text).as_bytes(), (80, 24));
@@ -912,7 +912,7 @@ fn known(keys: &str) -> Option<&'static str> {
     // (the default mode's Neovim has no mini.pairs: `SIM_ORACLE_MODE=pairs` compares those)
     let pairs = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs");
     if !pairs && k.contains("(<Esc>") && !k.contains("r(<Esc>") {
-        return Some("a ( typed in Insert mode (VI-21: sim pairs it)");
+        return Some("a ( typed in Insert mode (VI-21: Sim pairs it)");
     }
     None
 }

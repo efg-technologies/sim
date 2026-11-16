@@ -1,4 +1,4 @@
-//! FIND-1, FIND-2, FIND-3, FIND-4: the search in the panel, driven through sim's state, and the
+//! FIND-1, FIND-2, FIND-3, FIND-4: the search in the panel, driven through Sim's state, and the
 //! list of files it searches.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;

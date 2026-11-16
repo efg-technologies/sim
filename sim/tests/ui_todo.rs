@@ -1,4 +1,4 @@
-//! UI-7: TODO comments as todo-comments.nvim marks them, in sim's single style: the keyword (and
+//! UI-7: TODO comments as todo-comments.nvim marks them, in Sim's single style: the keyword (and
 //! its colon) of a comment is a badge, bold primary on a surface, the same for every keyword, and
 //! there is no sign for it.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap

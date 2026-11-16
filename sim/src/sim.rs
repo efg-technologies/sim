@@ -1,5 +1,5 @@
 //! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2, JUMP-1, OPEN-1, OPEN-2, DIFF-11
-//! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
+//! Sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
 //! are in `panel.rs`, the search of file contents in `live.rs`.
@@ -108,7 +108,7 @@ impl Lit {
     }
 }
 
-/// A file open in sim. Ids are never reused, so a late answer for a closed file is dropped.
+/// A file open in Sim. Ids are never reused, so a late answer for a closed file is dropped.
 pub type Id = usize;
 
 /// SYN-3: files over this many bytes are not highlighted.
@@ -338,13 +338,13 @@ pub struct Buf {
     /// UI-5: the file's changes against HEAD, as the last answer of git said.
     diff: Option<Diff>,
     /// UI-10: the language server's state for this file (` rust-analyzer · sandboxed`), which the
-    /// code of the server's own sets and the status line shows as it is; sim never writes it.
+    /// code of the server's own sets and the status line shows as it is; Sim never writes it.
     pub lsp: Option<String>,
     /// UI-10: whether what `lsp` says is an alert (a server running with no sandbox), which the
     /// slot draws in the alert's color; set by the server's code.
     pub lsp_alert: bool,
     /// UI-4: the language server's errors and warnings for the file, which the tab shows (`✘ 2 ▲ 1`);
-    /// set by the server's own code, never by sim.
+    /// set by the server's own code, never by Sim.
     pub diag: (usize, usize),
     /// UI-6: how the file is indented, found from its first lines when it is opened and when it
     /// is saved or changes on disk.
@@ -427,7 +427,7 @@ pub struct Sim {
     off: Vec<String>,
     /// GIT-5: why git was not run (the message of its first refusal), for `<Space>gi`.
     why: Option<String>,
-    /// GIT-6: the hooks written into the hooks directory while sim runs that are there now.
+    /// GIT-6: the hooks written into the hooks directory while Sim runs that are there now.
     hooks: Vec<String>,
     /// DIFF-7 to DIFF-10: the preview of the changes view, and FOLLOW.
     tower: tower::Tower,
@@ -435,7 +435,7 @@ pub struct Sim {
     kept: Option<String>,
     /// MD-10: the reference links of the Markdown file shown, for the file and the version of its text.
     refs: RefCell<Option<(Id, u64, Arc<lie::Refs>)>>,
-    /// WATCH-2: the files another process wrote that have not been looked at since; the files sim itself
+    /// WATCH-2: the files another process wrote that have not been looked at since; the files Sim itself
     /// wrote, until the watcher has told of them; and the rows lit for a write that has just come.
     unseen: HashSet<PathBuf>,
     mine: HashSet<PathBuf>,
@@ -490,7 +490,7 @@ pub struct Sim {
     leader: Option<String>,
     /// TREE-2: Ctrl-w was typed and waits for the key that sends the focus.
     win: bool,
-    /// BUF-3: `:bd` is closing a file: the last one closed leaves the tree, not sim.
+    /// BUF-3: `:bd` is closing a file: the last one closed leaves the tree, not Sim.
     stay: bool,
     /// JUMP-1: `s` was typed and the query of the jump is being typed.
     jump: Option<String>,
@@ -944,7 +944,7 @@ impl Sim {
     }
 
     /// WATCH-1, WATCH-2: what the project's watcher saw. A file that is not open and that another process
-    /// wrote is unseen, and its row is lit (an open file's own watcher tells of it, DISK-1; sim's own writes
+    /// wrote is unseen, and its row is lit (an open file's own watcher tells of it, DISK-1; Sim's own writes
     /// and what git ignores are no news). The open directories that hold what changed are read again, the
     /// list of files when a file came or went, and git's status. Nothing is opened, and no cursor moves.
     fn touched(&mut self, t: Touched, out: &mut Vec<SimEffect>) {
@@ -1252,7 +1252,7 @@ impl Sim {
             out.push(SimEffect::Flash(self.flash_gen, WROTE_MS));
         }
         if let (true, Some(path)) = (changed, path) {
-            // WATCH-2: what another process wrote and the file marks is unseen; sim's own save is not
+            // WATCH-2: what another process wrote and the file marks is unseen; Sim's own save is not
             let rel = self.cwd.join(path).strip_prefix(&self.root).map(Path::to_path_buf);
             if let (true, Ok(rel)) = (marked, rel) {
                 if self.tower.follow {
@@ -1306,7 +1306,7 @@ impl Sim {
         }
         match quit {
             Some(0) => self.close(id, out),
-            // `:cq`: the whole of sim ends, and the other files keep what is unsaved in them.
+            // `:cq`: the whole of Sim ends, and the other files keep what is unsaved in them.
             Some(code) => {
                 out.extend(self.snapshots(Some(id), || Event::Signal(0)).0);
                 out.push(SimEffect::Quit(code));
@@ -1315,7 +1315,7 @@ impl Sim {
         }
     }
 
-    /// BUF-3: closes a file: the one after it shows, the one before if it was the last; sim ends
+    /// BUF-3: closes a file: the one after it shows, the one before if it was the last; Sim ends
     /// with the last one. The App has asked the journal to forget its snapshot already.
     fn close(&mut self, id: Id, out: &mut Vec<SimEffect>) {
         let Some(i) = self.bufs.iter().position(|b| b.id == id) else { return };
@@ -2104,7 +2104,7 @@ impl Sim {
     }
 
     /// A row of the panel with what it shows besides its name (see `layout::Mark`). In the
-    /// interface (`ui`) the change color is for the files that changed on disk while sim ran, git's
+    /// interface (`ui`) the change color is for the files that changed on disk while Sim ran, git's
     /// own changes show by their letter (UI-3), and there is no `~`.
     /// DIFF-2: asks for the numbers of the changes view, when it is on.
     fn ask_changes(&self, out: &mut Vec<SimEffect>) {
@@ -2377,12 +2377,12 @@ fn state_words(status: &str, line: usize, col: usize) -> String {
     notes.split(" · ").filter(|n| !said_elsewhere(n)).collect::<Vec<_>>().join(" · ")
 }
 
-/// GIT-6: what is said of hooks written into the hooks directory: their names, and that sim does not run them
+/// GIT-6: what is said of hooks written into the hooks directory: their names, and that Sim does not run them
 /// and the user's git does.
 fn hooks_said(names: &[String]) -> String {
     let (s, it) = if names.len() == 1 { ("", "it") } else { ("s", "them") };
     let names: Vec<String> = names.iter().map(|n| format!("hooks/{n}")).collect();
-    format!("hook{s} written: {}: sim does not run {it}, your git will", names.join(", "))
+    format!("hook{s} written: {}: Sim does not run {it}, your git will", names.join(", "))
 }
 
 /// GIT-6: whether a line is what `hooks_said` says (the status line has it in the alert's color).

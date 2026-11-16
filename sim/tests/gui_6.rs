@@ -1,4 +1,4 @@
-//! GUI-6: `SimEvent::Colors` tells sim the background and the ANSI colors that a terminal would have
+//! GUI-6: `SimEvent::Colors` tells Sim the background and the ANSI colors that a terminal would have
 //! answered with (OSC 11 and OSC 4), as they are, because a window has no terminal to ask. It does
 //! what the answers do, with the same result: the screen after it is the screen after them.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap

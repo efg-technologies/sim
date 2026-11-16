@@ -1,4 +1,4 @@
-//! SYN-1, SYN-2, SYN-3, SYN-5: colored text through sim's state (the highlighter's answers come
+//! SYN-1, SYN-2, SYN-3, SYN-5: colored text through Sim's state (the highlighter's answers come
 //! back as events), the colors from the terminal's replies, si's palette under them, and the
 //! painter's bytes.
 #![allow(clippy::unwrap_used, clippy::panic)] // helpers; the tests themselves may unwrap
@@ -461,7 +461,7 @@ fn syn_1_a_reply_to_osc_4_is_put_together_from_keys_and_the_one_to_osc_11_is_si_
     let mut input = Input::new(true);
     // The background is si's `Reply`: it becomes `Event::Bg` and none of its keys goes on.
     assert_eq!(heard(&mut input, osc("11;rgb:1E1E/1e1e/1E1E")), "<30,30,30>");
-    // An ANSI color is sim's: the payload as it came, and none of its keys goes on.
+    // An ANSI color is Sim's: the payload as it came, and none of its keys goes on.
     assert_eq!(heard(&mut input, osc("4;1;rgb:cc/00/00")), "osc:4;1;rgb:cc/00/00");
     // BEL ends a reply too (Ctrl-g).
     let evs = vec![
@@ -506,7 +506,7 @@ fn syn_1_keys_that_are_not_a_reply_go_on_as_keys_in_order() {
     // A typed Esc and `]`, then something that is no reply: not lost, whichever reply it is not.
     assert_eq!(heard(&mut input, vec![key(KeyCode::Char(']'), alt), plain('x')]), "^]x");
     assert_eq!(heard(&mut input, vec![key(KeyCode::Char(']'), alt), plain('4'), plain('x')]), "");
-    // Shift-Tab and the mouse are sim's, wherever they come.
+    // Shift-Tab and the mouse are Sim's, wherever they come.
     let click = Ev::Mouse(crossterm::event::MouseEvent {
         kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
         column: 1,
@@ -622,7 +622,7 @@ fn syn_1_a_reply_from_the_terminal_changes_the_colors_of_the_next_screen() {
 
 #[test]
 fn syn_1_the_quit_waits_for_the_terminal_only_while_an_answer_is_still_to_come() {
-    // VIS-4: sim asks the background (si's `enter`) and, with COLORTERM, five ANSI colors; a quit
+    // VIS-4: Sim asks the background (si's `enter`) and, with COLORTERM, five ANSI colors; a quit
     // before they are in waits for the terminal to finish (bounded), so none is typed into the shell.
     let ansi = ["4;1;rgb:cc/00/00", "4;2;rgb:00/aa/00", "4;3;rgb:aa/aa/00", "4;5;rgb:aa/00/aa"];
     let mut r = rig_env("hl-asking", &["a.rs"], &["a.rs"], (40, 8), |e: &mut Env| {
@@ -781,7 +781,7 @@ fn req(id: usize, name: &str, ver: u64, text: &str, from: usize, n: usize) -> Re
 #[test]
 fn syn_3_the_highlighter_forgets_a_file_that_is_closed() {
     // Its parse states and a copy of its text (shared with a buffer that is gone) would stay for
-    // as long as sim runs, for every file ever opened.
+    // as long as Sim runs, for every file ever opened.
     let mut h = Highlighter::default();
     h.run(req(1, "a.rs", 1, "fn a() {}\n", 0, 5));
     h.run(req(2, "b.rs", 1, "fn b() {}\n", 0, 5));

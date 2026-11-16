@@ -117,7 +117,7 @@ fn most_chromatic(l: f64, hue: f64) -> Option<Rgb> {
 
 /// LOOK-2: a background of `hue` for the page `bg`, found the way the core finds its change color (VIS-4):
 /// of the most chromatic colors of that hue, the nearest to `bg` that is at least |Lc| 15 (and a
-/// margin of 0.5) away from it, or the farthest when none is. The owner of sim asked for green and
+/// margin of 0.5) away from it, or the farthest when none is. The owner of Sim asked for green and
 /// red here and let color vision go, so these two are not checked under the simulations.
 fn hued(bg: Rgb, hue: f64) -> Rgb {
     let all = || (1..200).filter_map(|i| most_chromatic(f64::from(i) / 200.0, hue));
@@ -461,7 +461,7 @@ pub fn contrast(c: Rgb, bg: Rgb, min: f64) -> Rgb {
     out
 }
 
-/// The colors sim derives from what the terminal told (SYN-1, SYN-5), beside the core's palette. Without
+/// The colors Sim derives from what the terminal told (SYN-1, SYN-5), beside the core's palette. Without
 /// `truecolor` (the COLORTERM variable) nothing is derived: SGR 31-36 and underline stand in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Syntax {
@@ -565,14 +565,14 @@ impl Syntax {
     }
 }
 
-/// What the terminal sends, as sim's events. The core's `Reply` puts together the answer to the
+/// What the terminal sends, as Sim's events. The core's `Reply` puts together the answer to the
 /// background query (OSC 11); the answers to OSC 4 are put together here, ahead of it: an Alt+`]`
 /// is held until the next key says which it is. crossterm reads `ESC ]` as Alt+`]`, the payload as
 /// plain keys, and `ESC \` or BEL as Alt+`\` or Ctrl-g. While replies are still to come (the
 /// five that `QUERY` asks for, however late: over a slow link they take seconds, and a reply that
 /// is not put together here is typed into the text); a key that does not belong to a reply goes on
 /// as a key, in order (the core's `Reply` holds an Alt+`]` for the answer to OSC 11 just as long). Mouse
-/// events and Shift-Tab, which the core has no key for, are sim's.
+/// events and Shift-Tab, which the core has no key for, are Sim's.
 pub struct Input {
     reply: Reply,
     held: Option<Ev>,
@@ -596,7 +596,7 @@ impl Input {
         evs.into_iter().flat_map(|e| self.reply.feed(e)).map(SimEvent::Term).collect()
     }
 
-    /// GUI-7: what a terminal event is to sim when no reply of a terminal is waited for (a window has
+    /// GUI-7: what a terminal event is to Sim when no reply of a terminal is waited for (a window has
     /// none): the mouse, Shift-Tab and F1, which the core's `Key` does not have (KEY-4), and the rest
     /// as the core's `convert_all` makes it (Alt-x is Esc, then x, but Alt-h/j/k/l: VI-22). The path the keys of a terminal
     /// take after `feed` has held back what could be a reply.

@@ -2,7 +2,7 @@
 # where it failed.
 #
 # Under `set -e` a command of a case that fails says nothing (`grep -q`, `[ ... ]`, `cmp`), and the screen
-# at failure is what sim showed, not which line of the case asked for it. So a case runs traced
+# at failure is what Sim showed, not which line of the case asked for it. So a case runs traced
 # (`trace_on`: `set -x`, with PS4 holding LINENO), and the harness reads the trace after a failure: the last
 # line of the case that ran is the one that failed (or, when a helper failed, the one that called it).
 #
@@ -13,7 +13,7 @@
 # `sh` of a GitHub runner) has no LINENO at all, and with `set -u` the bare `$LINENO` in PS4 stopped every
 # case at its first command: PS4 says `${LINENO:-?}`, the trace has `?` for the line there, and the failure
 # is told by the last command it ran instead of by its line (`where_failed`). scripts/e2e-lib-check.sh
-# runs this path without tmux and without sim (check.sh), in the `sh` it is run by.
+# runs this path without tmux and without Sim (check.sh), in the `sh` it is run by.
 
 # trace_on: from here the shell traces what it runs, `+@@ LINE: command` (the line is `?` without LINENO).
 # The one place that says it, so that the two harnesses and the check of this file cannot differ.
@@ -76,7 +76,7 @@ keep_trace() {
   } >> "$SIM_E2E_KEEP/$3.txt" 2>&1 || true
 }
 
-# until_gone PID...: waits, 5 s at most for each, until nothing runs in the session of these pane pids. sim saves
+# until_gone PID...: waits, 5 s at most for each, until nothing runs in the session of these pane pids. Sim saves
 # its unsaved text, its place and its choices when tmux hangs it up (SAFE-6, CLI-6): the files are not
 # there to be read, nor to be removed, before it has finished.
 until_gone() {

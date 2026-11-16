@@ -1,9 +1,9 @@
 //! GUI-1, GUI-2, GUI-3, GUI-9, GUI-12, MD-9
-//! From sim's screen to what is drawn: a display list of surfaces (rounded rectangles with a shadow,
-//! a rim, a fill) and glyphs, in layers. This is where sim's layers become elevations: the boxes of
+//! From Sim's screen to what is drawn: a display list of surfaces (rounded rectangles with a shadow,
+//! a rim, a fill) and glyphs, in layers. This is where Sim's layers become elevations: the boxes of
 //! the tree and of the text are raised from the floor; a heading's band, a fence's band, a chip (the
 //! shown tab, a badge) and the alert's pill sit on the page; the windows float above all of it, the
-//! modal one over a dimmed scrim. What each thing is, sim says: the layers of the Screen (`Plane`)
+//! modal one over a dimmed scrim. What each thing is, Sim says: the layers of the Screen (`Plane`)
 //! and the role of each paint (`Role`); nothing here infers it from a geometry or from a color.
 //! Pure: no GPU and no fonts, so a scene can be dumped as text and kept as a golden.
 use crate::api::*;
@@ -45,7 +45,7 @@ impl Rect {
     }
 }
 
-/// What a surface is (for the dump, and for the renderer's choices): sim's roles, each with an
+/// What a surface is (for the dump, and for the renderer's choices): Sim's roles, each with an
 /// elevation and a shape of its own here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -124,7 +124,7 @@ pub struct Plane {
     pub glyphs: Vec<Glyph>,
 }
 
-/// Where sim's cursor is and how it looks; the renderer moves it smoothly from where it was.
+/// Where Sim's cursor is and how it looks; the renderer moves it smoothly from where it was.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CursorSpec {
     pub rect: Rect,
@@ -343,7 +343,7 @@ impl Builder<'_> {
         }
     }
 
-    /// The status line: a bar of its own below the boxes, raised a little (the segments of sim's bar
+    /// The status line: a bar of its own below the boxes, raised a little (the segments of Sim's bar
     /// lie on it).
     fn status_bar(&self, l: &mut Plane) {
         let Some(s) = self.status else { return };
@@ -441,7 +441,7 @@ impl Builder<'_> {
         }
     }
 
-    /// The tree's cursor row, which sim says (and the terminal underlines): a highlight across the row,
+    /// The tree's cursor row, which Sim says (and the terminal underlines): a highlight across the row,
     /// in the accent (blue is "where you act", COLOR-1), under the name.
     fn cursor_highlight(&self, rows: &Range<usize>, dy: f32, clip: Option<Rect>, out: &mut Plane) {
         let Some(c) = self.cursor_row else { return };
@@ -624,7 +624,7 @@ impl Builder<'_> {
                     clip,
                 });
             }
-            // an underline, but not the one sim puts under the tree's cursor row (a highlight is there)
+            // an underline, but not the one Sim puts under the tree's cursor row (a highlight is there)
             let on_cursor_row = self.cursor_row.is_some_and(|q| contains(&q, c.col, r));
             if c.r.attrs.underline() && !on_cursor_row {
                 let w = f32::from(c.width) * m.cell_w;
@@ -710,7 +710,7 @@ impl Builder<'_> {
     }
 
     /// The scrollbar: the column at the right edge of the text. The thumb is a rounded bar behind, the
-    /// marks of sim's `┃` are ticks, the `⎺⎻⎼⎽` is the cursor's place in its row.
+    /// marks of Sim's `┃` are ticks, the `⎺⎻⎼⎽` is the cursor's place in its row.
     fn scrollbar(&self, out: &mut Plane) {
         let (Some(s), v) = (self.scroll, self.v) else { return };
         let m = &self.m;

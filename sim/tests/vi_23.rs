@@ -1,5 +1,5 @@
-//! VI-23 in sim: `:r {file}` reads the file through the shell that opens files, below the line of the file
-//! that is shown, and the files open in sim stay as they were.
+//! VI-23 in Sim: `:r {file}` reads the file through the shell that opens files, below the line of the file
+//! that is shown, and the files open in Sim stay as they were.
 mod common;
 use common::*;
 

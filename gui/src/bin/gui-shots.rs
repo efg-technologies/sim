@@ -1,5 +1,5 @@
 //! GUI-14, GUI-15
-//! Offscreen renders of sim in its window, to PNG (no window is opened), and the frame times.
+//! Offscreen renders of Sim in its window, to PNG (no window is opened), and the frame times.
 //!
 //! `gui-shots [OUT_DIR] [--adapter NAME] [--embedded] [--only NAME] [--time]`
 //!
@@ -49,7 +49,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     Ok(Args { out, adapter, embedded, only, time })
 }
 
-/// A scene: how sim is started and driven.
+/// A scene: how Sim is started and driven.
 struct Scene {
     name: &'static str,
     file: &'static str,
@@ -69,7 +69,7 @@ fn picker(h: &mut Headless) {
 
 fn hidden(h: &mut Headless) {
     h.session.sim.trust = Some(false);
-    // an outside process writes to the file while it is open: sim shows it as a change on disk
+    // an outside process writes to the file while it is open: Sim shows it as a change on disk
     let path = h.dir.join("hidden.txt");
     let mut text = std::fs::read_to_string(&path).unwrap_or_default();
     text.push_str("appended by another process\n");
@@ -232,7 +232,7 @@ fn timings(a: &Args, cfg: &FontConfig) -> String {
         );
         let _ = writeln!(
             out,
-            "| scene | cells | surfaces | glyph quads | new sim screen (us) | scene (us) | pack (us) | GPU (us) | frame, steady (us) |"
+            "| scene | cells | surfaces | glyph quads | new Sim screen (us) | scene (us) | pack (us) | GPU (us) | frame, steady (us) |"
         );
         let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|");
         for s in scenes() {
@@ -277,7 +277,7 @@ fn scroll_mid(a: &Args, st: &mut Studio) {
     st.anim.reduced = false;
     st.feed(&h);
     st.anim.settle();
-    // two notches of the wheel: six lines, as sim scrolls them
+    // two notches of the wheel: six lines, as Sim scrolls them
     let snap = Snapshot::take(h.screen(), &mut Resolver::new());
     let text = snap.text().map(|(l, ..)| l.rect).unwrap_or_default();
     for _ in 0..2 {

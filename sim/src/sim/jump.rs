@@ -1,5 +1,5 @@
 //! JUMP-1
-//! The jump by label in sim's state (pure), the owner's flash.nvim on `s`: the query typed after it, its
+//! The jump by label in Sim's state (pure), the owner's flash.nvim on `s`: the query typed after it, its
 //! matches in the lines on the screen, the label of each, and the keys that end it. Nothing here edits: a
 //! label moves the cursor, and every other key ends the jump or is more of the query.
 use super::ptr::put;

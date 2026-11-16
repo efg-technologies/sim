@@ -1,12 +1,12 @@
 //! GUI-16, GUI-17
-//! `sim-gui [+cmd] [dir | file]`: sim in a window. The arguments are sim's own.
+//! `sim-gui [+cmd] [dir | file]`: Sim in a window. The arguments are Sim's own.
 use std::process::ExitCode;
 
 /// What `sim-gui --help` prints (`{version}` is the Cargo version).
 const HELP: &str = include_str!("../help.txt");
 
 fn main() -> ExitCode {
-    // (`env::args` panics on an argument that is not UTF-8; every path in sim is text)
+    // (`env::args` panics on an argument that is not UTF-8; every path in Sim is text)
     let args: Option<Vec<String>> =
         std::env::args_os().skip(1).map(|a| a.into_string().ok()).collect();
     let Some(args) = args else {

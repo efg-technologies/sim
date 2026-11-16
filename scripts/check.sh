@@ -20,11 +20,11 @@ GUI_DEPS="bytemuck cosmic-text crossterm png pollster sim-editor sim-editor-core
 # Crates that exist for the window. None may be in the tree of the editor or of the core.
 GUI_ONLY="winit wgpu wgpu-core wgpu-hal wgpu-types naga ash cosmic-text swash fontdb bytemuck pollster png sim-gui"
 # Crates that speak to a network, or are a browser, or its toolkit. None may be in the window's tree
-# (`mio` is: the poll primitive under crossterm and notify, which are sim's own dependencies).
+# (`mio` is: the poll primitive under crossterm and notify, which are Sim's own dependencies).
 GUI_FORBIDDEN="reqwest hyper ureq curl isahc surf attohttpc h2 http openssl openssl-sys rustls native-tls tokio async-std socket2 quinn tungstenite websocket smol webkit2gtk wry tao tauri gtk cef servo hickory-resolver trust-dns-resolver"
 MAX_BYTES=$((5 * 1024 * 1024 + 233 * 1024))
 
-N=14
+N=15
 step() {
   n=$1
   shift
@@ -72,7 +72,7 @@ printf '\n[7/%s] gui/src has at most %s lines\n' "$N" "$MAX_GUI_LINES"
 lines=$(count gui/src)
 echo "gui/src: $lines lines (limit $MAX_GUI_LINES)"
 if [ "$lines" -gt "$MAX_GUI_LINES" ]; then
-  echo "check.sh: step 7 failed: gui/src has $lines lines; propose features to cut, or a seam in sim for what it keeps" >&2
+  echo "check.sh: step 7 failed: gui/src has $lines lines; propose features to cut, or a seam in Sim for what it keeps" >&2
   exit 1
 fi
 
@@ -132,14 +132,14 @@ for name in $GUI_FORBIDDEN; do
   fi
 done
 
-# 11. The name: sim is Secure vIM, and si, once a program, is only its core now. The crates are
+# 11. The name: Sim is Secure vIM, and si, once a program, is only its core now. The crates are
 # sim-editor and sim-editor-core. What this repository said before must not come back (this file
 # names the patterns, so it is left out).
 printf '\n[11/%s] the name is Secure vIM, the crates sim-editor and sim-editor-core\n' "$N"
 old=$(grep -rIn -E 'SI iMproved|SIght|sim-core' . --exclude-dir=target --exclude-dir=.git --exclude-dir=vendor --exclude=check.sh || true)
 if [ -n "$old" ]; then
   printf '%s\n' "$old" >&2
-  echo "check.sh: step 11 failed: the name sim was given before (SI iMproved, SIght) or the crate sim-core is back" >&2
+  echo "check.sh: step 11 failed: the name Sim was given before (SI iMproved, SIght) or the crate sim-core is back" >&2
   exit 1
 fi
 
@@ -158,8 +158,25 @@ fi
 # vendor/syntect.patch, and nothing else (vendor/README.md).
 step 13 sh scripts/vendor-check.sh
 
-# 14. The traced path of the e2e harnesses works in the sh that runs this, with no tmux and no sim:
+# 14. The traced path of the e2e harnesses works in the sh that runs this, with no tmux and no Sim:
 # Ubuntu's dash has no LINENO, and a bare `$LINENO` under `set -u` once stopped every case on a runner.
 step 14 sh scripts/e2e-lib-check.sh
+
+# 15. The product is written Sim in prose and the command is `sim` (CLI-7's Decided). A sentence, a list
+# item, a heading or a cell of a table in the documents that starts with a bare `sim` is a name that was
+# missed (the command, a path and a crate are in backticks there; fences are left out). Only the start
+# of a sentence is looked at: inside one, a grep cannot tell the name from a command written bare.
+printf '\n[15/%s] the product is written Sim at the start of a sentence of the documents\n' "$N"
+low=$(awk '
+  BEGIN { re = "(^|[.!?] |^[ \t]*[-*] |^#+ |[|] |[(])sim([^A-Za-z0-9_./:-]|$)" }
+  FNR == 1 { fence = 0 }
+  /^[ \t]*(```|~~~)/ { fence = !fence; next }
+  !fence && $0 ~ re { print FILENAME ":" FNR ": " $0 }
+' README*.md CONCEPT.md SPEC.md AGENTS.md NOTES.md CHANGELOG.md SECURITY.md vendor/README.md)
+if [ -n "$low" ]; then
+  printf '%s\n' "$low" >&2
+  echo "check.sh: step 15 failed: the product is written Sim (the command, a path or a crate goes in backticks)" >&2
+  exit 1
+fi
 
 printf '\ncheck.sh: all checks passed\n'

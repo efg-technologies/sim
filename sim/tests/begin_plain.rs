@@ -1,5 +1,5 @@
 //! PLAIN-1, GUI-4: the start of every front end is `shell::begin`, and in a privileged world (root, or the
-//! editor of `sudoedit`) it is plain whatever the front end: sim is plain, no program starts from then on
+//! editor of `sudoedit`) it is plain whatever the front end: Sim is plain, no program starts from then on
 //! (not a filter, a hook, git or ripgrep), the shell is given no `rg`, and git's hooks directory is not
 //! made. Every test of this file runs in a world that is privileged, and the first start makes the process
 //! plain for good (`filter::forbid_programs` is one-way): its control, a world that is not, is `begin_open.rs`.
@@ -46,7 +46,7 @@ fn plain_1_a_privileged_world_makes_every_front_end_plain_and_gives_it_no_rg_and
  {
     let dir = repo_with_a_change("bp-start");
     let on = begin_in(&dir.0, &["a.txt"], io::privileged(0, None), None);
-    assert!(on.begun.sim.plain, "root's sim is plain");
+    assert!(on.begun.sim.plain, "root's Sim is plain");
     assert!(!filter::programs_allowed(), "no program starts from now on");
     assert!(
         on.begun.cfg.rg.is_none(),

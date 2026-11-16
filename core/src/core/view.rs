@@ -362,14 +362,14 @@ pub fn render(a: &mut App) -> Frame {
     Frame { width: w as u16, height: h as u16, rows: out, cursor, shape, pal: a.pal }
 }
 
-/// CLI-5: what sim is and the keys to start with, centered below the first row, as many lines as fit.
+/// CLI-5: what Sim is and the keys to start with, centered below the first row, as many lines as fit.
 fn intro(out: &mut [Row], w: usize) {
     #[rustfmt::skip]
     const KEYS: [(&str, &str); 6] = [
         ("i / Esc", "type / stop typing"), ("Ctrl-s", "save"), ("ZZ", "save and quit"), ("q", "quit"),
         ("ZQ", "quit without saving"), ("]c / [c", "next / previous change"),
     ];
-    let title = format!("sim {}", env!("CARGO_PKG_VERSION"));
+    let title = format!("Sim {}", env!("CARGO_PKG_VERSION"));
     let tagline = "The next-generation Vim that shows even what is hidden.";
     // Each line is its text and where its Secondary part starts; the keys are padded to one width.
     let keys = KEYS.iter().map(|(k, d)| (format!("{k:<15}{d:<32}"), 15));

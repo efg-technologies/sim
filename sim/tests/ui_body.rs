@@ -1,5 +1,5 @@
 //! UI-9, UI-5: the body of the editor in flat and depth: wrapping at the pane's width, the line
-//! numbers, the cursor's line, the sign column, driven through sim's state.
+//! numbers, the cursor's line, the sign column, driven through Sim's state.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;

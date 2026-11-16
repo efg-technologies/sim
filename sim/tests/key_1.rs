@@ -66,7 +66,7 @@ fn key_1_every_line_of_the_table_is_well_formed() {
     assert!(table().len() > 100 && table().len() == text.lines().count());
 }
 
-/// What is typed: a key of the core, or one of sim's own events.
+/// What is typed: a key of the core, or one of Sim's own events.
 #[derive(Clone, Copy, Debug)]
 enum Typed {
     K(Key),
@@ -113,7 +113,7 @@ fn universe() -> Vec<(String, Typed)> {
         ("<PageDown>", Key::PageDown),
     ];
     all.extend(named.into_iter().map(|(n, k)| (n.to_string(), Typed::K(k))));
-    // (Alt-h/j/k/l are keys of their own, VI-22; any other Alt key reaches sim as Esc and the key)
+    // (Alt-h/j/k/l are keys of their own, VI-22; any other Alt key reaches Sim as Esc and the key)
     all.extend("hjkl".chars().map(|c| (format!("<M-{c}>"), Typed::K(Key::Alt(c)))));
     all.push(("<S-Tab>".into(), Typed::BackTab));
     all.push(("<F1>".into(), Typed::Help));
@@ -165,7 +165,7 @@ fn print(r: &Rig) -> Fingerprint {
 /// `setup` is typed first: the state the keys are tried in (the text with the focus, by default).
 fn handled(prefix: &[&Typed], names: &[(String, Typed)], setup: &str) -> BTreeSet<String> {
     let count = |n: &str| n.len() == 1 && "123456789".contains(n);
-    // sim's own keys work whatever has been typed: a prefix does not hold them back. Ctrl-w (TREE-2) is
+    // Sim's own keys work whatever has been typed: a prefix does not hold them back. Ctrl-w (TREE-2) is
     // the exception that holds back all but the two that are not keys: the next key ends it, whatever it is
     // (and Ctrl-p is one of its keys)
     let win = matches!(prefix, [Typed::K(Key::Ctrl('w'))]);
@@ -202,7 +202,7 @@ fn handled(prefix: &[&Typed], names: &[(String, Typed)], setup: &str) -> BTreeSe
     })
 }
 
-/// The keys that sim takes before the core's parser sees them: with a prefix typed they end it, and are
+/// The keys that Sim takes before the core's parser sees them: with a prefix typed they end it, and are
 /// not keys after it.
 const GLOBAL: [&str; 6] = ["<C-n>", "<C-p>", "<C-f>", "<C-s>", "<F1>", "<S-Tab>"];
 /// The operators, as the table writes their keys (`g c` is `gc`, VI-18, `g s a` is `gsa`, VI-20). The case operators (`gu`, `gU`,

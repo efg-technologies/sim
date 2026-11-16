@@ -1,7 +1,7 @@
 //! GUI-10
 //! The input mapping end to end: window events (as winit makes them) through `Input` and the path of
-//! the binary into a running sim, and what sim does with them. Every key and mode works as in a
-//! terminal because sim is the one that decides what a key is.
+//! the binary into a running Sim, and what Sim does with them. Every key and mode works as in a
+//! terminal because Sim is the one that decides what a key is.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // helpers; the tests themselves may unwrap
 use sim_gui::api::*;
 use sim_gui::headless::Headless;
@@ -13,7 +13,7 @@ use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, Ime, MouseButton as WButton, MouseScrollDelta};
 use winit::keyboard::{Key, ModifiersState, NamedKey, SmolStr};
 
-/// A window with sim in it: the input adapter and a headless sim, and a clipboard.
+/// A window with Sim in it: the input adapter and a headless Sim, and a clipboard.
 struct Window {
     h: Headless,
     input: Input,

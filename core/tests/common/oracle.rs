@@ -1,6 +1,6 @@
 //! What SAFE-10 and SAFE-11 say, written out again from SPEC and from the Unicode Character
 //! Database 18.0.0, so that the tests that use it do not trust the code's own table. Nothing here
-//! depends on the core (sim's tests include this file too).
+//! depends on the core (Sim's tests include this file too).
 #![allow(dead_code, clippy::unwrap_used)]
 
 /// The chars SAFE-10 names (U+2028 and U+2029 are its own addition).

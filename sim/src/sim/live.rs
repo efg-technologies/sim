@@ -1,5 +1,5 @@
 //! GREP-1, GREP-3, GREP-4, GREP-6, FIND-4, PICK-2, PICK-3, PICK-4, PICK-5, KEY-4
-//! The picker in sim's state (pure): Ctrl-f's search of file contents and Ctrl-p's file finder,
+//! The picker in Sim's state (pure): Ctrl-f's search of file contents and Ctrl-p's file finder,
 //! their keys, the results (the content search's arrive in batches), the selection, the preview of
 //! the selected file, and what the window shows. The panel and the files are not touched: Esc
 //! closes the picker and everything is as it was.
@@ -432,7 +432,7 @@ impl Sim {
             l.top.min(total.saturating_sub(rows)).clamp((l.cur + 1).saturating_sub(rows), l.cur);
         let Some((path, no)) = l.pick().map(|(g, ln)| (g.path.clone(), ln.no)) else { return };
         if win.pane.h == 0 {
-            return; // (a window with no room for a preview: sim renders no pane of no rows)
+            return; // (a window with no room for a preview: Sim renders no pane of no rows)
         }
         let (kind, query) = (l.kind, l.query.clone());
         let Some(p) = l.preview.as_mut().filter(|p| p.path == path) else { return };

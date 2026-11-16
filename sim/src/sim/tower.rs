@@ -1,5 +1,5 @@
 //! DIFF-7, DIFF-8, DIFF-9, DIFF-10
-//! The changes view as a watchtower, in sim's state (pure). While the view has the focus the text pane shows
+//! The changes view as a watchtower, in Sim's state (pure). While the view has the focus the text pane shows
 //! the diff of the file under its cursor against HEAD: git's patch made into a core App that is rendered and
 //! never given a key, so that a hidden char is its form (SAFE-8, SAFE-10). `]c` and `[c` walk its hunks and go
 //! on into the next file's, `J` and `K` scroll it, Enter opens the file at the hunk shown. It is asked again

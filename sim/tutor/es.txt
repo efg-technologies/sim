@@ -1,4 +1,4 @@
-tutor de sim: lecciones breves, unos 15 minutos
+tutor de Sim: lecciones breves, unos 15 minutos
 ===============================================
 Esta es una copia desechable. Nada de lo que hagas aquí se escribe en
 el disco, así que experimenta con libertad. Pulsa u para deshacer;
@@ -19,7 +19,7 @@ el inicio de línea, así que solo coincide el título).
   5 Copiar y pegar
   6 Buscar
   7 Guardar y salir
-  8 Lo que sim muestra y otros editores ocultan
+  8 Lo que Sim muestra y otros editores ocultan
 %editor
   9 Buscar archivos y apariencia
 %end
@@ -142,10 +142,10 @@ a a a
 ## 7 Guardar y salir
 
 :w guarda, :q sale, :wq hace ambas cosas, :q! sale y descarta los
-cambios. sim nunca pierde texto sin que tú lo decidas: antes de que
+cambios. Sim nunca pierde texto sin que tú lo decidas: antes de que
 :w! o :e! descarte una versión (la tuya o la del disco), la copia en
 su propia carpeta. Si otro programa cambia tu archivo mientras editas,
-sim fusiona el cambio o muestra el conflicto; nunca sobrescribe en
+Sim fusiona el cambio o muestra el conflicto; nunca sobrescribe en
 silencio.
 Este tutor es una copia desechable: :w dice que no y no escribe nada.
 
@@ -157,7 +157,7 @@ b 2
 @ b 2
 @ c 3
 
-## 8 Lo que sim muestra y otros editores ocultan
+## 8 Lo que Sim muestra y otros editores ocultan
 
 Un carácter que no se muestra como él mismo (un control, un espacio de
 ancho cero, una anulación de derecha a izquierda) se dibuja como una

@@ -1,4 +1,4 @@
-tutoriel de sim : leçons courtes, environ 15 minutes
+tutoriel de Sim : leçons courtes, environ 15 minutes
 ====================================================
 Ceci est une copie jetable. Rien de ce que vous faites ici n'est écrit
 sur le disque : expérimentez librement. Appuyez sur u pour annuler ;
@@ -19,7 +19,7 @@ est le début de ligne : seul le titre correspond).
   5 Copier et coller
   6 Rechercher
   7 Enregistrer et quitter
-  8 Ce que sim montre et que d'autres éditeurs cachent
+  8 Ce que Sim montre et que d'autres éditeurs cachent
 %editor
   9 Trouver des fichiers et l'apparence
 %end
@@ -141,10 +141,10 @@ a a a
 ## 7 Enregistrer et quitter
 
 :w enregistre, :q quitte, :wq fait les deux, :q! quitte en abandonnant
-les modifications. sim ne perd jamais de texte sans votre accord :
+les modifications. Sim ne perd jamais de texte sans votre accord :
 avant que :w! ou :e! abandonne une version (la vôtre ou celle du
 disque), il la copie dans son propre dossier. Si un autre programme
-modifie votre fichier pendant que vous éditez, sim fusionne la
+modifie votre fichier pendant que vous éditez, Sim fusionne la
 modification ou montre le conflit ; il n'écrase jamais en silence.
 Ce tutoriel est une copie jetable : :w refuse et n'écrit rien.
 
@@ -156,7 +156,7 @@ b 2
 @ b 2
 @ c 3
 
-## 8 Ce que sim montre et que d'autres éditeurs cachent
+## 8 Ce que Sim montre et que d'autres éditeurs cachent
 
 Un caractère qui ne s'affiche pas tel quel (un caractère de contrôle,
 une espace de largeur nulle, un forçage de droite à gauche) est

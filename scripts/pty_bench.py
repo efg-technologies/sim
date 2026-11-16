@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmarks of the real sim binary, which needs a terminal: every run gets its own pty, and the
+"""Benchmarks of the real binary `sim`, which needs a terminal: every run gets its own pty, and the
 script plays the terminal on the other side of it (class Terminal).
 
   pty_bench.py startup BIN FILE [N]   wall time of `BIN +q FILE` (PERF-1), N runs (default 200), and
@@ -55,7 +55,7 @@ import time
 # si's places and snapshots (SAFE-6, CLI-6) go to a directory of its own, never to the user's.
 STATE = tempfile.mkdtemp(prefix="sim-bench-state.")
 # ICON-1: where no Nerd Font is known (Terminal.app, a CI runner: anywhere but Ghostty, kitty and
-# WezTerm) sim says `zi: icons (needs a Nerd Font)` in place of the status line's text until the first
+# WezTerm) Sim says `zi: icons (needs a Nerd Font)` in place of the status line's text until the first
 # key, once. Every run here looks for NORMAL on that line, so the hint counts as given.
 os.mkdir(os.path.join(STATE, "sim"), 0o700)
 with open(os.path.join(STATE, "sim", "icons-hint"), "w") as marker:
@@ -63,9 +63,9 @@ with open(os.path.join(STATE, "sim", "icons-hint"), "w") as marker:
 atexit.register(shutil.rmtree, STATE, True)
 
 # The environment of the child is its own, never the caller's: a developer's terminal sets TERM,
-# COLORTERM, TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_* and TMUX, which change what sim does (COLOR-2,
+# COLORTERM, TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_* and TMUX, which change what Sim does (COLOR-2,
 # ICON-1), and a CI runner sets no TERM at all, so the runs would differ between the two. Only PATH comes
-# from the caller (the programs sim runs). `--no-term` is a terminal without TERM, as a CI runner has.
+# from the caller (the programs Sim runs). `--no-term` is a terminal without TERM, as a CI runner has.
 ENV = {
     "HOME": STATE,
     "XDG_STATE_HOME": STATE,
@@ -303,7 +303,7 @@ def rss(binary, path):
         vm = {k: int(status[k].split()[0]) for k in ("VmRSS", "VmHWM")}
         os.write(master, b":q\r")
         if proc.wait(timeout=10) != 0:
-            sys.exit("pty_bench: sim did not quit with :q")
+            sys.exit("pty_bench: Sim did not quit with :q")
     finally:
         if proc.poll() is None:
             proc.kill()

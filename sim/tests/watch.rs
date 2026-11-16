@@ -1,4 +1,4 @@
-//! WATCH-1, WATCH-2, WATCH-3: watching the project. What sim does with what the watcher saw (`Touched`),
+//! WATCH-1, WATCH-2, WATCH-3: watching the project. What Sim does with what the watcher saw (`Touched`),
 //! driven through its state; and the watcher itself, on real directories and repositories, with its own
 //! thread: what it names, what it leaves out, git's directories (a linked worktree's too), and what it does
 //! where the system refuses a watch. The timing tests wait for at most a few seconds.
@@ -145,9 +145,9 @@ fn watch_2_sim_s_own_saves_make_no_mark() {
     let mut r = project("w2-own", Skin::Calm);
     open(&mut r, "a.txt");
     r.keys("x:w\n");
-    // The watcher tells of the save, as it tells of any write: it is sim's own, and no news.
+    // The watcher tells of the save, as it tells of any write: it is Sim's own, and no news.
     r.send(touched(&[("a.txt", true)]));
-    // And `:w` to a name no file has open is sim's own too.
+    // And `:w` to a name no file has open is Sim's own too.
     r.keys(":w copy.txt\n");
     r.send(touched(&[("copy.txt", true)]));
     assert!(panel(&mut r).iter().all(|l| !l.contains('↯')), "{:?}", r.panel());
@@ -281,7 +281,7 @@ fn watch_1_a_new_directory_is_watched_once_the_list_has_it() {
     fs::create_dir(d.0.join("fresh")).unwrap();
     fs::write(d.0.join("fresh/one.txt"), "1\n").unwrap();
     assert_eq!(named(&batches(&rx, Duration::from_millis(400))), [("fresh".into(), false)]);
-    // sim asks for the list, which has the new file: its directory is watched, and told once more
+    // Sim asks for the list, which has the new file: its directory is watched, and told once more
     p.files(&io::files(&d.0));
     assert_eq!(named(&batches(&rx, Duration::from_millis(400))), [("fresh".into(), false)]);
     fs::write(d.0.join("fresh/one.txt"), "2\n").unwrap();
@@ -347,7 +347,7 @@ fn watch_3_an_idle_project_asks_git_nothing() {
     let d = repository("w3-idle");
     fs::write(d.0.join("a.txt"), "changed, for a diff\n").unwrap();
     let rx = watching(&d.0, None, io::POLL);
-    // sim's own git (the status, the list, the numbers, the diffs, HEAD's version) writes nothing that
+    // Sim's own git (the status, the list, the numbers, the diffs, HEAD's version) writes nothing that
     // the watcher sees: it runs with `--no-optional-locks` (MARK-1)
     let root = fs::canonicalize(&d.0).unwrap();
     for _ in 0..3 {
@@ -361,7 +361,7 @@ fn watch_3_an_idle_project_asks_git_nothing() {
     }
     assert!(
         batches(&rx, Duration::from_millis(1500)).is_empty(),
-        "nothing came, so sim asks nothing"
+        "nothing came, so Sim asks nothing"
     );
 }
 
@@ -443,8 +443,8 @@ fn watch_3_git_is_asked_at_most_once_at_a_time_and_no_more_often_than_every_200_
 }
 
 /// WATCH-3: a storm: 10,000 files written in ten directories in about a second, through the real
-/// watcher; its batches go to sim (timed: they are events on the main thread, as a key is), and each
-/// status sim asks for goes to the paced worker that runs git's status of this repository for real.
+/// watcher; its batches go to Sim (timed: they are events on the main thread, as a key is), and each
+/// status Sim asks for goes to the paced worker that runs git's status of this repository for real.
 /// git runs a bounded number of times, and a batch costs the main thread its own paths, never the whole
 /// status (SPEED-1 has the keys' times with batches between them, its kind `touched`).
 ///
@@ -516,7 +516,7 @@ fn watch_3_bench_a_storm_of_events_asks_git_a_bounded_number_of_times() {
     let window = t0.elapsed();
     let ran = runs.load(SeqCst);
     eprintln!(
-        "WATCH-3 10,000 writes in {spent:?}; {batches} batches ({many} of many), {named} paths named; git's status ran {ran} times in {window:?}; a batch in sim: p50 {:?} p99 {:?} max {:?}; a status answer: max {:?}",
+        "WATCH-3 10,000 writes in {spent:?}; {batches} batches ({many} of many), {named} paths named; git's status ran {ran} times in {window:?}; a batch in Sim: p50 {:?} p99 {:?} max {:?}; a status answer: max {:?}",
         percentile(&times, 50),
         percentile(&times, 99),
         times[times.len() - 1],

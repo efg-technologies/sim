@@ -1,20 +1,20 @@
 [English](README.md) | [日本語](README.ja.md) | [简体中文](README.zh-cn.md) | **繁體中文** | [한국어](README.ko.md) | [Español](README.es.md) | [Português (Brasil)](README.pt-br.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Русский](README.ru.md)
 
-# sim，新世代 Vim
+# Sim，新世代 Vim
 
-**sim**（也稱 *sim editor*，是 *Secure vIM* 的縮寫）是新世代 Vim：以 Rust 從零寫成，保留了 Vim 的模式編輯與核心按鍵。它不讀取 modeline，不載入外掛，不開啟網路連線，並把平常隱藏的東西顯示在畫面上：不可見字元、編輯器之外的寫入、會執行程式碼的儲存庫。
+**Sim**（也稱 *Sim editor*，是 *Secure vIM* 的縮寫）是新世代 Vim：以 Rust 從零寫成，保留了 Vim 的模式編輯與核心按鍵。它不讀取 modeline，不載入外掛，不開啟網路連線，並把平常隱藏的東西顯示在畫面上：不可見字元、編輯器之外的寫入、會執行程式碼的儲存庫。
 
 **沒有外掛。沒有 modeline。沒有網路。**
 
 網站：<https://sim.efg-technologies.com/zh-tw/> · Linux 與 macOS · MIT OR Apache-2.0 · [變更記錄](CHANGELOG.md) · [安全性政策](SECURITY.md)
 
-sim 的每一項承諾，都適用於其中開啟的每一個檔案：**沒有明確的操作，任何人的文字都不會遺失**，無論是你的，還是其他行程的。
+Sim 的每一項承諾，都適用於其中開啟的每一個檔案：**沒有明確的操作，任何人的文字都不會遺失**，無論是你的，還是其他行程的。
 
 ## 安裝
 
 執行檔是 `sim`，Homebrew 上的套件名稱是 `efg-technologies/tap/sim`。AUR 套件與 crates.io 上的 crate（`sim-editor`，以及它所依賴的函式庫 `sim-editor-core`）尚未發布。
 
-sim 0.2.1 已經推出。可以用 Homebrew 安裝：
+Sim 0.2.1 已經推出。可以用 Homebrew 安裝：
 
 ```sh
 brew install efg-technologies/tap/sim
@@ -35,10 +35,10 @@ AUR 套件 `sim-editor`，以及 crates.io 上的 `sim-editor` 與 `sim-editor-c
 ```sh
 export EDITOR=sim                     # Claude Code 的 Ctrl-g、crontab -e 等
 git config --global core.editor sim   # git commit（ZZ 提交，:cq 中止）
-export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就是 plain 模式）
+export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 Sim 本身就是 plain 模式）
 ```
 
-需要 Rust 1.88 或更新版本。可在 Linux 與 macOS 的任何終端機中執行；當終端機支援時，會使用色彩、kitty 鍵盤協定與 OSC 52（Ghostty、kitty、WezTerm、tmux）。git 與 ripgrep 是選用的：它們在 `PATH` 中時，sim 就會使用。圖示需要 Nerd Font；圖示在 Ghostty、kitty 與 WezTerm 中預設開啟，在其他終端機中預設關閉並給出一次性的提示，以 `zi` 開啟或關閉。更多內容見[安裝頁面](https://sim.efg-technologies.com/zh-tw/install/)。
+需要 Rust 1.88 或更新版本。可在 Linux 與 macOS 的任何終端機中執行；當終端機支援時，會使用色彩、kitty 鍵盤協定與 OSC 52（Ghostty、kitty、WezTerm、tmux）。git 與 ripgrep 是選用的：它們在 `PATH` 中時，Sim 就會使用。圖示需要 Nerd Font；圖示在 Ghostty、kitty 與 WezTerm 中預設開啟，在其他終端機中預設關閉並給出一次性的提示，以 `zi` 開啟或關閉。更多內容見[安裝頁面](https://sim.efg-technologies.com/zh-tw/install/)。
 
 ## 它能做什麼
 
@@ -75,9 +75,9 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 - `:tutor` 會在一份用完即棄的副本裡開啟約 15 分鐘的簡短課程（不會寫入任何內容），練習做對後會自動標上 ✓；語言由 `LC_ALL`、`LC_MESSAGES`、`LANG` 決定，與本 README 相同的十種語言。
 - `<Space>bp` 會為每個分頁標上一個字母，按下該字母即可跳到對應的檔案；`<Space>bc` 以同樣的方式關閉分頁（有變更的檔案會保持開啟，與 `:q` 一樣）。第一次開啟第二個檔案時，會有提示告訴你 `Tab` 與 `Shift-Tab`，直到你用過它們三次為止。
 - 搜尋的比對結果以醒目提示標出時，狀態列會顯示你位於第幾個比對結果，以及總共有多少個：`[3/12]`。
-- `sim --help` 會印出用法與 sim 讀取的環境變數（`NO_COLOR`、`SIM_ON_NORMAL`、`XDG_STATE_HOME`）；`sim --version` 會印出版本。兩者都不會碰終端機。
+- `sim --help` 會印出用法與 Sim 讀取的環境變數（`NO_COLOR`、`SIM_ON_NORMAL`、`XDG_STATE_HOME`）；`sim --version` 會印出版本。兩者都不會碰終端機。
 
-## sim 一個畫面看完
+## Sim 一個畫面看完
 
 | 按鍵 | 作用 |
 |---|---|
@@ -123,26 +123,26 @@ export SUDO_EDITOR='sim --plain'      # sudoedit（在 Linux 上 sim 本身就�
 | `F1` | 說明 |
 | `:help` | 說明 |
 
-其餘都是 vi：移動指令、運算子、文字物件、計數、`.`、視覺模式、`:s`、範圍。`Y` 複製到行尾，`U` 是重做，沒有暫存器名稱的複製也會透過 OSC 52 送進系統剪貼簿，在 tmux 裡同樣如此（帶名稱的 `"ay` 只留在 sim 裡）。重新開啟檔案時，游標會回到你離開的位置。開著輸入法時，全形按鍵也能當作指令使用；`SIM_ON_NORMAL='fcitx5-remote -c'` 會在你每次回到一般模式時關閉輸入法（舊名稱 `SI_ON_NORMAL` 仍然有效）。所有按鍵都在同一張表 `sim/keys.tsv` 中，`:help` 與 which-key 讀取它，測試也會對照按鍵的實際作用檢查它。完整清單見[文件頁面](https://sim.efg-technologies.com/zh-tw/docs/)。
+其餘都是 vi：移動指令、運算子、文字物件、計數、`.`、視覺模式、`:s`、範圍。`Y` 複製到行尾，`U` 是重做，沒有暫存器名稱的複製也會透過 OSC 52 送進系統剪貼簿，在 tmux 裡同樣如此（帶名稱的 `"ay` 只留在 Sim 裡）。重新開啟檔案時，游標會回到你離開的位置。開著輸入法時，全形按鍵也能當作指令使用；`SIM_ON_NORMAL='fcitx5-remote -c'` 會在你每次回到一般模式時關閉輸入法（舊名稱 `SI_ON_NORMAL` 仍然有效）。所有按鍵都在同一張表 `sim/keys.tsv` 中，`:help` 與 which-key 讀取它，測試也會對照按鍵的實際作用檢查它。完整清單見[文件頁面](https://sim.efg-technologies.com/zh-tw/docs/)。
 
 ## 安全模型
 
-你會開啟並非自己撰寫的檔案與儲存庫。攻擊者控制的是它們的內容，而不是你的機器。sim 努力確保這些內容無法對你隱藏、無法重新設定編輯器，也無法讓編輯器執行程式碼。它**不是沙盒**：它以你的權限執行，不會偵測其他文字中外觀相似的字母，它的各項說法來自專案自己的規格與測試，而不是獨立稽核。語言伺服器尚未實作；計畫提供沙盒化的用戶端。如需回報漏洞，請閱讀[安全性政策](SECURITY.md)。
+你會開啟並非自己撰寫的檔案與儲存庫。攻擊者控制的是它們的內容，而不是你的機器。Sim 努力確保這些內容無法對你隱藏、無法重新設定編輯器，也無法讓編輯器執行程式碼。它**不是沙盒**：它以你的權限執行，不會偵測其他文字中外觀相似的字母，它的各項說法來自專案自己的規格與測試，而不是獨立稽核。語言伺服器尚未實作；計畫提供沙盒化的用戶端。如需回報漏洞，請閱讀[安全性政策](SECURITY.md)。
 
 完整的威脅模型，逐項威脅列在[安全性頁面](https://sim.efg-technologies.com/zh-tw/security/)上。三篇長文講得更深入：[隱藏字元與雙向字元](https://sim.efg-technologies.com/blog/hidden-characters/)、[會執行程式碼的儲存庫](https://sim.efg-technologies.com/blog/repositories-that-run-code/)，以及[安全儲存與機密資訊](https://sim.efg-technologies.com/blog/safe-saves/)。
 
 ## 與 Vim、Neovim 和 Helix 比較
 
-Vim、Neovim 與 Helix 都是成熟的編輯器，而 sim 是新的。這裡只比較第一手來源所說的內容；[比較頁面](https://sim.efg-technologies.com/zh-tw/compare/)引用了全部來源（查證於 2026-10-17：Vim 9.2.1202、Neovim 0.12.6、Helix 25.07.1）。
+Vim、Neovim 與 Helix 都是成熟的編輯器，而 Sim 是新的。這裡只比較第一手來源所說的內容；[比較頁面](https://sim.efg-technologies.com/zh-tw/compare/)引用了全部來源（查證於 2026-10-17：Vim 9.2.1202、Neovim 0.12.6、Helix 25.07.1）。
 
-| | Vim | Neovim | Helix | sim |
+| | Vim | Neovim | Helix | Sim |
 |---|---|---|---|---|
 | 擴充系統 | Vim script、套件 | Lua、Vim script | 已發行版本中沒有外掛系統；以 Steel 為基礎的 PR [#8675](https://github.com/helix-editor/helix/pull/8675) 是草稿 | 沒有，這是刻意的 |
 | Modeline | 開啟（root 下關閉）；自 [9.2.0350](https://github.com/vim/vim/commit/4c2879471) 起有 `'modelinestrict'` | 開啟（root 下關閉） | 不剖析（[#729](https://github.com/helix-editor/helix/issues/729)） | 從不讀取 |
 | 專案本地設定 | `'exrc'`，預設關閉 | `'exrc'`，信任清單 | 25.07.1 會載入 `.helix/config.toml`；信任機制在開發分支上 | 不存在 |
 | U+202E 等字元 | `<202e>` | `<202e>` | 25.07.1 中沒有標記（我們的測試；[#11255](https://github.com/helix-editor/helix/issues/11255)） | 洋紅色色塊上的 `<U+202E>` |
 
-其他編輯器目前仍做得更好的地方：Neovim 與 Helix 內建語言伺服器用戶端，Vim 與 Neovim 有外掛與巨集。sim 目前這些都沒有。
+其他編輯器目前仍做得更好的地方：Neovim 與 Helix 內建語言伺服器用戶端，Vim 與 Neovim 有外掛與巨集。Sim 目前這些都沒有。
 
 ## 路線圖（規劃中，尚未推出）
 
@@ -150,7 +150,7 @@ Vim 的巨集 · 超出 OSC 52 的剪貼簿整合 · 沙盒化的語言伺服器
 
 ## 參與開發
 
-sim 是一個由兩個 crate 組成的程式：**核心**（`sim-editor-core`，位於 `core/`：緩衝區、vi 的文法、儲存、與其他行程寫入內容的合併、終端機）與**編輯器**（`sim-editor`，位於 `sim/`：可執行檔 `sim`，包含檔案樹、尋找、搜尋、標記、語法、外觀與滑鼠）。每項選擇背後的原因，連同其所依據的研究，都在 [CONCEPT.md](CONCEPT.md) 中。sim 必須做到什麼寫在 [SPEC.md](SPEC.md) 中：每條需求都有編號，每個編號都有測試。
+Sim 是一個由兩個 crate 組成的程式：**核心**（`sim-editor-core`，位於 `core/`：緩衝區、vi 的文法、儲存、與其他行程寫入內容的合併、終端機）與**編輯器**（`sim-editor`，位於 `sim/`：可執行檔 `sim`，包含檔案樹、尋找、搜尋、標記、語法、外觀與滑鼠）。每項選擇背後的原因，連同其所依據的研究，都在 [CONCEPT.md](CONCEPT.md) 中。Sim 必須做到什麼寫在 [SPEC.md](SPEC.md) 中：每條需求都有編號，每個編號都有測試。
 
 金字塔：[CONCEPT](CONCEPT.md)（為什麼）→ [SPEC](SPEC.md)（做什麼，附編號）→ `core/src` 與 `sim/src`（怎麼做）→ 測試（證明）。變更自上而下流動，證明自下而上流動。規則寫在 [CLAUDE.md](CLAUDE.md) 中。
 

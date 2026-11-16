@@ -210,10 +210,10 @@ fn tutor_1_tutor_opens_a_scratch_buffer_with_the_lessons_and_a_second_one_goes_t
     assert_eq!(r.sim.bufs.len(), 2);
     let b = &r.sim.bufs[r.sim.cur];
     assert_eq!(b.app.path, None, "a scratch buffer: it has no file");
-    assert!(row(&r, "sim tutor").contains("about 15 minutes"), "{}", row(&r, "sim tutor"));
+    assert!(row(&r, "Sim tutor").contains("about 15 minutes"), "{}", row(&r, "Sim tutor"));
     assert!(r.text().contains("## 1 Moving around") && r.text().contains("## 9 Finding"));
     assert!(!r.text().contains("%editor") && !r.text().contains("@ "), "the markup is gone");
-    // its tab has a name of its own, and `:qa` says it is why sim stays
+    // its tab has a name of its own, and `:qa` says it is why Sim stays
     assert_eq!(
         r.sim.tabs().iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
         ["a.txt", "[tutor]"]
@@ -410,7 +410,7 @@ fn tutor_3_the_language_of_the_environment_is_the_text_and_an_unknown_one_is_eng
 fn tutor_1_plain_mode_has_the_tutor_with_eight_lessons_and_writes_nothing() {
     let mut r = rig_env("tutor-plain", &FILES, &["--plain", "a.txt"], (80, 24), |_| {});
     r.keys(":tutor\n");
-    assert!(r.text().contains("## 8 What sim shows"));
+    assert!(r.text().contains("## 8 What Sim shows"));
     assert!(
         !r.text().contains("## 9") && !r.text().contains("Finding files"),
         "the editor's lesson"

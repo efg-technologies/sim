@@ -7,7 +7,7 @@
 #
 # This script prints:
 #   PERF-1  median time of `sim --plain +q` on a 10,000-line file, with hyperfine if it is installed
-#           (inside a private tmux server, because sim needs a terminal), and with
+#           (inside a private tmux server, because Sim needs a terminal), and with
 #           scripts/pty_bench.py (python3 and a pty; /bin/true timed the same way is the baseline).
 #           `+q` quits before the first frame, so it never waits for the terminal's color and never
 #           asks for it (VIS-4); pty_bench.py also prints the time to the first frame and the time
@@ -38,7 +38,7 @@ make_file 10000 70 "$tmp/ten_thousand_lines.rs"
 make_file 110000 100 "$tmp/ten_mb.rs"
 
 if command -v hyperfine > /dev/null 2>&1 && command -v tmux > /dev/null 2>&1; then
-  # hyperfine's output must stay on the terminal: --output=inherit hands it to sim, which needs one.
+  # hyperfine's output must stay on the terminal: --output=inherit hands it to Sim, which needs one.
   tmux -L sim-bench -f /dev/null new-session -d -x 80 -y 24 \
     "hyperfine -N --warmup 10 --output=inherit --export-json '$tmp/h.json' '$bin --plain +q $tmp/ten_thousand_lines.rs'; touch '$tmp/done'" \
     \; set-option -w remain-on-exit on

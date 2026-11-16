@@ -1,7 +1,7 @@
 //! GUI-16
 //! Text: the fonts, the shaping of a char, its raster in the atlas. cosmic-text finds the font (the
 //! system's monospace or the one asked for, then a fallback for the chars it lacks: CJK, symbols,
-//! emoji), shapes a char with its combining marks, and swash draws it. The grid is sim's, not the
+//! emoji), shapes a char with its combining marks, and swash draws it. The grid is Sim's, not the
 //! font's: every glyph is placed at the origin of its cell, so a fallback font with another advance
 //! cannot shift the columns.
 use crate::metrics::Metrics;

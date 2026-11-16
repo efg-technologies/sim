@@ -178,7 +178,7 @@ pub fn remove(state: &Path, path: &str, pid: u32) {
 
 /// SAFE-7: the copy of the version that `:w!` or `:e!` gives up, a file of `state` named after the
 /// file's own name, `{name}.{n}.{ext}` with the first `n` that is free (nothing is ever replaced),
-/// private (0600) and synced, and never deleted by sim. Returns where it went.
+/// private (0600) and synced, and never deleted by Sim. Returns where it went.
 pub fn keep(state: &Path, path: &str, bytes: &[u8], ext: &str) -> io::Result<PathBuf> {
     DirBuilder::new().recursive(true).mode(0o700).create(state)?;
     private(state)?;

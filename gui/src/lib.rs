@@ -1,5 +1,5 @@
 //! GUI-8, GUI-17
-//! sim-gui, a window for sim. A renderer and an input adapter; the editor is sim's.
+//! sim-gui, a window for Sim. A renderer and an input adapter; the editor is Sim's.
 #![forbid(unsafe_code)]
 #![allow(clippy::chunks_exact_to_as_chunks)] // (as_chunks is newer than the rust-version this crate keeps)
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]

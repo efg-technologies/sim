@@ -65,7 +65,7 @@ impl Regs {
     }
 
     /// A yank: into `"0` unless it has a name (a yank with a name leaves `"0` alone, as in vim). `+` and
-    /// `*` are one register, the text sim last sent to the clipboard: shown, and put by `p`, never read
+    /// `*` are one register, the text Sim last sent to the clipboard: shown, and put by `p`, never read
     /// from the clipboard.
     pub fn yank(&mut self, name: Option<char>, text: Rope, lw: bool) {
         let k = match name {
@@ -154,7 +154,7 @@ fn shares(needs: &[usize], room: usize) -> Vec<usize> {
 }
 
 impl App {
-    /// sim shares the registers of all its open files: they are taken from the file that typed last
+    /// Sim shares the registers of all its open files: they are taken from the file that typed last
     /// and given to the next one (VI-15).
     pub fn take_regs(&mut self) -> Regs {
         std::mem::take(&mut self.regs)

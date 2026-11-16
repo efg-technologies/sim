@@ -794,7 +794,7 @@ fn buf_3_bd_closes_the_file_as_q_and_the_last_one_leaves_the_tree_not_sim() {
     assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "B1\nB2\n", "nothing written");
     r.keys(":bdelete\n");
     assert!(r.open_files().is_empty());
-    assert!(r.quit.is_none(), "the last one leaves sim open");
+    assert!(r.quit.is_none(), "the last one leaves Sim open");
     assert!(r.sim.panel.open && r.sim.panel.focus, "with the tree, as `sim` with no file");
     r.keys("qq");
     assert_eq!(r.quit, Some(0));

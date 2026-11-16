@@ -1,6 +1,6 @@
 //! GUI-14
 //! A studio: fonts, a GPU, an offscreen target, an animator, and what it takes to draw the screen of
-//! a headless sim into it. The screenshots, the goldens and the timings are all made here, through
+//! a headless Sim into it. The screenshots, the goldens and the timings are all made here, through
 //! the same animator, scene builder and renderer the window uses.
 use crate::anim::Animator;
 use crate::api::{Resolver, Shape};
@@ -52,14 +52,14 @@ impl Studio {
         metrics_of(&self.fonts)
     }
 
-    /// Sets the size of the target and tells sim the grid that fits it.
+    /// Sets the size of the target and tells Sim the grid that fits it.
     pub fn fit(&mut self, h: &mut Headless, size: (u32, u32)) {
         self.off.resize(size);
         let (cols, rows) = self.metrics().grid_for(size.0, size.1);
         h.resize(cols, rows);
     }
 
-    /// The animator takes sim's current screen as what the picture is going to.
+    /// The animator takes Sim's current screen as what the picture is going to.
     pub fn feed(&mut self, h: &Headless) {
         let m = self.metrics();
         self.anim.set_target(Snapshot::take(h.screen(), &mut self.resolver), &m);
@@ -90,7 +90,7 @@ impl Studio {
         self.off.render(&scene, &overlay, &mut self.fonts)
     }
 
-    /// Takes sim's screen and draws it, settled.
+    /// Takes Sim's screen and draws it, settled.
     pub fn frame(&mut self, h: &Headless) -> Stats {
         self.feed(h);
         self.anim.settle();

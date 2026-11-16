@@ -1,5 +1,5 @@
 //! OPEN-1, OPEN-2
-//! What the text names, opened (pure): `gf` the file named at the cursor, in sim; `gx` the web address at
+//! What the text names, opened (pure): `gf` the file named at the cursor, in Sim; `gx` the web address at
 //! the cursor, by the system's opener, which the shell starts. In a Markdown file the inline link the cursor
 //! is in names its target. The shell looks for a file on the disk; nothing here reads one.
 use super::panel::Out;

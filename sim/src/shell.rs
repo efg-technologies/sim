@@ -9,7 +9,7 @@
 //! clipboard, and a quit.
 //! The start has one policy too, `begin`: the rules of plain mode (PLAIN-1), of the state directory
 //! (SAFE-6, STATE-1) and of git's hooks (GIT-1) are applied in one place, which every front end goes
-//! through, so that none can start sim without them.
+//! through, so that none can start Sim without them.
 use crate::color::Syntax;
 use crate::io::{self as sio, HlJob, Job, MERGE};
 use crate::layout::Skin;
@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 /// What the shell needs to know about where it is.
 #[derive(Clone, Default)]
 pub struct Config {
-    /// The working directory: the names sim has for files are relative to it.
+    /// The working directory: the names Sim has for files are relative to it.
     pub cwd: PathBuf,
     /// The root of the tree.
     pub root: PathBuf,
@@ -102,7 +102,7 @@ pub struct Front {
     pub home: Option<PathBuf>,
 }
 
-/// What `begin` made: sim and what it asked for at once, and what the shell needs.
+/// What `begin` made: Sim and what it asked for at once, and what the shell needs.
 pub struct Begun {
     pub sim: Sim,
     pub fx: Vec<SimEffect>,
@@ -120,7 +120,7 @@ pub fn arguments(args: &[String], cwd: &Path) -> Option<Start> {
     Some(s)
 }
 
-/// The start of sim for every front end, and the one place that applies its rules: plain mode is on when
+/// The start of Sim for every front end, and the one place that applies its rules: plain mode is on when
 /// `--plain` was given or the world is privileged, and then no program starts, from here on, not git,
 /// ripgrep, a filter or a hook (PLAIN-1: `filter::forbid_programs` before anything can ask for one, and
 /// no `rg` in the shell's `Config`); otherwise git's hooks are pointed at a private empty directory in
@@ -172,7 +172,7 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
     Begun { sim, fx, cfg, keys, moved: world.moved }
 }
 
-/// SAFE-6: a hangup or a termination of this process is an event of sim's, which snapshots every file with
+/// SAFE-6: a hangup or a termination of this process is an event of Sim's, which snapshots every file with
 /// unsaved changes and quits (the same for every front end: a window that is closed by the system loses
 /// nothing a terminal would not). Where signals cannot be had, nothing is: the snapshots of the tick stay.
 pub fn signals(tx: Sender<SimEvent>) {
@@ -185,11 +185,11 @@ pub fn signals(tx: Sender<SimEvent>) {
 /// What running the Effects left for the terminal or the window to do.
 #[derive(Default)]
 pub struct Out {
-    /// The last screen sim drew.
+    /// The last screen Sim drew.
     pub frame: Option<crate::paint::Screen>,
     /// Text for the system clipboard, in order.
     pub clipboard: Vec<String>,
-    /// sim is to end with this code; the Effects after the quit were not run.
+    /// Sim is to end with this code; the Effects after the quit were not run.
     pub quit: Option<i32>,
 }
 
@@ -221,7 +221,7 @@ enum Work {
 
 pub struct Shell {
     cfg: Config,
-    /// Answers that came back at once: given to sim before anything else.
+    /// Answers that came back at once: given to Sim before anything else.
     local: Vec<SimEvent>,
     work: Work,
 }
@@ -289,7 +289,7 @@ impl Shell {
         Shell { cfg, local: vec![], work: Work::Inline(sio::Highlighter::default()) }
     }
 
-    /// The name of a file as the job that reads or writes it is to take it: as sim has it (relative to
+    /// The name of a file as the job that reads or writes it is to take it: as Sim has it (relative to
     /// the working directory, which is the process's) on threads, made absolute when inline, where the
     /// process is somewhere else.
     fn at(&self, name: &str) -> String {
@@ -299,8 +299,8 @@ impl Shell {
         }
     }
 
-    /// An event for sim, which first notes that a filter has ended (its process group is gone: the id
-    /// could be somebody else's), and what sim is to do about it.
+    /// An event for Sim, which first notes that a filter has ended (its process group is gone: the id
+    /// could be somebody else's), and what Sim is to do about it.
     pub fn update(&mut self, sim: &mut Sim, ev: SimEvent) -> Vec<SimEffect> {
         if let (Work::Threads(t), SimEvent::App(id, Event::FilterDone { .. })) =
             (&mut self.work, &ev)
@@ -316,7 +316,7 @@ impl Shell {
         self.run(sim, fx)
     }
 
-    /// The file changed outside sim, as its watcher would tell (an inline shell has none): its bytes now.
+    /// The file changed outside Sim, as its watcher would tell (an inline shell has none): its bytes now.
     pub fn disk_changed(&mut self, sim: &mut Sim, id: Id, name: &str) -> Out {
         let bytes = std::fs::read(self.at(name)).ok();
         let h = bytes.as_deref().map(hash);
@@ -367,7 +367,7 @@ impl Shell {
         }
     }
 
-    /// One Effect. Whether sim is to quit (nothing after it is run).
+    /// One Effect. Whether Sim is to quit (nothing after it is run).
     fn effect(&mut self, e: SimEffect, out: &mut Out) -> bool {
         let (cwd, root) = (self.cfg.cwd.clone(), self.cfg.root.clone());
         match (e, &mut self.work) {

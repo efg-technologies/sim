@@ -13,7 +13,7 @@ const HEAD: &str = "one\ntwo\nthree\nfour\nfive\nsix\n";
 /// From HEAD: `two` changed, `3b` added after `three`, `five` deleted.
 const NOW: &str = "one\nTWO\nthree\n3b\nfour\nsix\n";
 
-/// A repository with `a.txt` committed as `HEAD` and then written as `now`, open in sim.
+/// A repository with `a.txt` committed as `HEAD` and then written as `now`, open in Sim.
 fn opened(name: &str, now: &str) -> Rig {
     rig_env(name, &[&format!("a.txt={HEAD}"), "b.txt=new\n"], &["a.txt"], (80, 24), |e| {
         repo(&e.cwd, &[]);

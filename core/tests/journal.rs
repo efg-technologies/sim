@@ -399,7 +399,7 @@ fn old_and_new(t: &Tmp) -> (PathBuf, PathBuf) {
 }
 
 /// Everything si's directory held: a snapshot of a dead session, the places, the copies of
-/// SAFE-7, a recovery copy of an in-place save, the history of sim, the look and the icons.
+/// SAFE-7, a recovery copy of an in-place save, the history of Sim, the look and the icons.
 fn fill(old: &Path) -> Vec<(String, Vec<u8>)> {
     write(old, &snap("/work/a.rs", DEAD, 5)).unwrap();
     let names =

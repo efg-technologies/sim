@@ -92,7 +92,7 @@ layer 0
   text [496 76] "made-up" #d2d3d4
   text [576 76] "project" #d2d3d4
   text [656 76] "that" #d2d3d4
-  text [706 76] "sim" #d2d3d4 bold
+  text [706 76] "Sim" #d2d3d4 bold
   text [746 76] "opens" #d2d3d4
   text [806 76] "in" #d2d3d4
   text [836 76] "a" #d2d3d4

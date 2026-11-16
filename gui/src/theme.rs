@@ -1,11 +1,11 @@
 //! GUI-6, GUI-11
 //! The palette a terminal would have answered with. A window has no terminal to ask (OSC 11 for
-//! the background, OSC 4 for the ANSI colors), so the GUI hands sim the replies as events, in the
-//! order a terminal sends them. sim derives everything else (si's palette, the tones, the syntax
+//! the background, OSC 4 for the ANSI colors), so the GUI hands Sim the replies as events, in the
+//! order a terminal sends them. Sim derives everything else (si's palette, the tones, the syntax
 //! colors, the fog) from these six colors by its own APCA code, so the GUI chooses nothing but them.
 use crate::api::{Rgb, SimEvent};
 
-/// The six colors a terminal reports: the background and the ANSI colors sim asks for
+/// The six colors a terminal reports: the background and the ANSI colors Sim asks for
 /// (`sim::color::QUERY`: red, green, yellow, magenta, cyan).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Theme {
@@ -61,7 +61,7 @@ impl Theme {
         }
     }
 
-    /// GUI-6: what a terminal's answers become: one event with the background and the ANSI colors sim
+    /// GUI-6: what a terminal's answers become: one event with the background and the ANSI colors Sim
     /// asks for (red, green, yellow, magenta, cyan: 1, 2, 3, 5, 6), as `SimEvent::Colors` says them.
     pub fn events(&self) -> Vec<SimEvent> {
         let mut ansi = [None; 8];
@@ -79,7 +79,7 @@ mod tests {
     use super::*;
     use crate::api::{Syntax, Tones, apca, palette};
 
-    /// What sim's `Syntax` and `Tones` make of a theme's event, as sim would (the same calls).
+    /// What Sim's `Syntax` and `Tones` make of a theme's event, as Sim would (the same calls).
     fn derive(t: &Theme) -> (Syntax, Tones) {
         let mut syn = Syntax::new(true);
         for e in t.events() {
@@ -95,7 +95,7 @@ mod tests {
     fn gui_11_a_theme_answers_every_query_sim_makes() {
         for t in [DARK, LIGHT] {
             let (syn, _) = derive(&t);
-            assert!(!syn.pending(), "{}: sim still waits for a reply", t.name);
+            assert!(!syn.pending(), "{}: Sim still waits for a reply", t.name);
         }
     }
 
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn gui_11_the_syntax_colors_read_on_both_themes() {
-        // sim's own rule (SYN-1): syntax text at |Lc| >= 75 against the page
+        // Sim's own rule (SYN-1): syntax text at |Lc| >= 75 against the page
         for t in [DARK, LIGHT] {
             let (syn, _) = derive(&t);
             for look in [

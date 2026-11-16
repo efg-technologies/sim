@@ -1,5 +1,5 @@
 //! GUI-4, GUI-14
-//! sim without a window or a terminal: the shell running its jobs inline, keys typed from a script.
+//! Sim without a window or a terminal: the shell running its jobs inline, keys typed from a script.
 //! What the offscreen renders and the tests drive. The same input always gives the same screen.
 use crate::api::*;
 use crate::demo;
@@ -18,7 +18,7 @@ pub struct Headless {
 }
 
 impl Headless {
-    /// sim started on `args` in `dir`, with a private journal directory.
+    /// Sim started on `args` in `dir`, with a private journal directory.
     pub fn open(
         dir: &Path,
         home: Option<&Path>,
@@ -27,7 +27,7 @@ impl Headless {
         theme: &Theme,
         icons: bool,
     ) -> Headless {
-        // SAFE-6: sim uses a journal directory only if it is private; this one is made fresh
+        // SAFE-6: Sim uses a journal directory only if it is private; this one is made fresh
         let state = PrivateDir::new("sim-gui-state-").ok();
         // An offscreen render or a test is not a privileged context: it runs on a project of its own
         // making, in directories of its own, and must give the same screen as root or not.
@@ -41,13 +41,13 @@ impl Headless {
         let cfg = Settings { world, home: home.map(Path::to_path_buf), icons, size };
         let args: Vec<String> = args.iter().map(ToString::to_string).collect();
         let Some((session, _)) = Session::new(&args, dir, cfg, theme, Exec::Inline) else {
-            // a usage error of sim's command line: the caller gave arguments sim does not take
+            // a usage error of Sim's command line: the caller gave arguments Sim does not take
             return Headless::open(dir, home, &[], size, theme, icons);
         };
         Headless { session, dir: dir.to_path_buf(), owned: state.into_iter().collect() }
     }
 
-    /// The demo project (see `demo`), made in a directory of its own, and sim started in it.
+    /// The demo project (see `demo`), made in a directory of its own, and Sim started in it.
     pub fn demo(name: &str, args: &[&str], size: (u16, u16), theme: &Theme) -> Headless {
         Headless::demo_with(name, args, size, theme, false)
     }
@@ -86,7 +86,7 @@ impl Headless {
         self
     }
 
-    /// One terminal event, through the path of the binary into sim.
+    /// One terminal event, through the path of the binary into Sim.
     pub fn event(&mut self, ev: crate::api::CtEvent) -> &mut Headless {
         for e in to_sim(ev) {
             self.session.send(e);
@@ -118,7 +118,7 @@ impl Headless {
         self
     }
 
-    /// The same palette another theme would have answered with (sim derives it all again).
+    /// The same palette another theme would have answered with (Sim derives it all again).
     pub fn retheme(&mut self, theme: &Theme) -> &mut Headless {
         for e in theme.events() {
             self.session.send(e);
@@ -128,7 +128,7 @@ impl Headless {
 
     #[allow(clippy::expect_used)] // `Sim::new` renders a screen before it returns
     pub fn screen(&self) -> &Screen {
-        self.session.screen().expect("sim has drawn a screen")
+        self.session.screen().expect("Sim has drawn a screen")
     }
 
     /// The text of the screen, one string for each row.

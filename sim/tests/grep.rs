@@ -756,7 +756,7 @@ fn grep_8_rg_does_not_read_its_config_and_runs_no_pre_script() {
         "the config must work for this test to mean something"
     );
     std::fs::remove_file(&witness).unwrap();
-    // sim's search in a process that has that config in its environment
+    // Sim's search in a process that has that config in its environment
     let out = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",

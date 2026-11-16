@@ -1,4 +1,4 @@
-//! SPEED-2: in a repository of 100,000 files, sim shows its first frame within 20 ms; the list of
+//! SPEED-2: in a repository of 100,000 files, Sim shows its first frame within 20 ms; the list of
 //! files arrives later. The real binary is started under a pseudo-terminal (`script`) and the
 //! time to the first frame is read off the bytes it writes, from the start of the process.
 //!
@@ -58,7 +58,7 @@ fn first_output(
             break t.elapsed();
         }
     };
-    drop(child.stdin.take()); // end of input: sim gets a hangup and ends
+    drop(child.stdin.take()); // end of input: Sim gets a hangup and ends
     let _ = child.kill();
     let _ = child.wait();
     at
@@ -91,7 +91,7 @@ fn speed_2_bench_first_frame_in_a_repository_of_100000_files() {
     let status_time = t.elapsed();
     assert_eq!(list.len(), FILES);
     // The real binary under a pty, including the wrapper's own time (script, sh and stty), which
-    // a baseline run with a `printf` in place of sim shows.
+    // a baseline run with a `printf` in place of Sim shows.
     let bin = env!("CARGO_BIN_EXE_sim");
     let state = temp_dir("speed-2-state");
     let median = |f: &dyn Fn() -> Duration| {

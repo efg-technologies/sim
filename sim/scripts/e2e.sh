@@ -1,17 +1,17 @@
 #!/bin/sh
-# End-to-end tests: run sim inside tmux and look at the screen. This is si's scripts/e2e.sh for sim.
+# End-to-end tests: run Sim inside tmux and look at the screen. This is si's scripts/e2e.sh for Sim.
 #
 #   sh sim/scripts/e2e.sh [prefix]
 #
 # Runs every case, or only the cases whose name starts with the prefix (e.g. `tree_1`).
-# A case is a shell function named like an ID in sim's SPEC, `<family>_<n>_<what>()`
+# A case is a shell function named like an ID in Sim's SPEC, `<family>_<n>_<what>()`
 # (e.g. `tree_1_starts_with_the_tree()`); sim/scripts/trace.sh counts them as tests for that ID.
 # Cases use the helpers below, and any failing command fails the case (set -e).
 #
 # This never touches the user's tmux: every case starts its own tmux server on its own socket
 # (-L sim-e2e-<pid>), so options and paste buffers set by one case never reach another. It reads no
 # config (-f /dev/null) and sets escape-time to 0, so tmux itself never delays an Escape.
-# Each case also gets its own HOME and XDG_STATE_HOME, and sim runs in an environment of its own (`env -i`:
+# Each case also gets its own HOME and XDG_STATE_HOME, and Sim runs in an environment of its own (`env -i`:
 # PATH, HOME, the state directory, tmux's TERM and TMUX, a UTF-8 LANG, no git configuration, and what the
 # case asks for below), none of the variables of the terminal this runs in.
 #
@@ -20,34 +20,34 @@
 # macOS); in Debian's and Ubuntu's dash, which has no LINENO, it is `?` and the command is what there is.
 #
 # Helpers (available inside a case):
-#   start [args...]    run sim in a detached 80x24 session, in the case's temp directory
+#   start [args...]    run Sim in a detached 80x24 session, in the case's temp directory
 #   keys KEY...        send tmux key names (Escape, Enter, C-c, ...)
 #   typed TEXT         send TEXT as typed characters
-#   screen             print the screen (still readable after sim has exited)
+#   screen             print the screen (still readable after Sim has exited)
 #   wait_for TEXT [s]  wait until the screen contains TEXT (fixed string), 5 s by default
-#   wait_exit [s]      wait until sim has exited
-#   exit_code          print the exit code of sim (after wait_exit)
+#   wait_exit [s]      wait until Sim has exited
+#   exit_code          print the exit code of Sim (after wait_exit)
 #   now_ms             print the time in milliseconds since the epoch
 #   screen_esc         print the screen with its SGR sequences (colors, reverse, bold)
 #   wait_esc PATTERN   wait until the screen with its SGR sequences matches the (basic) regex
-#   reply OSC          type a terminal's reply to sim's color query, e.g. reply '11;rgb:1e1e/1e1e/1e1e'
+#   reply OSC          type a terminal's reply to Sim's color query, e.g. reply '11;rgb:1e1e/1e1e/1e1e'
 #   mouse B COL ROW M  type what a terminal reports for the mouse in SGR coding (1006): button code B
 #                      (0 left, 32 left dragged, 64 / 65 wheel up / down), COL and ROW 1-based, M the
 #                      press `M` or the release `m`; click, press, drag, release, wheel are shorter
 #   mouse_flags        the mouse modes the pane's application has asked tmux for (any, SGR, button)
-#   restart            end the case's tmux session, so that `start` can run sim again (files stay)
+#   restart            end the case's tmux session, so that `start` can run Sim again (files stay)
 #   $CASE_DIR          the case's temp directory; $HOME and $XDG_STATE_HOME are inside it
-#   $W                 sim's working directory, $CASE_DIR/work: the project a case makes
-#   $CT                set it (CT=truecolor) before `start` to run sim with COLORTERM=$CT; otherwise sim
+#   $W                 Sim's working directory, $CASE_DIR/work: the project a case makes
+#   $CT                set it (CT=truecolor) before `start` to run Sim with COLORTERM=$CT; otherwise Sim
 #                      runs without COLORTERM, whatever the user's terminal sets
-#   $NOCOLOR           set it before `start` to run sim with NO_COLOR=$NOCOLOR (COLOR-2); otherwise it is unset
-#   $TP                set it before `start` to run sim with TERM_PROGRAM=$TP (ghostty brings Nerd Font symbols,
+#   $NOCOLOR           set it before `start` to run Sim with NO_COLOR=$NOCOLOR (COLOR-2); otherwise it is unset
+#   $TP                set it before `start` to run Sim with TERM_PROGRAM=$TP (ghostty brings Nerd Font symbols,
 #                      ICON-1); otherwise the terminal is not known to bring any, whatever the user's is
-#   $LOCALE            set it before `start` to run sim with LANG=$LOCALE; otherwise en_US.UTF-8 (TUTOR-3)
+#   $LOCALE            set it before `start` to run Sim with LANG=$LOCALE; otherwise en_US.UTF-8 (TUTOR-3)
 #   $HINT_TAB          set it before `start` to see the hint of KEY-6 (otherwise Tab counts as learned)
 #   $HINTED            set it before `start` to see the hint of ICON-1; otherwise the hint counts as given
 #   $ICONS_ON          set it in a case that draws icons: no other screen may have a private-use code point
-#   $SIM_PATH          set it before `start` to run sim with that PATH (for a fake or a missing rg)
+#   $SIM_PATH          set it before `start` to run Sim with that PATH (for a fake or a missing rg)
 #   $SIM_E2E_KEEP      set it (to a directory) to keep what a case that fails saw, in $SIM_E2E_KEEP/<case>.txt: the screen,
 #                      the screen with its escape sequences made visible, and the names in the state directory (CI uploads it)
 #   markdown WORD      make the read view of Markdown the next `start` begins with (on, off, or none for no choice
@@ -74,7 +74,7 @@ shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 # ---- helpers used by cases ----
 
-# LOOK-1: the look is remembered in sim's state directory, and the first run is depth; the cases are
+# LOOK-1: the look is remembered in Sim's state directory, and the first run is depth; the cases are
 # written for calm unless they say otherwise.
 look() {
   mkdir -p -m 700 "$XDG_STATE_HOME/sim"
@@ -82,7 +82,7 @@ look() {
   LOOKED=1
 }
 
-# MD-5: the read view is remembered in sim's state directory too, and the first run is on; the cases are
+# MD-5: the read view is remembered in Sim's state directory too, and the first run is on; the cases are
 # written for the raw text unless they say otherwise.
 markdown() {
   mkdir -p -m 700 "$XDG_STATE_HOME/sim"
@@ -98,13 +98,13 @@ start() {
   [ -n "${HINTED:-}" ] || [ -e "$XDG_STATE_HOME/sim/icons-hint" ] || { mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo shown > "$XDG_STATE_HOME/sim/icons-hint"; }
   # KEY-6: Tab is learned (three uses) unless a case wants the hint for a second file
   [ -n "${HINT_TAB:-}" ] || [ -e "$XDG_STATE_HOME/sim/tab-uses" ] || { mkdir -p -m 700 "$XDG_STATE_HOME/sim" && echo 3 > "$XDG_STATE_HOME/sim/tab-uses"; }
-  # sim's environment is the case's own (`env -i`): nothing of the terminal this runs in (COLORTERM, NO_COLOR,
+  # Sim's environment is the case's own (`env -i`): nothing of the terminal this runs in (COLORTERM, NO_COLOR,
   # TERM_PROGRAM, GHOSTTY_*, KITTY_*, WEZTERM_*, a locale) and no git configuration. Only PATH is the caller's
   # (or $SIM_PATH); TERM and TMUX are tmux's own (the pane's: this tmux sets them, whatever the user's terminal is).
   cmd="cd $(shq "$W") && env -i PATH=$(shq "${SIM_PATH:-$PATH}") HOME=$(shq "$HOME") XDG_STATE_HOME=$(shq "$XDG_STATE_HOME") TERM=\"\$TERM\" TMUX=\"\$TMUX\" TMUX_PANE=\"\$TMUX_PANE\" LANG=${LOCALE:-en_US.UTF-8} GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null ${CT:+COLORTERM=$CT} ${NOCOLOR:+NO_COLOR=$NOCOLOR} ${TP:+TERM_PROGRAM=$TP} $(shq "$SIM_BIN")"
   for arg in "$@"; do cmd="$cmd $(shq "$arg")"; done
   cmd="$cmd; echo \$? > $(shq "$CASE_DIR/.exit_code")"
-  # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after sim exits.
+  # sh -c, so that the user's login shell doesn't matter; remain-on-exit keeps the screen readable after Sim exits.
   tm new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" "exec sh -c $(shq "$cmd")" \; set-option -w -t "$SESSION" remain-on-exit on \; set-option -sg escape-time 0
 }
 
@@ -127,10 +127,10 @@ keep_failure() {
   } > "$SIM_E2E_KEEP/$name.txt" 2>&1 || true
 }
 
-# What a terminal answers to the color query (OSC 10, 11 and 4): typed into sim as keys.
+# What a terminal answers to the color query (OSC 10, 11 and 4): typed into Sim as keys.
 reply() { tm send-keys -t "$SESSION" -l -- "$(printf '\033]%s\033\\' "$1")"; }
 
-# What a terminal reports for the mouse (PTR-1), typed into sim like the replies above.
+# What a terminal reports for the mouse (PTR-1), typed into Sim like the replies above.
 mouse() { tm send-keys -t "$SESSION" -l -- "$(printf '\033[<%s;%s;%s%s' "$1" "$2" "$3" "$4")"; }
 press() { mouse 0 "$1" "$2" M; }
 drag() { mouse 32 "$1" "$2" M; }
@@ -244,7 +244,7 @@ wait_exit() {
     sleep 0.05
     tries=$((tries - 1))
   done
-  echo "timed out waiting for sim to exit" >&2
+  echo "timed out waiting for Sim to exit" >&2
   return 1
 }
 
@@ -265,7 +265,7 @@ run_one() {
   name=$1
   # Under /tmp whatever $TMPDIR says (macOS's is 50 characters, and the 80 columns of the status line
   # then cut off the text that cases wait for), and canonical: /tmp and /var are links on macOS, and
-  # sim records and shows the paths it resolved.
+  # Sim records and shows the paths it resolved.
   CASE_DIR=$(cd "$(mktemp -d /tmp/sim-e2e.XXXXXX)" && pwd -P)
   SESSION=c$$
   SOCKET=$SOCKET-$$
@@ -288,7 +288,7 @@ run_one() {
         tm kill-server 2> /dev/null || true
         # tmux leaves its socket behind when the server is killed: one file for every case, for ever
         rm -f "${sock:-${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$SOCKET}"
-        # sim saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
+        # Sim saves its unsaved text when tmux hangs it up (SAFE-6): let it finish before the files go
         until_gone $panes
         # a process on its way out can still add a file while rm empties a directory ("Directory not
         # empty", seen on macOS): rm again, which finds it empty once the process is gone
@@ -367,8 +367,8 @@ project() {
   printf 'readme\n' > "$W/README.md"
 }
 
-# Runs sim under a wrapper that records sim's pid, then prints its exit status and the tty modes
-# (`stty -a`). Call it before `start`; extra arguments are VAR=value pairs for sim's environment.
+# Runs Sim under a wrapper that records Sim's pid, then prints its exit status and the tty modes
+# (`stty -a`). Call it before `start`; extra arguments are VAR=value pairs for Sim's environment.
 wrap() {
   REAL=$SIM_BIN
   SIM_BIN=$CASE_DIR/wrap.sh
@@ -384,7 +384,7 @@ wrap() {
   chmod +x "$SIM_BIN"
 }
 
-# Ends the session and waits for sim to be gone: it saves its unsaved text, its place and its choices when tmux
+# Ends the session and waits for Sim to be gone: it saves its unsaved text, its place and its choices when tmux
 # hangs it up (SAFE-6, CLI-6), and what the next `start` reads is what it left.
 restart() {
   panes=$(tm list-panes -t "$SESSION" -F "#{pane_pid}" 2> /dev/null || true)
@@ -397,11 +397,11 @@ restart() {
 gone() { ! screen | grep -F -q -- "$1"; }
 
 # What is left in si's state directory but the places where files were closed (CLI-6, which stay).
-# What the journal left in the state directory: not the places, and not the choices sim keeps beside it
+# What the journal left in the state directory: not the places, and not the choices Sim keeps beside it
 # (`look`, `history`, `icons`, `view`, and the marker of the hint, STATE-1).
 journal_left() { ls -A "$XDG_STATE_HOME/sim" 2> /dev/null | grep -Ev '^(positions|look|history|icons|icons-hint|tab-uses|no-hooks|md|view|\.migrated)$' || true; }
 
-# After sim is gone: the normal screen is back and the tty is in cooked mode again.
+# After Sim is gone: the normal screen is back and the tty is in cooked mode again.
 terminal_restored() {
   wait_for icanon
   [ "$(tm display-message -p -t "$SESSION" '#{alternate_on}')" = 0 ]
@@ -411,7 +411,7 @@ terminal_restored() {
 }
 
 # Opens src/lib.rs and src/main.rs (the second is current), edits the end of both lines, and
-# waits until sim shows both are modified. Call `project` and `start` first.
+# waits until Sim shows both are modified. Call `project` and `start` first.
 two_files_modified() {
   wait_for "src/lib.rs  1:1  NORMAL"
   typed ":e src/main.rs"
@@ -1362,7 +1362,7 @@ syn_2_zh_turns_the_colors_off_and_on() {
 
 syn_3_a_parse_that_takes_too_long_is_given_up_and_the_other_files_keep_their_colors() {
   # No parse loops for ever any more (syntect's parser has a guard, SYN-3), but one may be slow: 24 heredocs
-  # whose word is 9,000 chars take this (debug) sim far more than the highlighter's 5 s. sim stays at its
+  # whose word is 9,000 chars take this (debug) Sim far more than the highlighter's 5 s. Sim stays at its
   # keys, says so after them, and highlights the next file
   awk 'BEGIN { w = sprintf("%9000s", ""); gsub(/ /, "A", w); for (i = 0; i < 24; i++) { print "cat <<" w; print w } }' > "$W/slow.sh"
   printf 'fn main() { let s = "x"; }\n' > "$W/a.rs"
@@ -1435,7 +1435,7 @@ buf_1_snapshots_are_off_when_the_state_directory_is_not_private() {
   mkdir -p -m 700 "$XDG_STATE_HOME/sim"
   chmod 755 "$XDG_STATE_HOME/sim"
   start src/lib.rs
-  wait_for "history: $XDG_STATE_HOME/sim is not private" # sim's own choices follow the same rule (STATE-1)
+  wait_for "history: $XDG_STATE_HOME/sim is not private" # Sim's own choices follow the same rule (STATE-1)
   typed j
   wait_for "src/lib.rs  1:1  NORMAL"
   typed x
@@ -2110,9 +2110,9 @@ ui_15_a_hidden_char_is_the_alert_s_and_the_same_text_typed_is_not() {
   screen_esc | grep -a 'end' | grep -aq '[;[]7[;m][^m]*m*^\['
 }
 
-# COLOR-2: with NO_COLOR set (and not empty) sim writes no color at all, not even where the terminal
+# COLOR-2: with NO_COLOR set (and not empty) Sim writes no color at all, not even where the terminal
 # says it has truecolor, and does not ask the terminal for its colors (OSC 11 and 4); the interface
-# is still drawn, in weight, underline and inverse video. What sim writes is read from the pane's
+# is still drawn, in weight, underline and inverse video. What Sim writes is read from the pane's
 # output (pipe-pane), the pane is only let go once it is being recorded.
 color_2_no_color_writes_none_and_asks_for_none() {
   project
@@ -2133,8 +2133,8 @@ color_2_no_color_writes_none_and_asks_for_none() {
   keys Enter
   wait_exit
   esc=$(printf '\033')
-  if grep -a -F -q "$esc]11;?" "$CASE_DIR/out"; then fail "sim asked for the background color"; fi
-  if grep -a -F -q "$esc]4;" "$CASE_DIR/out"; then fail "sim asked for the colors of the palette"; fi
+  if grep -a -F -q "$esc]11;?" "$CASE_DIR/out"; then fail "Sim asked for the background color"; fi
+  if grep -a -F -q "$esc]4;" "$CASE_DIR/out"; then fail "Sim asked for the colors of the palette"; fi
   # every SGR sequence it wrote has weight, underline and inverse only: no 30-38, 40-48, 90-97, 100-107
   LC_ALL=C grep -a -o "$esc\[[0-9;]*m" "$CASE_DIR/out" > "$CASE_DIR/sgr"
   [ -s "$CASE_DIR/sgr" ]
@@ -2158,7 +2158,7 @@ color_2_a_terminal_that_cannot_do_8_colors_gets_none_either() {
   keys Enter
   wait_exit
   esc=$(printf '\033')
-  if grep -a -F -q "$esc]11;?" "$CASE_DIR/out"; then fail "sim asked for the background color"; fi
+  if grep -a -F -q "$esc]11;?" "$CASE_DIR/out"; then fail "Sim asked for the background color"; fi
   LC_ALL=C grep -a -o "$esc\[[0-9;]*m" "$CASE_DIR/out" > "$CASE_DIR/sgr"
   if grep -E '(\[|;)(3[0-8]|4[0-8]|9[0-7]|10[0-7])(;|m)' "$CASE_DIR/sgr" > /dev/null; then fail "a color was written"; fi
 }
@@ -2411,7 +2411,7 @@ ui_5_a_file_named_star_does_not_make_git_run_a_submodule_s_own_commands() {
   g config -f "$W/.git/modules/sub/config" diff.external "$CASE_DIR/ext.sh"
   g -C "$W" config diff.submodule diff
   printf 'star\nchanged\n' > "$W/*"
-  # the control: git as sim ran the diff before makes the submodule's own external diff run
+  # the control: git as Sim ran the diff before makes the submodule's own external diff run
   g -C "$W" -c core.fsmonitor=false --no-optional-locks diff --no-ext-diff --no-textconv --no-color -U0 HEAD -- '*' > /dev/null
   [ -e "$CASE_DIR/witness" ]
   rm -f "$CASE_DIR/witness"
@@ -2599,7 +2599,7 @@ md_5_space_u_m_toggles_the_read_view_and_the_choice_is_remembered() {
   wait_for "<Space>um"
 }
 
-# MD-6: sim --plain has no read view, says so, and neither reads nor writes the choice.
+# MD-6: `sim --plain` has no read view, says so, and neither reads nor writes the choice.
 md_6_plain_mode_has_no_read_view() {
   printf '# Title\n\nSome **bold** here.\n' > "$W/README.md"
   MDED=1
@@ -2728,7 +2728,7 @@ ui_18_the_breadcrumb_never_sends_an_escape_sequence_of_a_name_or_a_heading_to_th
 }
 
 # UI-10: a file that is not valid UTF-8 says its state (read-only) in the middle of the bar and its format
-# (not utf-8) at the right, each once; sim --plain, which has no right side, keeps the core's whole reason.
+# (not utf-8) at the right, each once; `sim --plain`, which has no right side, keeps the core's whole reason.
 ui_10_a_file_that_is_not_utf_8_says_read_only_and_not_utf_8_each_once() {
   printf 'caf\351\n' > "$W/latin.txt"
   look flat
@@ -2937,7 +2937,7 @@ git_5_space_g_i_says_again_what_the_guard_did() {
 
 # MD-10: a definition in a block quote, a link of raw HTML, a link in a fence and a link whose text goes over
 # lines are marked like the rest, a badge (an image in a link) is not; and a line of a megabyte of brackets
-# does not hang sim, nor does it take the marks of the other lines away.
+# does not hang Sim, nor does it take the marks of the other lines away.
 md_10_a_definition_in_a_quote_raw_html_and_a_line_of_a_megabyte() {
   {
     printf 'Go to [good.example][1], or <a href="https://evil.example/h">good.example</a>.\n\n> [1]: https://evil.example/q\n\n'
@@ -2963,7 +2963,7 @@ md_10_a_definition_in_a_quote_raw_html_and_a_line_of_a_megabyte() {
   keys j
   keys j
   keys j
-  wait_for "NORMAL" # (sim answers with the line of a megabyte under the cursor)
+  wait_for "NORMAL" # (Sim answers with the line of a megabyte under the cursor)
 }
 
 # TUTOR-1, TUTOR-2: `:tutor` opens the lessons in a scratch buffer, an exercise turns from a cross to a check when the
@@ -2974,7 +2974,7 @@ tutor_1_tutor_opens_the_lessons_marks_an_exercise_done_and_writes_nothing() {
   wait_for "src/lib.rs  1:1  NORMAL"
   typed ":tutor"
   keys Enter
-  wait_for "sim tutor: short lessons"
+  wait_for "Sim tutor: short lessons"
   wait_for "[tutor]  1:1  NORMAL" # the status line names the lesson, not `[no name]`
   typed ":w"
   keys Enter
@@ -3009,7 +3009,7 @@ tutor_3_the_locale_picks_the_language_and_plain_mode_has_eight_lessons() {
   wait_for "src/lib.rs  1:1  NORMAL"
   typed ":tutor"
   keys Enter
-  wait_for "sim チュートリアル"
+  wait_for "Sim チュートリアル"
   typed '/^## 8'
   keys Enter
   wait_for "## 8 他のエディタが隠すもの"
@@ -3057,7 +3057,7 @@ md_12_a_link_reads_as_its_text_and_a_line_with_one_that_lies_keeps_its_links_who
   wait_for "See the docs now."
 }
 
-# WATCH-1: git as the cases run it outside sim, with a name for the commits.
+# WATCH-1: git as the cases run it outside Sim, with a name for the commits.
 outside_git() { git -c user.name=sim -c user.email=sim@example.com "$@"; }
 
 # WATCH-1: a project open in flat with colors, the tree with git's letters in it, once git's first answer is
@@ -3155,7 +3155,7 @@ watch_1_it_works_in_a_linked_worktree() {
   wait_row "README.md" '↯'
 }
 
-# WATCH-2: a file written from outside keeps its arrow until it has been opened, and sim's own save of it
+# WATCH-2: a file written from outside keeps its arrow until it has been opened, and Sim's own save of it
 # makes none, though it is not the file shown when it is saved.
 watch_2_a_file_is_marked_until_it_is_opened_and_sim_s_own_save_is_not() {
   gitproject
@@ -3291,7 +3291,7 @@ diff_8_enter_opens_the_file_at_the_hunk() {
   screen | grep -F -q "l26"
 }
 
-# DIFF-9: which view the panel showed is remembered: sim started again shows the changes view.
+# DIFF-9: which view the panel showed is remembered: Sim started again shows the changes view.
 diff_9_the_changes_view_is_remembered() {
   gitproject
   printf 'one\n' >> "$W/src/lib.rs"
@@ -3359,7 +3359,7 @@ git_6_a_config_written_from_outside_is_judged_again_within_a_second() {
 }
 
 # GIT-6: an executable hook written into the hooks directory from outside is told on the status line in the alert's
-# color with its name and on the frame, <Space>gi says it again, and sim never runs it (your git does: the control).
+# color with its name and on the frame, <Space>gi says it again, and Sim never runs it (your git does: the control).
 git_6_a_hook_written_from_outside_is_told_and_never_run() {
   gitproject
   look depth
@@ -3369,15 +3369,15 @@ git_6_a_hook_written_from_outside_is_told_and_never_run() {
   wait_last "$(git -C "$W" symbolic-ref --short HEAD)"
   printf '#!/bin/sh\ntouch "%s"\n' "$CASE_DIR/ran" > "$W/.git/hooks/pre-commit"
   chmod +x "$W/.git/hooks/pre-commit"
-  wait_for "hook written: hooks/pre-commit: sim does not run it, your git will" 2
+  wait_for "hook written: hooks/pre-commit: Sim does not run it, your git will" 2
   wait_for " hook written "
-  screen_esc | grep -a "sim does not run it" | grep -a -q '38;2;' # (the alert's color)
+  screen_esc | grep -a "Sim does not run it" | grep -a -q '38;2;' # (the alert's color)
   typed j
-  wait_gone "sim does not run it"
+  wait_gone "Sim does not run it"
   screen | head -1 | grep -F -q " hook written "
   typed " gi"
   wait_for "hook written: hooks/pre-commit"
-  printf 'more\n' >> "$W/README.md" # (sim's git runs again, for the watcher's news)
+  printf 'more\n' >> "$W/README.md" # (Sim's git runs again, for the watcher's news)
   wait_row "README.md" "M"
   [ ! -e "$CASE_DIR/ran" ]
   outside_git -C "$W" commit -q -am "the control"

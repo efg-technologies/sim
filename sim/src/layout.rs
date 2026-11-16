@@ -511,7 +511,7 @@ pub enum Guard {
     Refused,
 }
 
-/// GIT-5: the words the frame says of the guard, and GIT-6 of a hook written while sim runs (`hook`), in the
+/// GIT-5: the words the frame says of the guard, and GIT-6 of a hook written while Sim runs (`hook`), in the
 /// first form that fits `room` columns: both, the hook's words alone, the guard's alone.
 fn guard_words(g: Guard, hook: bool, room: usize) -> Option<String> {
     let forms = match g {
@@ -557,7 +557,7 @@ pub struct Deck<'a> {
     /// UI-18: the parts of the breadcrumb (the path's components and the section) and the index of the
     /// file's, none where the interface does not draw it.
     pub crumb: (Vec<String>, usize),
-    /// GIT-5: what the guard did to the repository; GIT-6: whether a hook was written while sim runs.
+    /// GIT-5: what the guard did to the repository; GIT-6: whether a hook was written while Sim runs.
     pub guard: Guard,
     pub hook: bool,
     /// DIFF-9: what the panel's box says it is, where it is not `files` (the changes view and its sums).

@@ -100,7 +100,7 @@ layer 0
   text [496 96] "made-up" #343434
   text [576 96] "project" #343434
   text [656 96] "that" #343434
-  text [706 96] "sim" #343434 bold
+  text [706 96] "Sim" #343434 bold
   text [746 96] "opens" #343434
   text [806 96] "in" #343434
   text [836 96] "a" #343434

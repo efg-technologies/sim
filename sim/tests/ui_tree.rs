@@ -1,7 +1,7 @@
 //! UI-2, UI-3: the tree of the interface: the header, the icons and `zi`, the git status of each
 //! entry with its letter and color, the dot of a directory, the dimmed dotfiles and ignored
 //! entries, the open file's row, and the guides. The marks and the icons are pure; the rest is
-//! driven through sim's state on a real repository.
+//! driven through Sim's state on a real repository.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;

@@ -1,4 +1,4 @@
-//! COLOR-1: the color budget. One hue has one meaning across all of sim: neutral grays and weight are
+//! COLOR-1: the color budget. One hue has one meaning across all of Sim: neutral grays and weight are
 //! all structure; green, amber and red are changes and nothing else; blue is the accent, "here,
 //! where you act"; magenta is the alert, only for what is hidden or dangerous; cyan is the kind,
 //! what a heading is (hue says what a thing is, lightness and weight how much). The chrome's colors

@@ -1,7 +1,7 @@
-//! GIT-6: the guard follows the repository while sim runs. A config written from outside is judged again
+//! GIT-6: the guard follows the repository while Sim runs. A config written from outside is judged again
 //! when the watcher tells of it, and the frame says what is so; a hook written into the hooks directory is
 //! said, in the alert's color and with its name, on the status line and on the frame, and `<Space>gi` says it
-//! again. Nothing that the config or a hook names is run. Driven through sim's state, and the watcher on a
+//! again. Nothing that the config or a hook names is run. Driven through Sim's state, and the watcher on a
 //! real repository with its own thread.
 #![allow(clippy::unwrap_used, clippy::panic)] // helpers; the tests themselves may unwrap
 mod common;
@@ -90,7 +90,7 @@ fn git_6_a_config_written_from_outside_is_judged_again_and_the_frame_follows_it(
 #[test]
 fn git_6_a_hook_written_is_said_in_the_alert_s_color_with_its_name_and_on_the_frame() {
     let mut r = project("g6-hook");
-    let said = "hook written: hooks/pre-commit: sim does not run it, your git will";
+    let said = "hook written: hooks/pre-commit: Sim does not run it, your git will";
     r.send(hooks(&[("pre-commit", true)]));
     assert_eq!(r.status().trim_end(), said);
     let t = sim::color::Tones::new(&sim_core::core::color::palette((0x1e, 0x1e, 0x1e)));
@@ -110,7 +110,7 @@ fn git_6_a_hook_written_is_said_in_the_alert_s_color_with_its_name_and_on_the_fr
     r.send(hooks(&[("pre-push", true), ("post-checkout", true)]));
     assert!(
         r.status().starts_with(
-            "hooks written: hooks/pre-push, hooks/post-checkout: sim does not run them"
+            "hooks written: hooks/pre-push, hooks/post-checkout: Sim does not run them"
         ),
         "{}",
         r.status()

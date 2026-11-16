@@ -1,4 +1,4 @@
-//! PTR-1, PTR-2: the mouse through sim's state: events in, the cursor, the focus, the scroll and the
+//! PTR-1, PTR-2: the mouse through Sim's state: events in, the cursor, the focus, the scroll and the
 //! selection out. The mouse is at (column, row) of the screen, 0-based; with the panel closed the
 //! gutter is 5 columns wide (a symbol, three digits, a blank), so the text starts at column 5.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap

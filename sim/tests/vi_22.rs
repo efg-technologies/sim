@@ -1,4 +1,4 @@
-//! VI-22 in sim: Alt-h/j/k/l move the lines of the text, and where a key is not the text's (the tree, a
+//! VI-22 in Sim: Alt-h/j/k/l move the lines of the text, and where a key is not the text's (the tree, a
 //! picker, the leader, Ctrl-w, the letters of the tabs) an Alt key is Esc and the key, as it always was.
 mod common;
 use common::*;

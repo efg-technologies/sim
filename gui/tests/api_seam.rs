@@ -1,7 +1,7 @@
 //! GUI-8
-//! The window reaches sim through `src/api.rs` and nowhere else, and keeps none of sim's rules of its
-//! own: what a cell finally is, which layers there are and what each surface is come from sim's
-//! `Resolver`, `Screen::layers` and `Paint::role`, so a change of sim's paint rules cannot leave the
+//! The window reaches Sim through `src/api.rs` and nowhere else, and keeps none of Sim's rules of its
+//! own: what a cell finally is, which layers there are and what each surface is come from Sim's
+//! `Resolver`, `Screen::layers` and `Paint::role`, so a change of Sim's paint rules cannot leave the
 //! window drawing the old ones.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // helpers; the tests themselves may unwrap
 use std::fs;
@@ -84,14 +84,14 @@ fn gui_8_the_scan_tells_a_path_of_sim_from_a_crate_that_ends_in_its_name() {
 fn gui_8_the_window_has_no_copy_of_sims_paint_rules() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     // the modules that copied them are gone
-    assert!(!root.join("cellstyle.rs").exists(), "a cell's style is sim's `Resolver`");
+    assert!(!root.join("cellstyle.rs").exists(), "a cell's style is Sim's `Resolver`");
     for p in files() {
         if p.starts_with(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests")) {
             continue;
         }
         for (n, l) in code(&p) {
             let at = format!("{}:{n}: {l}", p.display());
-            // the look table, the SGR order, the floors of the fog: sim's
+            // the look table, the SGR order, the floors of the fog: Sim's
             for word in
                 ["made_of", "fn sgr", "TEXT_FLOOR", "NUMBER_FLOOR", "fade_to(", "Geo", "geo()"]
             {
@@ -115,7 +115,7 @@ fn word_in(line: &str, word: &str) -> bool {
 
 /// The window is a front end like the terminal (PLAIN-1, GUI-4): its start is `begin`, which applies the
 /// rules of plain mode, of the state directory and of git's hooks once for every front end, and it decides
-/// none of them: it does not build the sim it runs or the shell's config, does not run `forbid_programs`
+/// none of them: it does not build the Sim it runs or the shell's config, does not run `forbid_programs`
 /// or look for an `rg`, does not name the state directory or catch the signals itself.
 #[test]
 fn gui_8_the_window_starts_sim_only_through_the_start_every_front_end_shares() {
