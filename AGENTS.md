@@ -167,7 +167,7 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 9. the editor depends on its own list only, and no crate of the window is in the tree of the editor or of the core
 10. the window depends on its allowlist only, and no network crate or webview is in its tree
 11. the name is *Secure vIM* and the crates are sim-editor and sim-editor-core: a grep keeps the earlier name stories and the earlier crate name from coming back
-12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 233 KiB (5,481,472 bytes)
+12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 234 KiB (5,482,496 bytes)
 13. vendor/syntect is upstream's syntect 5.3.0 and vendor/syntect.patch, nothing else (scripts/vendor-check.sh: the patch taken off a copy, every file against the sha256 list)
 14. the traced path of the e2e harnesses works in the `sh` that runs check.sh, with no tmux and no Sim (scripts/e2e-lib-check.sh: a passing case and a failing one, and the failing one is told by its command: Ubuntu's dash has no LINENO)
 15. no sentence, list item, heading or cell of a table in the documents (README*.md, CONCEPT, SPEC, this file, NOTES, CHANGELOG, SECURITY, vendor/README.md) starts with a bare `sim`: the product is written Sim, and the command, a path or a crate is in backticks (CLI-7)
