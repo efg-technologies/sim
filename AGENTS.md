@@ -82,11 +82,14 @@ sim/                the package sim-editor: the library `sim` and the binary `si
     rank.rs         recency/frequency likelihood from the open history (pure)
     marks.rs        git status and on-disk changes → marks for files and directories (pure)
     sim/ptr.rs      the mouse: clicks, drags and the wheel in the panel and the text (pure)
+    sim/jump.rs     the jump by label, the owner's flash.nvim on `s`: the query, its matches in the lines on the screen, their labels, and the keys of a jump (pure, JUMP-1)
+    sim/open.rs     what the text names, opened: `gf` the file under the cursor (the shell looks for it on the disk), `gx` its web address, never a link MD-10 marks (pure, OPEN-1, OPEN-2)
+    sim/hunk.rs     the hunks against HEAD in the text: `<Space>gr` gives the one under the cursor back as one edit, never a stale one; `]h` `[h` walk them (pure, DIFF-11)
     syn.rs          syntect (bat's syntaxes) → colored spans per line (markdown's looks too, UI-8), with cached parse states
     color.rs        what the core's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, the tones of the looks (green, red, tints, the card's surface, shadow, lines, the interface's six accents, their blocks and its neutral surfaces: OKLab mixes; the dark board's grays in their place, DARK-2) and the fade, and the terminal's replies put together out of the keys (pure)
     paint.rs        the looks beyond the core's four styles, the paints (a background, a color of its own, a fade for a run of cells, its cue without color), the Screen, the Painter that writes it (in color, or in weight, underline and inverse when there is none, COLOR-2), the mouse modes on and off
     layout.rs       the panel and the editor composed into one Screen: marks, search, colors; the four looks (calm, flat, depth, dark): geometry, green and red, tints, boxes, ruler, fog; the char under a point (pure)
-    io.rs           directory reads, git (one function builds every command line: the guard of GIT-1 to GIT-4), the file list, the watcher of the project (WATCH-1 to WATCH-3), the history, look and icons files, the detection of plain mode, of `NO_COLOR` and of terminfo, the threads, the content search (rg or the built-in reader) and the preview's read (the impure parts)
+    io.rs           directory reads, git (one function builds every command line: the guard of GIT-1 to GIT-4), the file list, the watcher of the project (WATCH-1 to WATCH-3), the history, look and icons files, the detection of plain mode, of `NO_COLOR` and of terminfo, the threads, the content search (rg or the built-in reader) and the preview's read, and the opener of `gx` (OPEN-2: found on the `PATH` as rg is, one argument, no shell) (the impure parts)
   keys.tsv          the key table as data: keys, modes, a line of description and a longer text for each entry
   help.txt          what `sim --help` prints (`{version}` is the Cargo version)
   tests/            the editor's tests and goldens (`gui_N.rs` are the seams for the window); scripts/e2e.sh runs `sim` in tmux
