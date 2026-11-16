@@ -180,7 +180,7 @@ fn gui_9_the_tree_and_the_text_are_two_raised_boxes_with_shadows_and_no_box_draw
     assert!(count(&s, Kind::Heading) >= 2, "heading bands are surfaces");
     assert_eq!(count(&s, Kind::Band), 1, "the fenced block is one surface");
     assert!(s.scrim.is_none() && s.layers.len() == 1);
-    // the surfaces under text are the page's (sim's palette is made for it), not a lifted copy
+    // the surfaces under text are the page's (Sim's palette is made for it), not a lifted copy
     assert!(boxes.iter().all(|b| b.fill == s.page));
 }
 
@@ -352,7 +352,7 @@ fn gui_12_the_fog_drawn_never_goes_under_the_floors_and_the_secondary_gray_does_
                         "{theme:?} row {r} {:?}: |Lc| {lc:.1}",
                         c.ch
                     );
-                    assert_eq!(Some(drawn), c.r.ink(page, 100), "it is sim's own fade_to, at 100");
+                    assert_eq!(Some(drawn), c.r.ink(page, 100), "it is Sim's own fade_to, at 100");
                     faded += 1;
                 } else if c.r.fg == Some(snap.grid.pal.secondary) {
                     assert_eq!(
@@ -468,7 +468,7 @@ fn md_9_a_table_in_the_read_view_is_the_same_cells_as_the_terminal_draws() {
     let (header, cursor, second) = (at(356, "what"), at(396, "the"), at(416, "the"));
     assert_eq!(header, second, "the columns of the read view");
     assert!(cursor < second, "the cursor's row is raw: {cursor} against {second}");
-    assert!(!dump.contains("\"**sim**\"") && !dump.contains("\"---\""), "read, not raw");
+    assert!(!dump.contains("\"**Sim**\"") && !dump.contains("\"---\""), "read, not raw");
     check_text("scene_table_row_dark.txt", &dump);
 }
 

@@ -1,13 +1,14 @@
-//! KEY-2, KEY-3, KEY-5, KEY-6, MD-5, MD-6, TREE-2
-//! What guides the user's hands in sim's state (pure): the leader (Space and what follows it), the
+//! KEY-2, KEY-3, KEY-5, KEY-6, KEY-7, MD-5, MD-6, TREE-2, GIT-6, DIFF-11
+//! What guides the user's hands in Sim's state (pure): the leader (Space and what follows it), the
 //! prefix that is typed and not complete, the pause after which which-key shows what can come next,
 //! the letters on the tabs, and the hint for Tab.
+use super::live::Pick;
 use super::panel::Out;
 use super::{Sim, SimEffect};
 use crate::keys;
 use crate::layout;
 use crate::tabs;
-use sim_core::core::app::{Event, Key};
+use sim_core::core::app::Key;
 use sim_core::core::vi::Mode;
 
 /// The hint of KEY-6, and how many uses of Tab end it.
@@ -36,7 +37,7 @@ impl Sim {
             return ["<Space>".to_string()].into_iter().chain(l.chars().map(token)).collect();
         }
         if self.panel.open && self.panel.focus {
-            return if self.panel.g { vec!["g".into()] } else { vec![] };
+            return self.panel.pre.map(token).into_iter().collect();
         }
         let Some(b) = self.bufs.get(self.cur) else { return vec![] };
         let vi = &b.app.vi;
@@ -66,23 +67,28 @@ impl Sim {
             return false;
         }
         if self.panel.open && self.panel.focus {
-            return !self.panel.g && !self.panel.search.as_ref().is_some_and(|s| s.typing);
+            return self.panel.pre.is_none()
+                && !self.panel.search.as_ref().is_some_and(|s| s.typing);
         }
         self.idle()
     }
 
     /// KEY-2: a key while the leader's sequence is half typed, or the Space that starts one. A key
-    /// that no sequence has, and Esc, end it and do nothing.
+    /// that no sequence has, and Esc, end it and do nothing. KEY-7: `<Space>f` and `<Space>gg` are the
+    /// owner's Telescope and Diffview keys for the picker, the help and the changes view.
     pub(super) fn leader_key(&mut self, k: Key, out: Out) {
         let c = if let Key::Char(c) = k { c } else { '\0' };
         match (self.leader.take().as_deref(), c) {
             (None, ' ') => self.leader = Some(String::new()),
-            (Some(""), 'b') => self.leader = Some("b".into()),
-            (Some(""), 'g') => self.leader = Some("g".into()),
-            (Some(""), 'u') => self.leader = Some("u".into()),
+            (Some(""), 'b' | 'g' | 'u' | 'f') => self.leader = Some(c.into()),
             (Some("u"), 'm') => self.read_key(out),
-            (Some("g"), 'e') => self.changes_key(out),
+            (Some("f"), 'f') => self.live_start(Pick::Files, "", out),
+            (Some("f"), 'g') => self.live_start(Pick::Grep, "", out),
+            (Some("f"), 't') => self.live_start(Pick::Grep, "TODO", out),
+            (Some("f"), 'k') => self.help(String::new(), out),
+            (Some("g"), 'e' | 'g') => self.changes_key(out),
             (Some("g"), 'i') => self.guard_key(),
+            (Some("g"), 'r') => self.reset_hunk(), // DIFF-11
             (Some("b"), 'p' | 'c') => self.tab_pick(c == 'c', out),
             (Some("b"), 'k') => self.kept_key(),
             _ => {}
@@ -94,7 +100,7 @@ impl Sim {
     /// The names come from the repository's config and are cut and made safe where they are drawn.
     fn guard_key(&mut self) {
         let tail = |k: &String| layout::tail(k, 30);
-        self.msg = Some(match (&self.why, self.off.is_empty()) {
+        let said: String = match (&self.why, self.off.is_empty()) {
             _ if self.plain => "plain mode: no git".into(),
             (Some(why), _) => why.clone(),
             _ if self.no_repo => "git: no repository here".into(),
@@ -103,7 +109,10 @@ impl Sim {
                 format!("git: turned off the repository's {}", names.join(", "))
             }
             (None, true) => "git: nothing of this repository's config is turned off".into(),
-        });
+        };
+        // GIT-6: the hooks written while Sim runs first: they are what the user's git will run
+        let hooks = (!self.hooks.is_empty()).then(|| super::hooks_said(&self.hooks) + " · ");
+        self.msg = Some(hooks.unwrap_or_default() + &said);
     }
 
     /// SAFE-7: `<Space>bk` says again where the version that `:w!` or `:e!` gave up went, alone on the line;
@@ -162,9 +171,7 @@ impl Sim {
             return (self.cur, self.panel.focus) = (i, false);
         }
         let id = self.bufs[i].id;
-        for key in [Key::Char(':'), Key::Char('q'), Key::Enter] {
-            self.to(id, Event::Key(key), out);
-        }
+        self.typed(id, ":q\n", out);
         if let Some(j) = self.bufs.iter().position(|b| b.id == id) {
             (self.cur, self.panel.focus) = (j, false); // refused: it is shown, and says why
         }

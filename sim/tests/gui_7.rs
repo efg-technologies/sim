@@ -1,5 +1,5 @@
-//! GUI-7: `Input::event` is what a terminal event is to sim when no reply of a terminal is waited
-//! for, which a window has none to wait for: the mouse, Shift-Tab and F1 as sim's own events, and the
+//! GUI-7: `Input::event` is what a terminal event is to Sim when no reply of a terminal is waited
+//! for, which a window has none to wait for: the mouse, Shift-Tab and F1 as Sim's own events, and the
 //! rest as the core's `convert_all` makes it. `Input::feed` goes through it once it has held back what
 //! could be a reply, so the terminal and a window decide what a key is in one place.
 #![allow(clippy::unwrap_used, clippy::panic)] // helpers; the tests themselves may unwrap

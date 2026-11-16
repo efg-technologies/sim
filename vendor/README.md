@@ -1,6 +1,6 @@
 # vendor/syntect
 
-syntect 5.3.0, the syntax highlighter that sim's `Syn` is built on, with one change: a guard in the parser that
+syntect 5.3.0, the syntax highlighter that Sim's `Syn` is built on, with one change: a guard in the parser that
 stops it going round in a circle on matches that consume nothing (SPEC SYN-3, NOTES). The workspace's
 `[patch.crates-io]` points at this directory, so `two-face` (bat's syntaxes) and `sim-editor` use the same
 copy (`cargo tree -i syntect` shows one). It is not a workspace member (`exclude` in the root Cargo.toml), so
@@ -15,7 +15,7 @@ copy (`cargo tree -i syntect` shows one). It is not a workspace member (`exclude
 - `syntect/`: the crate's files that are used, as upstream has them, but for `src/parsing/parser.rs`.
 - `syntect.patch`: our change, a unified diff against upstream (`patch -R -p1` in `syntect/` gives upstream's file).
 - `syntect.sha256`: the sha256 of every file of `syntect/` as upstream has it, and so as `patch -R` leaves it.
-- Left out, since sim builds syntect with `default-features = false` and nothing reads them: the four
+- Left out, since Sim builds syntect with `default-features = false` and nothing reads them: the four
   `assets/*.packdump` and `.themedump` files (syntect's own default syntaxes and themes, behind the features
   `default-syntaxes` and `default-themes`), `.github/`, `.cargo_vcs_info.json`, `.git-blame-ignore-revs`,
   `.gitattributes`, `.gitignore`, `.gitmodules`, `Cargo.lock` and `Cargo.toml.orig`. The manifest still

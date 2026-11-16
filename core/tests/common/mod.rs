@@ -8,7 +8,8 @@ use unicode_width::UnicodeWidthChar;
 
 /// Key notation: a char is itself (`\n` Enter, `\x1b` Esc, `\x7f` Backspace, `\t` Tab, `\x12`
 /// Ctrl-r); `<Esc> <CR> <BS> <Tab> <Del> <Up> <Down> <Left> <Right> <Home> <End> <PageUp>
-/// <PageDown> <C-x> <lt>` are the others. A `<` that starts none of them is a plain `<`.
+/// <PageDown> <C-x> <M-x> <lt>` are the others (`<M-x>` is Alt-x, VI-22). A `<` that starts none of them
+/// is a plain `<`.
 pub fn keys(s: &str) -> Vec<Key> {
     let (mut out, mut rest) = (vec![], s);
     while let Some(c) = rest.chars().next() {
@@ -30,6 +31,7 @@ pub fn keys(s: &str) -> Vec<Key> {
                     "PageDown" => Key::PageDown,
                     "lt" => Key::Char('<'),
                     n if n.len() == 3 && n.starts_with("C-") => Key::Ctrl(n.chars().nth(2)?),
+                    n if n.len() == 3 && n.starts_with("M-") => Key::Alt(n.chars().nth(2)?),
                     _ => return None,
                 };
                 Some((k, tail))

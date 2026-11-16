@@ -1,7 +1,7 @@
-//! UI-5
+//! UI-5, DIFF-11
 //! What `git diff -U0 HEAD -- file` says, as the signs of the sign column and the counts of the
 //! status line (pure): which lines were added, which changed, and where lines were deleted, as
-//! gitsigns reads a hunk.
+//! gitsigns reads a hunk; and each hunk with HEAD's lines of it, to give it back.
 use std::collections::BTreeMap;
 
 /// The sign of a line: added, changed, lines deleted just below it, or deleted above the first.
@@ -24,6 +24,18 @@ pub struct Diff {
     pub lines: usize,
     /// Every line is added: a file git does not know yet (no map of 100,000 signs for it).
     pub all: bool,
+    /// DIFF-11: the hunks, and the version of the buffer the diff was asked for at.
+    pub hunks: Vec<Hunk>,
+    pub ver: u64,
+}
+
+/// DIFF-11: a hunk `@@ -a,b +c,d @@` and HEAD's lines of it (its `-` lines).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Hunk {
+    pub b: usize,
+    pub c: usize,
+    pub d: usize,
+    pub old: Vec<String>,
 }
 
 /// The numbers of `-a,b +c,d` of a hunk header: a count that is left out is 1.
@@ -51,7 +63,12 @@ impl Diff {
     pub fn parse(out: &[u8], lines: usize) -> Diff {
         let mut diff = Diff { lines, ..Diff::default() };
         let text = String::from_utf8_lossy(out);
-        for ((_, b), (c, d)) in text.lines().filter_map(header) {
+        for line in text.lines() {
+            if let (Some(h), Some(old)) = (diff.hunks.last_mut(), line.strip_prefix('-')) {
+                h.old.push(old.into());
+            }
+            let Some(((_, b), (c, d))) = header(line) else { continue };
+            diff.hunks.push(Hunk { b, c, d, old: vec![] });
             let (first, mut put) = (c.saturating_sub(1), |l: usize, s: Sign| {
                 if l < lines.max(1) {
                     diff.signs.entry(l).and_modify(|x| *x = (*x).max_by_rank(s)).or_insert(s);

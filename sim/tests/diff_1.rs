@@ -1,5 +1,5 @@
 //! DIFF-1, DIFF-2, DIFF-3, DIFF-4, DIFF-5, DIFF-6: the changes view of the panel (`<Space>ge`), driven
-//! through sim's state with real repositories made under a private temporary directory.
+//! through Sim's state with real repositories made under a private temporary directory.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
@@ -543,7 +543,9 @@ fn diff_6_the_keys_are_in_the_table_so_which_key_and_help_show_them() {
         second,
         [
             ("e".to_string(), "changes from HEAD".to_string()),
-            ("i".to_string(), "what the guard did".to_string())
+            ("g".to_string(), "changes from HEAD".to_string()), // (KEY-7: Diffview's key)
+            ("i".to_string(), "what the guard did".to_string()),
+            ("r".to_string(), "reset the hunk to HEAD".to_string()) // (DIFF-11)
         ]
     );
     assert!(next(&["<Space>".to_string(), "g".to_string()], 't').iter().any(|r| r.0 == "e"));

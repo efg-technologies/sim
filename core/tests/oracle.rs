@@ -4,7 +4,13 @@
 //! searches) or `reg` (VI-15: yanks, deletes and puts with register names, 3-5 commands, compared by
 //! the text and what every register holds afterwards), or `mark` (VI-17: marks set, lines
 //! inserted, deleted, joined and undone, and jumps to the marks; compared by the text, where the marks
-//! are, and the cursor after a jump).
+//! are, and the cursor after a jump), or `comment` (VI-18: `gc` with counts, motions, Visual mode, `.` and
+//! undo on a Rust file, against Neovim's own `gc` with `commentstring` `// %s`), or `surround` (VI-20:
+//! `gsa`, `gsd` and `gsr` against mini.surround with its defaults and the owner's mappings; it is looked
+//! for in `SIM_ORACLE_MINI`, else in `~/.local/share/nvim/lazy/mini.nvim`), or `pairs` (VI-21: Insert
+//! mode with brackets, quotes, Backspace, `.` and undo, against mini.pairs with its defaults), or `move`
+//! (VI-22: Alt-h/j/k/l with counts, in Normal and V-LINE mode, against mini.move with its defaults but
+//! `reindent_linewise`, which Sim does not do).
 //! Every divergence is printed grouped by the first command; the test only fails with
 //! `SIM_ORACLE_STRICT=1`. Not every divergence is a bug: several are SPEC "Decided" items (see the
 //! report), which `known()` filters.
@@ -22,7 +28,8 @@ fn hex(s: &str) -> String {
 fn unhex(s: &str) -> String {
     let b: Vec<u8> =
         (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect();
-    String::from_utf8(b).unwrap()
+    // (lossy: a register of Neovim's can hold the code of a special key, which is no UTF-8)
+    String::from_utf8_lossy(&b).into_owned()
 }
 
 const LUA: &str = r#"
@@ -43,6 +50,17 @@ local function mdump()
     if p[2] > 0 then out[#out + 1] = n .. ':' .. (p[2] - 1) .. ':' .. (p[3] - 1) end
   end
   return table.concat(out, ' ')
+end
+local mini = os.getenv('SIM_ORACLE_MINI')
+if mini and mini ~= '' then
+  vim.opt.rtp:append(mini)
+  require('mini.surround').setup({
+    mappings = { add = 'gsa', delete = 'gsd', replace = 'gsr', find = 'gsf', find_left = 'gsF', highlight = 'gsh', update_n_lines = 'gsn' },
+    silent = true,
+  })
+  require('mini.pairs').setup()
+  -- (mini.move re-indents the lines it moves with `=`, which sim does not: VI-22, NOTES)
+  require('mini.move').setup({ options = { reindent_linewise = false } })
 end
 local function unhex(s) return (s:gsub('..', function(h) return string.char(tonumber(h, 16)) end)) end
 local function hex(s) return (s:gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
@@ -69,6 +87,7 @@ for line in io.lines(arg[1]) do
   local ln, col, sw = tonumber(f[3]), tonumber(f[4]), tonumber(f[5])
   vim.cmd('silent! enew!')
   vim.bo.shiftwidth = sw
+  vim.bo.commentstring = '// %s'
   vim.bo.tabstop = 8
   -- Setting the lines is not an undoable change of the "file".
   vim.bo.undolevels = -1
@@ -127,6 +146,10 @@ const WORDS: &[&str] = &[
     "one,two",
     "end;",
     "a",
+    // (VI-19: the case operators, and backtick quotes)
+    "Foo",
+    "BAR",
+    "`q x`",
 ];
 
 fn gen_text(r: &mut Rng, indent: bool) -> String {
@@ -191,7 +214,7 @@ fn command(r: &mut Rng, text: &str, seeded: &mut bool) -> String {
             r,
             &[
                 "h", "j", "k", "l", "w", "b", "e", "W", "B", "E", "0", "^", "$", "gg", "G", "%",
-                "find", "find", "w", "e", "b", "w", "$", "j", "k",
+                "find", "find", "w", "e", "b", "w", "$", "j", "k", "{", "}",
             ],
         );
         let c = count(r);
@@ -201,7 +224,7 @@ fn command(r: &mut Rng, text: &str, seeded: &mut bool) -> String {
         format!(
             "{}{}",
             pick(r, &["i", "a"]),
-            pick(r, &["w", "W", "\"", "'", "(", ")", "[", "{", "}", "<lt>", "b", "B"])
+            pick(r, &["w", "W", "\"", "'", "(", ")", "[", "{", "}", "<lt>", "b", "B", "p", "`"])
         )
     };
     let typed = |r: &mut Rng| -> String {
@@ -224,10 +247,10 @@ fn command(r: &mut Rng, text: &str, seeded: &mut bool) -> String {
         );
         format!("{t}<Esc>")
     };
-    match r.below(30) {
+    match r.below(32) {
         0..=5 => {
             // operator + motion / object / doubled
-            let op = pick(r, &["d", "c", "y", ">", "<", "d", "c", "d"]);
+            let op = pick(r, &["d", "c", "y", ">", "<", "d", "c", "d", "gU", "gu", "g~"]);
             let op = if op == "<" { "<lt>" } else { op };
             let c = count(r);
             let tgt = match r.below(10) {
@@ -313,6 +336,9 @@ fn command(r: &mut Rng, text: &str, seeded: &mut bool) -> String {
         )
         .replace("c", "cq<Esc>"),
         28 => format!(":{}<CR>", 1 + r.below(4)),
+        // VI-19: `~` with a count, and a selection made, left and taken again with `gv`
+        29 => format!("{}~", count(r)),
+        30 => format!("{}{}<Esc>gv{}", pick(r, &["v", "V"]), motion(r), pick(r, &["d", "y", "U"])),
         _ => format!("{}dd{}", count(r), pick(r, &["p", "P", "u", ""])),
     }
 }
@@ -363,7 +389,7 @@ fn reg_command(r: &mut Rng, st: &mut Reg) -> String {
     };
     let count = |r: &mut Rng| pick(r, &["", "", "", "", "2", "3"]);
     // A yank with a motion that goes up or to the ends of the file leaves vim's cursor at the start of
-    // the lines, and sim's in its column: that is not the registers' (and the cursor drives what comes
+    // the lines, and Sim's in its column: that is not the registers' (and the cursor drives what comes
     // next), so a yank has no such motion here.
     let target = |r: &mut Rng, yank: bool| {
         let t = pick(
@@ -485,9 +511,153 @@ fn mark_command(r: &mut Rng) -> String {
     }
 }
 
+/// One command of the comment mode (VI-18). `.` only after a `gc` of Normal mode: Neovim's `.` would
+/// repeat the case before, and repeats Visual mode's (VI-2 Decided: Sim does not).
+fn comment_command(r: &mut Rng, dot: bool) -> String {
+    match r.below(if dot { 10 } else { 9 }) {
+        0..=2 => format!("{}gcc", pick(r, &["", "", "2", "3"])),
+        3..=5 => format!("gc{}", pick(r, &["j", "k", "G", "gg", "2j", "w", "e", "$", "j", "k"])),
+        6 => format!("V{}gc", pick(r, &["", "j", "k", "G"])),
+        7 | 8 => pick(r, &["j", "k", "gg", "G", "w", "jj"]).into(),
+        _ => pick(r, &["u", ".", "<C-r>", "u."]).into(),
+    }
+}
+
+/// A text of the comment mode: lines indented with blanks or a tab, some commented already, some blank.
+fn comment_text(r: &mut Rng) -> String {
+    let line = |r: &mut Rng| {
+        let ind = pick(r, &["", "", "  ", "    ", "\t", "      "]);
+        match r.below(8) {
+            0 => String::new(),
+            1 => ind.into(),
+            k => {
+                let lead = if k < 4 { pick(r, &["// ", "//", "//  "]) } else { "" };
+                format!("{ind}{lead}{}", WORDS[r.below(WORDS.len())])
+            }
+        }
+    };
+    (0..2 + r.below(5)).map(|_| line(r)).collect::<Vec<_>>().join("\n")
+}
+
+/// One command of the surround mode (VI-20). `.` only after a change (Neovim's would repeat the case before).
+/// The motions and objects are ones that do not fail: in Neovim a failed one leaves mini's operator half
+/// typed, and the keys after it are typed as text.
+fn surround_command(r: &mut Rng, dot: bool) -> String {
+    let ch = |r: &mut Rng| {
+        let c = ["(", ")", "[", "]", "{", "}", "<lt>", ">", "b", "q", "\"", "'", "`", "*", "_"];
+        pick(r, &c).to_string()
+    };
+    match r.below(if dot { 11 } else { 9 }) {
+        0..=2 => {
+            let m = pick(r, &["iw", "w", "e", "$", "iW", "2w", "i(", "a\"", "ip"]);
+            format!("gsa{m}{}", ch(r))
+        }
+        // (the ones to take away are those the texts have)
+        3 | 4 => format!("gsd{}", pick(r, &["(", ")", "b", "q", "\"", "'", "[", "{", "`"])),
+        5 | 6 => format!("gsr{}{}", pick(r, &["(", ")", "b", "q", "\"", "'", "["]), ch(r)),
+        7 => format!("{}gsa{}", pick(r, &["ve", "vb", "V", "Vj"]), ch(r)),
+        8 => pick(r, &["w", "b", "0", "$", "e", "j", "k"]).into(),
+        _ => pick(r, &[".", "u", "u."]).into(),
+    }
+}
+
+/// One command of the pairs mode (VI-21): an insert of brackets, quotes, letters, blanks and Backspace, a
+/// motion, `.` or `u`. Neovim is given an `<Ignore>` after every key (`ignored`): chars fed at once are put
+/// into the line together after mini has looked at it, so mini would see the line before them.
+fn pairs_command(r: &mut Rng, dot: bool) -> String {
+    let chars = ["(", ")", "[", "]", "{", "}", "\"", "'", "`", "a", "b", " ", "<BS>", "x"];
+    match r.below(if dot { 10 } else { 8 }) {
+        0..=5 => {
+            let typed: String = (0..1 + r.below(6)).map(|_| pick(r, &chars)).collect();
+            let how = pick(r, &["i", "a", "A", "I", "o", "cw", "ciw", "O"]);
+            format!("{how}{typed}<Esc>")
+        }
+        6 | 7 => pick(r, &["l", "h", "w", "b", "0", "$", "j"]).into(),
+        _ => pick(r, &[".", "u"]).into(),
+    }
+}
+
+/// One command of the move mode (VI-22): Alt-h/j/k/l with or without a count, the same in V-LINE mode, or
+/// a motion. (No undo: mini.move makes consecutive moves one undo step, Sim one each, as VI-22 has it.)
+fn move_command(r: &mut Rng) -> String {
+    let alt = |r: &mut Rng| {
+        format!("{}<M-{}>", pick(r, &["", "", "2", "3"]), pick(r, &["j", "k", "h", "l"]))
+    };
+    match r.below(6) {
+        0..=2 => alt(r),
+        3 => format!("{}{}<Esc>", pick(r, &["V", "Vj", "Vk"]), alt(r)),
+        _ => pick(r, &["j", "k", "w", "0", "$", "gg", "G"]).into(),
+    }
+}
+
+/// The keys with `<Ignore>` after each one, for Neovim in the pairs mode.
+fn ignored(keys: &str) -> String {
+    let (mut out, mut rest) = (String::new(), keys);
+    while let Some(c) = rest.chars().next() {
+        let named = rest
+            .strip_prefix('<')
+            .and_then(|r| r.find('>'))
+            .filter(|&i| !rest[1..=i].contains('<'));
+        let n = named.map_or(c.len_utf8(), |i| i + 2);
+        out += &rest[..n];
+        out += "<Ignore>";
+        rest = &rest[n..];
+    }
+    out
+}
+
 fn gen_case(r: &mut Rng, multi: bool) -> Case {
     let indent = r.below(3) == 0;
     let text = gen_text(r, indent);
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "move") {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let parts: Vec<String> = (0..1 + r.below(3)).map(|_| move_command(r)).collect();
+        let keys = parts.concat() + "<Esc>";
+        let sw = lines
+            .iter()
+            .find(|l| l.starts_with(' ') && l.chars().any(|c| c != ' '))
+            .map_or(4, |l| l.chars().take_while(|&c| c == ' ').count());
+        return Case { text, line, col, keys, sw, simple: false, parts };
+    }
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs") {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let mut parts: Vec<String> = vec![];
+        for _ in 0..1 + r.below(3) {
+            parts.push(pairs_command(r, parts.iter().any(|p: &String| p.ends_with("<Esc>"))));
+        }
+        let keys = parts.concat() + "<Esc>";
+        return Case { text, line, col, keys, sw: 4, simple: false, parts };
+    }
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "surround") {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let mut parts: Vec<String> = vec![];
+        for _ in 0..1 + r.below(3) {
+            let dot = parts.iter().any(|p: &String| p.starts_with("gs"));
+            parts.push(surround_command(r, dot));
+        }
+        let keys = parts.concat() + "<Esc>";
+        return Case { text, line, col, keys, sw: 4, simple: false, parts };
+    }
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "comment") {
+        let text = comment_text(r);
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let mut parts: Vec<String> = vec![];
+        for _ in 0..1 + r.below(3) {
+            let dot =
+                parts.last().is_some_and(|p: &String| p.contains("gc") && !p.starts_with('V'));
+            parts.push(comment_command(r, dot));
+        }
+        let keys = parts.concat() + "<Esc>";
+        return Case { text, line, col, keys, sw: 4, simple: false, parts };
+    }
     if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark") {
         // more lines than the other modes, so that the marks have room to move
         let text = format!("{text}\n{}\n{}", gen_text(r, indent), gen_text(r, false));
@@ -605,7 +775,7 @@ fn dump_marks(a: &sim_core::core::app::App) -> String {
 /// takes nothing (VI-8 Decided: the registers stay as they were, where vim's empty yank empties its
 /// register and points the unnamed one to it), a buffer that has nothing left in it, or a `d{motion}`
 /// over more than one line (vim makes it linewise when only blanks come before it and nothing after;
-/// sim does not, and the register's type and the text follow from that: not the registers' doing).
+/// Sim does not, and the register's type and the text follow from that: not the registers' doing).
 fn degenerate(c: &Case) -> bool {
     let run = || {
         let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
@@ -637,7 +807,7 @@ fn degenerate(c: &Case) -> bool {
 }
 
 /// Whether a mark case empties the buffer at some point: vim then drops every mark with the lines, and
-/// sim keeps the one empty line a buffer has (and its marks), a difference no one can type into.
+/// Sim keeps the one empty line a buffer has (and its marks), a difference no one can type into.
 fn emptied(c: &Case) -> bool {
     let run = || {
         let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
@@ -653,7 +823,7 @@ fn emptied(c: &Case) -> bool {
 }
 
 /// Whether a mark case undoes after a change command that changed nothing (`dw` on an empty line): vim
-/// records an undo step for it and sim does not, so the `u` goes to a different change.
+/// records an undo step for it and Sim does not, so the `u` goes to a different change.
 fn blank_step(c: &Case) -> bool {
     let run = || {
         let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
@@ -675,10 +845,30 @@ fn blank_step(c: &Case) -> bool {
     std::panic::catch_unwind(run).unwrap_or(true)
 }
 
+/// Whether a surround case has a `gsd` or `gsr` that finds nothing, or a `gsa` whose motion or object
+/// finds nothing: mini then leaves the chars of the surrounding, and every key after them, to be read as
+/// commands (Sim reads the whole command and changes nothing, VI-20), and its cursor is left elsewhere.
+fn surround_failed(c: &Case) -> bool {
+    let run = || {
+        let mut a = app_with(Some("a.rs"), format!("{}\n", c.text).as_bytes(), (80, 24));
+        let idx: usize =
+            c.text.split('\n').take(c.line).map(|l| l.chars().count() + 1).sum::<usize>() + c.col;
+        a.buf.cursor = idx;
+        c.parts.iter().any(|part| {
+            let before = text(&a);
+            feed(&mut a, part);
+            a.msg.as_deref().is_some_and(|m| m.starts_with("no surrounding"))
+                || (part.contains("gsa") && text(&a) == before)
+        })
+    };
+    std::panic::catch_unwind(run).unwrap_or(true)
+}
+
 fn run_si_inner(c: &Case) -> Result<Mine, String> {
     let r = std::panic::catch_unwind(|| {
-        // The file ends with a newline: its text is the lines joined by newlines (as nvim's).
-        let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
+        // The file ends with a newline: its text is the lines joined by newlines (as nvim's). A Rust file
+        // (VI-18: the comment string is `// %s`).
+        let mut a = app_with(Some("a.rs"), format!("{}\n", c.text).as_bytes(), (80, 24));
         let idx: usize =
             c.text.split('\n').take(c.line).map(|l| l.chars().count() + 1).sum::<usize>() + c.col;
         a.buf.cursor = idx;
@@ -702,9 +892,10 @@ fn known(keys: &str) -> Option<&'static str> {
         if b[i - 1].is_ascii_digit() && b[i..].starts_with(&['%']) {
             return Some("count before % (VI-1 Decided)");
         }
+        let op = if b[i] == 'g' { 2 } else { 1 }; // (`gU`, `gu`, `g~`)
         if b[i - 1].is_ascii_digit()
-            && matches!(b[i], 'd' | 'c' | 'y' | '>')
-            && matches!(b.get(i + 1), Some('i' | 'a'))
+            && matches!(b[i], 'd' | 'c' | 'y' | '>' | 'g')
+            && matches!(b.get(i + op), Some('i' | 'a'))
         {
             return Some("count on a text object (VI-1 Decided)");
         }
@@ -717,6 +908,11 @@ fn known(keys: &str) -> Option<&'static str> {
     }
     if k.contains(['v', 'V']) && (k.ends_with('.') || k.contains("<Esc>.")) {
         return Some("Visual op then . (VI-2 Decided)");
+    }
+    // (the default mode's Neovim has no mini.pairs: `SIM_ORACLE_MODE=pairs` compares those)
+    let pairs = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs");
+    if !pairs && k.contains("(<Esc>") && !k.contains("r(<Esc>") {
+        return Some("a ( typed in Insert mode (VI-21: Sim pairs it)");
     }
     None
 }
@@ -747,6 +943,13 @@ fn vi_1_oracle_against_nvim() {
     let multi = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "seq");
     let reg_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "reg");
     let mark_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark");
+    let comment_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "comment");
+    let surround_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "surround");
+    let pairs_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs");
+    let move_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "move");
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mini = std::env::var("SIM_ORACLE_MINI")
+        .unwrap_or_else(|_| format!("{home}/.local/share/nvim/lazy/mini.nvim"));
     let mut r = Rng(0x9e37_79b9_7f4a_7c15 ^ seed.wrapping_mul(0x2545_f491_4f6c_dd1d));
     let cases: Vec<Case> = (0..n).map(|_| gen_case(&mut r, multi)).collect();
     let dir = temp_dir(&format!("oracle-{seed}-{multi}"));
@@ -759,7 +962,8 @@ fn vi_1_oracle_against_nvim() {
     while from < cases.len() {
         let mut s = String::new();
         for c in &cases[from..] {
-            writeln!(s, "{} {} {} {} {}", hex(&c.text), hex(&c.keys), c.line, c.col, c.sw).unwrap();
+            let keys = if pairs_mode { ignored(&c.keys) } else { c.keys.clone() };
+            writeln!(s, "{} {} {} {} {}", hex(&c.text), hex(&keys), c.line, c.col, c.sw).unwrap();
         }
         std::fs::write(&inp, s).unwrap();
         let _ = std::fs::remove_file(&outp);
@@ -768,7 +972,18 @@ fn vi_1_oracle_against_nvim() {
             .arg(&lua)
             .arg(&inp)
             .arg(&outp)
-            .arg(if mark_mode { "xnt" } else { "xn" })
+            // (Neovim's `gc` is a mapping of its defaults, and mini's are mappings: those modes remap)
+            .arg(if mark_mode {
+                "xnt"
+            } else if comment_mode || surround_mode || pairs_mode || move_mode {
+                "xt"
+            } else {
+                "xn"
+            })
+            .env(
+                "SIM_ORACLE_MINI",
+                if surround_mode || pairs_mode || move_mode { &mini } else { "" },
+            )
             .output()
             .unwrap();
         let part = std::fs::read_to_string(&outp).unwrap_or_default();
@@ -813,6 +1028,12 @@ fn vi_1_oracle_against_nvim() {
         if mark_mode && emptied(c) {
             *known_counts
                 .entry("the buffer was emptied (no line is left for a mark)")
+                .or_default() += 1;
+            continue;
+        }
+        if surround_mode && surround_failed(c) {
+            *known_counts
+                .entry("a gs command that finds nothing (mini reads the keys after it as commands)")
                 .or_default() += 1;
             continue;
         }

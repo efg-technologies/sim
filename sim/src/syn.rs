@@ -154,7 +154,7 @@ fn by_name(name: &str) -> Option<&'static SyntaxReference> {
 }
 
 /// MD-10: whether the highlighter calls a file Markdown by its name (`.md`, `.mdown`, `.mkd`, `.ronn`, …:
-/// the names of its table, not a list of sim's).
+/// the names of its table, not a list of Sim's).
 pub fn is_markdown(name: &str) -> bool {
     by_name(name).is_some_and(|s| s.name == "Markdown")
 }

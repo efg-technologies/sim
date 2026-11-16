@@ -1,4 +1,4 @@
-tutor do sim: lições curtas, cerca de 15 minutos
+tutor do Sim: lições curtas, cerca de 15 minutos
 ================================================
 Esta é uma cópia descartável. Nada do que você fizer aqui é gravado no
 disco, então experimente à vontade. Pressione u para desfazer; digite
@@ -19,7 +19,7 @@ linha, então só o título corresponde).
   5 Copiar e colar
   6 Pesquisar
   7 Salvar e sair
-  8 O que o sim mostra e outros editores escondem
+  8 O que o Sim mostra e outros editores escondem
 %editor
   9 Encontrar arquivos e aparência
 %end
@@ -141,10 +141,10 @@ a a a
 ## 7 Salvar e sair
 
 :w salva, :q sai, :wq faz as duas coisas, :q! sai e descarta as
-alterações. O sim nunca perde texto sem você mandar: antes de :w! ou
+alterações. O Sim nunca perde texto sem você mandar: antes de :w! ou
 :e! descartar uma versão (a sua ou a do disco), ele a copia para a
 própria pasta. Se outro programa alterar seu arquivo enquanto você
-edita, o sim mescla a alteração ou mostra o conflito; nunca
+edita, o Sim mescla a alteração ou mostra o conflito; nunca
 sobrescreve em silêncio.
 Este tutor é uma cópia descartável: :w diz não e não grava nada.
 
@@ -156,7 +156,7 @@ b 2
 @ b 2
 @ c 3
 
-## 8 O que o sim mostra e outros editores escondem
+## 8 O que o Sim mostra e outros editores escondem
 
 Um caractere que não é mostrado como ele mesmo (um controle, um espaço
 de largura zero, uma substituição da direita para a esquerda) é
@@ -181,7 +181,7 @@ Ctrl-n abre e foca a árvore, ou a foca se já estiver aberta.
 Só na árvore ele a fecha; Esc volta ao texto.
 No modo Normal ou na árvore, Ctrl-w e depois w troca o foco e mantém
 a árvore aberta.
-zl troca a aparência (calm, flat, depth); zi alterna os ícones
+zl troca a aparência (calm, flat, depth, dark); zi alterna os ícones
 (precisam de uma Nerd Font).
 <Space>bk mostra o caminho da última versão guardada. Pressione
 Espaço e espere o menu das próximas teclas.

@@ -37,7 +37,7 @@ jobs:
         with:
           cache-on-failure: true
 
-      # The E2E suites drive sim (and sim --plain, the core alone) inside tmux (each case on its own socket and no config).
+      # The E2E suites drive `sim` (and `sim --plain`, the core alone) inside tmux (each case on its own socket and no config).
       - name: Install tmux (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y tmux
@@ -46,7 +46,7 @@ jobs:
         run: command -v tmux || brew install tmux
 
       # What a platform's first run needs to be read by somebody who is not at the machine: the system, the
-      # tools the scripts call (BSD or GNU), and the variables sim reads.
+      # tools the scripts call (BSD or GNU), and the variables Sim reads.
       - name: The runner
         run: |
           uname -a

@@ -22,10 +22,13 @@ T {char}	nvo	until character backward	Like F, but stops one character after the 
 ;	nvo	repeat find	Repeats the last f, F, t or T in the same direction.
 ,	nvo	repeat find backward	Repeats the last f, F, t or T in the opposite direction.
 %	nvo	matching bracket	Moves from a bracket ( ) [ ] { } at or after the cursor on this line to its partner, skipping nested pairs.
+{	nvo	previous paragraph	Moves back to the empty line before the paragraph (a run of lines with text), or to the first line; with a count, that many paragraphs. d{ takes what is between.
+}	nvo	next paragraph	Moves on to the empty line after the paragraph (a run of lines with text), or to the end of the last line; with a count, that many paragraphs. d} deletes to the end of the paragraph.
 n	nvo	next match	Moves to the next match of the last search, wrapping round the end of the file, and lights the matches. The status line says which one it is, [3/12].
 N	nvo	previous match	Moves to the previous match of the last search, wrapping round the start of the file.
 *	nvo	search word forward	Searches for the word under the cursor, as a whole word, and moves to its next occurrence.
 #	nvo	search word backward	Searches for the word under the cursor, as a whole word, and moves to its previous occurrence.
+s	nv	jump by label	Jumps by label, as the owner's flash.nvim does on s: type a few characters of where to go (a literal, smart-case: one capital makes it exact) and every match on the screen gets a letter after it; type the letter and the cursor is there. Enter goes to the nearest match, Esc nowhere, and '' comes back. In Visual mode the selection goes with it. Nothing is edited.
 <C-d>	nvo	half page down	Scrolls half a screen down and moves the cursor with it; the line is centered where it can be.
 <C-u>	nvo	half page up	Scrolls half a screen up and moves the cursor with it.
 <PageDown>	nvo	page down	Moves a screen down.
@@ -33,8 +36,10 @@ N	nvo	previous match	Moves to the previous match of the last search, wrapping ro
 1|2|3|4|5|6|7|8|9	nvo	count	A number before a command repeats it that many times: 3dd, 5j, 2w, 10x. A 0 typed after a number is part of it; alone, 0 is the start of the line.
 i w|W	ov	inner word	The word under the cursor, without the blanks around it (iw), or the WORD (iW): diw deletes it, ciw changes it, yiw yanks it, viw selects it.
 a w|W	ov	around word	The word under the cursor with the blanks after it, or before it when there are none (aw), or the WORD (aW).
-i "|'	ov	inner quotes	The text between the pair of quotes on this line that holds the cursor, without the quotes: ci" changes it.
-a "|'	ov	around quotes	The same with the quotes, and the blanks after the closing one.
+i "|'|`	ov	inner quotes	The text between the pair of quotes (" ' or `) on this line that holds the cursor, without the quotes: ci" changes it.
+a "|'|`	ov	around quotes	The same with the quotes, and the blanks after the closing one.
+i p	ov	inner paragraph	The paragraph the cursor is in, as whole lines: the run of lines with text, or the run of blank lines (whitespace only) when the cursor is on one. vip selects it in V-LINE mode.
+a p	ov	around paragraph	The paragraph and the blank lines after it, or before it when there are none after; on blank lines, those and the paragraph after them.
 i (|)	ov	inner parentheses	The text between the parentheses that hold the cursor, nested pairs counted, without them: ci( changes it. A ( or a ) after i or a means the same.
 a (|)	ov	around parentheses	The same with the parentheses.
 i [|]	ov	inner brackets	The text between the square brackets that hold the cursor, without them.
@@ -45,16 +50,28 @@ i <lt>|>	ov	inner angle brackets	The text between < and > that hold the cursor, 
 a <lt>|>	ov	around angle brackets	The same with the angle brackets.
 d	nv	delete	d{motion} deletes the text from the cursor to where the motion goes (dw, d$, dip, di"); dd deletes lines; in Visual mode d deletes the selection. What it deletes is what p pastes, and it never goes to the system clipboard ("+d cuts to it); a register name before it ("add) keeps the text there.
 c	nv	change	c{motion} deletes like d and starts Insert mode; cc changes whole lines; cw changes to the end of the word, as ce does; in Visual mode c changes the selection.
-y	nv	yank	y{motion} copies the text to the unnamed register and to the system clipboard (also through tmux), and says what it took (3 lines yanked); yy yanks lines; in Visual mode y yanks the selection. The text lights up for a moment. With a register name ("ayw) the text stays in sim, even over ssh and tmux: it does not reach the clipboard.
+y	nv	yank	y{motion} copies the text to the unnamed register and to the system clipboard (also through tmux), and says what it took (3 lines yanked); yy yanks lines; in Visual mode y yanks the selection. The text lights up for a moment. With a register name ("ayw) the text stays in Sim, even over ssh and tmux: it does not reach the clipboard.
 <lt>	nv	outdent	<{motion} takes one level of indent off the lines the motion covers; << is the current line; in Visual mode < outdents the selection. A level is the file's own: 4 columns, 2, or a tab, as the first indented lines show.
 >	nv	indent	>{motion} puts one level of indent on the lines the motion covers; >> is the current line; in Visual mode > indents the selection.
 !	nv	filter	!{motion} opens the command line with the range of lines, ready for a command: !! is the current line, and :{range}!cmd runs the lines through cmd and replaces them with what it prints, as one undo step. Ctrl-c cancels a filter that runs. Not in plain mode.
+g c	nv	comment toggle	gc{motion} (or the selection) comments the lines, or uncomments them when every line that is not blank is commented, as Neovim's gc does. The comment string comes from the file name: // for Rust, C and TypeScript, # for Python, shell and YAML, -- for Lua, <!-- --> for Markdown and HTML, /* */ for CSS; a file whose string is not known says so, and nothing changes. One toggle is one undo step, . repeats it, and no register is touched.
+g u	nv	lowercase	gu{motion} (or the selection) makes the text lower case; guu does the line. A char whose other case is more than one char stays as it is. . repeats it.
+g U	nv	uppercase	gU{motion} (or the selection) makes the text upper case; gUU does the line. ß becomes ẞ, as in vim. . repeats it.
+g ~	nv	toggle case	g~{motion} (or the selection) turns lower case into upper case and upper into lower; g~~ does the line. . repeats it.
+g s	nv	surround	The surroundings, as mini.surround's with the prefix gs: gsa adds one, gsd takes one away, gsr replaces one.
+g s a	nv	add surrounding	gsa{motion}{char} (or gsa{char} on the selection) puts a surrounding around the text: ( puts ( and ) with a blank inside, ) and b without, q double quotes, any other char itself on both sides; around whole lines from the first char that is not blank to the last. t, f and ? (which ask mini for a name) are not built. One undo step, and . repeats it.
+g s d {char}	n	delete surrounding	Takes away the surrounding the cursor is in: the narrowest pair of {char} on the line, or else within 20 lines; ( takes the blanks inside too, ) and b (any bracket) and q (any quote) only the chars. Says so when there is none.
+g s r {char} {char}	n	replace surrounding	Puts the second surrounding in the place of the first, which is found as gsd finds it: gsr"' turns "x" into 'x'.
 d d	n	delete lines	Deletes the current line, or that many lines with a count (3dd).
 c c	n	change lines	Deletes the current line's text, keeping its indent, and starts Insert mode.
 y y	n	yank lines	Yanks the current line, or that many lines with a count (3yy).
 <lt> <lt>	n	outdent line	Takes one level of indent off the current line.
 > >	n	indent line	Puts one level of indent on the current line.
 ! !	n	filter line	Opens the command line with the current line as the range, ready for :{range}!cmd.
+g c c	n	comment line	Comments the line, or uncomments it, as Neovim's gcc does; a count does that many lines.
+g u u	n	lowercase line	Makes the line lower case; with a count, that many lines.
+g U U	n	uppercase line	Makes the line upper case; with a count, that many lines.
+g ~ ~	n	toggle case of line	Turns the case of every letter of the line around; with a count, that many lines.
 D	n	delete to end of line	Deletes from the cursor to the end of the line, as d$.
 C	n	change to end of line	Deletes from the cursor to the end of the line and starts Insert mode, as c$.
 Y	n	yank to end of line	Yanks from the cursor to the end of the line, as y$. In vi Y yanks the whole line (yy does that here).
@@ -69,13 +86,21 @@ p	n	paste after	Puts the unnamed register (what was last deleted or yanked), or 
 P	n	paste before	Like p, before the cursor or above the line.
 J	n	join lines	Joins the next line to this one with a single blank; with a count, that many lines.
 r {char}	n	replace character	Replaces the character under the cursor with the one you type; with a count, that many characters.
+~	nv	toggle case	Turns the case of the character under the cursor around and moves right; with a count, that many characters of the line. In Visual mode, the case of the selection.
+<M-j>|<M-k>	nv	move line down/up	Moves the line (in Visual mode the selected lines, which stay selected) down or up, as mini.move does; with a count, that many lines, as far as there are. The marks go with their lines. One undo step for each, and . repeats it. Where a key is not the text's (Insert mode, a prefix half typed, the tree), Alt and a key are Esc and the key.
+<M-h>|<M-l>	nv	indent out/in	Shifts the line (in Visual mode the selected lines, which stay selected) one indent unit out or in, as mini.move does; with a count, that many units. The cursor stays on its char.
 u	n	undo	Undoes the last change, one step at a time. A change that came from the disk and was merged in is a step too.
 U	n	redo	Redoes what u undid. In vi U undoes a whole line; here it is the key beside u and does what Ctrl-r does.
 <C-r>	n	redo	Redoes what u undid.
 .	n	repeat last change	Repeats the last change: its keys, with a new count if you give one (3.). Undo is not a change, so . keeps repeating the last real one.
+g v	n	last selection again	Selects again what the last Visual selection selected, in the same mode; its ends move with the edits as marks do. Says so when there was none.
+g f	n	open the file under the cursor	Opens the file whose name is under the cursor, as :e does: a path with :line or :line:col after it, looked for beside the file first and then in the project; in Markdown the target of the link the cursor is in. A name that is not there says so and nothing opens. Tab goes back.
+g x	n	open the web address under the cursor	Hands the http or https address under the cursor (in Markdown the target of the link the cursor is in) to the system's opener (xdg-open, open), which shows it in the browser. A link that Sim marks as lying, or cannot judge, is not opened: the status line says where it goes. Not in plain mode.
 v	nv	visual	Starts Visual mode on the character, or leaves it. Motions extend the selection, an operator works on it, o jumps to its other end, and i and a with an object select it. The selection is underlined, or gray where the terminal has truecolor.
 V	nv	visual line	Starts Visual mode on whole lines, or leaves it.
 o	v	other end of selection	Moves the cursor to the other end of the selection.
+u	v	lowercase	Makes the selection lower case (as gu does).
+U	v	uppercase	Makes the selection upper case (as gU does).
 <Esc>	nvi	back to Normal	Leaves Insert mode, Visual mode or a half-typed command. In Normal mode with nothing typed it puts the search highlight out (as :noh does).
 <C-c>	nv	cancel	Cancels a half-typed command or Visual mode; with a filter running it cancels the filter; with nothing to cancel it says q to quit.
 " {char}	nv	register (a-z A-Z 0-9 - _ + *)	Names the register for the next yank, delete, change or put: "ayw yanks into a, "ap puts it. a-z keep their text and A-Z add to it; "0 is the last yank, "1-"9 the last deletes of a line or more ("1p then . puts "2p), "- the small deletes, "_ drops the text, "" is the unnamed one. "+ and "* write the system clipboard (also through tmux) and cannot be read: paste with the terminal. They live in memory only, shared by the open files.
@@ -90,10 +115,12 @@ m {char}	nv	set a mark (a-z)	Sets the mark a-z at the cursor's place, in this fi
 <C-s>	nvi	save	Saves the file in every mode (Insert mode stays Insert mode), as :w does. It is refused, and says so, when the disk changed since the file was read and the changes conflict with yours: :w! keeps yours, :e! takes the disk's, and each copies the version it gives up.
 Z Z	n	save and quit	Saves if there are changes and closes the file, as :x does.
 Z Q	n	quit without saving	Closes the file and discards the changes, as :q! does.
-q	n	quit	Closes the file as :q does (less's q: sim has no macros). With changes it says no write since last change. The last file open ends sim.
+q	n	quit	Closes the file as :q does (less's q: Sim has no macros). With changes it says no write since last change. The last file open ends Sim.
 z z	n	center cursor line	Scrolls so that the cursor's line is in the middle of the screen.
 ] c	n	next change from outside	Moves to the next change that came from the disk (another process, a build, an agent) and has not been looked at; the mark goes when the cursor reaches it. :seen clears all the marks.
 [ c	n	previous change from outside	Moves to the previous change that came from the disk and has not been looked at.
+] h	n	next hunk against HEAD	Moves to the first line of the next hunk that differs from HEAD (the signs of the sign column), wrapping round, with the line in the middle of the screen. ]c and [c are the changes from the disk.
+[ h	n	previous hunk against HEAD	Moves to the first line of the previous hunk that differs from HEAD, wrapping round, with the line in the middle of the screen.
 <Tab>	n	next file	Shows the next open file, wrapping round. The status line (and the tabs) say which one of how many: 2/3. With the tree focused it works too.
 <S-Tab>	n	previous file	Shows the previous open file, wrapping round.
 <C-n>	ntp	toggle the tree	Opens the tree of the project and focuses it, or closes it when it already has the focus. In the picker it moves down the list.
@@ -101,22 +128,29 @@ z z	n	center cursor line	Scrolls so that the cursor's line is in the middle of t
 <C-f>	nip	search file contents	Opens the search of the contents of the files (ripgrep if it is on the PATH): results grouped by file with a preview, the match bold; Enter opens the file at the match. Not in plain mode.
 <F1>	nitcp	help	Opens this table of keys and commands as a picker, filtered as you type; the longer text of the entry under the cursor is in the preview. Enter and Esc close it, and it runs nothing. :help does the same.
 z h	n	syntax colors on/off	Turns the syntax colors of the text on or off, for every file; the message says which.
-z l	n	next look	Goes round the looks (calm, flat, depth); the choice is remembered. In plain mode the look stays calm.
+z l	n	next look	Goes round the looks (calm, flat, depth, dark); the choice is remembered. In plain mode the look stays calm.
 z i	n	icons on/off	Turns the icons of the tree, the tabs and the status line on or off; the choice is remembered. They need a Nerd Font, which a terminal does not announce.
-<Space>	nt	leader	Space starts a sequence, as the leader of the author's Neovim does: <Space>bp and <Space>bc. Space followed by a key that has no sequence does nothing; where Space is text it is the character.
+<Space>	nt	leader	Space starts a sequence, as the leader of the author's Neovim does: <Space>bp and <Space>bc, <Space>ff and <Space>fg. Space followed by a key that has no sequence does nothing; where Space is text it is the character.
 <Space> b	nt	buffers	The files that are open, as tabs: pick one by its letter, or pick one to close; <Space>bk says where the version a save or a reload gave up went.
 <Space> b p	nt	pick a tab by letter	Puts a letter on each tab (bufferline's: the first letter of the file's name when it is free, else the next one of its alphabet), and the letter you type shows that file. Esc or any other key cancels. Without a tab bar the letters are on the status line.
-<Space> b c	nt	pick a tab to close	Puts a letter on each tab as <Space>bp does, and the letter you type closes that file as :q would: a file with changes is not closed, it says so and its tab is shown. sim never closes a file with unsaved work.
+<Space> b c	nt	pick a tab to close	Puts a letter on each tab as <Space>bp does, and the letter you type closes that file as :q would: a file with changes is not closed, it says so and its tab is shown. Sim never closes a file with unsaved work.
 <Space> b k	nt	where the other version went	Says again, alone on the status line, where the version that :w! or :e! gave up was copied (SAFE-7): a path a shell takes, ~/... below the home directory. A path wider than the line is cut from the left, so that the file's name stays. Before any copy it says so.
-<Space> g	nt	git	What git has to say: <Space>ge shows what differs from HEAD, <Space>gi what the guard did to this repository. In sim --plain, which runs no program, there is none.
+<Space> g	nt	git	What git has to say: <Space>ge (or <Space>gg) shows what differs from HEAD, <Space>gr gives the hunk under the cursor back to HEAD, <Space>gi says what the guard did to this repository. In sim --plain, which runs no program, there is none.
 <Space> g e	nt	changes from HEAD	Opens the panel in the changes view: only the files that differ from HEAD (staged and unstaged together, untracked ones too) in their folders, each with its letter (M changed, A added, D deleted, R renamed, U untracked) and +n −n from git diff --numstat HEAD, a folder with the sums. Enter on a deleted file opens HEAD's version, read-only; a rename is one row, old → new. <Space>ge again, or q, goes back to the tree. In sim --plain it is refused: plain mode runs no program.
-<Space> g i	nt	what the guard did	Says again, on the status line, what sim did about this repository's config (GIT-5): why git was not run, with the key and the file; or the settings of the repository's own that it turned off (the monitor, the hooks path, a filter, an external diff), by name; or that there is none. The tree's box says the short form for as long as it is true. In sim --plain, which runs no program, it says so.
+<Space> g g	nt	changes from HEAD	The changes view, as <Space>ge opens it (Diffview's key in the owner's Neovim): the files that differ from HEAD, and the diff of the one under the cursor in the text pane. The same key again goes back to the tree.
+<Space> g i	nt	what the guard did	Says again, on the status line, what Sim did about this repository's config (GIT-5): why git was not run, with the key and the file; or the settings of the repository's own that it turned off (the monitor, the hooks path, a filter, an external diff), by name; or that there is none; and first the hooks another process wrote into the hooks directory while Sim runs, which Sim does not run and your git will (GIT-6). The tree's box says the short form for as long as it is true. In sim --plain, which runs no program, it says so.
+<Space> g r	nt	reset the hunk to HEAD	Puts HEAD's lines of the hunk the cursor is on in the place of the buffer's, as one edit that u undoes: nothing is written and the file stays modified until :w. Refused, with words, where the signs are older than the text (save first), in a file git does not track and in plain mode.
+<Space> f	nt	find	The owner's Telescope keys: <Space>ff finds files as Ctrl-p does, <Space>fg searches the contents of files as Ctrl-f does, <Space>fk opens the help as F1 does, and <Space>ft searches for TODO.
+<Space> f f	nt	find files	Opens the picker's finder of files, as Ctrl-p does (Telescope's find_files in the owner's Neovim): type to find a file by any characters of its path, in order; Enter opens it.
+<Space> f g	nt	search file contents	Opens the picker's search of the contents of files, as Ctrl-f does (Telescope's live_grep in the owner's Neovim): the query is a literal, and smart-case.
+<Space> f k	nt	help	Opens this table of keys and commands, as F1 and :help do (Telescope's keymaps in the owner's Neovim).
+<Space> f t	nt	search for TODO	Opens the search of contents with TODO typed in its prompt (exact, since it has a capital: TODO and not todo); Backspace or more characters edit the query as any other. The other keywords of todo-comments are typed by hand.
 <Space> u	nt	interface	Toggles of the interface: <Space>um turns the read view of Markdown on and off.
 <Space> u m	nt	markdown read view on/off	Turns the read view of Markdown files on or off, for every file; the message says which. On, every line but the cursor's and the selected ones is drawn as it reads: the markers of emphasis and of inline code are not drawn, and a table is aligned by the width of its cells; the line you are on is always the file's own text. Off, the file is drawn as it is. The choice is remembered. In sim --plain there is no read view.
 j|<Down>	t	down	Moves the cursor one row down the tree.
 k|<Up>	t	up	Moves the cursor one row up the tree.
 l|<Right>	t	open	Opens the directory under the cursor, or opens the file and gives it the focus; on an open directory it does nothing.
-<CR>	t	open, or toggle a folder	Opens the file and gives it the focus; on a directory it opens it when it is closed and closes it when it is open (Neo-tree's open).
+<CR>	t	open, or toggle a folder	Opens the file and gives it the focus; on a directory it opens it when it is closed and closes it when it is open (Neo-tree's open). In the changes view (<Space>ge) the file opens at the first line the hunk its preview shows changes.
 h|<Left>	t	close, or up	Closes the directory under the cursor, or moves to its parent.
 C	t	close the folder	Closes the directory the cursor is in (Neo-tree's close_node): an open directory closes and the cursor stays; on a file or a closed directory the directory that holds it closes and the cursor goes onto it. At the top level it does nothing.
 g g	t	top	Moves to the first row.
@@ -133,6 +167,11 @@ z	t	collapse all	The same as -: closes every directory; the cursor stays on the 
 Z	t	open folder and all below	Opens the directory under the cursor, or the one that holds the file, and every directory below it, as their listings arrive. It leaves closed what git ignores (target/, node_modules/) and symlinks, and stops at 200 directories (Z again goes on). The cursor stays on its entry.
 q	t	close the tree	Closes the panel; the text has the focus. In the changes view (<Space>ge) it goes back to the tree instead.
 <Esc>	t	back to the text	Gives the focus back to the text and leaves the panel open.
+] c	t	next hunk of the preview	In the changes view (<Space>ge) the text pane shows what the file under the cursor differs from HEAD by; ]c shows its next hunk, and past the last one the first hunk of the next file of the view.
+[ c	t	previous hunk of the preview	In the changes view, shows the previous hunk of the preview, and before the first one the last hunk of the previous file of the view.
+J	t	scroll the preview down	In the changes view, scrolls the diff in the text pane down by half the pane (the wheel over it scrolls it too).
+K	t	scroll the preview up	In the changes view, scrolls the diff in the text pane up by half the pane.
+f	t	FOLLOW on/off	In the changes view: while FOLLOW is on (the status line says FOLLOW) the cursor goes to the file another process wrote last. It is off when the view opens; nothing else moves the cursor.
 <C-w>	nt	window keys	Waits for a key below: w and its aliases switch panes, h focuses the tree, t only if it is open, l and b the text. The tree stays open. An unlisted key ends it and does nothing. Taken only in Normal mode or the tree, with no command or query pending.
 <C-w> w|<C-w>|W|p|<C-p>	nt	other pane	Moves the focus to the other of the two: from the text to the tree (opening it if it is closed), from the tree to the text. The tree stays open (Vim's window keys; Ctrl-n opens and closes).
 <C-w> h|<Left>|<C-h>|<BS>	nt	focus the tree	Moves the focus to the tree, opening it if it is closed. In the tree it does nothing.
@@ -148,20 +187,25 @@ q	t	close the tree	Closes the panel; the text has the focus. In the changes view
 <C-w>	p	delete word	Deletes the last word of the query.
 <BS>	p	delete character	Deletes the last character of the query; at an empty query it closes the picker.
 <Tab>	i	indent	Inserts a tab, or the file's own indent.
-<BS>	i	delete before cursor	Deletes the character before the cursor, or joins the line to the one above.
-<CR>	i	new line	Breaks the line, keeping the indent.
+<BS>	i	delete before cursor	Deletes the character before the cursor, or joins the line to the one above; between the two chars of an empty pair, (|) or "|", it deletes both.
+<CR>	i	new line	Breaks the line, keeping the indent; between an empty pair of brackets, (|), it puts the closing one on a line of its own and the cursor on a line between them, one indent further in.
+(|[|{|"|'|`	i	typed in pairs	As mini.pairs types them: ( [ { put their closing char after the cursor too, and " ' ` put two; not after a backslash, and ' not after a letter. A paste is never paired, and . types what was put in.
+)|]|}	i	step over the closing char	A closing char typed where the same char is after the cursor steps over it (" ' ` too), so typing a pair's own closing char does not double it.
 <Left>|<Right>|<Up>|<Down>|<Home>|<End>	i	move	The arrow keys, Home and End move the cursor without leaving Insert mode.
 :w	c	save	:w saves; :w {file} saves under another name (not over a file that exists); :w! writes anyway: over a file without write permission, and over a version on the disk that conflicts with yours after copying that version into the state directory.
 :wq|:x	c	save and quit	Saves, and closes the file when the save is done. :x saves only if there are changes.
-:q	c	quit	:q closes the file; with changes it says no write since last change (:q! to override). :q! discards them. The last file open ends sim.
+:q	c	quit	:q closes the file; with changes it says no write since last change (:q! to override). :q! discards them. The last file open ends Sim.
 :cq	c	quit with failure	Quits with exit code 1, which makes git abort a commit whose message is being edited.
 :e	c	open a file	:e {file} opens another file in a tab, or shows it if it is open; :e! reloads this one from the disk, copying yours into the state directory first when they conflict. In plain mode :e replaces the file.
 :qa|:wa	c	quit or save all	:qa quits when no file has changes; :qa! discards them all; :wa saves every modified file and leaves out the ones that conflict with the disk, naming them. Not in plain mode.
+:xa|:wqa	c	save all and quit	:xa and :wqa save every modified file and close each as :x does, so Sim ends when the last is closed; a file that conflicts with the disk, or whose save fails, stays open and says why. Not in plain mode.
+:bd	c	close the file	:bd closes the file shown as :q does (a modified one stays; :bd! discards it), and closing the last one leaves Sim open with the tree. Not in plain mode.
 :s	c	substitute	:s/old/new/ replaces the first match in the line, with g every match; :%s/old/new/g does the whole file. A pattern is a regex; & in the replacement is what matched, \1 a group.
 :{n}	c	go to line	:42 moves to line 42; :$ to the last line; :'<,'> is the Visual selection.
 :{range}!cmd	c	filter	Runs the lines of the range through sh -c cmd and replaces them with its output, as one undo step; typing goes on meanwhile and Ctrl-c cancels. :%!sort sorts the file. Not in plain mode.
+:r	c	read a file or a command	:r {file} puts the file's lines below the line (:{n}r below line n, :$r at the end; no name: the file itself), as one undo step; a file that is not text is refused. :r !cmd puts what cmd prints there instead, as a filter that is given no lines (not in plain mode).
 :seen	c	clear change marks	Forgets the marks of the changes that came from the disk, as if they had all been looked at.
 :noh	c	put out the search highlight	Puts the lit matches of the search out and the count with them; n or a new search lights them again.
-:registers|:reg	c	list the registers	:registers shows what each register holds, the unnamed one first, a line break as ⏎, long text cut to fit the line; a register that holds nothing is left out. Nothing is written to the disk: they are gone when sim ends.
+:registers|:reg	c	list the registers	:registers shows what each register holds, the unnamed one first, a line break as ⏎, long text cut to fit the line; a register that holds nothing is left out. Nothing is written to the disk: they are gone when Sim ends.
 :marks	c	list the marks	:marks shows each mark that is set, a to z and ' (the place before the last jump), with its line and column and the text of its line, on one line cut to fit it. Nothing is written to the disk: they are gone when the file is closed.
 :help	c	help	:help (or :h, or F1) opens this table; :help words opens it with the words typed.

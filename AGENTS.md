@@ -1,10 +1,10 @@
-# AGENTS.md — sim
+# AGENTS.md — Sim
 
 @CONCEPT.md
 @SPEC.md
 
-You are implementing sim: the next-generation Vim, written in Rust. It is one program in two crates, and a window in a third: the core (`sim-editor-core`, in `core/`: the buffer, vi's grammar, saves that lose nothing, the merge with what other processes write, the terminal) and the editor (`sim-editor`, in `sim/`: the binary `sim`, which runs the core's editor for each open file and adds the tree, finding, search, marks, syntax, the looks and the mouse). `sim --plain` is the core alone. The window (`sim-gui`, in `gui/`: another binary, not published) draws the editor's screen as surfaces on a GPU; it is part three of SPEC and the program `sim` does not depend on it.
-Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC is the core's and holds for every file open in sim; part two is the editor's and only adds; part three is the window's.
+You are implementing Sim: the next-generation Vim, written in Rust. It is one program in two crates, and a window in a third: the core (`sim-editor-core`, in `core/`: the buffer, vi's grammar, saves that lose nothing, the merge with what other processes write, the terminal) and the editor (`sim-editor`, in `sim/`: the binary `sim`, which runs the core's editor for each open file and adds the tree, finding, search, marks, syntax, the looks and the mouse). `sim --plain` is the core alone. The window (`sim-gui`, in `gui/`: another binary, not published) draws the editor's screen as surfaces on a GPU; it is part three of SPEC and the program `sim` does not depend on it.
+Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC is the core's and holds for every file open in Sim; part two is the editor's and only adds; part three is the window's.
 
 ## The pyramid
 
@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC i
         ┌─┴─────────┴─┐
         │    SPEC     │  what      requirements with IDs         SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       core/src ≤ 3,640, sim/src ≤ 11,826, gui/src ≤ 5,100
+      │      CODE       │  how       core/src ≤ 4,097, sim/src ≤ 12,671, gui/src ≤ 5,100
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       core/tests, sim/tests, gui/tests and the E2E scripts
     └─────────────────────┘
@@ -40,10 +40,11 @@ core/               the package sim-editor-core, the library crate `sim_core` (p
       app.rs        App::update(&mut self, Event) -> Vec<Effect>
       buffer.rs     ropey and undo
       vi.rs         key sequence → Command (Normal and Visual mode, the command line's editing)
-      edit.rs       applies a Command to the Buffer: motions, operators, text objects, Insert mode
-      ex.rs         ex commands and their ranges, `:s`, search
+      edit.rs       applies a Command to the Buffer: motions (paragraphs too), operators (the case too), text objects, `gv`, Insert mode
+      ex.rs         ex commands and their ranges, `:s`, `:r`, search
       reg.rs        the registers (memory only, ropes), what a yank, a delete and `:registers` do with them, and their hand-over between Apps (VI-15)
       hidden.rs     the one table of the chars that are never drawn as they are (SAFE-10; the table is `hidden.tbl`, made by scripts/hidden.py); `view::show` says the form of a char where it stands (SAFE-10, SAFE-11)
+      hands.rs      what the hands bring from the owner's Neovim: the comment toggle `gc` and its table of comment strings by the file's name (VI-18); the surroundings `gsa` `gsd` `gsr`, mini.surround's (VI-20); the pairs that typing makes, mini.pairs' (VI-21); the lines that Alt-h/j/k/l move, mini.move's (VI-22)
       mark.rs       the marks `ma`-`mz` and the place before the last jump: where an edit, an undo and a change from the disk leave them, `'` `` ` `` `''` and `:marks` (VI-17)
       merge.rs      diff3 and the word-level diff
       disk.rs       what App does when the file changes on disk: reload or merge, marks, the conflict of SAFE-7; the result of a filter; `]c` `[c`
@@ -59,13 +60,15 @@ core/               the package sim-editor-core, the library crate `sim_core` (p
 sim/                the package sim-editor: the library `sim` and the binary `sim`
   src/
     main.rs         the terminal's loop: the input thread, the Painter; the start and the signals are shell.rs's, the Effects are run by it
-    shell.rs        the start of sim for every front end (`arguments`, `begin`: the rules of plain mode, the state directory and git's hooks, once, from a `World` the system says and a `Front` the front end brings; `signals`), and what is done with the Effects `Sim::update` returns, on threads (the binary) or inline (a window's tests and renders): read, open, save, watch, git, highlight, search, filter, the clipboard; `Out` (GUI-4)
+    shell.rs        the start of Sim for every front end (`arguments`, `begin`: the rules of plain mode, the state directory and git's hooks, once, from a `World` the system says and a `Front` the front end brings; `signals`), and what is done with the Effects `Sim::update` returns, on threads (the binary) or inline (a window's tests and renders): read, open, save, watch, git, highlight, search, filter, the clipboard; `Out` (GUI-4)
     lib.rs          exposes the modules to main.rs and tests/
     sim.rs          the state: open files (core Apps), events in and effects out, the frame (pure)
     sim/panel.rs    the panel's keys, the reveal of directories, the search, the narrowed tree (pure)
     tree.rs         the tree: entries, stable order, expansion, the visible rows (pure)
     find.rs         fuzzy matching of paths and ranking (pure)
-    changes.rs      the changes view's numbers: `+n −n` of each file from `git diff --numstat -z`, the lines of untracked files, the sums of folders (pure)
+    changes.rs      the changes view's numbers: `+n −n` of each file from `git diff --numstat -z`, the lines of untracked files, the sums of folders and of the view (pure)
+    patch.rs        the changes view's preview: git's diff of a file read into its lines from the first hunk on, what each line is, the line of the file it is now, and where each hunk goes; an untracked file made one (pure)
+    sim/tower.rs    the changes view as a watchtower in the state: the preview of the file under the cursor (a core App never given a key, drawn with the file's numbers and LOOK-2's tints), its hunks, its scroll, Enter at the hunk, and FOLLOW (pure)
     keys.rs         the key table (`keys.tsv`: the only source of which-key, `:help` and the README's table of keys, KEY-1), the keys that can follow a prefix, the help's rows, which-key's window (pure)
     crumb.rs        the breadcrumb `dir › file › section`: the section the cursor is in (a heading, or the definition it is inside, by a few string tests), the parts of the path, and how they are cut (pure, UI-18)
     md.rs           the Markdown read view: which chars of a line are not drawn and what is put in their place (markers, aligned tables), the tables of a screen, and the map from the core's columns to the drawn ones (pure, MD-1 to MD-8)
@@ -79,24 +82,27 @@ sim/                the package sim-editor: the library `sim` and the binary `si
     rank.rs         recency/frequency likelihood from the open history (pure)
     marks.rs        git status and on-disk changes → marks for files and directories (pure)
     sim/ptr.rs      the mouse: clicks, drags and the wheel in the panel and the text (pure)
+    sim/jump.rs     the jump by label, the owner's flash.nvim on `s`: the query, its matches in the lines on the screen, their labels, and the keys of a jump (pure, JUMP-1)
+    sim/open.rs     what the text names, opened: `gf` the file under the cursor (the shell looks for it on the disk), `gx` its web address, never a link MD-10 marks (pure, OPEN-1, OPEN-2)
+    sim/hunk.rs     the hunks against HEAD in the text: `<Space>gr` gives the one under the cursor back as one edit, never a stale one; `]h` `[h` walk them (pure, DIFF-11)
     syn.rs          syntect (bat's syntaxes) → colored spans per line (markdown's looks too, UI-8), with cached parse states
-    color.rs        what the core's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, the tones of the looks (green, red, tints, the card's surface, shadow, lines, the interface's six accents, their blocks and its neutral surfaces: OKLab mixes) and the fade, and the terminal's replies put together out of the keys (pure)
+    color.rs        what the core's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, the tones of the looks (green, red, tints, the card's surface, shadow, lines, the interface's six accents, their blocks and its neutral surfaces: OKLab mixes; the dark board's grays in their place, DARK-2) and the fade, and the terminal's replies put together out of the keys (pure)
     paint.rs        the looks beyond the core's four styles, the paints (a background, a color of its own, a fade for a run of cells, its cue without color), the Screen, the Painter that writes it (in color, or in weight, underline and inverse when there is none, COLOR-2), the mouse modes on and off
-    layout.rs       the panel and the editor composed into one Screen: marks, search, colors; the three looks (calm, flat, depth): geometry, green and red, tints, boxes, ruler, fog; the char under a point (pure)
-    io.rs           directory reads, git (one function builds every command line: the guard of GIT-1 to GIT-4), the file list, the watcher of the project (WATCH-1 to WATCH-3), the history, look and icons files, the detection of plain mode, of `NO_COLOR` and of terminfo, the threads, the content search (rg or the built-in reader) and the preview's read (the impure parts)
+    layout.rs       the panel and the editor composed into one Screen: marks, search, colors; the four looks (calm, flat, depth, dark): geometry, green and red, tints, boxes, ruler, fog; the char under a point (pure)
+    io.rs           directory reads, git (one function builds every command line: the guard of GIT-1 to GIT-4), the file list, the watcher of the project (WATCH-1 to WATCH-3), the history, look and icons files, the detection of plain mode, of `NO_COLOR` and of terminfo, the threads, the content search (rg or the built-in reader) and the preview's read, and the opener of `gx` (OPEN-2: found on the `PATH` as rg is, one argument, no shell) (the impure parts)
   keys.tsv          the key table as data: keys, modes, a line of description and a longer text for each entry
   help.txt          what `sim --help` prints (`{version}` is the Cargo version)
   tests/            the editor's tests and goldens (`gui_N.rs` are the seams for the window); scripts/e2e.sh runs `sim` in tmux
-gui/                the package sim-gui: the library `sim_gui` and the binaries `sim-gui` (the window) and `gui-shots` (offscreen pictures and frame times). Reaches sim through `src/api.rs` only (GUI-8)
+gui/                the package sim-gui: the library `sim_gui` and the binaries `sim-gui` (the window) and `gui-shots` (offscreen pictures and frame times). Reaches Sim through `src/api.rs` only (GUI-8)
   src/
-    scene.rs        sim's layers and roles → surfaces with an elevation, and glyphs: a display list, pure, dumped as text for the goldens
+    scene.rs        Sim's layers and roles → surfaces with an elevation, and glyphs: a display list, pure, dumped as text for the goldens
     depth.rs        the numbers of the elevations: shadow, radius, rim, scrim
-    cells.rs        the cells of a Screen, each as sim's `Resolved` (from sim's `Resolver`)
+    cells.rs        the cells of a Screen, each as Sim's `Resolved` (from Sim's `Resolver`)
     frame.rs        one settled frame for the renderer: cells, tones, layers, cursor
     anim.rs         motion: the cursor's glide, the scroll, the fog in time; reduced motion
     input.rs        window events → the terminal's events (keys, input method, paste, pointer, wheel)
-    theme.rs        the two themes, handed to sim as `SimEvent::Colors`
-    session.rs      sim and its shell held together; headless.rs the same with the jobs inline and keys from a script
+    theme.rs        the two themes, handed to Sim as `SimEvent::Colors`
+    session.rs      Sim and its shell held together; headless.rs the same with the jobs inline and keys from a script
     font.rs blocks.rs metrics.rs   text: shaping, fallback, the glyph atlas; box-drawing chars as shapes; where the cells are
     gpu.rs offscreen.rs studio.rs overlay.rs shaders/   the renderer (two pipelines, simple WGSL), offscreen targets, the cursor and the input method's text
     app.rs main.rs  the window (winit): the only code that opens one
@@ -127,11 +133,11 @@ If another one is needed, first write the reason into SPEC.
 - clippy denies `unwrap_used`, `expect_used` and `panic` (tests may use them, through clippy.toml; a helper in a test file allows what it needs at the top of the file)
 - Never panic on an I/O error. Say what happened, in words, on the status line
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
-- A key is added to `sim/keys.tsv` in the same change that adds it to the core or to sim: `sim/tests/key_1.rs` feeds every key to a Sim and fails for a key that does something and is not in the table, and for an entry that does nothing
+- A key is added to `sim/keys.tsv` in the same change that adds it to the core or to Sim: `sim/tests/key_1.rs` feeds every key to a Sim and fails for a key that does something and is not in the table, and for an entry that does nothing
 - `[profile.release]` (in the workspace) has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- core/src stays within 3,640 lines, sim/src within 11,826 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
-- Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
-- Code, comments, messages, docs and commit messages are in English. sim is the next-generation Vim (新時代の Vim): in README, CONCEPT, this file, the crates' descriptions and `--help`, it is never described as a likeness of Vim (nothing "-like", nothing "-style")
+- core/src stays within 4,097 lines, sim/src within 12,671 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. Sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
+- Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); dark is depth with no hue at rest, and lights only a change, where you act and a danger (DARK-2, DARK-3); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
+- Code, comments, messages, docs and commit messages are in English. Sim is the next-generation Vim (新時代の Vim): in README, CONCEPT, this file, the crates' descriptions and `--help`, it is never described as a likeness of Vim (nothing "-like", nothing "-style"). The product is written Sim in prose, in every language; the command, the crates, paths and identifiers stay lowercase (`sim`, `sim --plain`, `sim-editor`, `sim/src`), and so does what `sim --version` prints (CLI-7)
 
 ## Tests
 
@@ -141,7 +147,7 @@ The tests form a pyramid too. Roughly: unit and property 70%, integration 25%, E
 - **Integration** (core/tests, sim/tests): feed a sequence of Events to App, or of SimEvents to Sim (the `Rig` in sim/tests/common plays the shell), then check the Effects and the state. No terminal and no clock are involved, so the results are deterministic. Concurrency, such as editing while a filter runs or an external change right before a save, is reproduced here as well
 - **Golden**: turn a Frame or a Screen into text made of characters and style symbols, and compare it with tests/golden/. `SIM_BLESS=1` updates them. A golden never holds a private-use code point (ICON-1)
 - **Fault injection**: each step of the save in core/src/io/file.rs can be made to fail (`cfg(test)` only: the `#[cfg(test)]` module at the end of the file sets a thread-local step number, and `step()` fails that one). Check that wherever it fails, either the old or the new version is fully intact
-- **E2E**: scripts/e2e.sh runs both suites in tmux. core/scripts/e2e.sh runs `sim --plain` (and `sim` for the few cases that need a filter or the hook); sim/scripts/e2e.sh runs `sim`. Case names start with the ID. They use their own tmux socket and no tmux config, so they never touch the user's tmux server, and sim runs in an environment of its own (`env -i`: PATH, HOME, the state directory, tmux's TERM and TMUX, a UTF-8 LANG, no git configuration; nothing of the terminal they run in, a developer's Ghostty or a runner's, so the screens are the same; the hint of ICON-1 counts as given); no screen of a case may hold a private-use code point unless it turned icons on. A case's script must run with BSD tools as well (macOS): no `sed -i`, no GNU-only flags. A case that fails says which of its lines did and the command as it ran (it runs traced; scripts/e2e-lib.sh; the line is `?` and the command is all there is in Debian's and Ubuntu's dash, which has no `LINENO`, so a script keeps to what that dash has, and `${LINENO:-?}` where it says `$LINENO`); a fact that sim says when it is known (the branch, the saved choice of `zi`) is waited for, never read the moment the first thing on the screen is there. `SIM_E2E_KEEP=dir` keeps what each failed case saw and the last commands it ran (CI uploads it)
+- **E2E**: scripts/e2e.sh runs both suites in tmux. core/scripts/e2e.sh runs `sim --plain` (and `sim` for the few cases that need a filter or the hook); sim/scripts/e2e.sh runs `sim`. Case names start with the ID. They use their own tmux socket and no tmux config, so they never touch the user's tmux server, and Sim runs in an environment of its own (`env -i`: PATH, HOME, the state directory, tmux's TERM and TMUX, a UTF-8 LANG, no git configuration; nothing of the terminal they run in, a developer's Ghostty or a runner's, so the screens are the same; the hint of ICON-1 counts as given); no screen of a case may hold a private-use code point unless it turned icons on. A case's script must run with BSD tools as well (macOS): no `sed -i`, no GNU-only flags. A case that fails says which of its lines did and the command as it ran (it runs traced; scripts/e2e-lib.sh; the line is `?` and the command is all there is in Debian's and Ubuntu's dash, which has no `LINENO`, so a script keeps to what that dash has, and `${LINENO:-?}` where it says `$LINENO`); a fact that Sim says when it is known (the branch, the saved choice of `zi`) is waited for, never read the moment the first thing on the screen is there. `SIM_E2E_KEEP=dir` keeps what each failed case saw and the last commands it ran (CI uploads it)
 - **Fuzz and oracle**: core/tests/fuzz.rs runs random texts and keys (and late answers from the world) against the invariants that protect the text; its default case counts keep `cargo test` fast, and `SIM_FUZZ_CASES=50000 cargo test -p sim-editor-core --test fuzz` runs every property that long. core/tests/model.rs drives the App with a model of the shell (one event channel, a save thread, a watcher, an outside process) and checks that nobody's words are lost and a clean buffer is the file; sim/tests/buf_model.rs is the same for many files (`SIM_FUZZ_CASES=30000 cargo test --release -p sim-editor --test buf_model`); core/tests/shift.rs checks marks and hunks under every edit; core/tests/events.rs throws every kind of event at the App; core/tests/shell.rs does the model's job with the real watcher and threads (ignored, slow); core/tests/races.rs holds one test per race found by review. core/tests/oracle.rs compares commands with `nvim --headless` (`cargo test -p sim-editor-core --test oracle -- --ignored --nocapture`, see its header)
 - **Benchmarks**: `cargo test --release --workspace -- --ignored bench --nocapture` and hyperfine (scripts/bench.sh). The thresholds follow PERF and SPEED in SPEC
 - Tests never touch the real `$XDG_STATE_HOME`, `$HOME` or git config; they use temporary directories (check.sh runs them with no global git config; repositories in tests are made with none either). A test that runs the real binary gives it an environment of its own (`common::clean_env`, `pty_bench.py`'s, the e2e suites' `env -i`): a CI runner has no `TERM`, a developer's terminal sets `TERM_PROGRAM`, `COLORTERM`, `GHOSTTY_*`, `KITTY_*`, `WEZTERM_*` and `TMUX`, and a run must not depend on which
@@ -154,16 +160,17 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 2. `cargo clippy --workspace --all-targets -- -D warnings`
 3. `cargo test --workspace --no-fail-fast`
 4. scripts/trace.sh
-5. core/src has at most 3,640 lines
-6. sim/src has at most 11,826 lines
+5. core/src has at most 4,097 lines
+6. sim/src has at most 12,671 lines
 7. gui/src has at most 5,100 lines
 8. the core depends on its allowlist only
 9. the editor depends on its own list only, and no crate of the window is in the tree of the editor or of the core
 10. the window depends on its allowlist only, and no network crate or webview is in its tree
 11. the name is *Secure vIM* and the crates are sim-editor and sim-editor-core: a grep keeps the earlier name stories and the earlier crate name from coming back
-12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 103 KiB (5,348,352 bytes)
+12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 234 KiB (5,482,496 bytes)
 13. vendor/syntect is upstream's syntect 5.3.0 and vendor/syntect.patch, nothing else (scripts/vendor-check.sh: the patch taken off a copy, every file against the sha256 list)
-14. the traced path of the e2e harnesses works in the `sh` that runs check.sh, with no tmux and no sim (scripts/e2e-lib-check.sh: a passing case and a failing one, and the failing one is told by its command: Ubuntu's dash has no LINENO)
+14. the traced path of the e2e harnesses works in the `sh` that runs check.sh, with no tmux and no Sim (scripts/e2e-lib-check.sh: a passing case and a failing one, and the failing one is told by its command: Ubuntu's dash has no LINENO)
+15. no sentence, list item, heading or cell of a table in the documents (README*.md, CONCEPT, SPEC, this file, NOTES, CHANGELOG, SECURITY, vendor/README.md) starts with a bare `sim`: the product is written Sim, and the command, a path or a crate is in backticks (CLI-7)
 
 scripts/trace.sh checks these three things, and prints a table with one row per ID (ID, milestone, number of tests, implemented or not).
 
@@ -173,7 +180,7 @@ scripts/trace.sh checks these three things, and prints a table with one row per 
 
 ## Milestones
 
-The `[M?]`, `[S?]` and `[G?]` in SPEC decide which milestone each ID belongs to; `.milestone` holds the current one of each (`M5 S11 G1`). When a milestone starts, rewrite `.milestone`; when it is done, pass check.sh and commit.
+The `[M?]`, `[S?]` and `[G?]` in SPEC decide which milestone each ID belongs to; `.milestone` holds the current one of each (`M5 S12 G1`). When a milestone starts, rewrite `.milestone`; when it is done, pass check.sh and commit.
 
 The core's:
 
@@ -198,8 +205,9 @@ The editor's:
 - **S8**: the git guard and the changes view (GIT-1 to GIT-4, DIFF-1 to DIFF-6)
 - **S9**: the Markdown read view (MD-1 to MD-8)
 - **S10**: the frame's word for the guard, the breadcrumb, the flash of a write, the link that lies, callouts, `:tutor` (GIT-5, UI-18, UI-19, MD-10, MD-11, TUTOR-1 to TUTOR-4)
-- **S11**: watching the project: the tree, the changes view and the signs follow the disk with no key, and a file written from outside is marked until it has been looked at (WATCH-1 to WATCH-3)
+- **S11**: watching the project: the tree, the changes view and the signs follow the disk with no key, and a file written from outside is marked until it has been looked at (WATCH-1 to WATCH-3); the changes view as a watchtower: the diff of the file under its cursor in the text pane, red and green, following the disk, its hunks walked, the view remembered, and FOLLOW as a switch (DIFF-7 to DIFF-10); the guard that follows the repository: its config judged again when it is written, and a hook written told (GIT-6)
+- **S12**: the dark board: what is normal is not drawn, and only a deviation is lit (MD-12, DARK-1 to DARK-5)
 
 The window's:
 
-- **G1**: the seams in the editor (GUI-1 to GUI-7), each a small public API with a test that the terminal's own code is written on, and the window (GUI-8 to GUI-17): a crate of its own that draws sim's depth look on a GPU, with the input of a terminal; offscreen renders, goldens and frame times. No window is opened by a test, a tool or an agent on a desktop that is somebody's: only `cargo run -p sim-gui -- <file>` opens one, and the GPU of the tests is llvmpipe
+- **G1**: the seams in the editor (GUI-1 to GUI-7), each a small public API with a test that the terminal's own code is written on, and the window (GUI-8 to GUI-17): a crate of its own that draws Sim's depth look on a GPU, with the input of a terminal; offscreen renders, goldens and frame times. No window is opened by a test, a tool or an agent on a desktop that is somebody's: only `cargo run -p sim-gui -- <file>` opens one, and the GPU of the tests is llvmpipe

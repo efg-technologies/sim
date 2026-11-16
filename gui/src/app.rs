@@ -1,7 +1,7 @@
 //! GUI-5, GUI-10, GUI-13
 //! The window: winit's event loop, a wgpu surface, and the pieces of this crate put together. The
-//! events of the window go through `input` into sim; sim's screens go through the animator into the
-//! renderer. The editor is sim's `Shell` with its jobs on threads, as the terminal binary has it.
+//! events of the window go through `input` into Sim; Sim's screens go through the animator into the
+//! renderer. The editor is Sim's `Shell` with its jobs on threads, as the terminal binary has it.
 //!
 //! Not run by the tests (nothing here may open a window on a desktop that is not the user's to give);
 //! what it is built from is: `input`, `anim`, `scene`, `gpu`, `session`.
@@ -90,7 +90,7 @@ struct State {
     theme: Theme,
     auto_theme: bool,
     last: Instant,
-    /// sim drew a screen the animator has not taken yet.
+    /// Sim drew a screen the animator has not taken yet.
     dirty: bool,
     /// `session.renders` at the last redraw.
     seen: u64,
@@ -107,7 +107,7 @@ pub struct App {
     pub error: Option<String>,
 }
 
-/// Opens the window and runs until sim quits. `args` are sim's: `[+cmd] [dir | file]`.
+/// Opens the window and runs until Sim quits. `args` are Sim's: `[+cmd] [dir | file]`.
 pub fn run_window(args: Vec<String>) -> Result<(), String> {
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .build()
@@ -124,7 +124,7 @@ pub fn run_window(args: Vec<String>) -> Result<(), String> {
 impl App {
     fn init(&mut self, el: &ActiveEventLoop) -> Result<State, String> {
         let attrs = Window::default_attributes()
-            .with_title("sim")
+            .with_title("Sim")
             .with_inner_size(LogicalSize::new(1280.0, 820.0));
         let window =
             Arc::new(el.create_window(attrs).map_err(|e| format!("cannot open a window: {e}"))?);
@@ -138,7 +138,7 @@ impl App {
         let (device, queue) = gpu::device(&adapter)?;
         let gpu = Gpu { instance, adapter, device, queue };
         let caps = surface.get_capabilities(&gpu.adapter);
-        // not an sRGB format: sim's colors are blended as the numbers they are, as a terminal does
+        // not an sRGB format: Sim's colors are blended as the numbers they are, as a terminal does
         let format = caps
             .formats
             .iter()
@@ -253,7 +253,7 @@ impl State {
         self.window.request_redraw();
     }
 
-    /// Everything the input adapter asks for, done: events to sim, the clipboard's text.
+    /// Everything the input adapter asks for, done: events to Sim, the clipboard's text.
     fn act(&mut self, actions: Vec<Action>) {
         if actions.is_empty() {
             return;

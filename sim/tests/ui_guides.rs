@@ -243,7 +243,7 @@ fn ui_6_a_huge_indent_or_a_huge_width_overflows_nothing_and_makes_few_guides() {
     );
     assert_eq!(guides(u16::MAX, 1, 0, 80).len(), 80, "no more than the pane has columns");
     assert_eq!(guides(u16::MAX, 0, 0, 10).len(), 10, "a width of 0 is read as 1");
-    // The same through sim: a line of 70,000 blanks is drawn, with the guides the pane can show.
+    // The same through Sim: a line of 70,000 blanks is drawn, with the guides the pane can show.
     let long = format!("{line}\nshort\n");
     for skin in [Skin::Flat, Skin::Depth] {
         let r = body("ui6-huge", skin, &long, (60, 12));
@@ -259,7 +259,7 @@ fn ui_6_a_huge_indent_or_a_huge_width_overflows_nothing_and_makes_few_guides() {
 /// The last row of the frame is the status line (or the command line), not a line of the text: a
 /// file called `h264.rs` has a status line that starts like the row of a line 264 (the gutter's
 /// digits are read from the row), and `:123` is a command line that does too. Both were taken for
-/// lines that the one-line buffer does not have, and the guides indexed the rope past its end: sim
+/// lines that the one-line buffer does not have, and the guides indexed the rope past its end: Sim
 /// died when it opened `h264.rs`, and when `123` was typed after a `:`.
 #[test]
 fn ui_6_the_status_line_and_the_command_line_are_no_lines_of_the_text() {

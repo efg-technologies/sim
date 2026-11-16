@@ -1,9 +1,11 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VIS-12, FILT-1, DISK-6
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VI-20, VI-21, VI-22, VIS-12, FILT-1, DISK-6
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
-use super::buffer::{Buffer, PREV, SAVED};
+use super::buffer::{Buffer, PREV, SAVED, VIS};
 use super::reg::Regs;
-use super::vi::{Cmd, HALF_DN, HALF_UP, HOME, MOTIONS, Mode, PGUP, VERTICAL, ch};
+use super::vi::{
+    Cmd, GC, GSA, GSD, GSR, GV, HALF_DN, HALF_UP, HOME, MOTIONS, MOVE, Mode, PGUP, VERTICAL, ch,
+};
 use ropey::Rope;
 use unicode_width::UnicodeWidthChar;
 
@@ -12,7 +14,7 @@ use unicode_width::UnicodeWidthChar;
 #[derive(PartialEq)]
 enum Kind { Excl, Incl, Line }
 
-const PAIRS: [(char, char); 4] = [('(', ')'), ('[', ']'), ('{', '}'), ('<', '>')];
+pub(super) const PAIRS: [(char, char); 4] = [('(', ')'), ('[', ']'), ('{', '}'), ('<', '>')];
 const BLANKS: &str = " \t";
 /// The most text one command may add (bytes): above the 10 MB of PERF-5, and a count typed by
 /// mistake must not make the allocation abort the process (VI-2).
@@ -103,6 +105,11 @@ impl App {
         if self.selection().is_some() {
             self.marks =
                 (b.line_of(self.anchor.min(b.cursor)), b.line_of(self.anchor.max(b.cursor)));
+            // (its two ends follow the edits as marks do, for `gv`)
+            let at = |i: usize| Some((b.line_of(i), i - b.start(b.line_of(i))));
+            let ends = [at(self.anchor), at(b.cursor)];
+            self.buf.vmark[VIS..].copy_from_slice(&ends);
+            self.vis = self.vi.mode;
             self.vi.mode = Mode::Normal;
         }
     }
@@ -202,6 +209,23 @@ impl App {
                 let to = i + usize::from(fk == 'T') - usize::from(fk == 't');
                 (to, if fwd { Kind::Incl } else { Kind::Excl })
             }
+            // vim's `findpar`: past the next run of lines with text, to the empty line after it
+            '{' | '}' => {
+                let (fwd, mut t) = (k == '}', l);
+                for i in 0..n1 {
+                    let mut seen = false;
+                    while !(seen && b.line_len(t) == 0) {
+                        seen |= b.line_len(t) > 0;
+                        if t == if fwd { last } else { 0 } {
+                            (i + 1 == n1).then_some(())?; // (a count past the end goes nowhere)
+                            break;
+                        }
+                        t = if fwd { t + 1 } else { t - 1 };
+                    }
+                }
+                let end = fwd && t == last && b.line_len(t) > 0; // (the last char, taken)
+                if end { (b.end(t) - 1, Kind::Incl) } else { (b.start(t), Kind::Excl) }
+            }
             '%' => {
                 let i = (cur..b.end(l)).find(|&i| "()[]{}".contains(b.ch(i)))?;
                 let (o, c) = *PAIRS.iter().find(|p| p.0 == b.ch(i) || p.1 == b.ch(i))?;
@@ -244,7 +268,23 @@ impl App {
                 (_, (s, e), 0) => (s, if e < le { run(e).1 } else { e }),
                 (_, (s, e), _) => with_blanks(s, e),
             },
-            '"' | '\'' => {
+            // vim's `current_par`: the lines with text, or the blank ones, around the cursor; `ap` takes
+            // the run after them too, or the blank lines before when there are none after
+            'p' => {
+                let last = b.lines() - 1;
+                let white = |j: usize| b.text.line(j).chars().all(|c| " \t\n".contains(c));
+                let w = white(l);
+                let mut s = (0..l).rev().take_while(|&j| white(j) == w).last().unwrap_or(l);
+                let mut e = (l..=last).take_while(|&j| white(j) == w).last().unwrap_or(l);
+                match (around, e < last, w) {
+                    (false, ..) => {}
+                    (_, true, _) => e = (e + 1..=last).take_while(|&j| white(j) != w).last()?,
+                    (_, _, true) => return None,
+                    _ => s = (0..s).rev().take_while(|&j| white(j)).last().unwrap_or(s),
+                }
+                return Some((b.start(s), b.end(e), true));
+            }
+            '"' | '\'' | '`' => {
                 let quote = |j: &usize| b.ch(*j) == o && (*j == ls || b.ch(*j - 1) != '\\');
                 let qs: Vec<usize> = (ls..le).filter(quote).collect();
                 let q = qs.chunks(2).find(|p| p.len() == 2 && p[1] >= i)?;
@@ -282,6 +322,7 @@ impl App {
         }
         let (t, kind) = self.motion(c.k, c.arg, c.n, op)?;
         self.jumped(c.k);
+        self.from = cur.min(t);
         let b = &self.buf;
         let (s, e) = (cur.min(t), cur.max(t));
         Some(match kind {
@@ -319,7 +360,9 @@ impl App {
                     self.yank(c.reg, text, lw);
                 }
                 let b = &mut self.buf;
-                b.cursor = if lw { b.start(l1) + col.min(b.line_len(l1)) } else { a };
+                // (a text object of lines, `yip`, puts it where they start, as vim's yank does)
+                let keep = lw && !"ia".contains(c.k);
+                b.cursor = if keep { b.start(l1) + col.min(b.line_len(l1)) } else { a };
             }
             'd' | 'c' => {
                 if text.len_chars() > 0 {
@@ -351,17 +394,33 @@ impl App {
                 let range = if vis { "'<,'>".into() } else { format!("{},{}", l1 + 1, l2 + 1) };
                 self.vi.open(&format!(":{range}!"));
             }
-            _ => {
-                let unit = self.unit();
-                let b = &mut self.buf;
-                for l in l1..=l2 {
-                    let (w, s) = (if unit == "\t" { 4 } else { unit.len() }, b.start(l));
-                    let spaces = (0..w).take_while(|&i| b.ch(s + i) == ' ').count();
-                    let cut = if op == '>' { 0 } else { spaces.max(usize::from(b.ch(s) == '\t')) };
-                    let add = if op == '>' && b.line_len(l) > 0 { unit.as_str() } else { "" };
-                    b.replace(s..s + cut, add);
+            GSA => self.surround(a, e, lw, c.to),
+            // (`{n}gcc` and `{n}guu` on the last line do nothing: they are the operator and the motion
+            // `{n}_`, which fails there; the cursor goes where the range starts, as an operator puts it)
+            GC | 'u' | 'U' | '~' if c.k == op && c.n > 1 && l1 + 1 == b.lines() => {
+                self.failed = true
+            }
+            GC | 'u' | 'U' | '~' => {
+                self.changed = true; // (one that changes nothing is the change `.` repeats, as in vim)
+                let at = match c.k {
+                    k if k == op => b.cursor.min(b.nonblank(l2)),
+                    // (vim's: the anchor, at column 0 in V-LINE, unless the cursor is before that)
+                    _ if vis => {
+                        if lw { b.start(b.line_of(self.anchor)) } else { self.anchor }.min(b.cursor)
+                    }
+                    k if "ia".contains(k) => a,
+                    _ => self.from,
+                };
+                if op == GC {
+                    self.comment(l1, l2, at);
+                } else {
+                    self.recase(a, e, op);
+                    self.buf.cursor = at;
                 }
-                b.cursor = b.nonblank(l1);
+            }
+            _ => {
+                self.shift(l1, l2, op == '>', 1);
+                self.buf.cursor = self.buf.nonblank(l1);
             }
         }
     }
@@ -375,8 +434,8 @@ impl App {
             return self.say(format!("not a register: {r}"));
         }
         let edits = match c.op {
-            Some(o) => "dc<>".contains(o),
-            None => !vis && "iaIAoOpPJr".contains(c.k),
+            Some(o) => "dc<>uU~".contains(o) || matches!(o, GC | GSA),
+            None => !vis && "iaIAoOpPJr~".contains(c.k) || matches!(c.k, GSD | GSR | MOVE),
         };
         // Only the vertical motions keep the wanted column.
         self.buf.want =
@@ -394,7 +453,7 @@ impl App {
         }
         match c.k {
             // In Visual mode only motions, selection keys and `:` work.
-            k if vis && !MOTIONS.contains(k) && !"\x1b\x03vVoia:m".contains(k) => {}
+            k if vis && !MOTIONS.contains(k) && !"\x1b\x03vVoia:m".contains(k) && k != MOVE => {}
             k if MOTIONS.contains(k) => self.go(k, c.arg, c.n),
             '\x1b' | '\x03' if vis => self.leave_visual(),
             '\x03' => match self.filter.as_mut() {
@@ -412,13 +471,32 @@ impl App {
             }
             'o' if vis => std::mem::swap(&mut self.anchor, &mut self.buf.cursor),
             'i' | 'a' if vis => {
+                // (a paragraph is whole lines, an empty one too: V-LINE, as vim makes it)
+                let par = c.arg == Some('p');
                 if let Some((s, e, _)) =
-                    c.arg.and_then(|o| self.object(c.k == 'a', o)).filter(|r| r.1 > r.0)
+                    c.arg.and_then(|o| self.object(c.k == 'a', o)).filter(|r| r.1 > r.0 || par)
                 {
+                    let e = if par { self.buf.start(self.buf.line_of(e)) } else { e - 1 };
                     let (a, cur) = (self.anchor, self.buf.cursor);
                     (self.anchor, self.buf.cursor) =
-                        if a == cur { (s, e - 1) } else { (a.min(s), cur.max(e - 1)) };
+                        if a == cur { (s, e) } else { (a.min(s), cur.max(e)) };
+                    self.vi.mode = if par { Mode::VLine } else { self.vi.mode };
                 }
+            }
+            GSD | GSR => self.resurround(c.arg, c.to),
+            MOVE => self.move_lines(c.arg, n1),
+            GV => match (self.buf.vmark[VIS], self.buf.vmark[VIS + 1]) {
+                (Some(a), Some(c)) => {
+                    (self.anchor, self.buf.cursor) = (self.buf.pos(a), self.buf.pos(c));
+                    self.vi.mode = self.vis;
+                }
+                _ => self.say("no previous selection"),
+            },
+            '~' => {
+                let (b, cur) = (&self.buf, self.buf.cursor);
+                let e = cur.saturating_add(n1).min(b.end(b.line_of(cur)));
+                self.recase(cur, e, '~');
+                (self.buf.cursor, self.changed) = (e, true);
             }
             'i' | 'a' | 'I' | 'A' | 'o' | 'O' => self.open_insert(c.k),
             'p' | 'P' => self.paste(c.k == 'p', n1, c.reg),
@@ -455,6 +533,55 @@ impl App {
         self.clamp();
     }
 
+    /// `>` and `<` (VI-2), and Alt-l and Alt-h `n` times (VI-22): each line shifted by `n` indent units, in
+    /// (an empty line stays empty) or out (a unit of blanks, or a tab, each time, as far as there are).
+    pub(super) fn shift(&mut self, l1: usize, l2: usize, inward: bool, n: usize) {
+        let unit = self.unit();
+        if inward && !self.fits(unit.len().saturating_mul(n).saturating_mul(l2 - l1 + 1)) {
+            return;
+        }
+        let (w, add) = (if unit == "\t" { 4 } else { unit.len() }, unit.repeat(n));
+        let b = &mut self.buf;
+        for l in l1..=l2 {
+            let (s, mut cut) = (b.start(l), 0);
+            for _ in 0..if inward { 0 } else { n } {
+                let spaces = (0..w).take_while(|&i| b.ch(s + cut + i) == ' ').count();
+                let c = spaces.max(usize::from(b.ch(s + cut) == '\t'));
+                if c == 0 {
+                    break;
+                }
+                cut += c;
+            }
+            b.replace(s..s + cut, if inward && b.line_len(l) > 0 { &add } else { "" });
+        }
+    }
+
+    /// `gu`, `gU`, `g~` and `~` (VI-19): the chars of `a..e` in lower case, upper case, or the other case,
+    /// a line at a time so that the marks stay; a char whose other case is more than one char (`ß`) stays.
+    fn recase(&mut self, a: usize, e: usize, how: char) {
+        fn one(c: char, mut it: impl Iterator<Item = char>) -> char {
+            if let (Some(x), None) = (it.next(), it.next()) { x } else { c }
+        }
+        let b = &mut self.buf;
+        for l in b.line_of(a)..=b.line_of(e) {
+            let (s, t) = (a.max(b.start(l)), e.min(b.end(l)));
+            let old = b.text.slice(s..t).to_string();
+            let new: String = old
+                .chars()
+                .map(|c| match how {
+                    'u' => one(c, c.to_lowercase()),
+                    _ if c == 'ß' => 'ẞ', // (vim's upper case of it, where Unicode's is two chars)
+                    'U' => one(c, c.to_uppercase()),
+                    _ if c.is_lowercase() => one(c, c.to_uppercase()),
+                    _ => one(c, c.to_lowercase()),
+                })
+                .collect();
+            if new != old {
+                b.replace(s..t, &new);
+            }
+        }
+    }
+
     fn open_insert(&mut self, k: char) {
         let l = self.buf.line_of(self.buf.cursor);
         let ind = self.indent_of(l);
@@ -479,7 +606,7 @@ impl App {
     }
 
     /// Whether a command may add `bytes` of text; says why not (VI-2).
-    fn fits(&mut self, bytes: usize) -> bool {
+    pub(super) fn fits(&mut self, bytes: usize) -> bool {
         if bytes > MAX_ADD {
             self.say("too large: 16 MiB at most");
         }
@@ -571,7 +698,7 @@ impl App {
         self.clamp();
     }
 
-    fn type_str(&mut self, s: &str) {
+    pub(super) fn type_str(&mut self, s: &str) {
         let b = &mut self.buf;
         b.replace(b.cursor..b.cursor, s);
         b.cursor += s.chars().count();
@@ -601,8 +728,15 @@ impl App {
         let (l, cur, col) = (b.line_of(b.cursor), b.cursor, b.col());
         let (ls, nb) = (b.start(l), b.nonblank(l));
         let to_indent = if cur > nb { nb } else { ls };
+        // VI-21: the chars around the cursor (`\r` at the start of a line, as mini.pairs sees it), and
+        // whether they are a pair
+        let (prev, next) = (if col > 0 { b.ch(cur - 1) } else { '\r' }, b.ch(cur));
+        let pair = matches!(
+            (prev, next),
+            ('(', ')') | ('[', ']') | ('{', '}') | ('"', '"') | ('\'', '\'') | ('`', '`')
+        );
         match k {
-            Key::Char(c) => self.type_str(&c.to_string()),
+            Key::Char(c) => self.typed(c, prev, next),
             Key::Tab => {
                 let unit = self.unit();
                 self.type_str(&unit);
@@ -610,6 +744,14 @@ impl App {
             Key::Enter => {
                 let ind = self.indent_of(l);
                 let ind = &ind[..ind.len().min(col)];
+                // (between the brackets of a pair, mini.pairs' Enter: the closing one on a line of its
+                // own, and the cursor on a line between them, a unit further in)
+                if pair && "([{".contains(prev) {
+                    let unit = self.unit();
+                    self.type_str(&format!("\n{ind}{unit}\n{ind}"));
+                    (self.buf.cursor, self.ai) = (self.buf.cursor - ind.len() - 1, Some(l + 1));
+                    return;
+                }
                 self.type_str(&format!("\n{ind}"));
                 self.ai = (!ind.is_empty()).then_some(l + 1);
             }
@@ -628,7 +770,13 @@ impl App {
                     }
                     _ => cur,
                 };
-                b.replace(from..if k == Key::Delete { cur + 1 } else { cur }, "");
+                // (Backspace between the chars of a pair takes both, as mini.pairs', and `.` deletes the
+                // two as they went)
+                let both = k == Key::Delete || (k == Key::Backspace && pair && !self.replaying);
+                if both && self.rec.last() == Some(&Key::Backspace) {
+                    self.rec.push(Key::Delete);
+                }
+                b.replace(from..if both { cur + 1 } else { cur }, "");
                 b.cursor = from;
             }
             Key::Esc | Key::Ctrl('c') => {

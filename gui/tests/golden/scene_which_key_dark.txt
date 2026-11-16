@@ -69,7 +69,6 @@ layer 0
   Shape [431 436 1 20] r0 #b8b8b8
   Shape [581 436 1 20] r0 #b8b8b8
   Shape [771 436 1 20] r0 #b8b8b8
-  Shape [429 476 1 20] r1 #b8b8b8
   Shape [1008 58 6 516] r3 #b8b8b8/0.07
   Thumb [1008 57 6 438] r3 #4c4f56 shadow(dy 1 blur 4 #000000/0.40)
   Shape [1007 58 8 2] r1 #b8b8b8
@@ -98,7 +97,7 @@ layer 0
   text [496 96] "made-up" #eaeaea
   text [576 96] "project" #eaeaea
   text [656 96] "that" #eaeaea
-  text [706 96] "sim" #eaeaea bold
+  text [706 96] "Sim" #eaeaea bold
   text [746 96] "opens" #eaeaea
   text [806 96] "in" #eaeaea
   text [836 96] "a" #eaeaea
@@ -173,10 +172,7 @@ layer 0
   text [696 436] "parser" #d2d3d4
   text [396 456] "18" #939497
   text [396 476] "19" #939497
-  text [446 476] "Depth" #d2d3d4
-  text [506 476] "is" #d2d3d4
-  text [536 476] "not" #d2d3d4
-  text [576 476] "decoration:" #d2d3d4
+  text [616 476] "ration:" #d2d3d4
   text [696 476] "it" #d2d3d4
   text [726 476] "shows" #d2d3d4
   text [786 476] "what" #d2d3d4
@@ -196,12 +192,14 @@ layer 0
   text [186 596] "-3" #fed6d7
   text [976 596] "1:1" #eaeaea bold
 layer 1
-  Float [416 496 200 100] r14 #282c34 shadow(dy 16 blur 40 #000000/0.70) rim(#ffffff/0.22 1)
-  text [446 496] "<Space>" #eaeaea bold
-  text [436 516] "b" #c6e1ff bold
-  text [466 516] "buffers" #eaeaea
-  text [436 536] "g" #c6e1ff bold
-  text [466 536] "git" #eaeaea
+  Float [416 476 200 120] r14 #282c34 shadow(dy 16 blur 40 #000000/0.70) rim(#ffffff/0.22 1)
+  text [446 476] "<Space>" #eaeaea bold
+  text [436 496] "b" #c6e1ff bold
+  text [466 496] "buffers" #eaeaea
+  text [436 516] "g" #c6e1ff bold
+  text [466 516] "git" #eaeaea
+  text [436 536] "f" #c6e1ff bold
+  text [466 536] "find" #eaeaea
   text [436 556] "u" #c6e1ff bold
   text [466 556] "interface" #eaeaea
 cursor Block [426 56 10 20] #eaeaea

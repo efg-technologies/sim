@@ -4,7 +4,7 @@
 //! diff` makes git start a child `git diff` in a submodule whose commit moved, under the submodule's
 //! own config (`.git/modules/<name>/config`), which the guard of MARK-1 never read. The witness
 //! tests make a submodule whose own config names a script that leaves a witness file: the control
-//! (git run as sim ran it before) makes the witness, sim's call does not, and still answers.
+//! (git run as Sim ran it before) makes the witness, Sim's call does not, and still answers.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
@@ -74,7 +74,7 @@ fn evil(name: &str) -> Evil {
     Evil { sup: sup.0.clone(), witness, _keep: vec![src, sup, tools] }
 }
 
-/// Git run as sim ran the sign column's diff before: the name after `--` as it was given.
+/// Git run as Sim ran the sign column's diff before: the name after `--` as it was given.
 fn control(dir: &Path, name: &str) {
     let out = Command::new("git")
         .args(["-c", "core.fsmonitor=false", "--no-optional-locks"])
@@ -102,7 +102,7 @@ fn ui_5_a_name_that_is_a_glob_or_pathspec_magic_runs_nothing_in_a_submodule() {
             ran(&e.witness)
         );
         let _ = std::fs::remove_file(&e.witness);
-        // sim's call answers, and nothing the submodule's config names runs
+        // Sim's call answers, and nothing the submodule's config names runs
         let out = io::git_diff(&e.sup, name);
         assert!(out.is_ok(), "{name}: {out:?}");
         assert_eq!(ran(&e.witness), Vec::<String>::new(), "{name}");
@@ -163,7 +163,7 @@ fn mark_1_every_git_runs_with_literal_pathspecs_and_a_short_submodule_diff() {
     let pair = |k: &str, v: &str| args.windows(2).any(|w| w[0] == k && w[1] == v);
     assert!(pair("-c", "diff.submodule=short"), "{args:?}");
     assert!(pair("-c", "core.fsmonitor=false") && args.contains(&"--no-optional-locks".into()));
-    // every diff of sim's takes no submodule in either way: the sign column's, and the numbers'
+    // every diff of Sim's takes no submodule in either way: the sign column's, and the numbers'
     let line = |args: &[&str]| -> Vec<String> {
         let c = io::git_command(&e.sup, args).unwrap();
         c.get_args().map(|a| a.to_string_lossy().into_owned()).collect()

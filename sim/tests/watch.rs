@@ -1,4 +1,4 @@
-//! WATCH-1, WATCH-2, WATCH-3: watching the project. What sim does with what the watcher saw (`Touched`),
+//! WATCH-1, WATCH-2, WATCH-3: watching the project. What Sim does with what the watcher saw (`Touched`),
 //! driven through its state; and the watcher itself, on real directories and repositories, with its own
 //! thread: what it names, what it leaves out, git's directories (a linked worktree's too), and what it does
 //! where the system refuses a watch. The timing tests wait for at most a few seconds.
@@ -145,9 +145,9 @@ fn watch_2_sim_s_own_saves_make_no_mark() {
     let mut r = project("w2-own", Skin::Calm);
     open(&mut r, "a.txt");
     r.keys("x:w\n");
-    // The watcher tells of the save, as it tells of any write: it is sim's own, and no news.
+    // The watcher tells of the save, as it tells of any write: it is Sim's own, and no news.
     r.send(touched(&[("a.txt", true)]));
-    // And `:w` to a name no file has open is sim's own too.
+    // And `:w` to a name no file has open is Sim's own too.
     r.keys(":w copy.txt\n");
     r.send(touched(&[("copy.txt", true)]));
     assert!(panel(&mut r).iter().all(|l| !l.contains('↯')), "{:?}", r.panel());
@@ -281,7 +281,7 @@ fn watch_1_a_new_directory_is_watched_once_the_list_has_it() {
     fs::create_dir(d.0.join("fresh")).unwrap();
     fs::write(d.0.join("fresh/one.txt"), "1\n").unwrap();
     assert_eq!(named(&batches(&rx, Duration::from_millis(400))), [("fresh".into(), false)]);
-    // sim asks for the list, which has the new file: its directory is watched, and told once more
+    // Sim asks for the list, which has the new file: its directory is watched, and told once more
     p.files(&io::files(&d.0));
     assert_eq!(named(&batches(&rx, Duration::from_millis(400))), [("fresh".into(), false)]);
     fs::write(d.0.join("fresh/one.txt"), "2\n").unwrap();
@@ -343,11 +343,40 @@ fn watch_3_its_own_temporary_files_the_state_directory_and_ignored_directories_m
 }
 
 #[test]
+fn watch_3_in_a_home_reached_through_a_link_the_state_directory_makes_no_event_and_the_rest_does() {
+    // Sim started in a home reached through a link (`/home` to `/var/home`; on macOS every temporary
+    // directory, `/var` to `/private/var`): the root is the real path, as the binary makes it, and the
+    // state directory is said by `$HOME`, through the link. With no repository the walk lists the state's
+    // files, so its directory is among those of the list.
+    let home = temp_dir("w3-home");
+    make(&home.0, &["a.txt", ".local/state/sim/history"]);
+    let link = temp_dir("w3-home-link");
+    fs::remove_dir(&link.0).unwrap();
+    std::os::unix::fs::symlink(&home.0, &link.0).unwrap();
+    let root = sim::shell::arguments(&[], &link.0).unwrap().root;
+    assert_eq!(root, fs::canonicalize(&home.0).unwrap(), "the root is the real path");
+    let state = sim_core::io::journal::state_dir(None, Some(link.0.clone().into())).unwrap();
+    assert!(state.starts_with(&link.0), "{state:?}");
+    let files = io::files(&root);
+    assert!(files.contains(&".local/state/sim/history".into()), "{files:?}");
+    let (tx, rx) = mpsc::channel();
+    let p = io::project(tx, root, Some(state.clone()), io::POLL);
+    p.files(&files);
+    std::thread::sleep(Duration::from_millis(300));
+    while rx.try_recv().is_ok() {}
+    fs::write(state.join("history"), "y\n").unwrap();
+    fs::write(home.0.join(".local/state/sim/positions"), "z\n").unwrap();
+    assert_eq!(named(&batches(&rx, Duration::from_millis(500))), Vec::<(String, bool)>::new());
+    fs::write(link.0.join("a.txt"), "news\n").unwrap();
+    assert_eq!(named(&batches(&rx, Duration::from_millis(400))), [("a.txt".into(), true)]);
+}
+
+#[test]
 fn watch_3_an_idle_project_asks_git_nothing() {
     let d = repository("w3-idle");
     fs::write(d.0.join("a.txt"), "changed, for a diff\n").unwrap();
     let rx = watching(&d.0, None, io::POLL);
-    // sim's own git (the status, the list, the numbers, the diff, HEAD's version) writes nothing that
+    // Sim's own git (the status, the list, the numbers, the diffs, HEAD's version) writes nothing that
     // the watcher sees: it runs with `--no-optional-locks` (MARK-1)
     let root = fs::canonicalize(&d.0).unwrap();
     for _ in 0..3 {
@@ -356,10 +385,12 @@ fn watch_3_an_idle_project_asks_git_nothing() {
         io::changes(&root, &[]).unwrap();
         io::git_diff(&root, "a.txt").unwrap();
         io::show_head(&root, "a.txt").unwrap();
+        let req = sim::sim::PatchReq { n: 1, path: "a.txt".into(), old: None, new: false };
+        io::patch(&root, &req); // (DIFF-7's preview)
     }
     assert!(
         batches(&rx, Duration::from_millis(1500)).is_empty(),
-        "nothing came, so sim asks nothing"
+        "nothing came, so Sim asks nothing"
     );
 }
 
@@ -398,7 +429,7 @@ fn watch_3_where_a_watch_is_refused_the_project_is_looked_at_every_interval_and_
         }
     }
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices.len(), 1, "{notices:?} ({polls} looks)");
     assert!(
         notices[0].starts_with("the project is looked at every 300ms: cannot watch it"),
         "{notices:?}"
@@ -441,8 +472,8 @@ fn watch_3_git_is_asked_at_most_once_at_a_time_and_no_more_often_than_every_200_
 }
 
 /// WATCH-3: a storm: 10,000 files written in ten directories in about a second, through the real
-/// watcher; its batches go to sim (timed: they are events on the main thread, as a key is), and each
-/// status sim asks for goes to the paced worker that runs git's status of this repository for real.
+/// watcher; its batches go to Sim (timed: they are events on the main thread, as a key is), and each
+/// status Sim asks for goes to the paced worker that runs git's status of this repository for real.
 /// git runs a bounded number of times, and a batch costs the main thread its own paths, never the whole
 /// status (SPEED-1 has the keys' times with batches between them, its kind `touched`).
 ///
@@ -514,7 +545,7 @@ fn watch_3_bench_a_storm_of_events_asks_git_a_bounded_number_of_times() {
     let window = t0.elapsed();
     let ran = runs.load(SeqCst);
     eprintln!(
-        "WATCH-3 10,000 writes in {spent:?}; {batches} batches ({many} of many), {named} paths named; git's status ran {ran} times in {window:?}; a batch in sim: p50 {:?} p99 {:?} max {:?}; a status answer: max {:?}",
+        "WATCH-3 10,000 writes in {spent:?}; {batches} batches ({many} of many), {named} paths named; git's status ran {ran} times in {window:?}; a batch in Sim: p50 {:?} p99 {:?} max {:?}; a status answer: max {:?}",
         percentile(&times, 50),
         percentile(&times, 99),
         times[times.len() - 1],

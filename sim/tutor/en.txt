@@ -1,4 +1,4 @@
-sim tutor: short lessons, about 15 minutes
+Sim tutor: short lessons, about 15 minutes
 ==========================================
 This is a scratch copy. Nothing you do here is written to a disk, so
 experiment freely. Press u to undo; type :q! and Enter to leave.
@@ -17,7 +17,7 @@ of a line, so only the title matches).
   5 Copy and paste
   6 Searching
   7 Saving and quitting
-  8 What sim shows that other editors hide
+  8 What Sim shows that other editors hide
 %editor
   9 Finding files and looks
 %end
@@ -137,9 +137,9 @@ a a a
 ## 7 Saving and quitting
 
 :w saves, :q quits, :wq does both, :q! quits and throws changes away.
-sim never loses text without your say: before :w! or :e! throws a
+Sim never loses text without your say: before :w! or :e! throws a
 version away (yours or the disk's), it copies that version to its own
-folder. If another program changes your file while you edit, sim
+folder. If another program changes your file while you edit, Sim
 merges the change or shows the conflict; it never overwrites silently.
 This tutor is a scratch copy: :w says no and writes nothing.
 
@@ -151,7 +151,7 @@ b 2
 @ b 2
 @ c 3
 
-## 8 What sim shows that other editors hide
+## 8 What Sim shows that other editors hide
 
 A character that is not shown as itself (a control, a zero-width
 space, a right-to-left override) is drawn as a token such as <U+202E>
@@ -174,8 +174,8 @@ Ctrl-n opens and focuses the tree, or focuses it if already open.
 Only in the tree does Ctrl-n close it; Esc returns to the text.
 In Normal mode or the tree, Ctrl-w then w switches focus and keeps
 the tree open.
-zl changes the look (calm, flat, depth); zi toggles icons (a Nerd Font
-is needed).
+zl changes the look (calm, flat, depth, dark); zi toggles icons
+(a Nerd Font is needed).
 <Space>bk shows the last kept version's path. Press Space and wait
 for a menu of the next keys.
 

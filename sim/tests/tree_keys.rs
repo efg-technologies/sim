@@ -1,5 +1,5 @@
 //! TREE-2, TREE-4: the window keys that move the focus between the text and the panel (`<C-w>`), and
-//! the folder keys of Neo-tree's defaults (Enter, `C`, `z`, `Z`), driven through sim's state.
+//! the folder keys of Neo-tree's defaults (Enter, `C`, `z`, `Z`), driven through Sim's state.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
@@ -224,7 +224,7 @@ fn tree_2_the_core_has_nothing_on_ctrl_w_in_normal_mode_so_it_is_sims_to_take() 
     let mut r = text("t2-core");
     r.keys("w");
     let (status, text) = (r.status().to_string(), r.text());
-    // straight to the App, past sim's keys: nothing happens, and nothing waits
+    // straight to the App, past Sim's keys: nothing happens, and nothing waits
     let id = r.sim.bufs[0].id;
     r.send(SimEvent::App(id, Event::Key(Key::Ctrl('w'))));
     assert!(r.app().vi.idle());

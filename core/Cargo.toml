@@ -3,7 +3,7 @@ name = "sim-editor-core"
 version = "0.2.1"
 edition = "2024"
 rust-version = "1.88" # `let` chains
-description = "The core of sim, the next-generation Vim: the buffer, saves that lose nothing, merges with what other processes write, the terminal. No syntax, no tree, no program of its own."
+description = "The core of Sim, the next-generation Vim: the buffer, saves that lose nothing, merges with what other processes write, the terminal. No syntax, no tree, no program of its own."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/efg-technologies/sim"
 readme = "../README.md"
@@ -15,7 +15,7 @@ readme = "../README.md"
 name = "sim_core"
 path = "src/lib.rs"
 
-# The core is the part of sim that holds the safety promise (P1): its own hard line cap
+# The core is the part of Sim that holds the safety promise (P1): its own hard line cap
 # (scripts/check.sh) and its own dependency allowlist (tests/safe_9.rs). Features are trimmed to what
 # it uses (CLAUDE.md):
 # - ropey: only LF ends a line (SAFE-3 keeps a lone `\r` as a character)

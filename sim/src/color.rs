@@ -1,4 +1,4 @@
-//! SYN-1, SYN-5, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-9, UI-1, UI-12, COLOR-1, COLOR-2
+//! SYN-1, SYN-5, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-9, UI-1, UI-12, COLOR-1, COLOR-2, DARK-2, DARK-3, DARK-4
 //! The syntax colors (pure): the terminal's own ANSI colors (OSC 4), moved in OKLCH lightness until
 //! they read against the background that the core's palette is made from (`Event::Bg`, VIS-4), the
 //! selection's gray, and what puts the terminal's replies together out of the key stream. APCA,
@@ -117,7 +117,7 @@ fn most_chromatic(l: f64, hue: f64) -> Option<Rgb> {
 
 /// LOOK-2: a background of `hue` for the page `bg`, found the way the core finds its change color (VIS-4):
 /// of the most chromatic colors of that hue, the nearest to `bg` that is at least |Lc| 15 (and a
-/// margin of 0.5) away from it, or the farthest when none is. The owner of sim asked for green and
+/// margin of 0.5) away from it, or the farthest when none is. The owner of Sim asked for green and
 /// red here and let color vision go, so these two are not checked under the simulations.
 fn hued(bg: Rgb, hue: f64) -> Rgb {
     let all = || (1..200).filter_map(|i| most_chromatic(f64::from(i) / 200.0, hue));
@@ -215,6 +215,11 @@ pub struct Tones {
     /// COLOR-2: nothing of these colors is written; what only a surface said (the open file's row)
     /// is said in weight.
     pub mono: bool,
+    /// DARK-2: the tones of the dark board (`dark`).
+    pub dark: bool,
+    /// The accent where it marks what is there at rest, a link's text and the shown tab's bar: the
+    /// primary gray in dark (DARK-2).
+    pub here: Rgb,
     pub add: Rgb,
     pub add_text: Rgb,
     pub del: Rgb,
@@ -257,6 +262,8 @@ pub struct Tones {
     pub head: Rgb,
     pub head1: Rgb,
     pub head2: Rgb,
+    /// `head`, `head1`, `head2` and `here` as flat and depth have them, for `dark` to give back.
+    lit: [Rgb; 4],
     fg: [Rgb; 5],
     block: [Rgb; 5],
     on: [Rgb; 5],
@@ -286,8 +293,11 @@ impl Tones {
         let (page, step) = (to_lch(p.bg)[0], (to_lch(card)[0] - to_lch(p.bg)[0]).abs() * 0.95);
         let t1 = 0.18f64.min(step / (to_lch(cyan)[0] - page).abs().max(1e-6));
         let (head1, head2) = (by(cyan, t1), by(cyan, t1 / 2.0));
+        let (head, here) = (text_on(cyan, head1), fg[Accent::Blue as usize]);
         Tones {
             mono: syn.mono,
+            dark: false,
+            here,
             add,
             add_text: text_on(p.primary, add),
             del,
@@ -310,13 +320,25 @@ impl Tones {
             gray_on: text_on(p.primary, by(p.secondary, 0.30)),
             solid_on: text_on(p.primary, fg[Accent::Blue as usize]),
             add_on: text_on(p.primary, fg[Accent::Green as usize]),
-            head: text_on(cyan, head1),
+            head,
             head1,
             head2,
+            lit: [head, head1, head2, here],
             fg,
             block,
             on: block.map(|b| text_on(p.primary, b)),
         }
+    }
+
+    /// DARK-2: the dark board's tones (`on`), or flat's and depth's again. In dark what depth draws in a
+    /// hue at rest is neutral (a heading is the text's gray on the card's and the fence's surfaces, a
+    /// link and the shown tab's bar the text's gray); a change, the accent of an act and the alert keep
+    /// their hues (DARK-3). With no color they stay depth's (DARK-1).
+    pub fn dark(&mut self, on: bool) {
+        let (p, on) = (self.primary, on && !self.mono);
+        let gray = [p, self.card, self.band, p];
+        [self.head, self.head1, self.head2, self.here] = if on { gray } else { self.lit };
+        self.dark = on;
     }
 
     /// The text color of a Change: green, amber or red, |Lc| >= 75.5 against the card.
@@ -439,7 +461,7 @@ pub fn contrast(c: Rgb, bg: Rgb, min: f64) -> Rgb {
     out
 }
 
-/// The colors sim derives from what the terminal told (SYN-1, SYN-5), beside the core's palette. Without
+/// The colors Sim derives from what the terminal told (SYN-1, SYN-5), beside the core's palette. Without
 /// `truecolor` (the COLORTERM variable) nothing is derived: SGR 31-36 and underline stand in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Syntax {
@@ -447,6 +469,8 @@ pub struct Syntax {
     /// COLOR-2: no color at all (`NO_COLOR`, a terminal of fewer than 8 colors): the terminal is not
     /// asked, and the Painter writes weight, underline, slant and inverse only.
     pub mono: bool,
+    /// DARK-2: the looks of code have no hue (a keyword is bold, a comment the secondary gray).
+    pub dark: bool,
     bg: Option<Rgb>,
     ansi: [Option<Rgb>; 8],
     /// Red, green, yellow, cyan, moved until |Lc| >= 75 against the background.
@@ -541,14 +565,14 @@ impl Syntax {
     }
 }
 
-/// What the terminal sends, as sim's events. The core's `Reply` puts together the answer to the
+/// What the terminal sends, as Sim's events. The core's `Reply` puts together the answer to the
 /// background query (OSC 11); the answers to OSC 4 are put together here, ahead of it: an Alt+`]`
 /// is held until the next key says which it is. crossterm reads `ESC ]` as Alt+`]`, the payload as
 /// plain keys, and `ESC \` or BEL as Alt+`\` or Ctrl-g. While replies are still to come (the
 /// five that `QUERY` asks for, however late: over a slow link they take seconds, and a reply that
 /// is not put together here is typed into the text); a key that does not belong to a reply goes on
 /// as a key, in order (the core's `Reply` holds an Alt+`]` for the answer to OSC 11 just as long). Mouse
-/// events and Shift-Tab, which the core has no key for, are sim's.
+/// events and Shift-Tab, which the core has no key for, are Sim's.
 pub struct Input {
     reply: Reply,
     held: Option<Ev>,
@@ -572,9 +596,9 @@ impl Input {
         evs.into_iter().flat_map(|e| self.reply.feed(e)).map(SimEvent::Term).collect()
     }
 
-    /// GUI-7: what a terminal event is to sim when no reply of a terminal is waited for (a window has
+    /// GUI-7: what a terminal event is to Sim when no reply of a terminal is waited for (a window has
     /// none): the mouse, Shift-Tab and F1, which the core's `Key` does not have (KEY-4), and the rest
-    /// as the core's `convert_all` makes it (Alt-x is Esc, then x). The path the keys of a terminal
+    /// as the core's `convert_all` makes it (Alt-x is Esc, then x, but Alt-h/j/k/l: VI-22). The path the keys of a terminal
     /// take after `feed` has held back what could be a reply.
     pub fn event(ev: Ev) -> Vec<SimEvent> {
         match &ev {

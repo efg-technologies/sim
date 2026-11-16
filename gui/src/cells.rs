@@ -1,5 +1,5 @@
 //! GUI-3
-//! A Screen as the cells of a grid: each char with the columns it takes and what sim says it
+//! A Screen as the cells of a grid: each char with the columns it takes and what Sim says it
 //! finally is (`sim::paint::Resolved`, made by the same code that writes the terminal's bytes). The
 //! window decides nothing about a cell's style; it only lays the resolved cells out, a char each.
 use crate::api::*;
@@ -39,7 +39,7 @@ pub struct Grid {
     pub pal: Palette,
 }
 
-/// The cells of a screen. `fallback` is the palette until sim has been told one.
+/// The cells of a screen. `fallback` is the palette until Sim has been told one.
 pub fn grid(s: &Screen, resolver: &mut Resolver, fallback: &Palette) -> Grid {
     let pal = s.frame.pal.unwrap_or(*fallback);
     let mut rows = Vec::with_capacity(s.frame.rows.len());

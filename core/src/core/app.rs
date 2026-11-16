@@ -1,4 +1,4 @@
-//! VI-15, CLI-1, CLI-3, CLI-6, VIS-4, SAFE-1, SAFE-4, SAFE-5, SAFE-6, SAFE-7, DISK-1, DISK-6, FILT-1, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14, PLAIN-1
+//! VI-15, VI-22, CLI-1, CLI-3, CLI-6, VIS-4, SAFE-1, SAFE-4, SAFE-5, SAFE-6, SAFE-7, DISK-1, DISK-6, FILT-1, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14, PLAIN-1
 //! `App::update(&mut self, Event) -> Vec<Effect>`: the state, and what each Event does to it.
 use super::buffer::{ABSENT, Buffer, Format, hash};
 use super::color::{Palette, Rgb, palette};
@@ -15,7 +15,8 @@ use std::time::Instant;
 #[rustfmt::skip]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Key {
-    Char(char), Ctrl(char), Esc, Enter, Backspace, Tab, Delete,
+    // (`Alt` is Alt-h/j/k/l, VI-22: every other Alt key reaches App as Esc and the key, VI-9)
+    Char(char), Ctrl(char), Alt(char), Esc, Enter, Backspace, Tab, Delete,
     Up, Down, Left, Right, Home, End, PageUp, PageDown, // the cursor keys, in this order
 }
 
@@ -128,6 +129,10 @@ pub struct App {
     pub center: bool,
     /// The other end of the Visual selection.
     pub(super) anchor: usize,
+    /// Where the range of the last operator's motion starts (VI-18: `gc` leaves the cursor there).
+    pub(super) from: usize,
+    /// The mode of the last Visual selection, for `gv` (VI-19).
+    pub(super) vis: Mode,
     /// The lines of `'<` and `'>`.
     pub(super) marks: (usize, usize),
     /// The registers (VI-15).
@@ -141,7 +146,7 @@ pub struct App {
     /// A buffer of at least this many bytes is searched by several threads (PERF-4): `None` is
     /// `PAR_MIN`. Tests set it to search a small buffer in parallel, or a big one in one thread.
     pub par_min: Option<usize>,
-    /// A host that has the room (sim) wraps prose at the width of its pane and not at 72 columns (VIS-6).
+    /// A host that has the room (Sim) wraps prose at the width of its pane and not at 72 columns (VIS-6).
     pub wide: bool,
     pub(super) unit: Option<String>,
     /// The line whose indent autoindent made and nothing was typed after (VI-6).
@@ -153,7 +158,9 @@ pub struct App {
     /// Set while a Visual-mode operation, and the Insert session it may start, is typed: none of
     /// it is a Normal-mode change, so `.` must not replay it.
     no_rec: bool,
-    changed: bool,
+    /// The keys typed since Normal mode was idle changed the text (or are a change that changed nothing,
+    /// as `gul` on a digit: `.` repeats them all the same, VI-19).
+    pub(super) changed: bool,
     /// `.` is replaying keys: another `.` among them does nothing.
     pub(super) replaying: bool,
     /// Set when an operator found nothing to act on.
@@ -171,6 +178,9 @@ pub struct App {
     /// The buffer version when each `:e` ran, oldest first: a load is refused if the buffer changed
     /// since. An `Opened` nobody asked for is ignored.
     pub(super) opening: VecDeque<u64>,
+    /// `:r {file}` asked for a file (VI-23): the buffer's version then, and the line it goes below. Its
+    /// answer comes before that of an `:e` typed after it.
+    pub(super) reading: Option<(u64, usize)>,
     /// The version whose text the journal holds, and the tick that asked for it.
     snap: Option<(u64, u64)>,
     /// `SIM_ON_NORMAL` (VI-11): the shell reads it, the core does not.
@@ -282,6 +292,7 @@ impl App {
             Event::Disk { bytes, hash, deadline, .. } => self.disk(bytes, hash, deadline),
             Event::Notice(m) => self.say(m),
             Event::Kept(r) => self.kept(r),
+            Event::Opened(path, file, _) if self.reading.is_some() => self.read_in(&path, file),
             Event::Opened(path, file, seq) => {
                 let at = self.copy.take().map_or(String::new(), |c| format!("; yours is in {c}"));
                 match self.opening.pop_front() {
@@ -427,6 +438,16 @@ impl App {
         if k == Key::Ctrl('s') {
             return self.ex("w");
         }
+        // VI-22: Alt-h/j/k/l move lines in Normal and Visual mode when nothing but a count is typed; in any
+        // other state an Alt key is Esc and the key, as it always was (VI-9)
+        if let Key::Alt(c) = k
+            && (matches!(self.vi.mode, Mode::Insert | Mode::Cmd)
+                || !self.vi.bare()
+                || !"hjkl".contains(c))
+        {
+            self.key(Key::Esc);
+            return self.key(Key::Char(c));
+        }
         let (mode, version) = (self.vi.mode, self.buf.version());
         let typing = matches!(mode, Mode::Normal | Mode::Insert);
         let visual = mode.visual();
@@ -503,7 +524,7 @@ impl App {
         let kind = |r: &Resume| if matches!(r, Resume::Write(..)) { "a save" } else { "a reload" };
         let asked =
             self.saving.as_ref().map(|_| "a save").or(self.opening.front().map(|_| "a reload"));
-        asked.or(self.resume.as_ref().map(kind))
+        asked.or(self.resume.as_ref().map(kind)).or(self.reading.map(|_| "a read")) // (`:r`, VI-23)
     }
 
     /// The copy of SAFE-7 is made (or could not be): what waited for it goes on, or is given up and

@@ -1,6 +1,6 @@
 //! GUI-12, GUI-13
 //! Motion: the cursor glides from cell to cell and takes the shape of the mode, the text scrolls
-//! smoothly, the fog follows the cursor. sim draws whole screens; this keeps the last one and the one
+//! smoothly, the fog follows the cursor. Sim draws whole screens; this keeps the last one and the one
 //! before it, and works out what moves between them. Pure: the time is given (`tick(dt)`), so the same
 //! sequence of frames gives the same pixels. With reduced motion (`SIM_GUI_REDUCED_MOTION=1`) every
 //! change is at once: no glide, no scroll, no fog in between.
@@ -115,7 +115,7 @@ impl Animator {
         self.target.as_ref()
     }
 
-    /// A new screen of sim's. What moved between it and the last one starts to move.
+    /// A new screen of Sim's. What moved between it and the last one starts to move.
     pub fn set_target(&mut self, snap: Snapshot, m: &Metrics) {
         let old = self.target.take();
         let same_layout = old.as_ref().is_some_and(|o| {

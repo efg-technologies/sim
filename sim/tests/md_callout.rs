@@ -71,7 +71,7 @@ fn md_11_a_quote_is_a_callout_where_githubs_renderer_makes_an_alert_of_it() {
 
 #[test]
 fn md_11_where_sim_does_not_follow_github_a_quote_stays_a_quote() {
-    // GitHub makes an alert of a quote indented by one to three blanks, and sim leaves it plain: in a
+    // GitHub makes an alert of a quote indented by one to three blanks, and Sim leaves it plain: in a
     // list item GitHub leaves it plain too, and a line cannot tell the two apart
     assert_eq!(found("  > [!CAUTION]\n  > body\n"), []);
     assert_eq!(found("- item\n\n  > [!NOTE]\n  > in a list\n"), []);
@@ -90,7 +90,7 @@ fn drawn(text: &str, raw: std::ops::Range<usize>, icons: bool) -> Vec<String> {
     (0..lines.len())
         .map(|l| {
             let cs: Vec<char> = lines[l].chars().collect();
-            let Some(plan) = read.plan(l, &cs, &sp[l]) else { return lines[l].clone() };
+            let Some(plan) = read.plan(l, &cs, &sp[l], true) else { return lines[l].clone() };
             let mut out = String::new();
             for i in 0..=cs.len() {
                 let op = plan.op(i);
@@ -151,7 +151,7 @@ fn md_11_a_plan_leaves_out_only_the_chars_of_a_marker_that_is_exactly_a_kinds() 
     read.calls = callouts(0..lines.len(), &at, &|l| sp.get(l));
     for b in &read.calls.clone() {
         let cs: Vec<char> = lines[b.lines.start].chars().collect();
-        let plan = read.plan(b.lines.start, &cs, &sp[b.lines.start]).unwrap();
+        let plan = read.plan(b.lines.start, &cs, &sp[b.lines.start], true).unwrap();
         for (i, c) in cs.iter().enumerate() {
             assert_eq!(plan.op(i).hide, b.marker.contains(&i), "{c:?} at {i} of {:?}", cs);
         }

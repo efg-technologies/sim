@@ -1,5 +1,5 @@
-//! TREE-2, TREE-4, TREE-5, FIND-1, FIND-2, MARK-3, DIFF-1, DIFF-3, DIFF-5
-//! The panel's side of sim's state (pure): its keys, the directories it reveals as their listings
+//! TREE-2, TREE-4, TREE-5, FIND-1, FIND-2, MARK-3, DIFF-1, DIFF-3, DIFF-5, DIFF-8, DIFF-9, DIFF-10
+//! The panel's side of Sim's state (pure): its keys, the directories it reveals as their listings
 //! arrive, the search that lights up matches, and the narrowed tree.
 use super::{Sim, SimEffect};
 use crate::find::{Found, Query};
@@ -52,7 +52,7 @@ fn pick<'a>(it: impl Iterator<Item = &'a str>, back: bool) -> Option<&'a str> {
 
 impl Sim {
     /// The tree the panel shows: the narrowed one (MARK-3), or the whole.
-    pub(super) fn view(&self) -> &Tree {
+    pub fn view(&self) -> &Tree {
         self.focus.as_ref().unwrap_or(&self.tree)
     }
 
@@ -61,7 +61,7 @@ impl Sim {
     }
 
     /// The row of the panel at `row`, if there is one.
-    pub(super) fn row(&self, row: usize) -> Option<TreeRow> {
+    pub fn row(&self, row: usize) -> Option<TreeRow> {
         self.view().rows(row, 1).pop()
     }
 
@@ -96,9 +96,12 @@ impl Sim {
         }
         self.end_search();
         (self.focus, self.changes, self.panel.cur) = (None, Some(Default::default()), 0);
+        (self.tower.follow, self.tower.wrote) = (false, None); // DIFF-10: off, until `f`
+        self.tower.fresh = true;
         self.show(out);
         self.refocus();
         self.ask_changes(out);
+        out.push(SimEffect::View(true)); // DIFF-9: remembered
     }
 
     /// TREE-2: Ctrl-n opens the panel and focuses it, or closes it when it has the focus.
@@ -140,7 +143,8 @@ impl Sim {
         let browsing = self.panel.search.is_some();
         let last = self.view().visible().saturating_sub(1);
         let page = usize::from(self.geo().rows);
-        let (cur, g) = (self.panel.cur, take(&mut self.panel.g));
+        let (cur, pre) = (self.panel.cur, take(&mut self.panel.pre));
+        let view = self.changes.is_some();
         let to = match k {
             Key::Char('j') | Key::Down => cur + 1,
             Key::Char('k') | Key::Up => cur.saturating_sub(1),
@@ -148,11 +152,20 @@ impl Sim {
             Key::Ctrl('u') => cur.saturating_sub(page / 2),
             Key::PageDown => cur + page,
             Key::PageUp => cur.saturating_sub(page),
-            Key::Char('g') if g => 0,
-            Key::Char('g') => {
-                self.panel.g = true;
+            Key::Char('g') if pre == Some('g') => 0,
+            Key::Char(c @ ('g' | ']' | '[')) if c == 'g' || view => {
+                self.panel.pre = Some(c);
                 cur
             }
+            // DIFF-8, DIFF-10: the changes view's own: its preview's hunks and scroll, and FOLLOW
+            Key::Char('c') if view && matches!(pre, Some(']' | '[')) => {
+                return self.hunk(pre == Some('['), out);
+            }
+            Key::Char('J' | 'K') if view => {
+                let half = (self.geo().rows / 2).max(1) as isize;
+                return self.roll_patch(if k == Key::Char('K') { -half } else { half });
+            }
+            Key::Char('f') if view => return self.tower.follow = !self.tower.follow,
             Key::Char('G') => last,
             Key::Enter if self.row(cur).is_some_and(|r| r.is_dir && r.open) => return self.back(),
             Key::Char('l') | Key::Right | Key::Enter => return self.enter(out),
@@ -195,8 +208,9 @@ impl Sim {
             return out.push(SimEffect::Show(r.path.to_string_lossy().into_owned()));
         }
         if !r.is_dir {
+            let keys = self.at_hunk(&r.path); // DIFF-8: at the hunk the preview shows
             self.end_search_at(r.path, out);
-            self.open(abs, out);
+            self.open_at(abs, keys, out);
         } else if !r.open && self.view_mut().expand(&r.path) {
             out.push(SimEffect::Read(abs));
         }
@@ -406,7 +420,8 @@ impl Sim {
         self.end_search();
         let at = self.row(self.panel.cur).map(|r| r.path).unwrap_or_default();
         if self.focus.take().is_some() {
-            self.changes = None; // (DIFF-1: the changes view is a narrowed tree too)
+            // (DIFF-1: the changes view is a narrowed tree too; DIFF-9: the tree is remembered)
+            out.extend(self.changes.take().map(|_| SimEffect::View(false)));
             (self.panel.cur, self.panel.reveal) = (0, Some(at));
             return self.reveal(out);
         }
@@ -422,6 +437,8 @@ impl Sim {
         if self.focus.is_none() && self.changes.is_none() {
             return;
         }
+        let at = self.focus.as_ref().filter(|_| !self.tower.fresh).and(self.row(self.panel.cur));
+        let at = at.map(|r| r.path);
         let files: Vec<PathBuf> = if self.changes.is_some() {
             self.marks.differing().cloned().collect() // DIFF-1: the files that differ from HEAD
         } else {
@@ -449,5 +466,8 @@ impl Sim {
             narrowed.expand(&dir);
         }
         self.focus = Some(narrowed);
+        // the cursor stays on its entry whatever came or went above it (DIFF-9), or FOLLOW takes it (DIFF-10)
+        self.panel.cur = at.and_then(|p| self.view().row_of(&p)).unwrap_or(self.panel.cur);
+        self.follow();
     }
 }

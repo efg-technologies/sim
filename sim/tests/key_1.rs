@@ -41,7 +41,7 @@ fn key_1_every_line_of_the_table_is_well_formed() {
             let ok = match named {
                 Some(name) => {
                     names.split(' ').any(|k| k == name)
-                        || (name.len() == 3 && name.starts_with("C-"))
+                        || (name.len() == 3 && (name.starts_with("C-") || name.starts_with("M-")))
                         || name == "lt"
                 }
                 None => {
@@ -66,7 +66,7 @@ fn key_1_every_line_of_the_table_is_well_formed() {
     assert!(table().len() > 100 && table().len() == text.lines().count());
 }
 
-/// What is typed: a key of the core, or one of sim's own events.
+/// What is typed: a key of the core, or one of Sim's own events.
 #[derive(Clone, Copy, Debug)]
 enum Typed {
     K(Key),
@@ -113,6 +113,8 @@ fn universe() -> Vec<(String, Typed)> {
         ("<PageDown>", Key::PageDown),
     ];
     all.extend(named.into_iter().map(|(n, k)| (n.to_string(), Typed::K(k))));
+    // (Alt-h/j/k/l are keys of their own, VI-22; any other Alt key reaches Sim as Esc and the key)
+    all.extend("hjkl".chars().map(|c| (format!("<M-{c}>"), Typed::K(Key::Alt(c)))));
     all.push(("<S-Tab>".into(), Typed::BackTab));
     all.push(("<F1>".into(), Typed::Help));
     all
@@ -123,7 +125,8 @@ fn universe() -> Vec<(String, Typed)> {
 /// and something to redo and to repeat, marks of changes from the disk above and below the cursor, the
 /// cursor in the middle of a word inside quotes, braces, parentheses, brackets and angle brackets.
 fn rich() -> Rig {
-    let line = |i: usize| format!("<x [a (b {{c '\"d\"' e}} f) g] y> foo {i} foo bar\n");
+    // (indented, so that Alt-h has an indent to take out)
+    let line = |i: usize| format!("    <x [a (b {{c '\"d\"' e}} f) g] y> foo {i} foo bar `q`\n");
     let text: String = (1..=80).map(line).collect();
     let mut r = rig_env(
         "k1-rich",
@@ -162,12 +165,14 @@ fn print(r: &Rig) -> Fingerprint {
 /// `setup` is typed first: the state the keys are tried in (the text with the focus, by default).
 fn handled(prefix: &[&Typed], names: &[(String, Typed)], setup: &str) -> BTreeSet<String> {
     let count = |n: &str| n.len() == 1 && "123456789".contains(n);
-    // sim's own keys work whatever has been typed: a prefix does not hold them back. Ctrl-w (TREE-2) is
+    // Sim's own keys work whatever has been typed: a prefix does not hold them back. Ctrl-w (TREE-2) is
     // the exception that holds back all but the two that are not keys: the next key ends it, whatever it is
     // (and Ctrl-p is one of its keys)
     let win = matches!(prefix, [Typed::K(Key::Ctrl('w'))]);
     let own = if win { &GLOBAL[4..] } else { &GLOBAL[..] };
-    let keep = |n: &str| prefix.is_empty() || !(count(n) || own.contains(&n));
+    // (an Alt key after a prefix is Esc, which ends the prefix, and the key: no key of the prefix's, VI-22)
+    let keep =
+        |n: &str| prefix.is_empty() || !(count(n) || own.contains(&n) || n.starts_with("<M-"));
     let made = || {
         let mut r = rich();
         r.keys(setup);
@@ -197,10 +202,13 @@ fn handled(prefix: &[&Typed], names: &[(String, Typed)], setup: &str) -> BTreeSe
     })
 }
 
-/// The keys that sim takes before the core's parser sees them: with a prefix typed they end it, and are
+/// The keys that Sim takes before the core's parser sees them: with a prefix typed they end it, and are
 /// not keys after it.
 const GLOBAL: [&str; 6] = ["<C-n>", "<C-p>", "<C-f>", "<C-s>", "<F1>", "<S-Tab>"];
-const OPERATORS: [&str; 6] = ["d", "c", "y", "<lt>", ">", "!"];
+/// The operators, as the table writes their keys (`g c` is `gc`, VI-18, `g s a` is `gsa`, VI-20). The case operators (`gu`, `gU`,
+/// `g~`, VI-19) are not here: on a char with no case, or one in the case already, they change nothing,
+/// which is no sign that a motion after them is not bound (after `g` they are seen to be keys).
+const OPERATORS: [&str; 8] = ["d", "c", "y", "<lt>", ">", "!", "g c", "g s a"];
 
 /// The keys the table has after `prefix` in Normal mode (and, after an operator, for `o`), without the
 /// class tokens.
@@ -214,8 +222,11 @@ fn listed(prefix: &[&str]) -> BTreeSet<String> {
         table().iter().flat_map(tokens).filter(|t| t.len() < 2 || !t.starts_with('{')).collect()
     };
     let mut set: BTreeSet<String> = after(prefix, 'n').into_iter().collect();
-    if prefix.first().is_some_and(|p| OPERATORS.contains(p)) {
-        set.extend(after(&prefix[1..], 'o'));
+    // (an operator is the first key of the prefix, or its first two or three: `g c`, `g s a`)
+    if let Some(n) =
+        (1..=3).find(|&n| n <= prefix.len() && OPERATORS.contains(&&*prefix[..n].join(" ")))
+    {
+        set.extend(after(&prefix[n..], 'o'));
     }
     if !prefix.is_empty() {
         set.retain(|t| !(t.len() == 1 && "123456789".contains(t.as_str())));
@@ -255,6 +266,9 @@ fn key_1_after_a_prefix_the_keys_that_do_something_are_the_table_s() {
         compare(&[prefix]);
     }
     compare(&["<Space>", "b"]);
+    compare(&["<Space>", "f"]);
+    compare(&["<Space>", "g"]);
+    compare(&["g", "s"]);
 }
 
 #[test]
@@ -265,7 +279,7 @@ fn key_1_after_ctrl_w_the_keys_that_do_something_are_the_table_s_in_any_pane() {
 #[test]
 fn key_1_after_an_operator_the_motions_and_the_objects_are_the_table_s() {
     for op in OPERATORS {
-        compare(&[op]);
+        compare(&op.split(' ').collect::<Vec<_>>());
     }
     compare(&["d", "i"]);
     compare(&["d", "a"]);

@@ -69,7 +69,7 @@ fn plain_1_a_window_in_a_privileged_world_is_plain_and_runs_no_program() {
     // the privileged seam: the effective uid is 0 (and the other way in, a sudoedit parent)
     assert!(sio::privileged(0, None) && sio::privileged(1000, Some("sudoedit\n")));
     let mut session = start(&dir, world(sio::privileged(0, None), state.path(), bin.path()));
-    assert!(session.sim.plain, "the window's sim is plain as the terminal's is");
+    assert!(session.sim.plain, "the window's Sim is plain as the terminal's is");
     assert!(!filter::programs_allowed(), "no program starts from now on");
     // git did not run: the tree has no letter for the changed file
     typed(&mut session, "<C-n>");

@@ -153,14 +153,14 @@ fn vi_10_only_the_range_of_full_width_ascii_is_read_as_half_width() {
         assert_eq!(marked(&a), before, "{c:?}");
         assert_eq!(a.vi.mode, Mode::Normal);
     }
-    // The ends of the range are read: `！` is `!`, `～` is `~` (not a command).
+    // The ends of the range are read: `！` is `!`, `～` is `~` (which turns the case around since VI-19).
     let mut a = typed("|a", "");
     a.update(Event::Key(Key::Char('\u{ff01}')));
     a.update(Event::Key(Key::Char('\u{ff01}')));
     assert_eq!(a.vi.mode, Mode::Cmd);
     let mut a = typed("|abc", "");
     a.update(Event::Key(Key::Char('\u{ff5e}')));
-    assert_eq!(marked(&a), "|abc");
+    assert_eq!(marked(&a), "A|bc");
 }
 
 #[test]

@@ -157,10 +157,10 @@ fn mark_1_a_bare_repository_and_a_git_directory_have_no_work_tree_and_so_no_mark
 
 // ---- the guard: git is not run where the repository's own config could run commands ----
 // The config is read by git itself (`git config --list --show-scope -z`), so the cases below are
-// texts that git and a parser of sim's own could read differently.
+// texts that git and a parser of Sim's own could read differently.
 
 /// Configs that define a command git would run, or could bring one in, that the command line does
-/// not stop (GIT-2): the forms are the ones a parser of sim's own could read differently from git.
+/// not stop (GIT-2): the forms are the ones a parser of Sim's own could read differently from git.
 const RUNS: [&str; 26] = [
     "[filter]\n\tclean = cat\n", // a filter with no name is none that git can turn off
     "[core]\n\tsshCommand = /tmp/ssh\n",
@@ -331,7 +331,7 @@ fn mark_1_the_user_s_own_config_is_trusted_and_the_repository_s_is_not() {
     let defines = "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n[core]\n\tfsmonitor = true\n\thooksPath = /h\n";
     std::fs::write(&global, format!("{defines}[include]\n\tpath = more\n")).unwrap();
     std::fs::write(d.0.join("more"), "[filter \"inc\"]\n\tsmudge = cat\n").unwrap();
-    // What sim asks git, with a global config of its own.
+    // What Sim asks git, with a global config of its own.
     let list = |dir: &Path| {
         let out = Command::new("git")
             .args([
@@ -450,7 +450,7 @@ fn mark_1_every_key_that_can_hold_a_command_is_skipped_and_ordinary_keys_are_not
         "core.autocrlf",
         "core.symlinks",
         "core.worktree",
-        "core.hookspath", // hooks run in commands that write, and sim runs none
+        "core.hookspath", // hooks run in commands that write, and Sim runs none
         "core.fsmonitor.x",
         "remote.origin.url",
         "remote.origin.fetch",
@@ -552,14 +552,19 @@ fn mark_1_core_hookspath_does_not_stop_git_and_no_hook_runs() {
         repo(&work, &["a.txt=aaaa\n", "sub/b.rs", "c.rs"]);
         let path = if relative { ".husky/_" } else { hooks.to_str().unwrap() };
         git(&work, &["config", "core.hooksPath", path]);
-        // `a.txt` is a file that git must read again (the same size, an mtime that moved): a
-        // plain `git status` then writes the index, and that runs `post-index-change`.
+        // `a.txt` and `c.rs` are files that git must read again (the same size, an mtime that
+        // moved). `c.rs` is found the same, so a plain `git status` writes its new stat into the
+        // index, and that runs `post-index-change`. (`a.txt` alone, which differs, wrote the index
+        // only while the entries were racily clean, written in the same second as the index: a
+        // slow runner, macOS's on CI, crossed a second between them now and then.)
         std::fs::write(work.join("a.txt"), "bbbb\n").unwrap();
-        let file = std::fs::File::options().write(true).open(work.join("a.txt")).unwrap();
-        file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
-            .unwrap();
+        for f in ["a.txt", "c.rs"] {
+            let file = std::fs::File::options().write(true).open(work.join(f)).unwrap();
+            file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
+                .unwrap();
+        }
         make(&work, &["sub/new.rs"]);
-        // sim's own calls: they give the marks, and no hook ran.
+        // Sim's own calls: they give the marks, and no hook ran.
         let (status, prefix) = (io::git_status(&work).unwrap(), io::git_prefix(&work).unwrap());
         let m = Marks::new(&status, &prefix, &none());
         assert!(m.changed(Path::new("a.txt")) && m.changed(Path::new("sub/new.rs")), "{status:?}");
@@ -632,7 +637,7 @@ fn objects(clone: &Path) -> usize {
 #[test]
 fn mark_1_git_never_fetches_from_the_promisor_remote_of_a_partial_clone() {
     // `git status` in a clone with missing objects fetches them from its promisor remote: a
-    // network, a credential prompt on the terminal sim draws on, and the commands a remote runs.
+    // network, a credential prompt on the terminal Sim draws on, and the commands a remote runs.
     let d = temp_dir("mark1-promisor");
     let clone = partial_clone(&d.0, &[]);
     assert_eq!(objects(&clone), 0);
@@ -672,7 +677,7 @@ fn mark_1_a_remote_that_names_a_program_is_never_run_by_a_status() {
 
 #[test]
 fn mark_1_a_filter_or_a_monitor_of_the_repository_never_runs_and_git_is_not_skipped_for_them() {
-    // Two ways to define them: by `git config`, and by hand in forms that a parser of sim's own
+    // Two ways to define them: by `git config`, and by hand in forms that a parser of Sim's own
     // read differently from git: a monitor after a header that is the end of a continued value,
     // and a filter in a dotted section of the `config.worktree` file. (GIT-2 has the witnesses of
     // each kind; these are the forms.)
@@ -701,7 +706,7 @@ fn mark_1_a_filter_or_a_monitor_of_the_repository_never_runs_and_git_is_not_skip
             );
             std::fs::remove_file(w).unwrap();
         }
-        // sim's git is not skipped, and neither runs
+        // Sim's git is not skipped, and neither runs
         let (status, files, prefix) =
             (io::git_status(&d.0), io::git_files(&d.0), io::git_prefix(&d.0));
         assert!(status.is_ok() && files.is_ok() && prefix.is_ok(), "{status:?}");

@@ -165,7 +165,7 @@ fn vi_15_a_yank_into_the_clipboard_leaves_zero_alone_and_is_the_register_plus() 
     assert_eq!(
         status(&screen(&mut a)),
         "\"\" beta⏎ · \"+ beta⏎ · \"0 alpha⏎ · \"a beta⏎",
-        "the unnamed register points to \"+, \"0 is the plain yank's, and sim shows what it sent"
+        "the unnamed register points to \"+, \"0 is the plain yank's, and Sim shows what it sent"
     );
     let mut a = app("alpha\nbeta");
     feed(&mut a, "yyj\"*yy:reg\n");
@@ -182,7 +182,7 @@ fn vi_15_a_yank_into_the_clipboard_leaves_zero_alone_and_is_the_register_plus() 
         ("|ab cd", "\"+dw\"-p", "|cd"),
         ("|a\nb", "\"+dd\"1p", "b\n|a"),
     ]);
-    // Reading it stays refused, and what sim sent is shown, not read from the clipboard.
+    // Reading it stays refused, and what Sim sent is shown, not read from the clipboard.
     let mut a = app("ab cd");
     feed(&mut a, "\"+yw\"+p:reg\n");
     assert_eq!(text(&a), "ab cd");
@@ -211,10 +211,11 @@ fn vi_15_dot_walks_the_numbered_registers() {
     assert_eq!(marked(&a), "e\n|b", "`\"1p` puts d, `u.` puts \"2 (c), `u.` puts \"3 (b)");
     let a = typed("|a\nb\nc\nd\ne", "dddddddd\"1p..");
     assert_eq!(marked(&a), "e\nd\nc\n|b", "without `u` each one goes below the last");
-    // A `"1` that was typed as text is text, not a register.
+    // A `"1` that was typed as text is text, not a register (the `"` is typed in a pair, VI-21, and `.`
+    // types the pair as it was put in).
     let mut a = app("a");
     feed(&mut a, "i\"1<Esc>.");
-    assert_eq!(text(&a), "\"\"11a");
+    assert_eq!(text(&a), "\"\"1\"1\"a");
 }
 
 #[test]

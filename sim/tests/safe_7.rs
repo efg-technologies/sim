@@ -1,4 +1,4 @@
-//! SAFE-7 on sim's screen: once a save that overrode the disk (`:w!`) or took it (`:e!`) has
+//! SAFE-7 on Sim's screen: once a save that overrode the disk (`:w!`) or took it (`:e!`) has
 //! settled the conflict, the screen stops saying there is one: the badges in the border and the
 //! status line, the marks and tints on the lines, and the mark on the tab. Where the other version
 //! went stays on the status line until the next key.

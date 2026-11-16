@@ -90,7 +90,7 @@ impl Bench {
 
     /// MD-8: the keys of `keys`, each followed by the answer of the highlighter to what it asked for
     /// (the shell's thread plays that off the clock, and its answer is an event on the main thread:
-    /// timed as a key is).
+    /// timed as a key is); DIFF-7: and the answer to the preview of the changes view.
     fn walked(&mut self, keys: &str) -> Times {
         let mut out = vec![];
         for k in common::keys(keys) {
@@ -110,6 +110,7 @@ impl Bench {
                 out.push((d, k));
                 todo.extend(fx.into_iter().filter_map(|e| match e {
                     SimEffect::Highlight(req) => Some(self.hl.run(req)),
+                    SimEffect::Patch(req) => Some(sim::io::patch(&self.r.sim.root, &req)),
                     _ => None,
                 }));
             }
@@ -294,6 +295,16 @@ fn lit(b: &mut Bench) -> Times {
     motions(b)
 }
 
+/// JUMP-1: jumps by label over the big file: `s`, a query typed and taken back, Enter to the nearest match
+/// and a label, then a jump given up; each key finds the matches of the lines on screen again.
+fn jump(b: &mut Bench) -> Times {
+    let mut out = vec![];
+    for _ in 0..150 {
+        out.extend(b.time("slet<BS>t\nksfna<Esc>sx<Esc>"));
+    }
+    out
+}
+
 /// PICK-1 to PICK-5: the picker open over the big file: Ctrl-p's finder typed into, moved in and
 /// cleared, and Ctrl-f's search of contents (over the 300 files and the big one), with the previews
 /// that come, their colors and the batches of results.
@@ -333,7 +344,8 @@ fn help(b: &mut Bench) -> Times {
 
 /// DIFF-1: the changes view over 300 changed files, in a repository made here (the bench's files
 /// committed, then a line added to each small one): moved in by lines and pages, folded and unfolded,
-/// to the top and the bottom. The numbers are asked of git and answered off the clock, as the status.
+/// to the top and the bottom. The numbers are asked of git and answered off the clock, as the status;
+/// DIFF-7: so is the preview of the file under the cursor, whose answer is timed as a key is.
 fn changes(b: &mut Bench) -> Times {
     let root = b.r.sim.root.clone();
     git(&root, &["init", "-q"]);
@@ -348,7 +360,7 @@ fn changes(b: &mut Bench) -> Times {
     assert!(b.r.sim.panel.focus && b.r.status().contains("CHANGES"), "{}", b.r.status());
     let mut out = vec![];
     for _ in 0..40 {
-        out.extend(b.time("jjjjjjjjjjkkkkkkkkkk<C-d><C-u><PageDown><PageUp>Gggjjhljjkk"));
+        out.extend(b.walked("jjjjjjjjjjkkkkkkkkkk<C-d><C-u><PageDown><PageUp>Gggjjhljjkk]c[cJK"));
     }
     out
 }
@@ -407,7 +419,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     for skin in [Skin::Calm, Skin::Depth] {
         for size in [(80, 24), (240, 60)] {
             type Kind = fn(&mut Bench) -> Times;
-            let kinds: [(&str, Kind); 11] = [
+            let kinds: [(&str, Kind); 12] = [
                 ("motions", motions),
                 ("insert", inserts),
                 ("delete", deletes),
@@ -419,6 +431,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
                 ("changes", changes),
                 ("lit", lit),
                 ("touched", touched),
+                ("jump", jump),
             ];
             for (name, run) in kinds {
                 // `SPEED_1_ONLY=lit` runs the kinds named, for a look at one of them

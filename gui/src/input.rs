@@ -1,9 +1,9 @@
 //! GUI-7, GUI-10
-//! Window events to the events a terminal would have given sim. A key, an IME commit, a paste and
+//! Window events to the events a terminal would have given Sim. A key, an IME commit, a paste and
 //! the mouse become the `crossterm` events that crossterm's parser makes of the bytes a terminal
 //! sends (xterm keys, SGR 1006 mouse, bracketed paste); from there the path is the binary's own:
 //! `si::io::term::convert_all` for the keys, `SimEvent::Mouse`, `SimEvent::BackTab`. Nothing here
-//! knows what a key means to sim, so every key and mode works as it does in a terminal.
+//! knows what a key means to Sim, so every key and mode works as it does in a terminal.
 //!
 //! Why events and not bytes: crossterm's parser is private to it and reads only the process's own
 //! tty, so bytes could only be turned back into these same events by a second parser kept in step
@@ -13,11 +13,11 @@ use crate::metrics::Metrics;
 use winit::event::{ElementState, Ime, MouseButton as WButton, MouseScrollDelta};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 
-/// How many lines sim scrolls for one event of the wheel (`sim::sim::ptr::NOTCH`): a pixel-precise
+/// How many lines Sim scrolls for one event of the wheel (`sim::sim::ptr::NOTCH`): a pixel-precise
 /// device (a trackpad) sends one event for this many lines of finger travel, so the text follows it.
 const NOTCH_LINES: f64 = 3.0;
 
-/// What the adapter asks of the window's owner: an event for sim, or the system clipboard's text (a
+/// What the adapter asks of the window's owner: an event for Sim, or the system clipboard's text (a
 /// paste key is not a byte: a terminal emulator reads the clipboard and sends a bracketed paste).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -26,7 +26,7 @@ pub enum Action {
 }
 
 /// The text being composed by an input method, and where its cursor is (byte offsets), if the
-/// method says. Drawn inline at sim's cursor.
+/// method says. Drawn inline at Sim's cursor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preedit {
     pub text: String,
@@ -128,7 +128,7 @@ impl Input {
                 let text = k.text.filter(|t| !t.is_empty()).unwrap_or(c.as_str());
                 text.chars().filter(|ch| !ch.is_control()).map(typed).map(Action::Send).collect()
             }
-            _ => vec![], // a dead key, an unidentified one, a function key sim has no use for
+            _ => vec![], // a dead key, an unidentified one, a function key Sim has no use for
         }
     }
 
@@ -266,7 +266,7 @@ fn typed(ch: char) -> CtEvent {
     CtEvent::Key(typed_key(ch))
 }
 
-/// A key event in the notation of sim's tests, for scripts: a char is itself, `<C-p>` is Ctrl-p,
+/// A key event in the notation of Sim's tests, for scripts: a char is itself, `<C-p>` is Ctrl-p,
 /// `<Esc> <CR> <BS> <Tab> <S-Tab> <Del> <Up> <Down> <Left> <Right> <Home> <End> <PageUp> <PageDown>
 /// <lt>` are the named keys.
 pub fn notation(s: &str) -> Vec<CtEvent> {
@@ -315,7 +315,7 @@ pub fn notation(s: &str) -> Vec<CtEvent> {
     out
 }
 
-/// The path from a terminal event into sim: sim's own (`Input::event`: the mouse, Shift-Tab and F1, and
+/// The path from a terminal event into Sim: Sim's own (`Input::event`: the mouse, Shift-Tab and F1, and
 /// the core's `convert_all` for the rest), without the state machines that wait for a terminal's replies
 /// (a window has no terminal to answer, and an Alt-`]` is a key).
 pub fn to_sim(ev: CtEvent) -> Vec<SimEvent> {
@@ -349,7 +349,7 @@ mod tests {
             .collect()
     }
 
-    /// What sim gets for a window key: the whole path.
+    /// What Sim gets for a window key: the whole path.
     fn sim_keys(i: &mut Input, key: Key, text: Option<&str>) -> Vec<SiKey> {
         let evs: Vec<SimEvent> = press(i, key, text)
             .into_iter()
@@ -359,7 +359,7 @@ mod tests {
         evs.into_iter()
             .map(|e| match e {
                 SimEvent::Term(TermEvent::Key(k)) => k,
-                other => panic!("not a key for sim: {other:?}"),
+                other => panic!("not a key for Sim: {other:?}"),
             })
             .collect()
     }
@@ -399,7 +399,7 @@ mod tests {
         );
         assert_eq!(sim_keys(&mut i, ch("p"), Some("\u{10}")), [SiKey::Ctrl('p')]);
         assert_eq!(sim_keys(&mut i, ch("n"), None), [SiKey::Ctrl('n')]);
-        // Ctrl-Shift-F is Ctrl-f to sim, as it is in a terminal
+        // Ctrl-Shift-F is Ctrl-f to Sim, as it is in a terminal
         i.mods = ModifiersState::CONTROL | ModifiersState::SHIFT;
         assert_eq!(sim_keys(&mut i, ch("F"), Some("\u{6}")), [SiKey::Ctrl('f')]);
     }
@@ -487,7 +487,7 @@ mod tests {
         assert_eq!(press(&mut i, ch("V"), Some("\u{16}")), [Action::Paste]);
         i.mods = ModifiersState::SHIFT;
         assert_eq!(press(&mut i, Key::Named(NamedKey::Insert), None), [Action::Paste]);
-        // a plain Ctrl-v is a key of sim's (Visual block in vi)
+        // a plain Ctrl-v is a key of Sim's (Visual block in vi)
         i.mods = ModifiersState::CONTROL;
         assert_eq!(sim_keys(&mut i, ch("v"), None), [SiKey::Ctrl('v')]);
     }

@@ -1,6 +1,6 @@
 //! GUI-13, GUI-10
-//! What is drawn over the scene and is not sim's: the cursor (which moves smoothly from cell to cell
-//! and takes the shape of the mode) and the text an input method is composing. sim's own cursor is
+//! What is drawn over the scene and is not Sim's: the cursor (which moves smoothly from cell to cell
+//! and takes the shape of the mode) and the text an input method is composing. Sim's own cursor is
 //! a cell and a shape (`Frame::cursor`, `Frame::shape`); the window shows it as a shape that glides.
 use crate::api::{Shape, Tones, cell_width};
 use crate::depth::rgb;

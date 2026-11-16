@@ -12,10 +12,6 @@ layer 0
   Band [88 478 916 96] r6 #33373f shadow(dy 1 blur 4 #000000/0.40)
   Pill [254 18 134 17] r8 #9600b6 shadow(dy 1 blur 9 #9600b6/0.70) rim(#ffffff/0.28 1)
   Shape [28 37 2 18] r1 #c6e1ff
-  Shape [31 177 1 5] r0 #feda99
-  Shape [31 184 1 5] r0 #feda99
-  Shape [31 190 1 5] r0 #feda99
-  Shape [27 273 8 2] r1 #fed6d7
   Shape [91 336 1 20] r0 #b8b8b8
   Shape [241 336 1 20] r0 #b8b8b8
   Shape [431 336 1 20] r0 #b8b8b8
@@ -68,8 +64,6 @@ layer 0
   Shape [1008 58 6 516] r3 #b8b8b8/0.07
   Thumb [1008 57 6 478] r3 #4c4f56 shadow(dy 1 blur 4 #000000/0.40)
   Shape [1007 58 8 2] r1 #b8b8b8
-  Shape [1012 157 3 18] r2 #feda99
-  Shape [1012 237 3 18] r2 #fed6d7
   text [46 16] "README.md" #eaeaea bold
   text [146 16] "›" #828387
   text [166 16] "Lantern" #eaeaea
@@ -87,7 +81,7 @@ layer 0
   text [156 96] "made-up" #eaeaea
   text [236 96] "project" #eaeaea
   text [316 96] "that" #eaeaea
-  text [366 96] "sim" #eaeaea bold
+  text [366 96] "Sim" #eaeaea bold
   text [406 96] "opens" #eaeaea
   text [466 96] "in" #eaeaea
   text [496 96] "a" #eaeaea

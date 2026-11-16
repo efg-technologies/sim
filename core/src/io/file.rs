@@ -138,7 +138,7 @@ pub fn read(path: &str) -> Read {
     }
 }
 
-/// Our effective uid, from the system: who runs sim, not who owns a directory or a file made in it.
+/// Our effective uid, from the system: who runs Sim, not who owns a directory or a file made in it.
 pub fn euid() -> u32 {
     rustix::process::geteuid().as_raw()
 }

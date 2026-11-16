@@ -1,11 +1,13 @@
-//! MD-1, MD-2, MD-3, MD-4, MD-7, MD-8, MD-11
+//! MD-1, MD-2, MD-3, MD-4, MD-7, MD-8, MD-11, MD-12
 //! The read view of a Markdown file (pure): which chars of a line are not drawn and what is put
 //! in their place (`Plan`), made from the line's chars and the highlighter's spans; the tables of
 //! a screen, found once per frame (`Read`); and the map from the columns of a row as the core made
 //! it to the columns drawn (`Remap`), which a click is taken back through. Everything that is left
 //! out passes through `may_hide`.
-//! A link is left whole (its brackets, text and URL are drawn as UI-8 draws them), so that a mark on
-//! a link whose text and URL differ has all of it to work with.
+//! A link is drawn as its text only on a line that MD-10 gave no mark, where the highlighter and the
+//! chars agree on its shape and every char of its target may go (MD-12); else it is left whole (its
+//! brackets, text and URL are drawn as UI-8 draws them), so that a mark on a link whose text and URL
+//! differ has all of it to work with.
 use crate::paint::Look;
 use crate::syn::{Spans, Text};
 use sim_core::core::view::width;
@@ -27,6 +29,10 @@ pub enum Why {
     Rule,
     /// A char of a callout's marker, `[!NOTE]`, which the kind's word replaces (MD-11).
     Callout,
+    /// A bracket of a link that is drawn as its text (MD-12).
+    Link,
+    /// A char of the target of such a link (MD-12).
+    Target,
 }
 
 /// MD-2: whether `c` may be left out for `why`. The one place that says so: a char shown in
@@ -37,6 +43,9 @@ pub fn may_hide(c: char, why: Why) -> bool {
         Why::Blank => c == ' ',
         Why::Rule => matches!(c, '-' | ':' | ' '),
         Why::Callout => c.is_ascii_alphabetic() || matches!(c, '[' | '!' | ']'),
+        Why::Link => matches!(c, '[' | ']' | '(' | ')'),
+        // (the highlighter ends a target at an escaped `)`: what follows it would be drawn as text)
+        Why::Target => c.is_ascii_graphic() && !matches!(c, '(' | ')' | '<' | '>' | '\\'),
     }
 }
 
@@ -137,6 +146,34 @@ fn marks(cs: &[char], sp: &Spans, ops: &mut [Op]) {
             continue;
         }
         r.clone().for_each(|i| ops[i].hide = may_hide(cs[i], Why::Markup));
+    }
+}
+
+/// MD-12: the inline links drawn as their text: a URL the highlighter has with `](` just before it
+/// and `)` just after, whose nearest bracket before that `]` is a `[` with no `!` (an image) or
+/// backslash before it, around a text that is the highlighter's link and not blank, and whose chars
+/// may all go. Their brackets and target are left out, unless one is next to a joiner (`marks`).
+fn links(cs: &[char], sp: &Spans, ops: &mut [Op]) {
+    let joins = |i: usize| matches!(cs.get(i), Some('\u{200d}' | '\u{fe0f}'));
+    for (u, _) in sp.iter().filter(|s| s.1 == Look::Url) {
+        let close = u.start.wrapping_sub(2);
+        if cs.get(close..u.start) != Some(&[']', '('][..]) || cs.get(u.end) != Some(&')') {
+            continue;
+        }
+        let open = cs[..close].iter().rposition(|&c| matches!(c, '[' | ']'));
+        let Some(open) = open.filter(|&o| cs[o] == '[') else { continue };
+        let text = sp.iter().any(|(r, k)| *k == Look::Link && r.start < close && r.end > open + 1);
+        if matches!(cs.get(open.wrapping_sub(1)), Some('!' | '\\'))
+            || !text
+            || cs[open + 1..close].iter().all(|c| c.is_whitespace())
+            || !cs[u.clone()].iter().all(|&c| may_hide(c, Why::Target))
+            || [open.wrapping_sub(1), open + 1, close - 1, u.end + 1].into_iter().any(joins)
+        {
+            continue;
+        }
+        for i in std::iter::once(open).chain(close..=u.end) {
+            ops[i].hide = may_hide(cs[i], if u.contains(&i) { Why::Target } else { Why::Link });
+        }
     }
 }
 
@@ -367,7 +404,8 @@ impl Read {
     }
 
     /// How line `l` (`cs`, with the highlighter's `sp`) is drawn, if it is drawn otherwise than raw.
-    pub fn plan(&self, l: usize, cs: &[char], sp: &Spans) -> Option<Plan> {
+    /// `honest`: MD-10 gave the line no mark, so its links may be drawn as their text (MD-12).
+    pub fn plan(&self, l: usize, cs: &[char], sp: &Spans, honest: bool) -> Option<Plan> {
         if self.raw.contains(&l) || l < self.front || sp.first().is_some_and(|s| s.1 == Look::Band)
         {
             return None;
@@ -379,6 +417,9 @@ impl Read {
         }
         let at = self.tables.partition_point(|t| t.lines.end <= l);
         let tab = self.tables.get(at).filter(|t| t.lines.contains(&l));
+        if honest && tab.is_none() {
+            links(cs, sp, &mut ops); // (a table's row keeps them: its widths are all its rows')
+        }
         // (a run of lines that start with a pipe is a table that is aligned, or it is raw)
         match tab.map(|t| t.cols.as_ref().map(|c| (t.lines.start, c))) {
             Some(None) => return None,

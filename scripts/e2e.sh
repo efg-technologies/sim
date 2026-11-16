@@ -1,5 +1,5 @@
 #!/bin/sh
-# End-to-end tests of sim, in tmux: the core's cases (run against `sim --plain`) and the editor's.
+# End-to-end tests of Sim, in tmux: the core's cases (run against `sim --plain`) and the editor's.
 #
 #   sh scripts/e2e.sh [prefix]
 #

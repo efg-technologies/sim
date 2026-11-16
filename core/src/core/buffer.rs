@@ -18,10 +18,12 @@ const KEEP_MARKS: usize = 4;
 pub type Place = (usize, usize);
 
 /// The marks of VI-17, in `Buffer::vmark`: `a` to `z`, then the place before the last jump (`'`), then
-/// the one it replaced while the jump's command runs (`checkpcmark`, mark.rs).
+/// the one it replaced while the jump's command runs (`checkpcmark`, mark.rs), then the two ends of the
+/// last Visual selection (`gv`, VI-19).
 pub const PREV: usize = 26;
 pub const SAVED: usize = 27;
-pub type Vmarks = [Option<Place>; 28];
+pub const VIS: usize = 28;
+pub type Vmarks = [Option<Place>; 30];
 
 /// Hash of a file that does not exist.
 pub const ABSENT: u64 = 0;
@@ -140,6 +142,12 @@ impl Buffer {
     pub fn line_len(&self, line: usize) -> usize {
         let l = self.text.line(line);
         l.len_chars() - usize::from(l.len_chars() > 0 && l.char(l.len_chars() - 1) == '\n')
+    }
+
+    /// The char a place is at, inside its line (past the last line: in the last line).
+    pub fn pos(&self, (l, c): Place) -> usize {
+        let l = l.min(self.lines() - 1);
+        self.start(l) + c.min(self.line_len(l))
     }
 
     /// Index of the line break after the line (or the end of the text).

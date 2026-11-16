@@ -1,5 +1,5 @@
 //! KEY-2, KEY-5: Space is a leader in Normal mode and in the tree, the keys of its sequences are
-//! sim's, and `<Space>bp` and `<Space>bc` put letters on the tabs, as bufferline's pick does.
+//! Sim's, and `<Space>bp` and `<Space>bc` put letters on the tabs, as bufferline's pick does.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;

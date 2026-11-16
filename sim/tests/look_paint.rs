@@ -37,7 +37,7 @@ fn look_9_primary_text_reads_on_every_tint_and_on_the_card_on_every_background()
     eprintln!("LOOK-9 lowest |Lc| of primary on any tint or the card: {worst:.1}");
 }
 
-/// The owner of sim chose green for what comes and red for what goes in flat and depth, and said to
+/// The owner of Sim chose green for what comes and red for what goes in flat and depth, and said to
 /// let color vision go: each is found the way si's change color is (the most chromatic color of its
 /// hue that is the nearest to the page at |Lc| 15 and the margin away from it), without the
 /// simulations of VIS-5, and has its own text gray at |Lc| 75.

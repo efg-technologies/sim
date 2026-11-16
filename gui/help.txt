@@ -1,4 +1,4 @@
-sim-gui {version}: sim in a window (the editor is sim's: its keys, modes and files are the same)
+sim-gui {version}: Sim in a window (the editor is Sim's: its keys, modes and files are the same)
 
 usage: sim-gui [+cmd] [dir | file]
        sim-gui --help | --version

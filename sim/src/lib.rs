@@ -1,4 +1,4 @@
-//! Exposes sim's modules to main.rs and tests/.
+//! Exposes Sim's modules to main.rs and tests/.
 #![forbid(unsafe_code)]
 
 pub mod bar;
@@ -17,6 +17,7 @@ pub mod lie;
 pub mod marks;
 pub mod md;
 pub mod paint;
+pub mod patch;
 pub mod pick;
 pub mod rank;
 pub mod search;

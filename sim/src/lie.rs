@@ -317,7 +317,7 @@ fn cleaned(raw: &str) -> String {
     t.trim_matches(|c: char| c.is_control() || c == ' ').to_string()
 }
 
-/// MD-10: a URL as the WHATWG standard reads it, so that sim compares the host a browser goes to: the
+/// MD-10: a URL as the WHATWG standard reads it, so that Sim compares the host a browser goes to: the
 /// special schemes (http, https, ws, wss, ftp, file) take any number of `/` and `\` after the colon, or
 /// none, and end the authority at `/`, `\`, `?` or `#`; a target with no scheme that starts with two
 /// slashes of either kind is scheme-relative; the userinfo is what precedes the last `@`. Where it goes,
@@ -415,7 +415,7 @@ fn mailboxes(rest: &str) -> Vec<String> {
 
 /// MD-10: whether a target runs code or carries data (`javascript:`, `data:`, `vbscript:`), through
 /// tabs, blanks, controls and case, or has an entity before its first `/` that a browser would decode
-/// into one (`javascript&colon;`) and that sim cannot.
+/// into one (`javascript&colon;`) and that Sim cannot.
 fn runs_code(raw: &str) -> bool {
     let t = cleaned(raw).to_ascii_lowercase();
     if ["javascript:", "data:", "vbscript:"].iter().any(|s| t.starts_with(s)) {
@@ -553,7 +553,7 @@ fn address(w: &str) -> Option<Names> {
 /// text looks like an address that the target is not (another host, a host that cannot be read, no host
 /// where the text has one unless the target is a file that ends with it; an absolute path and a target
 /// with a host; a path that the target's does not end with, or that neither ends with where the target
-/// has no host), or the target runs code or carries data, or the text cannot be read (an entity sim has
+/// has no host), or the target runs code or carries data, or the text cannot be read (an entity Sim has
 /// no table for, or a char that shows nothing, next to what could be an address). The text is read as a
 /// reader sees it (`views`) and the target as a renderer makes it: written, and with the escapes and
 /// entities of CommonMark decoded; every form of each is judged.
@@ -614,7 +614,7 @@ fn views(text: &str) -> (Vec<String>, bool) {
     (v, odd)
 }
 
-/// MD-10: the named entities that are ASCII punctuation; a name of another kind is left as it is (sim
+/// MD-10: the named entities that are ASCII punctuation; a name of another kind is left as it is (Sim
 /// has no table of them).
 #[rustfmt::skip]
 const NAMED: [(&str, char); 17] = [
@@ -642,7 +642,7 @@ fn invisible(c: char) -> bool {
 }
 
 /// MD-10: `s` as CommonMark reads it: a backslash before an ASCII punctuation char is dropped, and an
-/// entity that `entity` knows is the char; and whether `s` cannot be read so: an entity that sim has no
+/// entity that `entity` knows is the char; and whether `s` cannot be read so: an entity that Sim has no
 /// table for, or a char that shows nothing, next to a letter, a digit, a dot or a hyphen (where it could
 /// be breaking an address that a reader sees whole).
 fn decode(s: &str) -> (String, bool) {
@@ -941,7 +941,7 @@ fn names_host(text: &str) -> bool {
 }
 
 /// MD-10: whether a label has a letter with a case that is not ASCII: CommonMark folds the case of Unicode
-/// (`ß` is `SS`), sim lowercases.
+/// (`ß` is `SS`), Sim lowercases.
 fn folds(label: &str) -> bool {
     label.chars().any(|c| !c.is_ascii() && (c.to_lowercase().ne([c]) || c.to_uppercase().ne([c])))
 }
@@ -1298,7 +1298,7 @@ fn after_containers(c: &[char]) -> usize {
 }
 
 /// MD-10: the definition a line is, if it is one: `[label]: destination` after the markers of its
-/// containers (a definition in code is taken for one too: sim errs to the side of marking). Its label as it
+/// containers (a definition in code is taken for one too: Sim errs to the side of marking). Its label as it
 /// is matched, and where its destination is in the line (none where it is on the next line).
 fn def_in(c: &[char]) -> Option<(String, Option<Range<usize>>)> {
     let i = after_containers(c);
@@ -1343,7 +1343,7 @@ fn token(c: &[char], k: usize) -> Option<Range<usize>> {
 /// the document loose (a use that no definition resolves is not trusted: the definition may be past it).
 pub struct Refs {
     /// the document may have a definition that was not read (it was not looked through whole, a line that
-    /// could be one was not read as one, or a label has a letter that sim does not fold): a use that no
+    /// could be one was not read as one, or a label has a letter that Sim does not fold): a use that no
     /// definition resolves is not trusted
     loose: bool,
     defs: HashMap<String, Vec<String>>,
@@ -1358,7 +1358,7 @@ type Lines = HashMap<usize, Vec<Range<usize>>>;
 
 impl Refs {
     /// The document of `n` lines, `line(l)` the text of line `l`. Every definition of a label counts (the
-    /// first wins in CommonMark, and sim does not know which a reader's renderer takes).
+    /// first wins in CommonMark, and Sim does not know which a reader's renderer takes).
     pub fn new(n: usize, line: &dyn Fn(usize) -> Option<String>) -> Refs {
         let (mut left, mut blind) = (REF_CHARS, n > REF_LINES);
         let (mut kept, mut defs, mut pending) = (vec![], vec![], None::<String>);

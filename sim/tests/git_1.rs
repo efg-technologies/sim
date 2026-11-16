@@ -1,6 +1,6 @@
 //! GIT-1, GIT-2, GIT-3, GIT-4: the one guarded way to run git, what it neutralizes, what it still
 //! refuses, and submodules. A witness test: a repository whose config names a script that leaves a
-//! witness file; plain git runs it (the control, so that the test can tell) and sim's call does not.
+//! witness file; plain git runs it (the control, so that the test can tell) and Sim's call does not.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
@@ -198,7 +198,7 @@ fn git_2_a_monitor_never_runs_and_git_answers() {
     assert_eq!(io::git_status(&f.repo), Ok(vec![]));
     assert_eq!(io::git_files(&f.repo).map(|l| !l.is_empty()), Ok(true));
     assert!(io::git_prefix(&f.repo).is_ok());
-    assert_eq!(ran(&f.witness), Vec::<String>::new(), "sim's git never asks it");
+    assert_eq!(ran(&f.witness), Vec::<String>::new(), "Sim's git never asks it");
 }
 
 #[test]
@@ -228,11 +228,11 @@ fn git_2_hooks_never_run_wherever_the_repository_keeps_them() {
         clear(&f.witness);
         std::fs::write(f.repo.join("a.txt"), "alpha 3\n").unwrap();
         git(&f.repo, &["add", "a.txt"]);
-        // sim never commits; the guard is a rule of the command line, so a commit built by it shows it
+        // Sim never commits; the guard is a rule of the command line, so a commit built by it shows it
         assert!(runs_ok(&f.repo, &["commit", "-q", "-m", "guarded"]), "{variant}");
         assert_eq!(ran(&f.witness), Vec::<String>::new(), "{variant}: no hook ran");
         assert_eq!(git(&f.repo, &["rev-list", "--count", "HEAD"]).trim(), "3", "{variant}");
-        // and the status that sim does ask for is not skipped for a hooks path
+        // and the status that Sim does ask for is not skipped for a hooks path
         assert!(io::git_status(&f.repo).is_ok(), "{variant}");
     }
 }
@@ -258,7 +258,7 @@ fn git_2_an_external_diff_and_a_text_conversion_never_run() {
     );
     assert!(ran(&f.witness).iter().any(|l| l.starts_with("conv ")), "{:?}", ran(&f.witness));
     clear(&f.witness);
-    // sim's own diff answers with the diff itself
+    // Sim's own diff answers with the diff itself
     let a = String::from_utf8(io::git_diff(&f.repo, "a.txt").unwrap()).unwrap();
     assert!(a.contains("+beta"), "{a}");
     let x = String::from_utf8(io::git_diff(&f.repo, "x.dat").unwrap()).unwrap();
@@ -279,6 +279,30 @@ fn git_2_an_external_diff_and_a_text_conversion_never_run() {
     assert_eq!(ran(&f.witness), Vec::<String>::new());
     // and the numbers of DIFF-2 come from a diff of the same kind
     assert!(runs_ok(&f.repo, &["diff", "--numstat", "HEAD"]));
+    assert_eq!(ran(&f.witness), Vec::<String>::new());
+}
+
+#[test]
+fn git_2_the_preview_s_diff_runs_no_external_diff_text_conversion_or_filter() {
+    // DIFF-7: the changes view's preview is a `git diff` of its own, through the same guard
+    let f = fx("g2-patch");
+    let ext = script(&f.tools, "extdiff", &f.witness, "");
+    let conv = script(&f.tools, "conv", &f.witness, "cat \"$1\"");
+    let filt = script(&f.tools, "filt", &f.witness, "cat");
+    config(&f.repo, "diff.external", &ext);
+    config(&f.repo, "diff.conv.textconv", &conv);
+    config(&f.repo, "filter.wit.clean", &filt);
+    std::fs::write(f.repo.join("x.dat"), "raw\nmore\n").unwrap();
+    std::fs::write(f.repo.join("a.f"), "one\ntwo\n").unwrap();
+    // the control: plain git runs the external diff
+    assert!(plain(&f.repo, &["diff", "HEAD", "--", "x.dat"]).status().unwrap().success());
+    assert!(!ran(&f.witness).is_empty(), "the control");
+    clear(&f.witness);
+    for path in ["x.dat", "a.f"] {
+        let req = sim::sim::PatchReq { n: 1, path: path.into(), old: None, new: false };
+        let sim::sim::SimEvent::Patched(1, p) = io::patch(&f.repo, &req) else { panic!() };
+        assert!(p.text.contains("+more") || p.text.contains("+two"), "{path}: {}", p.text);
+    }
     assert_eq!(ran(&f.witness), Vec::<String>::new());
 }
 
@@ -321,7 +345,7 @@ fn git_2_a_smudge_filter_never_runs_and_a_required_one_does_not_stop_git() {
     assert!(runs_ok(&f.repo, &["checkout", "--", "a.f"]));
     assert_eq!(std::fs::read_to_string(&a).unwrap(), "one\n", "the file is back");
     assert_eq!(ran(&f.witness), Vec::<String>::new(), "no smudge");
-    // a required filter whose command fails stops plain git; sim's status does not depend on it
+    // a required filter whose command fails stops plain git; Sim's status does not depend on it
     config(&f.repo, "filter.wit.required", "true");
     config(&f.repo, "filter.wit.clean", "/bin/false");
     bump(&a);
@@ -612,7 +636,7 @@ fn git_4_a_submodule_is_one_entry_and_its_own_config_never_runs() {
     assert!(!ran(&witness).is_empty(), "the control: {:?}", ran(&witness));
     clear(&witness);
     bump(&a);
-    // sim's: nothing runs, and a submodule whose commit has not moved shows nothing
+    // Sim's: nothing runs, and a submodule whose commit has not moved shows nothing
     assert_eq!(io::git_status(&sup.0), Ok(vec![]));
     assert_eq!(ran(&witness), Vec::<String>::new());
     // its commit moves (a commit inside it, as git would make it): one entry, ` M sub`

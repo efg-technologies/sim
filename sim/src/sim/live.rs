@@ -1,5 +1,5 @@
 //! GREP-1, GREP-3, GREP-4, GREP-6, FIND-4, PICK-2, PICK-3, PICK-4, PICK-5, KEY-4
-//! The picker in sim's state (pure): Ctrl-f's search of file contents and Ctrl-p's file finder,
+//! The picker in Sim's state (pure): Ctrl-f's search of file contents and Ctrl-p's file finder,
 //! their keys, the results (the content search's arrive in batches), the selection, the preview of
 //! the selected file, and what the window shows. The panel and the files are not touched: Esc
 //! closes the picker and everything is as it was.
@@ -13,7 +13,7 @@ use crate::layout::{self, Line as Cells};
 use crate::paint::{Look, Looks};
 use crate::pick::{self, Lit, Pane, SPIN, View, Win};
 use crate::syn::Spans;
-use sim_core::core::app::{App, Event, Key};
+use sim_core::core::app::{App, Key};
 use sim_core::core::view::{self, Frame, Row, Shape, Style};
 use std::collections::HashMap;
 use std::mem::take;
@@ -170,11 +170,11 @@ impl Sim {
     }
 
     /// GREP-1, FIND-4: Ctrl-f and Ctrl-p. The picker opens with an empty query (one that is open
-    /// becomes this one) and the list of files is read again.
-    pub(super) fn live_start(&mut self, kind: Pick, out: Out) {
+    /// becomes this one) and the list of files is read again; KEY-7: `<Space>ft` opens it with `TODO` typed.
+    pub(super) fn live_start(&mut self, kind: Pick, query: &str, out: Out) {
         self.live_end(out);
         out.push(SimEffect::Files);
-        self.panel.live = Some(Live { kind, done: true, ..Live::default() });
+        self.panel.live = Some(Live { kind, done: true, query: query.into(), ..Live::default() });
         self.live_run(out);
     }
 
@@ -363,7 +363,7 @@ impl Sim {
             Key::Ctrl('w') => return self.live_edit(word, out),
             Key::Esc => return self.live_end(out),
             Key::Enter => return self.live_open(out),
-            Key::Ctrl('f') if l.kind == Pick::Files => return self.live_start(Pick::Grep, out),
+            Key::Ctrl('f') if l.kind == Pick::Files => return self.live_start(Pick::Grep, "", out),
             Key::Down | Key::Ctrl('n' | 'j') => cur + 1,
             Key::Up | Key::Ctrl('p' | 'k') => cur.saturating_sub(1),
             Key::PageDown => cur + page,
@@ -394,22 +394,23 @@ impl Sim {
         self.live_end(out);
         self.panel.reveal = Some(PathBuf::from(&path));
         self.reveal(out);
-        let at = self.root.join(&path);
-        let open =
-            self.bufs.iter().find(|b| b.app.path.as_ref().is_some_and(|p| self.cwd.join(p) == at));
-        let id = open.map(|b| b.id);
         let keys = match (line, col) {
             (0, _) => String::new(),
             (_, 0) => format!(":{line}\n"),
             _ => format!(":{line}\n{col}l"),
         };
+        self.open_at(self.root.join(&path), keys, out);
+    }
+
+    /// GREP-4, DIFF-8: opens the file `at` as the tree's Enter does and types `keys` into it (`:12\n`): once it
+    /// is read, or at once where it is open and its App is in Normal mode with nothing pending.
+    pub(super) fn open_at(&mut self, at: PathBuf, keys: String, out: Out) {
+        let open =
+            self.bufs.iter().find(|b| b.app.path.as_ref().is_some_and(|p| self.cwd.join(p) == at));
+        let id = open.map(|b| b.id);
         self.open(at, out);
         match id {
-            Some(id) if self.idle() => {
-                for c in keys.chars() {
-                    self.to(id, Event::Key(if c == '\n' { Key::Enter } else { Key::Char(c) }), out);
-                }
-            }
+            Some(id) if self.idle() => self.typed(id, &keys, out),
             Some(_) => {}
             None => self.keys = keys,
         }
@@ -431,7 +432,7 @@ impl Sim {
             l.top.min(total.saturating_sub(rows)).clamp((l.cur + 1).saturating_sub(rows), l.cur);
         let Some((path, no)) = l.pick().map(|(g, ln)| (g.path.clone(), ln.no)) else { return };
         if win.pane.h == 0 {
-            return; // (a window with no room for a preview: sim renders no pane of no rows)
+            return; // (a window with no room for a preview: Sim renders no pane of no rows)
         }
         let (kind, query) = (l.kind, l.query.clone());
         let Some(p) = l.preview.as_mut().filter(|p| p.path == path) else { return };

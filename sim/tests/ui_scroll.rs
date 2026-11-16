@@ -1,6 +1,6 @@
 //! UI-11: the scrollbar, as satellite draws it: a handle for the lines on screen, a marker for the
 //! cursor, and marks for the git signs, the changes on disk and the matches of a search, in flat
-//! and depth; the rows (pure) and the bar in sim's state.
+//! and depth; the rows (pure) and the bar in Sim's state.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;

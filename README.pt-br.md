@@ -1,20 +1,20 @@
 [English](README.md) | [日本語](README.ja.md) | [简体中文](README.zh-cn.md) | [繁體中文](README.zh-tw.md) | [한국어](README.ko.md) | [Español](README.es.md) | **Português (Brasil)** | [Français](README.fr.md) | [Deutsch](README.de.md) | [Русский](README.ru.md)
 
-# sim, o Vim de nova geração
+# Sim, o Vim de nova geração
 
-O **sim** (também chamado de *sim editor*, abreviação de *Secure vIM*) é o Vim de nova geração: escrito do zero em Rust, mantém a edição modal e as teclas básicas do Vim. Ele não lê modelines, não carrega plugins e não abre conexões de rede, e coloca na tela o que normalmente fica oculto: caracteres invisíveis, escritas feitas de fora do editor, repositórios que executariam código.
+O **Sim** (também chamado de *Sim editor*, abreviação de *Secure vIM*) é o Vim de nova geração: escrito do zero em Rust, mantém a edição modal e as teclas básicas do Vim. Ele não lê modelines, não carrega plugins e não abre conexões de rede, e coloca na tela o que normalmente fica oculto: caracteres invisíveis, escritas feitas de fora do editor, repositórios que executariam código.
 
 **Sem plugins. Sem modelines. Sem rede.**
 
 Site: <https://sim.efg-technologies.com/pt-br/> · Linux e macOS · MIT OR Apache-2.0 · [Histórico de mudanças](CHANGELOG.md) · [Política de segurança](SECURITY.md)
 
-Tudo o que o sim promete, ele promete para todo arquivo aberto nele: **sem uma ação explícita, o texto de ninguém se perde**, nem o seu nem o de outro processo.
+Tudo o que o Sim promete, ele promete para todo arquivo aberto nele: **sem uma ação explícita, o texto de ninguém se perde**, nem o seu nem o de outro processo.
 
 ## Instalação
 
 O binário é `sim` e o pacote no Homebrew é `efg-technologies/tap/sim`. O pacote do AUR e os crates do crates.io (`sim-editor` e `sim-editor-core`, a biblioteca sobre a qual ele é construído) ainda não foram publicados.
 
-O sim 0.2.1 já foi publicado. Instale com o Homebrew:
+O Sim 0.2.1 já foi publicado. Instale com o Homebrew:
 
 ```sh
 brew install efg-technologies/tap/sim
@@ -35,10 +35,10 @@ Depois, se você gostar dele como editor:
 ```sh
 export EDITOR=sim                     # Ctrl-g do Claude Code, crontab -e, …
 git config --global core.editor sim   # git commit (ZZ confirma, :cq cancela)
-export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em modo plain sozinho)
+export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o Sim já fica em modo plain sozinho)
 ```
 
-É preciso Rust 1.88 ou posterior. Roda no Linux e no macOS, em qualquer terminal; cores, o protocolo de teclado do kitty e o OSC 52 são usados quando o terminal os oferece (Ghostty, kitty, WezTerm, tmux). git e ripgrep são opcionais: o sim os usa quando estão no `PATH`. Os ícones exigem uma Nerd Font; começam ligados no Ghostty, no kitty e no WezTerm e desligados nos demais, com uma dica exibida uma única vez, e `zi` os liga e desliga. Mais na [página de instalação](https://sim.efg-technologies.com/pt-br/install/).
+É preciso Rust 1.88 ou posterior. Roda no Linux e no macOS, em qualquer terminal; cores, o protocolo de teclado do kitty e o OSC 52 são usados quando o terminal os oferece (Ghostty, kitty, WezTerm, tmux). git e ripgrep são opcionais: o Sim os usa quando estão no `PATH`. Os ícones exigem uma Nerd Font; começam ligados no Ghostty, no kitty e no WezTerm e desligados nos demais, com uma dica exibida uma única vez, e `zi` os liga e desliga. Mais na [página de instalação](https://sim.efg-technologies.com/pt-br/install/).
 
 ## O que ele faz
 
@@ -50,7 +50,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 - Quando outro processo reescreve o arquivo aberto, as linhas alteradas piscam por um instante e depois são marcadas no texto, a caixa indica quantas mudanças estão no disco, a aba mostra `↯` e a árvore marca o arquivo. `]c` e `[c` vão para a marca seguinte e para a anterior.
 - As mudanças em relação ao git HEAD aparecem como sinais na margem, uma letra de status para cada arquivo na árvore (uma pasta mostra a letra do status mais forte abaixo dela) e `+n ~n -n` na linha de status.
 - O git não é executado onde a configuração do próprio repositório poderia executar um comando (`core.sshCommand`, um `include` e mais): a caixa diz `git not run` sobre o bloco de alerta, e a linha de status indica a chave e o arquivo. Onde o git roda com configurações do próprio repositório desligadas (`core.fsmonitor`, o caminho dos hooks, filtros ou diff externo), a caixa diz quantas (`2 git settings off`).
-- Um link de Markdown cujo texto nomeia um endereço que o destino não é (`[https://good.example](https://evil.example)`, também um link de referência `[good.example][1]` cuja definição leva a outro lugar, um link em várias linhas ou com barra invertida ou entidade no destino, um link de HTML `<a href="…">`) tem o destino, e numa referência também o texto, sobre o bloco magenta, na visão de leitura e também no calm; a visão de leitura nunca esconde os colchetes nem a URL de um link.
+- Um link de Markdown cujo texto nomeia um endereço que o destino não é (`[https://good.example](https://evil.example)`, também um link de referência `[good.example][1]` cuja definição leva a outro lugar, um link em várias linhas ou com barra invertida ou entidade no destino, um link de HTML `<a href="…">`) tem o destino, e numa referência também o texto, sobre o bloco magenta, na visão de leitura e também no calm; a visão de leitura mostra um link honesto fora da linha do cursor só pelo seu texto, mas um link assim, e todo link da sua linha, aparece inteiro.
 
 **Recusa o que deve recusar e preserva o seu texto**
 
@@ -64,7 +64,7 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 
 - Uma árvore de projeto que nunca se mexe, `Ctrl-p` para encontrar arquivos, `Ctrl-f` para buscar texto com prévia, arquivos prováveis marcados com `•`, vários arquivos com uma barra de abas.
 - No benchmark do próprio projeto, uma tecla leva menos de 1 ms no p99 (arquivo de 100 mil linhas, build de release); o primeiro quadro em um repositório com 100 mil arquivos foi medido em 1,8 a 8,7 ms.
-- Cores de sintaxe tiradas da paleta do seu terminal, Markdown lido no próprio lugar (marcas ocultas, tabelas alinhadas e a linha em que você está sempre é o texto do arquivo), três aparências (`zl`), quebra de linha com regras kinsoku do japonês e teclas de largura total.
+- Cores de sintaxe tiradas da paleta do seu terminal, Markdown lido no próprio lugar (marcas ocultas, tabelas alinhadas e a linha em que você está sempre é o texto do arquivo), quatro aparências (`zl`; dark só acende o que mudou, onde você age e o que é perigoso), quebra de linha com regras kinsoku do japonês e teclas de largura total.
 - O título do editor é uma trilha de navegação, `src › sim.rs › leader_key`: o caminho e o título ou a função em que o cursor está. Cada fato fica em um só lugar: a linha de status tem o modo, o branch, as contagens e a posição, e só diz `CRLF`, `BOM` ou arquivo que não é UTF-8 quando for o caso; a aba tem o arquivo e `●`, a barra de rolagem tem a posição, e a árvore não fica em neblina.
 - `NO_COLOR` e terminais com menos de 8 cores desenham só com peso, sublinhado e vídeo inverso, e o significado nunca depende só da cor: uma linha alterada é `┆`, as pastas mostram letras de status, uma aba mostra `↯` para um arquivo alterado no disco, e a alça da barra de rolagem é um trilho `║`, não um bloco invertido.
 
@@ -75,9 +75,9 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 - `:tutor` abre cerca de quinze minutos de lições curtas em uma cópia descartável (nada é gravado), com exercícios que se marcam ✓ sozinhos quando você acerta; fala o seu idioma (`LC_ALL`, `LC_MESSAGES`, `LANG`), qualquer um dos dez deste README.
 - `<Space>bp` põe uma letra em cada aba, e a letra leva ao seu arquivo; `<Space>bc` faz o mesmo para fechar uma (um arquivo com mudanças continua aberto, como com `:q`). Uma dica cita `Tab` e `Shift-Tab` na primeira vez que um segundo arquivo é aberto, até você usá-las três vezes.
 - Enquanto as ocorrências de uma busca estão destacadas, a linha de status diz em qual delas você está e quantas existem, `[3/12]`.
-- `sim --help` imprime o uso e o ambiente que o sim lê (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` imprime a versão. Nenhum dos dois toca no terminal.
+- `sim --help` imprime o uso e o ambiente que o Sim lê (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`); `sim --version` imprime a versão. Nenhum dos dois toca no terminal.
 
-## O sim em uma tela
+## O Sim em uma tela
 
 | Teclas | O que fazem |
 |---|---|
@@ -123,26 +123,26 @@ export SUDO_EDITOR='sim --plain'      # sudoedit (no Linux, o sim já fica em mo
 | `F1` | ajuda |
 | `:help` | ajuda |
 
-Tudo o mais é vi: movimentos, operadores, objetos de texto, contadores, `.`, modo Visual, `:s`, intervalos. `Y` copia até o fim da linha, `U` refaz, e todo yank sem nome de registrador também chega à área de transferência do sistema por meio do OSC 52, inclusive através do tmux (`"ay`, com nome, fica no sim). Reabrir um arquivo leva você de volta ao ponto em que o deixou. Com o IME ligado, as teclas de largura total funcionam como comandos; `SIM_ON_NORMAL='fcitx5-remote -c'` desliga o IME sempre que você volta ao modo Normal (`SI_ON_NORMAL`, o nome antigo, continua funcionando). Todas as teclas estão em uma única tabela, `sim/keys.tsv`, que `:help` e o which-key leem e que os testes conferem com o que as teclas fazem. A lista completa está na [página de documentação](https://sim.efg-technologies.com/pt-br/docs/).
+Tudo o mais é vi: movimentos, operadores, objetos de texto, contadores, `.`, modo Visual, `:s`, intervalos. `Y` copia até o fim da linha, `U` refaz, e todo yank sem nome de registrador também chega à área de transferência do sistema por meio do OSC 52, inclusive através do tmux (`"ay`, com nome, fica no Sim). Reabrir um arquivo leva você de volta ao ponto em que o deixou. Com o IME ligado, as teclas de largura total funcionam como comandos; `SIM_ON_NORMAL='fcitx5-remote -c'` desliga o IME sempre que você volta ao modo Normal (`SI_ON_NORMAL`, o nome antigo, continua funcionando). Todas as teclas estão em uma única tabela, `sim/keys.tsv`, que `:help` e o which-key leem e que os testes conferem com o que as teclas fazem. A lista completa está na [página de documentação](https://sim.efg-technologies.com/pt-br/docs/).
 
 ## Modelo de segurança
 
-Você abre arquivos e repositórios que não escreveu. O atacante controla o conteúdo deles, não a sua máquina. O sim procura garantir que esse conteúdo não consiga se esconder de você, não consiga reconfigurar o editor e não consiga fazer o editor executar código. Ele **não é um sandbox**: roda com os seus privilégios, não detecta letras parecidas de outros sistemas de escrita, e as afirmações dele vêm da especificação e dos testes do próprio projeto, não de uma auditoria independente. O suporte a servidores de linguagem ainda não existe; um cliente em sandbox está planejado. Para relatar uma vulnerabilidade, leia a [política de segurança](SECURITY.md).
+Você abre arquivos e repositórios que não escreveu. O atacante controla o conteúdo deles, não a sua máquina. O Sim procura garantir que esse conteúdo não consiga se esconder de você, não consiga reconfigurar o editor e não consiga fazer o editor executar código. Ele **não é um sandbox**: roda com os seus privilégios, não detecta letras parecidas de outros sistemas de escrita, e as afirmações dele vêm da especificação e dos testes do próprio projeto, não de uma auditoria independente. O suporte a servidores de linguagem ainda não existe; um cliente em sandbox está planejado. Para relatar uma vulnerabilidade, leia a [política de segurança](SECURITY.md).
 
 O modelo de ameaças completo, uma ameaça por vez, está na [página de segurança](https://sim.efg-technologies.com/pt-br/security/). Três artigos longos aprofundam o assunto: [caracteres ocultos e bidirecionais](https://sim.efg-technologies.com/blog/hidden-characters/), [repositórios que executam código](https://sim.efg-technologies.com/blog/repositories-that-run-code/) e [salvamentos seguros e segredos](https://sim.efg-technologies.com/blog/safe-saves/).
 
 ## Comparação com Vim, Neovim e Helix
 
-Vim, Neovim e Helix são editores maduros e o sim é novo. Só se compara o que uma fonte primária diz; a [página de comparação](https://sim.efg-technologies.com/pt-br/compare/) cita tudo (verificado em 2026-10-17: Vim 9.2.1202, Neovim 0.12.6, Helix 25.07.1).
+Vim, Neovim e Helix são editores maduros e o Sim é novo. Só se compara o que uma fonte primária diz; a [página de comparação](https://sim.efg-technologies.com/pt-br/compare/) cita tudo (verificado em 2026-10-17: Vim 9.2.1202, Neovim 0.12.6, Helix 25.07.1).
 
-| | Vim | Neovim | Helix | sim |
+| | Vim | Neovim | Helix | Sim |
 |---|---|---|---|---|
 | Extensões | Vim script, pacotes | Lua, Vim script | nenhum sistema de plugins em uma versão lançada; o PR do Steel [#8675](https://github.com/helix-editor/helix/pull/8675) é um rascunho | nenhuma, por decisão de projeto |
 | Modelines | ativadas (desativadas para root); `'modelinestrict'` desde [9.2.0350](https://github.com/vim/vim/commit/4c2879471) | ativadas (desativadas para root) | não interpretadas ([#729](https://github.com/helix-editor/helix/issues/729)) | nunca lidas |
 | Configuração local do projeto | `'exrc'`, desativada por padrão | `'exrc'`, lista de confiança | `.helix/config.toml` carregado na 25.07.1; a confiança no workspace está na branch de desenvolvimento | não existe |
 | U+202E e companhia | `<202e>` | `<202e>` | sem marcador na 25.07.1 (nosso teste; [#11255](https://github.com/helix-editor/helix/issues/11255)) | `<U+202E>` sobre um bloco magenta |
 
-O que os outros ainda fazem melhor, por enquanto: Neovim e Helix incluem um cliente de servidor de linguagem, e Vim e Neovim têm plugins e macros. O sim ainda não tem nada disso.
+O que os outros ainda fazem melhor, por enquanto: Neovim e Helix incluem um cliente de servidor de linguagem, e Vim e Neovim têm plugins e macros. O Sim ainda não tem nada disso.
 
 ## Roadmap (planejado, não lançado)
 
@@ -150,7 +150,7 @@ Macros do Vim · integração com a área de transferência além do OSC 52 · u
 
 ## Desenvolvimento
 
-O sim é um programa em dois crates: o **núcleo** (`sim-editor-core`, em `core/`: o buffer, a gramática do vi, os salvamentos, a mescla com o que outros processos escrevem, o terminal) e o **editor** (`sim-editor`, em `sim/`: o binário `sim`, com a árvore, a busca de arquivos e de texto, as marcas, a sintaxe, as aparências e o mouse). O porquê de cada escolha está em [CONCEPT.md](CONCEPT.md), com a pesquisa em que ele se apoia. O que o sim precisa fazer está em [SPEC.md](SPEC.md): cada requisito tem um ID, e cada ID tem testes.
+O Sim é um programa em dois crates: o **núcleo** (`sim-editor-core`, em `core/`: o buffer, a gramática do vi, os salvamentos, a mescla com o que outros processos escrevem, o terminal) e o **editor** (`sim-editor`, em `sim/`: o binário `sim`, com a árvore, a busca de arquivos e de texto, as marcas, a sintaxe, as aparências e o mouse). O porquê de cada escolha está em [CONCEPT.md](CONCEPT.md), com a pesquisa em que ele se apoia. O que o Sim precisa fazer está em [SPEC.md](SPEC.md): cada requisito tem um ID, e cada ID tem testes.
 
 A pirâmide: [CONCEPT](CONCEPT.md) (por quê) → [SPEC](SPEC.md) (o quê, com IDs) → `core/src` e `sim/src` (como) → testes (prova). As mudanças descem; a prova sobe. O [CLAUDE.md](CLAUDE.md) reúne as regras.
 

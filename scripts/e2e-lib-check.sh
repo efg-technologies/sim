@@ -1,6 +1,6 @@
 #!/bin/sh
 # The traced path of the e2e harnesses (scripts/e2e-lib.sh) on cases of a harness of its own, with no tmux
-# and no sim: a case that passes passes, a case that fails leaves a trace that says where, and the shell
+# and no Sim: a case that passes passes, a case that fails leaves a trace that says where, and the shell
 # that runs this reads it. check.sh runs it, so on a GitHub runner it is Ubuntu's dash (no LINENO) that
 # runs it, and on macOS bash 3.2 as sh. (`set -u` and a bare `$LINENO` once stopped every e2e case there.)
 set -eu

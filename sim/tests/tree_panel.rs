@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, TREE-4, TREE-5: sim's state driven by events, as the shell would drive it:
+//! TREE-1, TREE-2, TREE-4, TREE-5: Sim's state driven by events, as the shell would drive it:
 //! how it starts, the panel and its keys, and directories whose listing arrives later.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
@@ -171,7 +171,7 @@ fn tree_1_a_name_that_is_not_utf8_is_listed_but_never_opened_as_another_file() {
     r.keys("<C-n><C-n>"); // (the panel is shut and opened again: the root is read again)
     assert_eq!(r.panel(), ["  a\u{fffd}.txt", "  b.txt"]);
     r.keys("k<CR>"); // (the cursor stayed on b.txt)
-    // Every path in sim is text, so the name that was listed is not the file's: opening it would
+    // Every path in Sim is text, so the name that was listed is not the file's: opening it would
     // be a new empty file that a save then creates under a name that is not the file's.
     assert_eq!(r.open_files(), ["a\u{fffd}.txt"]);
     assert!(r.app().buf.readonly.is_some(), "so it is read-only, and says why: {}", r.status());
@@ -241,7 +241,7 @@ fn eilseq() -> std::io::Error {
 #[test]
 fn tree_1_a_name_the_file_system_refuses_is_left_out_and_any_other_error_is_not() {
     // The macOS CI (APFS) refused one of the names of the test above with EILSEQ: the name cannot exist
-    // there, which says nothing of sim. The helper leaves such a name out and says so; it does not
+    // there, which says nothing of Sim. The helper leaves such a name out and says so; it does not
     // forgive any other error.
     let names = ["a.md", "u\u{378}.md", "b.md"];
     let mut tried = vec![];
@@ -268,7 +268,7 @@ fn tree_1_an_argument_that_is_not_utf8_is_a_usage_error_and_not_a_panic() {
     let out = clean_env(&mut c, &home.0).arg(arg).output().unwrap();
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("not valid UTF-8") && !err.contains("panicked"), "{err}");
-    assert_eq!(out.status.code(), Some(2), "a usage error, as for any argument sim cannot use");
+    assert_eq!(out.status.code(), Some(2), "a usage error, as for any argument Sim cannot use");
 }
 
 /// A name of 60 chars, to build paths that are longer than the screen.

@@ -1,4 +1,4 @@
-//! DIFF-1, DIFF-2, DIFF-3, DIFF-4
+//! DIFF-1, DIFF-2, DIFF-3, DIFF-4, DIFF-9
 //! The numbers of the changes view (pure): `+n −n` for each file that differs from HEAD, from
 //! `git diff --numstat -z HEAD` and the line counts of the untracked files, and the sums of the
 //! directories above them.
@@ -42,6 +42,8 @@ pub struct Counts {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Changes {
     stats: HashMap<PathBuf, Stat>,
+    /// DIFF-9: how many files differ, and their sums.
+    all: (usize, Stat),
 }
 
 impl Changes {
@@ -72,13 +74,21 @@ impl Changes {
         for (path, lines) in &counts.lines {
             files.insert(path.clone(), Stat { add: lines.unwrap_or(0), ..Stat::default() });
         }
-        let mut stats = files.clone();
+        let (mut stats, mut all) = (files.clone(), (files.len(), Stat::default()));
         for (path, stat) in &files {
+            all.1.plus(*stat);
             for dir in path.ancestors().skip(1).filter(|a| !a.as_os_str().is_empty()) {
                 stats.entry(dir.to_path_buf()).or_default().plus(*stat);
             }
         }
-        Changes { stats }
+        Changes { stats, all }
+    }
+
+    /// DIFF-9: what the view's box says it is: `changes · 5 files +12 −14`, or `changes` with no numbers yet.
+    pub fn title(&self) -> String {
+        let (n, s) = (self.all.0, if self.all.0 == 1 { "" } else { "s" });
+        let sums = format!(" · {n} file{s} {}", self.all.1.show());
+        format!("changes{}", if n == 0 { "" } else { sums.trim_end() })
     }
 
     /// The numbers of a file, or the sums of a directory.

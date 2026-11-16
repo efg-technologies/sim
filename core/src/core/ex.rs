@@ -1,6 +1,7 @@
-//! VI-4, VI-7, VI-14, FILT-1, DISK-6, PERF-4, SAFE-7, PLAIN-1
+//! VI-4, VI-7, VI-14, VI-23, FILT-1, DISK-6, PERF-4, SAFE-7, PLAIN-1
 //! The command line: ex commands with their ranges, `:s`, filters, and search.
-use super::app::{App, Effect, Resume, Run, plural};
+use super::app::{App, Effect, Read, Resume, Run, plural};
+use super::buffer::Buffer;
 use super::vi::Mode;
 use regex_lite::{Captures, Regex, escape};
 use std::{borrow::Cow, ops::Range, thread};
@@ -149,7 +150,8 @@ impl App {
         let rest = rest.trim_start();
         if let Some(cmd) = rest.strip_prefix('!') {
             let l = self.buf.line_of(self.buf.cursor);
-            return self.filter(range.unwrap_or((l, l)), cmd.trim());
+            let (l1, l2) = range.unwrap_or((l, l));
+            return self.filter(l1..l2 + 1, cmd.trim());
         }
         let (name, arg) =
             rest.split_at(rest.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(rest.len()));
@@ -193,6 +195,15 @@ impl App {
             },
             "s" => self.subst(range.unwrap_or((line, line)), arg),
             "seen" => self.buf.marks = Default::default(),
+            // VI-23: `:r !cmd` is a filter of no lines put below the line, `:r file` the file's lines
+            "r" | "read" => match if bang { Some(arg) } else { arg.strip_prefix('!') } {
+                Some(cmd) if !cmd.trim().is_empty() => {
+                    let at = range.map_or(line, |r| r.1) + 1;
+                    self.filter(at..at, cmd.trim())
+                }
+                Some(_) => self.say("usage: :r {file} or :r !cmd"),
+                None => self.read(range.map_or(line, |r| r.1), arg),
+            },
             "reg" | "registers" => self.say(self.regs.list(usize::from(self.size.0))),
             "marks" => self.say(self.list_marks(usize::from(self.size.0))),
             _ => self.say(format!("not an editor command: {name}")),
@@ -202,7 +213,7 @@ impl App {
 
     /// `:{range}!cmd` (FILT-1): the lines go through `sh -c` without anyone waiting; `FilterDone`
     /// brings the answer. One filter runs at a time.
-    fn filter(&mut self, (l1, l2): (usize, usize), cmd: &str) {
+    fn filter(&mut self, lines: Range<usize>, cmd: &str) {
         if self.plain {
             return self.say("plain mode runs no program: a filter is refused");
         }
@@ -212,11 +223,54 @@ impl App {
         if let Some(why) = self.buf.readonly.clone().or(busy.or(usage).map(Into::into)) {
             return self.say(why);
         }
-        let b = &self.buf;
-        let input = format!("{}\n", b.text.slice(b.start(l1)..b.end(l2))).into_bytes();
-        self.filter =
-            Some(Run { text: b.text.clone(), lines: l1..l2 + 1, at: self.tick, killed: false });
+        let (b, (l1, l2)) = (&self.buf, (lines.start, lines.end.saturating_sub(1)));
+        // (`:r !cmd` gives the command no lines)
+        let input =
+            (!lines.is_empty()).then(|| format!("{}\n", b.text.slice(b.start(l1)..b.end(l2))));
+        let input = input.unwrap_or_default().into_bytes();
+        self.filter = Some(Run { text: b.text.clone(), lines, at: self.tick, killed: false });
         self.fx.push(Effect::Spawn { cmd: cmd.into(), input });
+    }
+
+    /// VI-23: `:r {file}` asks for the file (the current one without a name); its answer is `read_in`'s.
+    fn read(&mut self, at: usize, arg: &str) {
+        let busy = self.busy().map(|b| format!("{b} is already running"));
+        if let Some(why) = self.buf.readonly.clone().or(busy) {
+            return self.say(why);
+        }
+        let Some(path) = (if arg.is_empty() { self.path.clone() } else { Some(arg.into()) }) else {
+            return self.say("no file name");
+        };
+        self.reading = Some((self.buf.version(), at));
+        self.fx.push(Effect::Open(path));
+    }
+
+    /// VI-23: the file `:r` asked for: its lines go below the line, as one undo step, the cursor on the first
+    /// of them. A file that is not text (SAFE-4) is not read, nor one that would add more than 16 MiB (VI-2).
+    pub(super) fn read_in(&mut self, path: &str, file: Read) {
+        let Some((version, at)) = self.reading.take() else { return };
+        let text = match file {
+            Ok(Some(bytes)) => Buffer::decode(&bytes),
+            Ok(None) => return self.say(format!("not read: {path} does not exist")),
+            Err(e) => return self.say(format!("not read: {e}")),
+        };
+        let lines = text.text.to_string();
+        let why = text.readonly.as_ref().map(|w| w.trim_start_matches("read-only: "));
+        let why = why.map(|w| format!("not read: {path}: {w}"));
+        let edited = (version != self.buf.version()).then(|| "not read: edited meanwhile".into());
+        if let Some(why) = why.or(edited) {
+            return self.say(why);
+        } else if text.format().2.is_none() {
+            return self.say(format!("0 lines read from {path}")); // (an empty file)
+        } else if !self.fits(lines.len()) {
+            return;
+        }
+        let b = &mut self.buf;
+        let at = at.min(b.lines() - 1);
+        b.checkpoint();
+        b.replace_after(at, b.end(at)..b.end(at), &format!("\n{lines}"));
+        b.cursor = b.nonblank(at + 1);
+        self.say(format!("{} read from {path}", plural(text.lines(), "line", "lines")));
     }
 
     /// VI-14: where the first match is of the pattern typed so far on a `/` or `?` line, from the

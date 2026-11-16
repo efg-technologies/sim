@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-/// The sim and the shell that runs it, in a directory of its own, and what the shell has left so far.
+/// The Sim and the shell that runs it, in a directory of its own, and what the shell has left so far.
 struct Rig {
     sim: Sim,
     shell: Shell,
@@ -29,7 +29,7 @@ struct Rig {
 
 fn config(cwd: &Path, state: &Path) -> Config {
     let (root, state) = (cwd.into(), Some(state.into()));
-    Config { cwd: cwd.into(), root, state, history: None, rg: None, watch: false }
+    Config { cwd: cwd.into(), root, state, history: None, rg: None, watch: false, opener: None }
 }
 
 fn env(cwd: &Path) -> Env {

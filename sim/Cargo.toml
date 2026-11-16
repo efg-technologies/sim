@@ -3,7 +3,7 @@ name = "sim-editor"
 version = "0.2.1"
 edition = "2024"
 rust-version = "1.88" # `let` chains
-description = "sim: the next-generation Vim, in Rust. It shows even what is hidden, and loses nothing."
+description = "Sim: the next-generation Vim, in Rust. It shows even what is hidden, and loses nothing."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/efg-technologies/sim"
 readme = "../README.md"
@@ -34,8 +34,8 @@ rustix = { version = "1.1", default-features = false, features = ["process"] }
 regex-lite = "0.1"
 # SYN-3: the highlighter's thread is given a clone of the buffer's rope (O(1)), never a copy of the text.
 ropey = { version = "1.6", default-features = false, features = ["simd"] }
-# syntect and its syntaxes, trimmed to what sim uses (SYN-1, SYN-4):
-# - default-features off: no onig (C regex), no html, no default themes (sim has its own colors)
+# syntect and its syntaxes, trimmed to what Sim uses (SYN-1, SYN-4):
+# - default-features off: no onig (C regex), no html, no default themes (Sim has its own colors)
 # - parsing: the parser and the loader of the compressed syntax dump
 # - regex-fancy: the pure-Rust regex backend (fancy-regex)
 # - two-face: bat's syntax set (TOML, TypeScript, Dockerfile, ...) instead of syntect's own

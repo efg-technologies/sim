@@ -1,5 +1,5 @@
 //! GUI-4, GUI-6
-//! sim and its shell, held together: what a window (or an offscreen render) starts, sends
+//! Sim and its shell, held together: what a window (or an offscreen render) starts, sends
 //! events to and reads the screen of. The editor is `sim::sim::Sim`, the jobs are `sim::shell::Shell`;
 //! nothing here decides anything about a key or a cell.
 use crate::api::*;
@@ -7,7 +7,7 @@ use crate::theme::Theme;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 
-/// The system clipboard, as far as the window needs it: sim yanks to it (OSC 52 in a terminal) and a
+/// The system clipboard, as far as the window needs it: Sim yanks to it (OSC 52 in a terminal) and a
 /// paste key reads it (a terminal's bracketed paste).
 pub trait Clipboard: Send {
     fn set(&mut self, text: &str);
@@ -35,9 +35,9 @@ pub enum Exec {
     Inline,
 }
 
-/// What sim starts with.
+/// What Sim starts with.
 pub struct Settings {
-    /// What the system says of the world sim starts in: the privilege, `PATH`, the state directory
+    /// What the system says of the world Sim starts in: the privilege, `PATH`, the state directory
     /// (`World::here()` for a window; a tool or a test says its own).
     pub world: World,
     /// `$HOME`, for the root the header shows as `~/...`.
@@ -50,16 +50,16 @@ pub struct Session {
     pub sim: Sim,
     pub shell: Shell,
     screen: Option<Screen>,
-    /// How many screens sim has drawn: a window redraws when it grows.
+    /// How many screens Sim has drawn: a window redraws when it grows.
     pub renders: u64,
     pub quit: Option<i32>,
     pub clipboard: Box<dyn Clipboard>,
 }
 
 impl Session {
-    /// sim started on `args` (its own command line: `[+cmd] [dir | file]`) in `cwd`, handed the
+    /// Sim started on `args` (its own command line: `[+cmd] [dir | file]`) in `cwd`, handed the
     /// theme's colors. With `Exec::Threads` the receiver is where the threads' answers arrive; the
-    /// caller gives each to `send`. None: the arguments are not sim's. The start itself, with the rules of
+    /// caller gives each to `send`. None: the arguments are not Sim's. The start itself, with the rules of
     /// plain mode, of the state directory and of git's hooks, is `begin`'s, which the terminal goes
     /// through too (PLAIN-1, GUI-4): nothing here decides them.
     pub fn new(
@@ -115,19 +115,19 @@ impl Session {
         self.quit = self.quit.or(out.quit);
     }
 
-    /// Gives sim one event and runs what it asks for (and, inline, what that asks for in turn).
+    /// Gives Sim one event and runs what it asks for (and, inline, what that asks for in turn).
     pub fn send(&mut self, ev: SimEvent) {
         let out = self.shell.send(&mut self.sim, ev);
         self.apply(out);
     }
 
-    /// The file changed outside sim, as its watcher would tell (an inline shell has none): its bytes now.
+    /// The file changed outside Sim, as its watcher would tell (an inline shell has none): its bytes now.
     pub fn disk_changed(&mut self, id: Id, name: &str) {
         let out = self.shell.disk_changed(&mut self.sim, id, name);
         self.apply(out);
     }
 
-    /// The latest screen sim drew.
+    /// The latest screen Sim drew.
     pub fn screen(&self) -> Option<&Screen> {
         self.screen.as_ref()
     }

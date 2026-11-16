@@ -169,7 +169,7 @@ fn ui_12_the_text_of_the_bar_reads_on_its_sections_on_every_background() {
     eprintln!("UI-12 lowest |Lc| of the status line's text on its sections: {worst:.1}");
 }
 
-// ---- in sim's state ----
+// ---- in Sim's state ----
 
 /// `a.rs` of ten lines committed on `main` and then changed (one line changed, one added, one deleted).
 fn rig(name: &str, skin: Skin, size: (u16, u16), icons: bool) -> Rig {

@@ -40,7 +40,7 @@ fn vis_4_a_quit_at_startup_asks_for_no_color() {
 }
 
 /// COLOR-2 on the real binary in a pty (scripts/pty_bench.py --no-term): a start where TERM is unset
-/// (a CI runner has none; sim does not guess one) cannot be told to do 8 colors, so it draws none and
+/// (a CI runner has none; Sim does not guess one) cannot be told to do 8 colors, so it draws none and
 /// asks the terminal for none (VIS-4's OSC 11 query), `+q` or not; a quit then waits for no answer, not
 /// even the 100 ms it allows a terminal that was asked and said nothing.
 #[test]
@@ -77,7 +77,7 @@ fn vis_4_a_quit_at_startup_waits_for_no_terminal_it_did_not_ask() {
 }
 
 /// The real binary in a pty (scripts/pty_bench.py leak), on a terminal that answers 30 ms late, in
-/// order, and `:q` at the first frame: sim does not leave before the terminal is done answering, so
+/// order, and `:q` at the first frame: Sim does not leave before the terminal is done answering, so
 /// nothing of it is left for the shell. A terminal that never answers costs a quit 100 ms at most.
 #[test]
 fn vis_4_a_quit_before_the_color_came_leaves_nothing_for_the_shell() {

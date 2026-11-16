@@ -1,13 +1,17 @@
-//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19
-//! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
+//! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2, JUMP-1, OPEN-1, OPEN-2, DIFF-11
+//! Sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
 //! are in `panel.rs`, the search of file contents in `live.rs`.
 mod guide;
+mod hunk;
+mod jump;
 mod lesson;
 mod live;
+mod open;
 mod panel;
 mod ptr;
+mod tower;
 
 use crate::bar::{self, Bar, Block as BarBlock};
 use crate::changes::{Changes, Counts};
@@ -26,6 +30,7 @@ use crate::layout::{
 use crate::lie;
 use crate::marks::{Git, Marks};
 use crate::paint::{Layer, LayerKind, Look, Paint, Role, Screen};
+use crate::patch::Patch;
 use crate::pick;
 use crate::rank::History;
 use crate::search::Matcher;
@@ -103,7 +108,7 @@ impl Lit {
     }
 }
 
-/// A file open in sim. Ids are never reused, so a late answer for a closed file is dropped.
+/// A file open in Sim. Ids are never reused, so a late answer for a closed file is dropped.
 pub type Id = usize;
 
 /// SYN-3: files over this many bytes are not highlighted.
@@ -141,9 +146,9 @@ pub enum SimEvent {
     Grep(grep::Batch),
     /// GREP-4: the answer to `SimEffect::Preview`.
     Preview(Pv),
-    /// UI-5: git's diff of a file against HEAD (or why there is none), and how many lines the file
-    /// had when it was asked for.
-    Diff(Id, Result<Vec<u8>, String>, usize),
+    /// UI-5: git's diff of a file against HEAD (or why there is none), for the request it answers (how many
+    /// lines the file had, and the version of its text, DIFF-11).
+    Diff(DiffReq, Result<Vec<u8>, String>),
     /// UI-13: the flash of a yank, the one with this number, is over.
     Unflash(u64),
     /// PICK-5: the spinner of the search of this generation is to show its next frame.
@@ -161,6 +166,10 @@ pub enum SimEvent {
     Colors(Rgb, [Option<Rgb>; 8]),
     /// WATCH-1: what the project's watcher saw.
     Touched(Touched),
+    /// DIFF-7: the answer to the request of this number of `SimEffect::Patch`.
+    Patched(u64, Patch),
+    /// OPEN-1: the answer to `SimEffect::Seek`: the name, the first place that has it, and the keys to type.
+    Sought(String, Option<PathBuf>, String),
 }
 
 /// WATCH-1: a batch of what the project's watcher saw: the paths below the root that were written, made,
@@ -171,6 +180,19 @@ pub struct Touched {
     pub paths: Vec<(PathBuf, bool)>,
     pub many: bool,
     pub git: bool,
+    /// GIT-6: the names in the hooks directory that moved, each with whether an executable file is there now.
+    pub hooks: Vec<(String, bool)>,
+}
+
+/// DIFF-7: what to ask git's diff of: the number of the request (an answer to an older one is dropped), the
+/// file (relative to the root), the old name of a rename, and whether git has no diff of it (it is untracked:
+/// all of it came).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchReq {
+    pub n: u64,
+    pub path: PathBuf,
+    pub old: Option<PathBuf>,
+    pub new: bool,
 }
 
 /// UI-5: a file to ask git's diff of: its id, its name as its App has it (relative to the working
@@ -180,6 +202,7 @@ pub struct DiffReq {
     pub id: Id,
     pub path: String,
     pub lines: usize,
+    pub ver: u64,
 }
 
 /// GREP-4: a file read for the preview: the name asked for (relative to the root) and what the
@@ -243,6 +266,14 @@ pub enum SimEffect {
     /// DIFF-3: ask git for HEAD's version of this file (relative to the root) and answer with
     /// `SimEvent::Shown`.
     Show(String),
+    /// DIFF-7: ask git for the diff of a file of the changes view and answer with `SimEvent::Patched`.
+    Patch(PatchReq),
+    /// DIFF-9: whether the panel shows the changes view, to remember.
+    View(bool),
+    /// OPEN-1: look for the file `name` at these places, in order, and answer with `SimEvent::Sought`.
+    Seek(String, Vec<PathBuf>, String),
+    /// OPEN-2: hand this web address to the system's opener.
+    Browse(String),
     Quit(i32),
 }
 
@@ -307,13 +338,13 @@ pub struct Buf {
     /// UI-5: the file's changes against HEAD, as the last answer of git said.
     diff: Option<Diff>,
     /// UI-10: the language server's state for this file (` rust-analyzer · sandboxed`), which the
-    /// code of the server's own sets and the status line shows as it is; sim never writes it.
+    /// code of the server's own sets and the status line shows as it is; Sim never writes it.
     pub lsp: Option<String>,
     /// UI-10: whether what `lsp` says is an alert (a server running with no sandbox), which the
     /// slot draws in the alert's color; set by the server's code.
     pub lsp_alert: bool,
     /// UI-4: the language server's errors and warnings for the file, which the tab shows (`✘ 2 ▲ 1`);
-    /// set by the server's own code, never by sim.
+    /// set by the server's own code, never by Sim.
     pub diag: (usize, usize),
     /// UI-6: how the file is indented, found from its first lines when it is opened and when it
     /// is saved or changes on disk.
@@ -360,8 +391,8 @@ pub struct Panel {
     /// The cursor row and the first row on screen.
     pub cur: usize,
     pub top: usize,
-    /// A `g` waits for a second one.
-    g: bool,
+    /// A `g` waits for a second one, or (DIFF-8, in the changes view) a `]` or a `[` for its `c`.
+    pre: Option<char>,
     /// A path (below the root) to show: its directories are expanded, step by step, as their
     /// listings arrive, and the cursor goes there.
     reveal: Option<PathBuf>,
@@ -396,11 +427,15 @@ pub struct Sim {
     off: Vec<String>,
     /// GIT-5: why git was not run (the message of its first refusal), for `<Space>gi`.
     why: Option<String>,
+    /// GIT-6: the hooks written into the hooks directory while Sim runs that are there now.
+    hooks: Vec<String>,
+    /// DIFF-7 to DIFF-10: the preview of the changes view, and FOLLOW.
+    tower: tower::Tower,
     /// SAFE-7: where the version that `:w!` or `:e!` gave up went, for `<Space>bk`.
     kept: Option<String>,
     /// MD-10: the reference links of the Markdown file shown, for the file and the version of its text.
     refs: RefCell<Option<(Id, u64, Arc<lie::Refs>)>>,
-    /// WATCH-2: the files another process wrote that have not been looked at since; the files sim itself
+    /// WATCH-2: the files another process wrote that have not been looked at since; the files Sim itself
     /// wrote, until the watcher has told of them; and the rows lit for a write that has just come.
     unseen: HashSet<PathBuf>,
     mine: HashSet<PathBuf>,
@@ -422,7 +457,8 @@ pub struct Sim {
     pal: Option<Palette>,
     syn: Syntax,
     hl_off: bool,
-    z: bool,
+    /// SYN-2 and the like: `z`, `g`, `[` or `]` typed in Normal mode with nothing pending, waiting for its key.
+    z: Option<char>,
     /// LOOK-1: the look, and the colors it adds to the palette (none without a palette or truecolor, LOOK-8).
     pub skin: Skin,
     tones: Option<Tones>,
@@ -454,6 +490,10 @@ pub struct Sim {
     leader: Option<String>,
     /// TREE-2: Ctrl-w was typed and waits for the key that sends the focus.
     win: bool,
+    /// BUF-3: `:bd` is closing a file: the last one closed leaves the tree, not Sim.
+    stay: bool,
+    /// JUMP-1: `s` was typed and the query of the jump is being typed.
+    jump: Option<String>,
     /// KEY-5: the letters are on the tabs (`Some(false)` to show a file, `Some(true)` to close one).
     tabpick: Option<bool>,
     /// KEY-3: the number of the last pause asked for, and the prefix whose window is open.
@@ -496,6 +536,8 @@ pub struct Env {
     pub chrome: bool,
     /// TUTOR-3: the language of the locale (`tutor::lang`); none is English.
     pub lang: String,
+    /// DIFF-9: the panel shows the changes view (the saved choice).
+    pub changes: bool,
 }
 
 /// What `sim` was asked to open (TREE-1).
@@ -590,6 +632,9 @@ fn help_words(line: &str) -> Option<String> {
     matches!(name, "help" | "h").then(|| words.trim().to_string())
 }
 
+/// BUF-3: the commands for all the files, and `:bd`, which take no argument.
+const ALL: [&str; 10] = ["qa", "qall", "wa", "wall", "xa", "xall", "wqa", "wqall", "bd", "bdelete"];
+
 /// The commands for all the files at once, which the core's App does not know (BUF-3), and `:e name`,
 /// which opens another file instead of replacing this one (BUF-1): name, `!`, argument. The core takes
 /// a range before `:e` and ignores it, and would replace this file by the other: `:%e name` is
@@ -599,10 +644,8 @@ fn all(line: &str) -> Option<(&str, bool, &str)> {
         let (name, rest) =
             s.split_at(s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len()));
         let (bang, arg) = rest.strip_prefix('!').map_or((false, rest), |a| (true, a));
-        let ok = matches!(
-            (name, arg.trim().is_empty()),
-            ("qa" | "qall" | "wa" | "wall", true) | ("e" | "edit", false)
-        );
+        let ok =
+            if arg.trim().is_empty() { ALL.contains(&name) } else { matches!(name, "e" | "edit") };
         ok.then_some((name, bang, arg.trim()))
     }
     let s = line.strip_prefix(':')?.trim();
@@ -621,6 +664,9 @@ impl Sim {
         (sim.skin, sim.hook) = if plain { (Skin::Calm, None) } else { (env.skin, env.hook) };
         (sim.chrome, sim.home, sim.icons) = (env.chrome, env.home, env.icons);
         (sim.tab_uses, sim.md, sim.lang) = (env.tab_uses, env.md && !plain, env.lang);
+        if env.changes && !plain {
+            (sim.changes, sim.focus) = (Some(Changes::default()), Some(Tree::default())); // DIFF-9
+        }
         if sim.syn.mono {
             // COLOR-2: nothing asks the terminal, so the interface is laid out on a dark page, whose
             // colors the Painter does not write.
@@ -674,7 +720,9 @@ impl Sim {
                 self.arm(&mut out);
             }
             SimEvent::Pause(n) => self.paused(n),
-            SimEvent::Help | SimEvent::BackTab if take(&mut self.win) => {} // (any key ends Ctrl-w's prefix)
+            // (any key ends Ctrl-w's prefix, and a jump: JUMP-1)
+            SimEvent::Help | SimEvent::BackTab
+                if take(&mut self.win) | take(&mut self.jump).is_some() => {}
             SimEvent::Help => self.help(String::new(), &mut out),
             SimEvent::Changes(r) => match r {
                 Ok(counts) if self.changes.is_some() => {
@@ -690,6 +738,7 @@ impl Sim {
                 Err(e) => self.msg = Some(e),
             },
             SimEvent::Shown(path, r) => self.shown(path, r, &mut out),
+            SimEvent::Term(Event::Paste(_)) if self.jump.take().is_some() => {} // (JUMP-1: never edits)
             SimEvent::Term(Event::Paste(s)) if !self.panel.focus && self.panel.live.is_none() => {
                 self.to(self.id(), Event::Paste(s), &mut out)
             }
@@ -752,10 +801,12 @@ impl Sim {
                             layout::tail(first, 30)
                         ));
                     }
-                    self.off = off;
+                    (self.off, self.skipped, self.why) = (off, false, None); // (GIT-6: judged again)
                     self.remark();
+                    self.tower.fresh = false; // (DIFF-9: the view is made: its cursor stays on its entry)
                     self.diff(self.id(), &mut out); // (a commit moves HEAD)
                     self.ask_changes(&mut out); // DIFF-1: and the view's numbers with it
+                    self.patch_again(&mut out); // DIFF-9: and its preview
                 }
                 Err(e) => {
                     let (norepo, skip) =
@@ -764,6 +815,12 @@ impl Sim {
                     self.why = skip.then(|| e.clone()).or(self.why.take());
                     // Told once (MARK-1), not again at every opening of the panel
                     let told = skip && replace(&mut self.skipped, true);
+                    if skip {
+                        // GIT-6: a refusal takes the marks, the signs and the numbers away
+                        self.status = Default::default();
+                        self.bufs.iter_mut().for_each(|b| b.diff = None);
+                        self.remark();
+                    }
                     if self.changes.take().is_some() {
                         // DIFF-1: there is no view to make: it is left, and says why
                         self.focus = None;
@@ -796,9 +853,12 @@ impl Sim {
                 self.lit.take_if(|l| l.1 == n);
             }
             SimEvent::Touched(t) => self.touched(t, &mut out),
-            SimEvent::Diff(id, r, lines) => {
-                if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
-                    b.diff = r.ok().map(|out| Diff::parse(&out, lines));
+            SimEvent::Patched(n, p) => self.patched(n, p),
+            SimEvent::Sought(_, Some(at), keys) => self.open_at(at, keys, &mut out),
+            SimEvent::Sought(name, None, _) => self.msg = Some(format!("gf: no file {name}")),
+            SimEvent::Diff(q, r) => {
+                if let Some(b) = self.bufs.iter_mut().find(|b| b.id == q.id) {
+                    b.diff = r.ok().map(|out| Diff { ver: q.ver, ..Diff::parse(&out, q.lines) });
                 }
             }
         }
@@ -816,10 +876,12 @@ impl Sim {
         ids.into_iter().for_each(|id| self.to(id, Event::Bg(rgb), out));
     }
 
-    /// UI-1: the tones of the looks, made of the palette and of the colors the terminal has told.
+    /// UI-1: the tones of the looks, made of the palette and of the colors the terminal has told; in
+    /// dark the dark board's (DARK-2).
     fn retone(&mut self) {
         let colors = self.syn.truecolor || self.syn.mono;
         self.tones = self.pal.filter(|_| colors).map(|p| Tones::with(&p, &self.syn));
+        self.tones.iter_mut().for_each(|t| t.dark(self.skin == Skin::Dark));
     }
 
     /// Whether the terminal may still be answering what was asked of it (VIS-4): the quit then
@@ -843,6 +905,7 @@ impl Sim {
     pub fn wants_text(&self) -> bool {
         match (self.panel.live.is_some(), self.panel.open && self.panel.focus) {
             (true, _) => true,
+            _ if self.jump.is_some() => true, // (JUMP-1: the query)
             (_, true) => self.panel.search.as_ref().is_some_and(|s| s.typing),
             _ => self.bufs.get(self.cur).is_some_and(|b| b.app.vi.text()),
         }
@@ -881,7 +944,7 @@ impl Sim {
     }
 
     /// WATCH-1, WATCH-2: what the project's watcher saw. A file that is not open and that another process
-    /// wrote is unseen, and its row is lit (an open file's own watcher tells of it, DISK-1; sim's own writes
+    /// wrote is unseen, and its row is lit (an open file's own watcher tells of it, DISK-1; Sim's own writes
     /// and what git ignores are no news). The open directories that hold what changed are read again, the
     /// list of files when a file came or went, and git's status. Nothing is opened, and no cursor moves.
     fn touched(&mut self, t: Touched, out: &mut Vec<SimEffect>) {
@@ -889,6 +952,18 @@ impl Sim {
         let (mut lit, mut dirs, mut list, mut ask) =
             (vec![], HashSet::new(), t.many, t.git || t.many);
         let mut gone = false;
+        self.no_repo &= !t.git; // GIT-6: the repository's config may be another now: the guard judges it again
+        let mut hooks = vec![];
+        for (name, there) in t.hooks {
+            self.hooks.retain(|h| *h != name);
+            if there {
+                self.hooks.push(name.clone());
+                hooks.push(name);
+            }
+        }
+        if !hooks.is_empty() {
+            self.msg = Some(hooks_said(&hooks));
+        }
         for (p, file) in t.paths {
             dirs.insert(p.parent().map(Path::to_path_buf).unwrap_or_default());
             if self.mine.remove(&p) || open.contains(&p) || self.marks.ignored(&p) {
@@ -901,6 +976,9 @@ impl Sim {
                 self.marks.wrote(&p);
             }
             gone |= !file && self.unseen.remove(&p);
+            if file && self.tower.follow {
+                self.tower.wrote = Some(p.clone()); // DIFF-10
+            }
             lit.push(p);
         }
         if gone {
@@ -1102,7 +1180,7 @@ impl Sim {
     fn diff(&self, id: Id, out: &mut Vec<SimEffect>) {
         let req = self.bufs.iter().find(|b| b.id == id && !is_head(b)).and_then(|b| {
             let path = b.app.path.clone()?;
-            Some(DiffReq { id, path, lines: b.app.buf.lines() })
+            Some(DiffReq { id, path, lines: b.app.buf.lines(), ver: b.app.buf.version() })
         });
         out.extend(req.filter(|_| !self.no_repo && !self.plain).map(SimEffect::Diff));
     }
@@ -1174,12 +1252,16 @@ impl Sim {
             out.push(SimEffect::Flash(self.flash_gen, WROTE_MS));
         }
         if let (true, Some(path)) = (changed, path) {
-            // WATCH-2: what another process wrote and the file marks is unseen; sim's own save is not
+            // WATCH-2: what another process wrote and the file marks is unseen; Sim's own save is not
             let rel = self.cwd.join(path).strip_prefix(&self.root).map(Path::to_path_buf);
-            if let (true, Ok(rel)) = (marked, rel)
-                && self.unseen.insert(rel)
-            {
-                self.remark();
+            if let (true, Ok(rel)) = (marked, rel) {
+                if self.tower.follow {
+                    self.tower.wrote = Some(rel.clone()); // DIFF-10
+                }
+                if self.unseen.insert(rel) {
+                    self.remark();
+                }
+                self.follow();
             }
             self.git(out);
             self.diff(id, out);
@@ -1224,7 +1306,7 @@ impl Sim {
         }
         match quit {
             Some(0) => self.close(id, out),
-            // `:cq`: the whole of sim ends, and the other files keep what is unsaved in them.
+            // `:cq`: the whole of Sim ends, and the other files keep what is unsaved in them.
             Some(code) => {
                 out.extend(self.snapshots(Some(id), || Event::Signal(0)).0);
                 out.push(SimEffect::Quit(code));
@@ -1233,7 +1315,7 @@ impl Sim {
         }
     }
 
-    /// BUF-3: closes a file: the one after it shows, the one before if it was the last; sim ends
+    /// BUF-3: closes a file: the one after it shows, the one before if it was the last; Sim ends
     /// with the last one. The App has asked the journal to forget its snapshot already.
     fn close(&mut self, id: Id, out: &mut Vec<SimEffect>) {
         let Some(i) = self.bufs.iter().position(|b| b.id == id) else { return };
@@ -1248,8 +1330,10 @@ impl Sim {
             self.holds = b.id;
         }
         self.refocus();
-        if self.bufs.is_empty() {
-            out.push(SimEffect::Quit(0));
+        match (self.bufs.is_empty(), self.stay) {
+            (true, false) => out.push(SimEffect::Quit(0)),
+            (true, true) => self.show(out), // (`:bd` of the last file: the tree, as `sim` with no file)
+            _ => {}
         }
     }
 
@@ -1278,6 +1362,14 @@ impl Sim {
     }
 
     fn key(&mut self, k: Key, out: &mut Vec<SimEffect>) {
+        // VI-22: Alt-h/j/k/l are the text's; where a key is not the text's, an Alt key is Esc and the key
+        let theirs =
+            self.tabpick.is_some() || self.win || self.leader.is_some() || self.jump.is_some();
+        let theirs = theirs || self.panel.live.is_some() || (self.panel.open && self.panel.focus);
+        if let (Key::Alt(c), true) = (k, theirs) {
+            self.key(Key::Esc, out);
+            return self.key(Key::Char(c), out);
+        }
         self.msg = None;
         // KEY-5, KEY-2: the letters of the tabs are waiting for a key; a leader's sequence is half typed
         // or starts with this Space: the keys are the guide's until it is done
@@ -1287,6 +1379,9 @@ impl Sim {
         if take(&mut self.win) {
             return self.win_key(k, out);
         }
+        if self.jump.is_some() {
+            return self.jump_key(k); // JUMP-1
+        }
         if self.leader.is_some() || (k == Key::Char(' ') && self.leads()) {
             return self.leader_key(k, out);
         }
@@ -1295,8 +1390,8 @@ impl Sim {
             _ if self.panel.live.is_some() => return self.live_key(k, out),
             Key::Ctrl('w') if self.leads() => return self.win = true,
             Key::Ctrl('n') => return self.toggle(out),
-            Key::Ctrl('p') => return self.live_start(Pick::Files, out),
-            Key::Ctrl('f') => return self.live_start(Pick::Grep, out),
+            Key::Ctrl('p') => return self.live_start(Pick::Files, "", out),
+            Key::Ctrl('f') => return self.live_start(Pick::Grep, "", out),
             Key::Tab if self.idle() => return self.step(1, out),
             _ if self.panel.open && self.panel.focus => return self.panel_key(k, out),
             _ => {}
@@ -1304,6 +1399,11 @@ impl Sim {
         let Some(b) = self.bufs.get(self.cur) else {
             return out.extend((k == Key::Char('q')).then_some(SimEffect::Quit(0)));
         };
+        // JUMP-1: `s` jumps by label, in Normal mode with nothing pending and in Visual mode (the core has no `s`)
+        let vi = &b.app.vi;
+        if k == Key::Char('s') && !self.plain && (vi.idle() || vi.mode.visual() && vi.bare()) {
+            return self.jump = Some(String::new());
+        }
         let submit = k == Key::Enter && b.app.vi.mode == Mode::Cmd;
         let (id, line) = (b.id, if submit { b.app.vi.line.clone() } else { String::new() });
         if noh(&line) {
@@ -1329,10 +1429,22 @@ impl Sim {
         }
         // SYN-2: `zh` turns the colors off and on. The core's parser takes the `h` after a `z` and
         // does nothing, so the App still gets the key.
-        let (zh, zl) = (self.z && k == Key::Char('h'), self.z && k == Key::Char('l'));
-        let zi = self.z && k == Key::Char('i');
-        self.z = self.idle() && k == Key::Char('z');
+        let after = |p: char, c: char| self.z == Some(p) && k == Key::Char(c);
+        let (zh, zl, zi, gf, gx) =
+            (after('z', 'h'), after('z', 'l'), after('z', 'i'), after('g', 'f'), after('g', 'x'));
+        let hunk = (after(']', 'h') || after('[', 'h')).then_some(self.z == Some('['));
+        self.z = match k {
+            Key::Char(c @ ('z' | 'g' | '[' | ']')) => self.idle().then_some(c),
+            _ => None,
+        };
         self.to(id, Event::Key(k), out);
+        if gf && !self.plain {
+            return self.gf(out); // OPEN-1 (the core does nothing with `gf`, `gx`, `]h` and `[h`)
+        } else if gx {
+            return self.gx(out); // OPEN-2
+        } else if let Some(back) = hunk {
+            return self.walk_hunks(back); // DIFF-11
+        }
         if zh {
             self.hl_off = !self.hl_off;
             self.msg = Some(format!("syntax colors {}", if self.hl_off { "off" } else { "on" }));
@@ -1349,6 +1461,7 @@ impl Sim {
             self.msg = Some("plain mode: the look is calm".into());
         } else if zl {
             self.skin = self.skin.next();
+            self.tones.iter_mut().for_each(|t| t.dark(self.skin == Skin::Dark)); // (DARK-2)
             self.msg = Some(format!("look: {}", self.skin.name()));
             out.push(SimEffect::Look(self.skin));
         }
@@ -1364,7 +1477,8 @@ impl Sim {
     }
 
     /// BUF-3: `:qa` and `:wa` hold SAFE-7 for each file. `:qa` stays while one is modified;
-    /// `:wa` leaves out the files that have a conflict with the disk, naming them, and saves the rest.
+    /// `:wa` leaves out the files that have a conflict with the disk, naming them, and saves the rest; `:xa`
+    /// and `:wqa` are `:x` in each of the rest, and `:bd` is `:q` in this one, which leaves the tree if it is the last.
     fn run_all(&mut self, (name, bang, arg): (&str, bool, &str), out: &mut Vec<SimEffect>) {
         let (modified, names) = self.named(|b| b.app.buf.dirty());
         match name {
@@ -1379,10 +1493,21 @@ impl Sim {
                 self.msg = Some(format!("no write since last change in {names} (:qa! to discard)"))
             }
             "wa" | "wall" if modified.is_empty() => self.msg = Some("no modified files".into()),
-            "wa" | "wall" => {
+            "bd" | "bdelete" => {
+                self.stay = true;
+                self.typed(self.id(), if bang { ":q!\n" } else { ":q\n" }, out);
+                self.stay = false;
+            }
+            _ if name != "e" && name != "edit" => {
                 let (stuck, stuck_names) = self.named(|b| b.app.diverged());
-                for id in modified.into_iter().filter(|id| !stuck.contains(id)) {
-                    self.to(id, Event::Key(Key::Ctrl('s')), out);
+                let x = !name.starts_with("wa"); // (`:xa`, `:wqa`: every file is closed as `:x` closes it)
+                let ids = if x { self.bufs.iter().map(|b| b.id).collect() } else { modified };
+                for id in ids.into_iter().filter(|id| !stuck.contains(id)) {
+                    match (x, bang) {
+                        (false, _) => self.to(id, Event::Key(Key::Ctrl('s')), out),
+                        (_, false) => self.typed(id, "\x1b:x\n", out),
+                        _ => self.typed(id, "\x1b:x!\n", out),
+                    }
                 }
                 if !stuck.is_empty() {
                     self.msg = Some(format!(
@@ -1391,6 +1516,18 @@ impl Sim {
                 }
             }
             _ => self.open(self.cwd.join(arg), out),
+        }
+    }
+
+    /// Types `keys` into the App of the file `id` (`\n` is Enter, `\x1b` Esc).
+    fn typed(&mut self, id: Id, keys: &str, out: &mut Vec<SimEffect>) {
+        for c in keys.chars() {
+            let k = match c {
+                '\n' => Key::Enter,
+                '\x1b' => Key::Esc,
+                c => Key::Char(c),
+            };
+            self.to(id, Event::Key(k), out);
         }
     }
 
@@ -1497,14 +1634,18 @@ impl Sim {
         let guides = self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone()), wrote));
         // UI-13: calm has no guides, and a yank is lit there too (the flash alone is asked for)
         let calm = lit.filter(|_| guides.is_none()).map(|f| f.chars.clone());
-        let line_ui = |l: usize| match (&guides, &calm) {
+        let base = |l: usize| match (&guides, &calm) {
             (Some(g), _) => g.of(buf, l),
             (_, Some(r)) => LineUi { flash: flash_in(buf, r, l), bare: true, ..LineUi::default() },
-            _ => LineUi::default(),
+            _ => LineUi { bare: true, ..LineUi::default() },
         };
-        let have = guides.is_some() || calm.is_some();
-        // MD-1: the lines the read view leaves as they are: the cursor's, and the selected ones
-        let read = (self.md && is_markdown(b.app.path.as_deref())).then(|| {
+        // JUMP-1: a jump lights its matches in place of a search's, and has its labels
+        let jump = self.jump.as_ref().map(|q| self.jump_hits(b, q));
+        let line_ui = |l: usize| jump::lights(jump.as_deref(), l, base(l));
+        let have = guides.is_some() || calm.is_some() || jump.is_some();
+        // MD-1: the lines the read view leaves as they are: the cursor's, and the selected ones; every line
+        // while a jump is typed (JUMP-1: no match or label on a char that is not drawn)
+        let read = (self.md && jump.is_none() && is_markdown(b.app.path.as_deref())).then(|| {
             let (cl, last) = (buf.line_of(buf.cursor), |e: usize| buf.line_of(e.saturating_sub(1)));
             b.app
                 .selection()
@@ -1580,6 +1721,7 @@ impl Sim {
         self.fit();
         self.scroll();
         self.live_prepare(out);
+        self.tower_prepare(out);
         self.refresh_finder();
         self.refresh_count();
         let ((w, h), g) = (self.size, self.geo());
@@ -1640,7 +1782,11 @@ impl Sim {
         status = lesson::named(lesson, status); // TUTOR-1
         self.grade(); // TUTOR-2
         if focus && self.bufs.get(self.cur).is_none_or(|b| b.app.msg.is_none()) {
-            let mode = if self.changes.is_some() { "CHANGES" } else { "TREE" };
+            let mode = match (self.changes.is_some(), self.tower.follow) {
+                (true, true) => "CHANGES  FOLLOW", // DIFF-10
+                (true, _) => "CHANGES",
+                _ => "TREE",
+            };
             status = layout::stated(&tree, &format!("{slash}  {mode}"), room);
         }
         if let (true, Some(s)) = (focus, &self.panel.search) {
@@ -1659,7 +1805,8 @@ impl Sim {
             }
         }
         let si_status = status.clone();
-        status = layout::fit(&self.msg.clone().unwrap_or(status), room).0 + &pos;
+        let said = self.jump.as_ref().map(|q| format!("jump: {q}")).or(self.msg.clone()); // (JUMP-1)
+        status = layout::fit(&said.unwrap_or(status), room).0 + &pos;
         let sel = focus.then(|| self.panel.cur - self.panel.top);
         let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
         if let (Some(i), false) = (sel, typing) {
@@ -1667,10 +1814,20 @@ impl Sim {
             let x = g.px + col.min(g.pw.saturating_sub(1));
             (cursor, shape) = ((x, g.y0 + i as u16), Shape::Block);
         }
-        let ch = self.changes();
-        let looked = self.bufs.get(self.cur).and_then(|b| Some(self.colors(b, b.frame.as_ref()?)));
-        let (colored, ask) = looked.unwrap_or_default();
-        let win = colored.win;
+        // DIFF-7: the preview of the changes view has the text pane while the view has the focus
+        let tower = self.towering() && self.tower.shown.as_ref().is_some_and(|p| p.drawn.is_some());
+        self.refresh_hits();
+        let crumb = if ui && !tower { self.crumb() } else { Default::default() };
+        let drawn = || self.tower.shown.as_ref().and_then(|p| Some((p, p.drawn.as_ref()?)));
+        let ch = if tower {
+            drawn().map(|d| d.1.ch.clone()).unwrap_or_default()
+        } else {
+            self.changes()
+        };
+        let shown = self.bufs.get(self.cur).filter(|_| !tower);
+        let (colored, ask) =
+            shown.and_then(|b| Some(self.colors(b, b.frame.as_ref()?))).unwrap_or_default();
+        let win = if tower { drawn().and_then(|d| d.1.win) } else { colored.win };
         if let (Some(req), Some(b)) = (ask, self.bufs.get_mut(self.cur)) {
             b.asked = Some((req.ver, req.from, req.n));
             out.push(SimEffect::Highlight(req));
@@ -1681,17 +1838,27 @@ impl Sim {
             (_, true, Some(i)) if self.panel.search.is_some() => Fade::Find(i),
             _ => Fade::None,
         };
-        self.refresh_hits();
-        let scroll = ui.then(|| self.scrollbar(win)).flatten();
+        let scroll = ui.then(|| self.scrollbar(win)).flatten().filter(|_| !tower);
         let home_root = tilde(&self.root, self.home.as_deref());
         let tabs = self.tabs();
-        let crumb = if ui { self.crumb() } else { Default::default() };
+        let crumb = match drawn().filter(|_| ui && tower) {
+            Some((p, _)) => {
+                let parts: Vec<String> =
+                    p.path.iter().map(|c| c.to_string_lossy().into_owned()).collect();
+                (parts.clone(), parts.len().saturating_sub(1)) // (the file's path, no section)
+            }
+            None => crumb,
+        };
         let deck = Deck {
             geo: g,
             tones: tones.as_ref(),
             fade,
             gray: self.syn.sel().is_some(),
-            app: self.bufs.get(self.cur).map(|b| &b.app),
+            app: if tower {
+                drawn().map(|d| &d.0.app)
+            } else {
+                self.bufs.get(self.cur).map(|b| &b.app)
+            },
             win,
             focus,
             chrome: ui.then(|| Chrome { icons: self.icons, root: &home_root, tabs, cur: self.cur }),
@@ -1702,10 +1869,19 @@ impl Sim {
                 (_, 0) => layout::Guard::None,
                 (_, n) => layout::Guard::Off(n),
             },
+            hook: !self.hooks.is_empty(),
+            title: self.changes.as_ref().map(Changes::title),
         };
         let cur = self.bufs.get(self.cur).and_then(|b| Some((b, b.frame.as_ref()?)));
-        let editor = match cur {
-            Some((b, f)) => Some(Ed {
+        let blank = vec![vec![]; drawn().map_or(0, |d| d.1.frame.rows.len())];
+        let editor = match (drawn().filter(|_| tower), cur) {
+            (Some((p, d)), _) => Some(Ed {
+                digits: digits(&p.app.buf),
+                ch,
+                crow: 0, // (the fog of depth from the first row: the hunk shown)
+                ..Ed::new(&d.frame, &blank)
+            }),
+            (_, Some((b, f))) => Some(Ed {
                 digits: digits(&b.app.buf),
                 ch,
                 crow: b.crow,
@@ -1715,7 +1891,7 @@ impl Sim {
                 extra: &colored.extra,
                 ..Ed::new(f, &colored.looks)
             }),
-            None => None,
+            _ => None,
         };
         let (mut rows, mut looks, mut paints) = layout::body(&deck, &marked, sel, editor.as_ref());
         let mut floats = vec![]; // GUI-1: the windows laid over the body
@@ -1758,7 +1934,8 @@ impl Sim {
                 looks.push(vec![]);
                 // What says that git was not run, for safety, is the alert's (UI-1): hidden, and
                 // dangerous if it were not so.
-                let alert = tones.as_ref().filter(|_| ui && status.starts_with(GIT_SKIPPED));
+                let said = status.starts_with(GIT_SKIPPED) || hook_line(&status); // (GIT-6)
+                let alert = tones.as_ref().filter(|_| ui && said);
                 let ink = |t: &Tones| Paint {
                     fg: Some(t.alert_fg()),
                     role: Role::Alert,
@@ -1768,8 +1945,9 @@ impl Sim {
             }
         }
         let frame = Frame { width: w, height: h, rows, cursor, shape, pal: self.pal };
-        let layers = self.layers(ui, sel, floats);
-        Screen { frame, looks, paints, syn: self.syn, layers }
+        let (layers, mut syn) = (self.layers(ui, sel, floats), self.syn);
+        syn.dark = tones.is_some_and(|t| t.dark);
+        Screen { frame, looks, paints, syn, layers }
     }
 
     /// GUI-1: what a window draws as surfaces, from the lowest to the highest: the boxes of the panel
@@ -1789,8 +1967,9 @@ impl Sim {
             let kind = LayerKind::Box { focused: !open };
             out.push(Layer { kind, rect: rect(g.ex - 1, 0, g.sign + g.ew + 2, rows) });
         }
-        if let (true, Some(b)) = (ui, self.bufs.get(self.cur)) {
-            let kind = LayerKind::Text { sign: g.sign, gutter: digits(&b.app.buf) as u16 + 2 };
+        let shown = self.tower.shown.as_ref().filter(|_| self.towering()).map(|p| &p.app.buf);
+        if let (true, Some(b)) = (ui, shown.or(self.bufs.get(self.cur).map(|b| &b.app.buf))) {
+            let kind = LayerKind::Text { sign: g.sign, gutter: digits(b) as u16 + 2 };
             out.push(Layer { kind, rect: rect(g.ex, g.y0, g.sign + g.ew, g.rows) });
             if g.boxed || g.rule > 0 {
                 let x = g.ex + g.sign + g.ew;
@@ -1813,7 +1992,7 @@ impl Sim {
     /// and its slash while the panel has the focus.
     fn bar(&self, w: u16, si_status: &str, tree: Option<(&str, &str)>) -> Option<Line> {
         let t = self.tones.as_ref().filter(|_| self.ui())?;
-        if self.msg.is_some() || self.panel.search.is_some() {
+        if self.msg.is_some() || self.panel.search.is_some() || self.jump.is_some() {
             return None;
         }
         let marks = &self.marks;
@@ -1835,7 +2014,7 @@ impl Sim {
                 icon: None,
                 path: Some(&path),
                 modified: false,
-                notes: "",
+                notes: if self.changes.is_some() && self.tower.follow { "FOLLOW" } else { "" },
                 slot: None,
                 encoding: None,
                 eol: None,
@@ -1925,7 +2104,7 @@ impl Sim {
     }
 
     /// A row of the panel with what it shows besides its name (see `layout::Mark`). In the
-    /// interface (`ui`) the change color is for the files that changed on disk while sim ran, git's
+    /// interface (`ui`) the change color is for the files that changed on disk while Sim ran, git's
     /// own changes show by their letter (UI-3), and there is no `~`.
     /// DIFF-2: asks for the numbers of the changes view, when it is on.
     fn ask_changes(&self, out: &mut Vec<SimEffect>) {
@@ -2173,7 +2352,7 @@ impl Guides<'_> {
             now,
             guides,
             scope,
-            bare: false,
+            ..LineUi::default()
         }
     }
 }
@@ -2196,6 +2375,19 @@ fn state_words(status: &str, line: usize, col: usize) -> String {
     let notes = rest.split_once("  ").map_or("", |(_, n)| n.trim());
     let said_elsewhere = |n: &str| matches!(n, "modified" | "CRLF" | "BOM");
     notes.split(" · ").filter(|n| !said_elsewhere(n)).collect::<Vec<_>>().join(" · ")
+}
+
+/// GIT-6: what is said of hooks written into the hooks directory: their names, and that Sim does not run them
+/// and the user's git does.
+fn hooks_said(names: &[String]) -> String {
+    let (s, it) = if names.len() == 1 { ("", "it") } else { ("s", "them") };
+    let names: Vec<String> = names.iter().map(|n| format!("hooks/{n}")).collect();
+    format!("hook{s} written: {}: Sim does not run {it}, your git will", names.join(", "))
+}
+
+/// GIT-6: whether a line is what `hooks_said` says (the status line has it in the alert's color).
+fn hook_line(s: &str) -> bool {
+    s.starts_with("hook written: ") || s.starts_with("hooks written: ")
 }
 
 /// UI-2: `path` as the header shows it: `~/...` below `$HOME`, `~` for `$HOME`, else as it is.

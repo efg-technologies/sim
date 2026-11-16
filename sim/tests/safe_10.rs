@@ -1,5 +1,5 @@
-//! SAFE-10, SAFE-11 in the editor: wherever sim draws a char of a file or of a name, a char that is
-//! invisible is its form (the core's `show` decides it, and sim asks it: one table). The surfaces
+//! SAFE-10, SAFE-11 in the editor: wherever Sim draws a char of a file or of a name, a char that is
+//! invisible is its form (the core's `show` decides it, and Sim asks it: one table). The surfaces
 //! other than the text: the tab bar, the breadcrumb, the status line, the branch, the messages that
 //! quote a register or a mark, the read view of Markdown, in every look, and the bytes the painter
 //! writes for them.
@@ -53,7 +53,7 @@ fn assert_shows(r: &Rig, what: &str, form: &str) {
     assert!(bytes.contains(form), "{what}: {form:?} is not in the bytes {bytes:?}");
 }
 
-const LOOKS: [Skin; 3] = [Skin::Calm, Skin::Flat, Skin::Depth];
+const LOOKS: [Skin; 4] = [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark];
 
 /// A rig in `skin`, with the interface (the tab bar, the bar, the breadcrumb), started on `open`.
 fn looked(name: &str, skin: Skin, files: &[&str], open: &[&str], size: (u16, u16)) -> Rig {

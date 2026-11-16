@@ -51,7 +51,10 @@ fn cli_7_help_is_a_short_usage_with_the_flags_the_variables_and_the_way_to_more(
     ] {
         assert!(out.contains(want), "{want:?} in\n{out}");
     }
-    // the owner's wording: sim is never described as a likeness of Vim
+    // the product is written Sim, the command `sim` (CLI-7's Decided): the first line and the usage
+    let first = format!("Sim {}: the next-generation Vim.", env!("CARGO_PKG_VERSION"));
+    assert_eq!(out.lines().next(), Some(first.as_str()), "{out}");
+    // the owner's wording: Sim is never described as a likeness of Vim
     let low = out.to_lowercase();
     assert!(!low.contains("-like") && !low.contains("-style") && !low.contains("clone"), "{out}");
     assert!(out.lines().count() < 30, "short: {} lines", out.lines().count());

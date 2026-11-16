@@ -206,7 +206,7 @@ fn buf_1_the_snapshot_directory_is_the_one_state_directory_and_it_is_made_privat
 
 #[test]
 fn buf_1_without_a_state_directory_there_are_no_snapshots_and_never_a_shared_fallback() {
-    // si's rule, which sim calls: no absolute $XDG_STATE_HOME or $HOME, no directory.
+    // si's rule, which Sim calls: no absolute $XDG_STATE_HOME or $HOME, no directory.
     for (xdg, home) in [(None, None), (Some("rel/state"), Some("rel/home")), (Some(""), Some(""))] {
         assert_eq!(journal::state_dir(xdg.map(Into::into), home.map(Into::into)), None);
     }

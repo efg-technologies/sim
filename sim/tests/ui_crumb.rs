@@ -262,6 +262,8 @@ fn raw_deck(skin: Skin) -> Vec<String> {
         scroll: vec![],
         crumb: (parts, 2),
         guard: Default::default(),
+        hook: false,
+        title: None,
     };
     body(&deck, &[], None, None).0.into_iter().map(|r| r.text).collect()
 }

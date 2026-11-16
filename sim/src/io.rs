@@ -1,13 +1,14 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3, DIFF-7, DIFF-9, GIT-6, OPEN-2
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
-//! and highlight, git, the list of files, the watcher of the project, the history file in sim's state
+//! and highlight, git, the list of files, the watcher of the project, the history file in Sim's state
 //! directory, and the search of the contents of files (the built-in reader and ripgrep) with the
 //! preview's read.
 use crate::changes::{self, Counts};
 use crate::grep::{Batch, Group, HEAD, Line, MAX_LINES, Query, Request, is_binary, parse_rg};
 use crate::layout::{self, Skin};
+use crate::patch::{self, Patch};
 use crate::rank::History;
-use crate::sim::{DiffReq, Found, Hl, Id, Opened, Pv, Req, SimEvent};
+use crate::sim::{DiffReq, Found, Hl, Id, Opened, PatchReq, Pv, Req, SimEvent};
 use crate::syn::{Spans, Syn};
 use crate::tree::{self, Entry};
 use ropey::Rope;
@@ -20,6 +21,7 @@ use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
@@ -57,7 +59,7 @@ pub fn open(state: Option<&Path>, id: Id, shown: &str, at: &Path) -> SimEvent {
         Some(Found(s, file.display().to_string(), age, Instant::now() + MERGE))
     });
     let place = state.filter(|_| !unnamed).and_then(|state| journal::place(state, &key));
-    // A listing shows a name that is not UTF-8 with U+FFFD, and every path in sim is text: that
+    // A listing shows a name that is not UTF-8 with U+FFFD, and every path in Sim is text: that
     // name is no file, and opening it as a new one would create it under another name (SAFE-8).
     let file = if unnamed {
         Ok(None)
@@ -81,6 +83,8 @@ pub enum Job {
     Md(bool),
     /// How many times Tab and Shift-Tab were used, to save (KEY-6).
     TabUses(u8),
+    /// Whether the panel shows the changes view, to save (DIFF-9).
+    View(bool),
     /// A snapshot that a dead session left for this file, to delete when ours replaces it.
     Hold(Id, String, u32),
     /// What this file's App asked of the journal: a `Snapshot`, an `Unsnapshot` (SAFE-6), a
@@ -126,6 +130,9 @@ pub fn journal_thread(
                 }
                 Job::TabUses(n) => {
                     hist.iter().filter_map(|d| save_tab_uses(d, n).err()).for_each(|e| say(1, e))
+                }
+                Job::View(on) => {
+                    hist.iter().filter_map(|d| save_view(d, on).err()).for_each(|e| say(1, e))
                 }
                 Job::Hold(id, key, pid) => drop(held.insert(id, (key, pid))),
                 Job::App(_, Effect::Remember { path, line, col }) => {
@@ -226,7 +233,7 @@ pub const GIT_SKIPPED: &str = "git skipped: ";
 pub const PLAIN_RUNS_NOTHING: &str = "plain mode runs no program";
 
 /// VI-11: the command that runs when Normal mode is entered: `SIM_ON_NORMAL`, else `SI_ON_NORMAL`,
-/// the name it had before sim was one program; an empty one counts as unset.
+/// the name it had before Sim was one program; an empty one counts as unset.
 pub fn hook(sim: Option<String>, si: Option<String>) -> Option<String> {
     sim.filter(|h| !h.is_empty()).or(si.filter(|h| !h.is_empty()))
 }
@@ -307,7 +314,7 @@ const UNREADABLE: &str = "this repository's config cannot be read";
 /// `program` or `hook`. `core.fsmonitor` is one by its variable. It is a class, not a list of
 /// what git runs today, so that a setting git adds later is in it too; `status`, `ls-files` and
 /// `rev-parse` use few of them. `core.hooksPath` is not one: hooks run in commands that write,
-/// and with `--no-optional-locks` none of sim's four writes the index. A key that has no section
+/// and with `--no-optional-locks` none of Sim's four writes the index. A key that has no section
 /// is not one git writes.
 fn holds_command(key: &[u8]) -> bool {
     let (section, var) = (key.split(|&b| b == b'.').next(), key.rsplit(|&b| b == b'.').next());
@@ -387,7 +394,7 @@ pub fn use_no_hooks(state: &Path) {
     drop(no_hooks_dir(state).map(|d| NO_HOOKS.set(d)));
 }
 
-/// GIT-1: the start of every git command line of sim's: no shell; the monitor and the hooks off;
+/// GIT-1: the start of every git command line of Sim's: no shell; the monitor and the hooks off;
 /// no optional lock (a status that does not write the index); `diff.submodule=short`, since a
 /// repository's own `diff.submodule = diff` makes git start a child `git diff` in a submodule, under
 /// the submodule's own config, which the guard never read (flags like `--no-ext-diff` do not reach
@@ -404,9 +411,9 @@ fn command(dir: &Path) -> Command {
         .current_dir(dir)
         .env("LC_ALL", "C")
         .env("GIT_LITERAL_PATHSPECS", "1")
-        // Git never fetches for sim: in a partial clone with objects missing a `git status`
+        // Git never fetches for Sim: in a partial clone with objects missing a `git status`
         // would, from the promisor remote, and run what the repository says serves a fetch (its
-        // `uploadpack`, an `ext::` url) or ask for a password on the terminal sim draws on.
+        // `uploadpack`, an `ext::` url) or ask for a password on the terminal Sim draws on.
         .env("GIT_NO_LAZY_FETCH", "1")
         .env("GIT_ALLOW_PROTOCOL", "sim-none")
         .env("GIT_TERMINAL_PROMPT", "0");
@@ -529,7 +536,7 @@ fn lfs_harmless(key: &[u8]) -> bool {
         || (rest.len() > var.len() && matches!(var, b"access" | b"locksverify"))
 }
 
-/// What git said when it failed, as sim says it: "not a git repository" is told from the rest.
+/// What git said when it failed, as Sim says it: "not a git repository" is told from the rest.
 fn failed(dir: &Path, cmd: &str, err: &[u8]) -> String {
     let err = String::from_utf8_lossy(err);
     let err = err.lines().next().unwrap_or_default();
@@ -552,7 +559,7 @@ fn output(mut c: Command, dir: &Path, cmd: &str) -> Result<Vec<u8>, String> {
 /// first): `command`, the neutralized filters of the repository (GIT-2) and the flags of the
 /// subcommand. It is not built where the repository's config could make git run a command that
 /// none of these stops (GIT-3; MARK-1's message names the key). The config is read by git itself, so
-/// that sim cannot read it differently from git. Listing config runs nothing: `builtin/config.c`
+/// that Sim cannot read it differently from git. Listing config runs nothing: `builtin/config.c`
 /// only parses it and prints (the one command it can start is `config --edit`'s editor); hooks,
 /// filters and the monitor belong to commands that use the index or the work tree. In a directory
 /// that is no repository the list is the user's own and git then says so itself. An unreadable or
@@ -692,7 +699,7 @@ pub fn pace(took: Duration) -> Duration {
     (took * 4).max(Duration::from_millis(200))
 }
 
-/// WATCH-1: how long the project's watcher gathers what it sees before it tells sim; WATCH-3: how many
+/// WATCH-1: how long the project's watcher gathers what it sees before it tells Sim; WATCH-3: how many
 /// paths a batch names (past that it says only that there were many), and how often the project is
 /// looked at where the system refuses a watch.
 const GATHER: Duration = Duration::from_millis(100);
@@ -744,6 +751,8 @@ struct Watcher {
     root: PathBuf,
     state: Option<PathBuf>,
     gits: Vec<PathBuf>,
+    /// GIT-6: the hooks directory among them.
+    hooks: Option<PathBuf>,
     w: Option<notify::RecommendedWatcher>,
     /// The directories (relative to the root) whose entries count, and whether a list of files has set them.
     have: HashSet<PathBuf>,
@@ -767,7 +776,11 @@ impl Watcher {
             k => matches!(k, ErrorKind::PathNotFound),
         };
         let Some(w) = self.w.as_mut() else { return false };
-        match w.watch(at, mode) {
+        // FSEvents (macOS): below the root, its one watch has every directory and refuses none, but tells
+        // nothing of one the user cannot reach (Apple's "File System Event Security"): a directory is opened
+        // instead, and one that cannot be is refused, as inotify refuses it
+        let below = (self.deep && !deep && at.starts_with(&self.root)).then(|| fs::read_dir(at));
+        match below.map_or_else(|| w.watch(at, mode), |d| d.map(drop).map_err(notify::Error::io)) {
             Ok(()) => true,
             Err(e) if gone(&e.kind) => false,
             Err(e) => self.refuse(&e.to_string()),
@@ -790,16 +803,14 @@ impl Watcher {
         let state =
             |d: &PathBuf| self.state.as_ref().is_some_and(|s| self.root.join(d).starts_with(s));
         let want: HashSet<PathBuf> = dirs.into_iter().filter(|d| !state(d)).collect();
-        if !self.deep {
-            for d in self.have.iter().filter(|d| !want.contains(*d)) {
-                drop(self.w.as_mut().map(|w| notify::Watcher::unwatch(w, &self.root.join(d))));
-            }
-            let new: Vec<PathBuf> =
-                want.iter().filter(|d| !self.have.contains(*d)).cloned().collect();
-            for d in new {
-                if self.watch(&self.root.join(&d), false) && self.listed {
-                    self.touch(d);
-                }
+        for d in self.have.iter().filter(|d| !self.deep && !want.contains(*d)) {
+            drop(self.w.as_mut().map(|w| notify::Watcher::unwatch(w, &self.root.join(d))));
+        }
+        // (with FSEvents too: what was written in a new directory was filtered out until the list had it)
+        let new: Vec<PathBuf> = want.iter().filter(|d| !self.have.contains(*d)).cloned().collect();
+        for d in new {
+            if self.watch(&self.root.join(&d), false) && self.listed {
+                self.touch(d);
             }
         }
         (self.have, self.listed) = (want, true);
@@ -816,7 +827,7 @@ impl Watcher {
     }
 
     /// What the system saw: paths below the root, or a move in git's own directories (none: it lost track,
-    /// and anything may have changed). sim's own temporary files (`.{name}.sim-*`), the state directory and
+    /// and anything may have changed). Sim's own temporary files (`.{name}.sim-*`), the state directory and
     /// what is below a `.git` are not news.
     fn event(&mut self, paths: Vec<PathBuf>) {
         if paths.is_empty() {
@@ -824,6 +835,17 @@ impl Watcher {
             return self.soon();
         }
         for p in paths {
+            // GIT-6: a name git could run as a hook (githooks(5): lowercase letters, digits and `-`)
+            if self.hooks.is_some() && p.parent() == self.hooks.as_deref() {
+                let name =
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let hook = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-';
+                if !name.is_empty() && name.bytes().all(hook) {
+                    self.batch.hooks.push((name, false));
+                    self.soon();
+                }
+                continue;
+            }
             if self.gits.iter().any(|g| p.parent() == Some(g)) {
                 self.batch.git |= p.extension().is_none_or(|x| x != "lock");
                 self.soon();
@@ -843,7 +865,7 @@ impl Watcher {
         }
     }
 
-    /// Tells sim what the batch has: each path once, and whether it is a file now. False when sim is gone.
+    /// Tells Sim what the batch has: each path once, and whether it is a file now. False when Sim is gone.
     fn flush(&mut self) -> bool {
         self.due = None;
         let mut b = std::mem::take(&mut self.batch);
@@ -855,14 +877,22 @@ impl Watcher {
         for (p, file) in &mut b.paths {
             *file = fs::metadata(self.root.join(&p)).is_ok_and(|m| m.is_file());
         }
+        // GIT-6: each hook once (a set of paths, which the binary has: a sort of these pairs cost 7 KB), and
+        // whether it is a file that can run now
+        let mut named = HashSet::new();
+        b.hooks.retain(|(n, _)| named.insert(PathBuf::from(n)));
+        for (name, there) in &mut b.hooks {
+            let m = self.hooks.as_ref().and_then(|h| fs::metadata(h.join(&name)).ok());
+            *there = m.is_some_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+        }
         self.tx.send(SimEvent::Touched(b)).is_ok()
     }
 }
 
 /// WATCH-1, WATCH-3: the project's watcher, on a thread of its own: it watches the root, the directories the
-/// list of files has (`Project::files`) and git's directories, and tells sim what changed below the root
+/// list of files has (`Project::files`) and git's directories, and tells Sim what changed below the root
 /// (`SimEvent::Touched`) in batches of `GATHER`. It names paths and reads no file. Where the system refuses a
-/// watch, it says so once and tells sim every `poll` that anything may have changed.
+/// watch, it says so once and tells Sim every `poll` that anything may have changed.
 pub fn project(
     tx: Sender<SimEvent>,
     root: PathBuf,
@@ -880,6 +910,9 @@ pub fn project(
             };
             drop(fs.send(paths));
         });
+        // The root is the real path (`shell::arguments`), as are the paths the system names below it (FSEvents
+        // names no other); the state directory is said by `$HOME`, which may be reached through a link
+        let state = state.map(|s| fs::canonicalize(&s).unwrap_or(s));
         let (deep, gits) = (cfg!(target_os = "macos"), git_dirs(&root));
         let mut w = Watcher {
             w: None,
@@ -891,6 +924,7 @@ pub fn project(
             tx,
             root: root.clone(),
             state,
+            hooks: gits.last().filter(|g| g.ends_with("hooks")).cloned(),
             gits: gits.clone(),
             deep,
             poll,
@@ -938,13 +972,13 @@ pub fn project(
 
 /// UI-5: what a file differs from HEAD by, as `git diff -U0` says it, for the signs of the sign
 /// column and the counts of the status line. It runs through the same guard and the same hardened
-/// environment as every git of sim's (`git`, `run`): no external diff and no text conversion
+/// environment as every git of Sim's (`git`, `run`): no external diff and no text conversion
 /// (those are commands a repository can name), no color, and nothing fetched.
 pub fn git_diff(dir: &Path, name: &str) -> Result<Vec<u8>, String> {
     git(dir, &git_diff_args(name))
 }
 
-/// UI-5: the arguments of that diff; `git_command` adds the flags of every diff of sim's (GIT-1: no
+/// UI-5: the arguments of that diff; `git_command` adds the flags of every diff of Sim's (GIT-1: no
 /// external diff, no text conversion, and no submodule looked at: a file is never one, and no child
 /// git runs, nor reads a submodule's own config).
 pub fn git_diff_args(name: &str) -> [&str; 6] {
@@ -971,7 +1005,7 @@ pub fn diff_thread(tx: Sender<SimEvent>, cwd: PathBuf) -> Sender<DiffReq> {
                 latest.insert(r.id, r);
             }
             for (_, r) in latest {
-                if tx.send(SimEvent::Diff(r.id, diff(&cwd, &r), r.lines)).is_err() {
+                if tx.send(SimEvent::Diff(r.clone(), diff(&cwd, &r))).is_err() {
                     return;
                 }
             }
@@ -980,19 +1014,26 @@ pub fn diff_thread(tx: Sender<SimEvent>, cwd: PathBuf) -> Sender<DiffReq> {
     jobs
 }
 
-/// DIFF-2: the thread that asks git for the numbers of the changes view, off the main thread (P4): of
-/// the requests waiting only the newest is run (the newest has the newest list of untracked files).
-pub fn changes_thread(tx: Sender<SimEvent>, root: PathBuf) -> Sender<Vec<PathBuf>> {
-    let (jobs, rx) = mpsc::channel::<Vec<PathBuf>>();
+/// DIFF-2, DIFF-7: a thread that runs `job` for the newest of the requests waiting for it (the newest has the
+/// newest list of untracked files, the file under the view's cursor) and sends its answer, off the main thread (P4).
+pub fn latest<T: Send + 'static>(
+    tx: Sender<SimEvent>,
+    job: impl Fn(T) -> SimEvent + Send + 'static,
+) -> Sender<T> {
+    let (jobs, rx) = mpsc::channel::<T>();
     thread::spawn(move || {
         while let Ok(first) = rx.recv() {
-            let newest = rx.try_iter().last().unwrap_or(first);
-            if tx.send(SimEvent::Changes(changes(&root, &newest))).is_err() {
+            if tx.send(job(rx.try_iter().last().unwrap_or(first))).is_err() {
                 return;
             }
         }
     });
     jobs
+}
+
+/// DIFF-2: the thread that asks git for the numbers of the changes view.
+pub fn changes_thread(tx: Sender<SimEvent>, root: PathBuf) -> Sender<Vec<PathBuf>> {
+    latest(tx, move |untracked: Vec<PathBuf>| SimEvent::Changes(changes(&root, &untracked)))
 }
 
 /// DIFF-3: HEAD's version of `path`, asked of git in a thread of its own (a blob can be big).
@@ -1045,6 +1086,31 @@ pub fn changes(root: &Path, untracked: &[PathBuf]) -> Result<Counts, String> {
 pub fn show_head(root: &Path, path: &str) -> Result<Vec<u8>, String> {
     let blob = git(root, &["show", &format!("HEAD:./{path}")])?;
     if blob.len() > SHOW_MAX { Err(format!("HEAD:{path} is over 20 MiB")) } else { Ok(blob) }
+}
+
+/// DIFF-7: the answer to `SimEffect::Patch`: the file's diff against HEAD (the empty tree before the first commit)
+/// with three lines of context, a rename's with its old name, through the guard (GIT-1, GIT-2: no external diff,
+/// no text conversion, no filter); an untracked file read as a preview is (`read_below`: at most 2 MiB, never
+/// through a link out of the root), all `+`. A diff over 2 MiB, and why git gave none, are said instead.
+pub fn patch(root: &Path, req: &PatchReq) -> SimEvent {
+    let names: Vec<String> =
+        req.old.iter().chain([&req.path]).map(|p| p.to_string_lossy().into_owned()).collect();
+    let diff = |base: &str| {
+        let mut args = vec!["diff", "--no-color", "-U3", "-M", base, "--"];
+        args.extend(names.iter().map(String::as_str));
+        git(root, &args)
+    };
+    let bytes = if req.new {
+        read_below(root, &req.path.to_string_lossy()).map(|b| patch::added(&b.unwrap_or_default()))
+    } else {
+        diff("HEAD").or_else(|e| if e.contains("'HEAD'") { diff(EMPTY_TREE) } else { Err(e) })
+    };
+    let shown = match bytes {
+        Ok(b) if b.len() as u64 > PREVIEW_MAX => Patch::note("the diff is over 2 MiB: not shown"),
+        Ok(b) => Patch::parse(&b),
+        Err(e) => Patch::note(&e),
+    };
+    SimEvent::Patched(req.n, shown)
 }
 
 /// MARK-1: what an answer of the status has: git's status, where the root lies below the top of the
@@ -1171,6 +1237,16 @@ pub fn save_tab_uses(dir: &Path, n: u8) -> Result<(), String> {
     save_state(dir, "tab-uses", &format!("{n}\n"))
 }
 
+/// DIFF-9: whether the panel showed the changes view, as saved in `dir` (`view`, `changes` or `tree`); the tree
+/// when there is no choice yet, or the file says anything else.
+pub fn load_view(dir: &Path) -> bool {
+    fs::read_to_string(dir.join("view")).is_ok_and(|t| t.trim_end_matches('\n') == "changes")
+}
+
+pub fn save_view(dir: &Path, changes: bool) -> Result<(), String> {
+    save_state(dir, "view", if changes { "changes\n" } else { "tree\n" })
+}
+
 pub fn save_history(dir: &Path, history: &History) -> Result<(), String> {
     save_state(dir, "history", &history.serialize())
 }
@@ -1277,7 +1353,7 @@ pub fn highlight_thread(tx: Sender<SimEvent>) -> Sender<HlJob> {
 /// line, then a `/*`), so every request runs in a thread of its own that the highlighter waits for
 /// `budget` (and 100 us a line); a request that does not finish is given up: the file is plain
 /// from then on, the user is told once, and the highlighter goes on with a new one for the other
-/// files. The thread that loops stays, busy, until sim ends: nothing in Rust stops a thread.
+/// files. The thread that loops stays, busy, until Sim ends: nothing in Rust stops a thread.
 pub fn highlight_thread_within(tx: Sender<SimEvent>, budget: Duration) -> Sender<HlJob> {
     let (jobs, rx) = mpsc::channel::<HlJob>();
     thread::spawn(move || {
@@ -1348,10 +1424,37 @@ const PIECE: usize = 128 * 1024;
 /// GREP-8: `rg` in the directories of `path` that are absolute. An empty or relative entry would
 /// find a `rg` in the working directory, which can be the repository's own.
 pub fn which_rg(path: Option<OsString>) -> Option<PathBuf> {
+    which(path, "rg")
+}
+
+/// GREP-8, OPEN-2: the program `name` in the directories of `path` that are absolute.
+pub fn which(path: Option<OsString>, name: &str) -> Option<PathBuf> {
     let (path, runs) =
         (path?, |m: fs::Metadata| m.is_file() && m.permissions().mode() & 0o111 != 0);
     let dirs = env::split_paths(&path).filter(|d| d.is_absolute());
-    dirs.map(|d| d.join("rg")).find(|f| fs::metadata(f).is_ok_and(runs))
+    dirs.map(|d| d.join(name)).find(|f| fs::metadata(f).is_ok_and(runs))
+}
+
+/// OPEN-2: the system's opener of an address, looked for on the `PATH` (`which`).
+pub const OPENER: &str = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+
+/// OPEN-2: hands `url` to the opener (`which`'s, by its full path) as its one argument: no shell, no input,
+/// its output thrown away, in a process group of its own, reaped by a thread. Not where no program may run.
+pub fn browse(opener: Option<&Path>, url: &str) -> Result<(), String> {
+    if !filter::programs_allowed() {
+        return Err(format!("{PLAIN_RUNS_NOTHING}: not opened"));
+    }
+    let opener = opener.ok_or(format!("gx: no {OPENER} on the PATH: not opened"))?;
+    let mut child = Command::new(opener)
+        .arg(url)
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("gx: {OPENER}: {e}"))?;
+    thread::spawn(move || drop(child.wait()));
+    Ok(())
 }
 
 /// GREP-7: which files may be read: regular files, not links, whose directory really lies below
@@ -1378,9 +1481,14 @@ impl Inside {
     }
 }
 
-/// GREP-4: the answer to `SimEffect::Preview`: the file as the editor would read it, but no more
-/// than `PREVIEW_MAX` bytes of it. A file that is not there is empty, as `:e` makes it.
+/// GREP-4: the answer to `SimEffect::Preview`.
 pub fn preview(root: &Path, rel: &str) -> SimEvent {
+    SimEvent::Preview(Pv { path: rel.into(), file: read_below(root, rel) })
+}
+
+/// GREP-4, DIFF-7: a file as the editor would read it, but no more than `PREVIEW_MAX` bytes of it, and only a
+/// regular file below the root (GREP-7). A file that is not there is empty, as `:e` makes it.
+fn read_below(root: &Path, rel: &str) -> Result<Option<Vec<u8>>, String> {
     let read = || -> io::Result<Result<Option<Vec<u8>>, String>> {
         let mut f = File::open(root.join(rel))?;
         if f.metadata()?.len() > PREVIEW_MAX {
@@ -1390,12 +1498,11 @@ pub fn preview(root: &Path, rel: &str) -> SimEvent {
         f.read_to_end(&mut bytes)?;
         Ok(Ok(Some(bytes)))
     };
-    let file = match fs::symlink_metadata(root.join(rel)) {
+    match fs::symlink_metadata(root.join(rel)) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         _ if !Inside::new(root).ok(rel) => Err("not a file below the root".into()),
         _ => read().unwrap_or_else(|e| Err(why(&e))),
-    };
-    SimEvent::Preview(Pv { path: rel.into(), file })
+    }
 }
 
 /// GREP-5: what a search sends, in batches: groups are whole files, the first is sent as soon as

@@ -559,10 +559,12 @@ fn shown(name: &str, skin: Skin, mono: bool, text: &str) -> Rig {
     r
 }
 
-/// A file whose first line is where the cursor is (so it is raw) and whose third line is read.
+/// A file whose first line is where the cursor is (so it is raw) and whose third line is read. The
+/// honest links of the fourth share it with one that lies, so the read view draws them whole (MD-12).
 const LINKS: &str = "[https://good.example/docs](https://evil.example/login) raw\n\n\
                      [https://good.example/docs](https://evil.example/login) **read**\n\
-                     [docs](https://fine.example/docs) and [fine.example](https://fine.example/x)\n";
+                     [docs](https://fine.example/docs) and [fine.example](https://fine.example/x) \
+                     [x.example](https://evil.example/x)\n";
 
 /// The alert's block as flat and depth write it: its own text on its surface, nothing else.
 fn block() -> String {

@@ -1,4 +1,4 @@
-//! SAFE-10, SAFE-11 in the window: it draws the cells of sim's own Screen, so what sim writes as a form is
+//! SAFE-10, SAFE-11 in the window: it draws the cells of Sim's own Screen, so what Sim writes as a form is
 //! a form here, and what stays as it is (an emoji sequence, a flag) is drawn as the cell it is. Nothing
 //! the window draws is a char that SAFE-10 hides.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // helpers; the tests themselves may unwrap
@@ -11,7 +11,7 @@ fn tags(s: &str) -> String {
     s.chars().map(|c| char::from_u32(0xE0000 + c as u32).unwrap()).collect()
 }
 
-/// The text of every cell of the screen of sim started on a file with `content`.
+/// The text of every cell of the screen of Sim started on a file with `content`.
 fn cells_of(content: &str) -> (Vec<String>, String) {
     static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

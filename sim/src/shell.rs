@@ -1,4 +1,4 @@
-//! GUI-4, WATCH-1, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6
+//! GUI-4, WATCH-1, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6, DIFF-7, DIFF-9, OPEN-1, OPEN-2
 //! The shell: what is done with the Effects `Sim::update` returns, apart from the terminal: read a
 //! directory, open, save and watch a file, ask git, highlight, search, snapshot, run a filter. The
 //! terminal's loop (`main.rs`) and a window's use this one code, so a window cannot do these things
@@ -9,12 +9,14 @@
 //! clipboard, and a quit.
 //! The start has one policy too, `begin`: the rules of plain mode (PLAIN-1), of the state directory
 //! (SAFE-6, STATE-1) and of git's hooks (GIT-1) are applied in one place, which every front end goes
-//! through, so that none can start sim without them.
+//! through, so that none can start Sim without them.
 use crate::color::Syntax;
 use crate::io::{self as sio, HlJob, Job, MERGE};
 use crate::layout::Skin;
 use crate::rank::History;
-use crate::sim::{DiffReq, Env, Id, PAUSE_MS, SPIN_MS, Sim, SimEffect, SimEvent, Start, start};
+use crate::sim::{
+    DiffReq, Env, Id, PAUSE_MS, PatchReq, SPIN_MS, Sim, SimEffect, SimEvent, Start, start,
+};
 use sim_core::core::app::{Effect, Event};
 use sim_core::core::buffer::hash;
 use sim_core::io::file::{self, read};
@@ -34,7 +36,7 @@ use std::time::{Duration, Instant};
 /// What the shell needs to know about where it is.
 #[derive(Clone, Default)]
 pub struct Config {
-    /// The working directory: the names sim has for files are relative to it.
+    /// The working directory: the names Sim has for files are relative to it.
     pub cwd: PathBuf,
     /// The root of the tree.
     pub root: PathBuf,
@@ -46,6 +48,8 @@ pub struct Config {
     pub rg: Option<PathBuf>,
     /// WATCH-1: whether the project is watched (not in plain mode, PLAIN-1).
     pub watch: bool,
+    /// OPEN-2: the system's opener of an address (none in plain mode).
+    pub opener: Option<PathBuf>,
 }
 
 /// What the system says about the world a front end starts in (PLAIN-1, SAFE-6, STATE-1): whether it is
@@ -98,7 +102,7 @@ pub struct Front {
     pub home: Option<PathBuf>,
 }
 
-/// What `begin` made: sim and what it asked for at once, and what the shell needs.
+/// What `begin` made: Sim and what it asked for at once, and what the shell needs.
 pub struct Begun {
     pub sim: Sim,
     pub fx: Vec<SimEffect>,
@@ -116,7 +120,7 @@ pub fn arguments(args: &[String], cwd: &Path) -> Option<Start> {
     Some(s)
 }
 
-/// The start of sim for every front end, and the one place that applies its rules: plain mode is on when
+/// The start of Sim for every front end, and the one place that applies its rules: plain mode is on when
 /// `--plain` was given or the world is privileged, and then no program starts, from here on, not git,
 /// ripgrep, a filter or a hook (PLAIN-1: `filter::forbid_programs` before anything can ask for one, and
 /// no `rg` in the shell's `Config`); otherwise git's hooks are pointed at a private empty directory in
@@ -144,6 +148,7 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
         hint,
         tab_uses: front.tab_uses.unwrap_or_else(|| history.map_or(0, sio::load_tab_uses)),
         md: !plain && history.is_none_or(sio::load_md),
+        changes: !plain && history.is_some_and(sio::load_view),
         chrome: true,
         lang: crate::tutor::lang(&|k| env::var(k).ok()).into(),
     };
@@ -153,7 +158,8 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
     } else {
         world.state.as_deref().iter().for_each(|d| sio::use_no_hooks(d)); // GIT-1: before git is run
     }
-    let rg = sio::which_rg(world.path).filter(|_| !sim.plain);
+    let rg = sio::which_rg(world.path.clone()).filter(|_| !sim.plain);
+    let opener = sio::which(world.path, sio::OPENER).filter(|_| !sim.plain);
     let cfg = Config {
         cwd: cwd.to_path_buf(),
         root: sim.root.clone(),
@@ -161,11 +167,12 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
         history: world.history,
         rg,
         watch: !sim.plain,
+        opener,
     };
     Begun { sim, fx, cfg, keys, moved: world.moved }
 }
 
-/// SAFE-6: a hangup or a termination of this process is an event of sim's, which snapshots every file with
+/// SAFE-6: a hangup or a termination of this process is an event of Sim's, which snapshots every file with
 /// unsaved changes and quits (the same for every front end: a window that is closed by the system loses
 /// nothing a terminal would not). Where signals cannot be had, nothing is: the snapshots of the tick stay.
 pub fn signals(tx: Sender<SimEvent>) {
@@ -178,11 +185,11 @@ pub fn signals(tx: Sender<SimEvent>) {
 /// What running the Effects left for the terminal or the window to do.
 #[derive(Default)]
 pub struct Out {
-    /// The last screen sim drew.
+    /// The last screen Sim drew.
     pub frame: Option<crate::paint::Screen>,
     /// Text for the system clipboard, in order.
     pub clipboard: Vec<String>,
-    /// sim is to end with this code; the Effects after the quit were not run.
+    /// Sim is to end with this code; the Effects after the quit were not run.
     pub quit: Option<i32>,
 }
 
@@ -201,6 +208,7 @@ struct Threads {
     files: Sender<()>,
     git: Sender<()>,
     numbers: Sender<Vec<PathBuf>>,
+    patches: Sender<PatchReq>,
     reads: sio::Reads,
     watchers: HashMap<Id, Held>,
     pgids: HashMap<Id, u32>,
@@ -213,7 +221,7 @@ enum Work {
 
 pub struct Shell {
     cfg: Config,
-    /// Answers that came back at once: given to sim before anything else.
+    /// Answers that came back at once: given to Sim before anything else.
     local: Vec<SimEvent>,
     work: Work,
 }
@@ -248,7 +256,7 @@ impl Shell {
     pub fn threads(cfg: Config, tx: Sender<SimEvent>) -> Shell {
         let (jobs, finished) =
             sio::journal_thread(cfg.state.clone(), cfg.history.clone(), tx.clone());
-        let (r1, r2) = (cfg.root.clone(), cfg.root.clone());
+        let (r1, r2, r3) = (cfg.root.clone(), cfg.root.clone(), cfg.root.clone());
         // WATCH-1: the project's watcher watches the directories of each list of files
         let (root, state) = (cfg.root.clone(), cfg.state.clone());
         let project = cfg.watch.then(|| sio::project(tx.clone(), root, state, sio::POLL));
@@ -264,6 +272,7 @@ impl Shell {
             }),
             git: sio::worker(tx.clone(), move || SimEvent::Status(sio::status(&r2))),
             numbers: sio::changes_thread(tx.clone(), cfg.root.clone()), // DIFF-2
+            patches: sio::latest(tx.clone(), move |r: PatchReq| sio::patch(&r3, &r)), // DIFF-7
             reads: sio::Reads::default(),
             watchers: HashMap::new(),
             pgids: HashMap::new(),
@@ -280,7 +289,7 @@ impl Shell {
         Shell { cfg, local: vec![], work: Work::Inline(sio::Highlighter::default()) }
     }
 
-    /// The name of a file as the job that reads or writes it is to take it: as sim has it (relative to
+    /// The name of a file as the job that reads or writes it is to take it: as Sim has it (relative to
     /// the working directory, which is the process's) on threads, made absolute when inline, where the
     /// process is somewhere else.
     fn at(&self, name: &str) -> String {
@@ -290,8 +299,8 @@ impl Shell {
         }
     }
 
-    /// An event for sim, which first notes that a filter has ended (its process group is gone: the id
-    /// could be somebody else's), and what sim is to do about it.
+    /// An event for Sim, which first notes that a filter has ended (its process group is gone: the id
+    /// could be somebody else's), and what Sim is to do about it.
     pub fn update(&mut self, sim: &mut Sim, ev: SimEvent) -> Vec<SimEffect> {
         if let (Work::Threads(t), SimEvent::App(id, Event::FilterDone { .. })) =
             (&mut self.work, &ev)
@@ -307,7 +316,7 @@ impl Shell {
         self.run(sim, fx)
     }
 
-    /// The file changed outside sim, as its watcher would tell (an inline shell has none): its bytes now.
+    /// The file changed outside Sim, as its watcher would tell (an inline shell has none): its bytes now.
     pub fn disk_changed(&mut self, sim: &mut Sim, id: Id, name: &str) -> Out {
         let bytes = std::fs::read(self.at(name)).ok();
         let h = bytes.as_deref().map(hash);
@@ -358,7 +367,7 @@ impl Shell {
         }
     }
 
-    /// One Effect. Whether sim is to quit (nothing after it is run).
+    /// One Effect. Whether Sim is to quit (nothing after it is run).
     fn effect(&mut self, e: SimEffect, out: &mut Out) -> bool {
         let (cwd, root) = (self.cfg.cwd.clone(), self.cfg.root.clone());
         match (e, &mut self.work) {
@@ -388,6 +397,8 @@ impl Shell {
                 self.local.push(SimEvent::Changes(sio::changes(&root, &untracked)))
             }
             (SimEffect::Show(path), Work::Threads(t)) => sio::show_thread(t.tx.clone(), root, path),
+            (SimEffect::Patch(req), Work::Threads(t)) => drop(t.patches.send(req)),
+            (SimEffect::Patch(req), Work::Inline(_)) => self.local.push(sio::patch(&root, &req)),
             (SimEffect::Show(path), Work::Inline(_)) => {
                 let blob = sio::show_head(&root, &path);
                 self.local.push(SimEvent::Shown(path, blob));
@@ -406,18 +417,20 @@ impl Shell {
             (SimEffect::Diff(req), Work::Threads(t)) => drop(t.diffs.send(req)),
             (SimEffect::Diff(req), Work::Inline(_)) => {
                 let answer = sio::diff(&cwd, &req);
-                self.local.push(SimEvent::Diff(req.id, answer, req.lines));
+                self.local.push(SimEvent::Diff(req, answer));
             }
             (SimEffect::History(h), Work::Threads(t)) => drop(t.jobs.send(Job::History(h))),
             (SimEffect::Look(k), Work::Threads(t)) => drop(t.jobs.send(Job::Look(k))),
             (SimEffect::Icons(on), Work::Threads(t)) => drop(t.jobs.send(Job::Icons(on))),
             (SimEffect::TabUses(n), Work::Threads(t)) => drop(t.jobs.send(Job::TabUses(n))),
             (SimEffect::Md(on), Work::Threads(t)) => drop(t.jobs.send(Job::Md(on))),
+            (SimEffect::View(on), Work::Threads(t)) => drop(t.jobs.send(Job::View(on))),
             (
                 SimEffect::History(_)
                 | SimEffect::Look(_)
                 | SimEffect::Icons(_)
                 | SimEffect::Md(_)
+                | SimEffect::View(_)
                 | SimEffect::TabUses(_),
                 Work::Inline(_),
             ) => {}
@@ -460,6 +473,17 @@ impl Shell {
             }
             (SimEffect::Hold(..), Work::Inline(_)) => {}
             (SimEffect::App(id, e), _) => self.app_effect(id, e, out),
+            // OPEN-1: the first place that has the file a name names
+            (SimEffect::Seek(name, at, keys), _) => {
+                let found = at.into_iter().find(|p| p.exists());
+                self.local.push(SimEvent::Sought(name, found, keys));
+            }
+            (SimEffect::Browse(url), Work::Threads(_)) => {
+                let opener = self.cfg.opener.as_deref();
+                let said = sio::browse(opener, &url).err().map(SimEvent::Notice);
+                self.local.extend(said);
+            }
+            (SimEffect::Browse(_), Work::Inline(_)) => {} // (a window's tests and renders start no opener)
             (SimEffect::Quit(code), _) => {
                 out.quit = Some(code);
                 return true;

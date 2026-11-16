@@ -1,5 +1,5 @@
 //! TUTOR-1, TUTOR-2
-//! `:tutor` in sim's state: the scratch buffer the lessons are in (never a file, never written, no
+//! `:tutor` in Sim's state: the scratch buffer the lessons are in (never a file, never written, no
 //! snapshot of it), the marks of its exercises that the screen draws over `[ ]`, and what the learner
 //! has been seen to do that no text shows.
 use super::{Id, Opened, Pick, Sim, SimEffect, text_of};

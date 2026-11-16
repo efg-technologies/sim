@@ -17,7 +17,7 @@ fn cli_5_without_a_file_the_intro_shows_until_the_first_key() {
     // The golden holds the version of Cargo.toml: a new version blesses it again (SIM_BLESS=1).
     golden("cli_5_intro", &dump(&f));
     let shown: String = f.rows.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("\n");
-    assert!(shown.contains(&format!("sim {}", env!("CARGO_PKG_VERSION"))));
+    assert!(shown.contains(&format!("Sim {}", env!("CARGO_PKG_VERSION"))));
     let concept = include_str!("../../CONCEPT.md");
     let tagline = "The next-generation Vim that shows even what is hidden.";
     assert!(concept.contains(tagline) && shown.contains(tagline), "one line from CONCEPT");

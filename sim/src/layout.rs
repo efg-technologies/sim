@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, UI-19, WATCH-2
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, MD-12, UI-19, WATCH-2, DIFF-7, DIFF-9, GIT-6, DARK-1, JUMP-1
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -153,25 +153,27 @@ fn cut(r: &tree::Row, name: &str, room: usize) -> String {
 }
 
 /// LOOK-1: how the screen looks. Calm is the core's four styles; flat adds green and red and a tint to
-/// the rows of changes; depth adds boxes, an overview ruler and gradients.
+/// the rows of changes; depth adds boxes, an overview ruler and gradients; dark (DARK-1) is depth with
+/// no hue at rest.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Skin {
     #[default]
     Calm,
     Flat,
     Depth,
+    Dark,
 }
 
-const SKINS: [Skin; 3] = [Skin::Calm, Skin::Flat, Skin::Depth];
+const SKINS: [Skin; 4] = [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark];
 
 impl Skin {
     /// What `zl` goes to.
     pub fn next(self) -> Skin {
-        SKINS[(self as usize + 1) % 3]
+        SKINS[(self as usize + 1) % SKINS.len()]
     }
 
     pub fn name(self) -> &'static str {
-        ["calm", "flat", "depth"][self as usize]
+        ["calm", "flat", "depth", "dark"][self as usize]
     }
 
     /// The word of the state file (the line break after it is allowed).
@@ -211,7 +213,7 @@ impl Geo {
 
     /// `head`: the interface is drawn (a screen under 10 rows has no room for the header).
     pub fn with_head((w, h): (u16, u16), skin: Skin, panel: bool, head: bool) -> Geo {
-        let boxed = skin == Skin::Depth && w >= 40 && h >= 10;
+        let boxed = matches!(skin, Skin::Depth | Skin::Dark) && w >= 40 && h >= 10;
         let (b, pw) = (u16::from(boxed), if panel { (w / 3).min(32) } else { 0 });
         let (pw, head) = (if pw < 4 { 0 } else { pw }, u16::from(head && h >= 10));
         let ex = if pw > 0 { pw + 1 + 2 * b } else { b };
@@ -509,21 +511,22 @@ pub enum Guard {
     Refused,
 }
 
-/// GIT-5: the words the frame says of the guard, in the first form that fits `room` columns.
-fn guard_words(g: Guard, room: usize) -> Option<String> {
+/// GIT-5: the words the frame says of the guard, and GIT-6 of a hook written while Sim runs (`hook`), in the
+/// first form that fits `room` columns: both, the hook's words alone, the guard's alone.
+fn guard_words(g: Guard, hook: bool, room: usize) -> Option<String> {
     let forms = match g {
-        Guard::None => return None,
-        Guard::Refused => vec![" git not run ".to_string(), " no git ".into()],
+        Guard::None => vec![String::new()],
+        Guard::Refused => vec!["git not run".to_string(), "no git".into()],
         Guard::Off(n) => {
             let s = if n == 1 { "" } else { "s" };
-            vec![
-                format!(" {n} git setting{s} off "),
-                format!(" git: {n} off "),
-                format!(" {n} off "),
-            ]
+            vec![format!("{n} git setting{s} off"), format!("git: {n} off"), format!("{n} off")]
         }
     };
-    forms.into_iter().find(|w| w.len() <= room)
+    let hooks: &[&str] = if hook { &["hook written", "hook"] } else { &[] };
+    let both = hooks.iter().flat_map(|h| forms.iter().map(move |f| format!("{f}, {h}")));
+    let both = both.filter(|w| !w.starts_with(", "));
+    let words = both.chain(hooks.iter().map(|h| h.to_string())).chain(forms.iter().cloned());
+    words.filter(|w| !w.is_empty()).map(|w| format!(" {w} ")).find(|w| w.len() <= room)
 }
 
 /// The color of a box's lines (LOOK-3): the focused one's, the other's, or (GIT-5) the alert's for both
@@ -554,8 +557,11 @@ pub struct Deck<'a> {
     /// UI-18: the parts of the breadcrumb (the path's components and the section) and the index of the
     /// file's, none where the interface does not draw it.
     pub crumb: (Vec<String>, usize),
-    /// GIT-5: what the guard did to the repository.
+    /// GIT-5: what the guard did to the repository; GIT-6: whether a hook was written while Sim runs.
     pub guard: Guard,
+    pub hook: bool,
+    /// DIFF-9: what the panel's box says it is, where it is not `files` (the changes view and its sums).
+    pub title: Option<String>,
 }
 
 /// UI-2, UI-4: what the interface adds to a screen: whether the icons are drawn, the root as the
@@ -721,7 +727,7 @@ fn chrome_line(pw: u16, at: Option<&(tree::Row, Mark)>, sel: bool, t: &Tones, ic
 }
 
 /// UI-2: the first row of the panel: the root, home-relative, in bold, with the open folder.
-fn header_line(pw: u16, root: &str, icons: bool, guard: Guard, t: &Tones) -> Line {
+fn header_line(pw: u16, root: &str, icons: bool, (guard, hook): (Guard, bool), t: &Tones) -> Line {
     let mut line = Line::default();
     let bar = Paint { bg: Some(t.bar), role: Role::Bar, ..Paint::default() };
     line.put(" ", bar);
@@ -730,7 +736,7 @@ fn header_line(pw: u16, root: &str, icons: bool, guard: Guard, t: &Tones) -> Lin
     }
     // GIT-5: the words for the guard at the right end, if the root keeps room for six columns
     let left = usize::from(pw).saturating_sub(usize::from(line.cols) + 1);
-    let words = guard_words(guard, left.saturating_sub(6));
+    let words = guard_words(guard, hook, left.saturating_sub(6));
     let room = left - words.as_ref().map_or(0, |w| w.len() + 1);
     line.put(&tail(root, room), Paint { bold: true, ..bar });
     if let Some(w) = words {
@@ -791,7 +797,7 @@ fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
 /// bar in its own cell, and the language a fence names, dim, at the right of its row.
 fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     let on = |bg, role| Paint { bg: Some(bg), role, ..Paint::default() };
-    let link = Paint { fg: Some(t.accent_fg()), ..Paint::default() };
+    let link = Paint { fg: Some(t.here), ..Paint::default() };
     let head = Paint { fg: Some(t.head), ..Paint::default() };
     let mut paints: Paints = line
         .looks
@@ -832,27 +838,20 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     front.extend(m.now.iter().map(|r| (r.clone(), now)));
     front.extend(m.hit.iter().map(|r| (r.clone(), hit)));
     line.paints.splice(0..0, front);
-    if !m.glyph.is_empty() {
-        let mut cs: Vec<char> = line.row.text.chars().collect();
-        for g in &m.glyph {
-            if g.idx >= cs.len() {
-                cs.resize(g.idx, ' ');
-                cs.push(g.ch);
-            } else {
-                cs[g.idx] = g.ch;
-            }
-            let ink = match g.tone {
-                Tone::Plain => None,
-                Tone::Mark => Some(t.focus),
-                Tone::Dim | Tone::Guide => Some(t.line),
-                Tone::Scope => Some(t.focus),
-                Tone::Call => Some(t.primary),
-            };
-            let mark = Paint { fg: ink, ..Paint::default() };
-            paints.extend(ink.map(|_| (g.col..g.col + 1, mark)));
-        }
-        line.row.text = cs.into_iter().collect();
-        line.cols = fit(&line.row.text, usize::MAX).1 as u16;
+    glyphs(line, m.glyph.iter());
+    for g in &m.glyph {
+        let ink = match g.tone {
+            Tone::Plain | Tone::Label => None,
+            Tone::Mark => Some(t.focus),
+            Tone::Dim | Tone::Guide => Some(t.line),
+            Tone::Scope => Some(t.focus),
+            Tone::Call => Some(t.primary),
+        };
+        let mark = Paint { fg: ink, ..Paint::default() };
+        paints.extend(ink.map(|_| (g.col..g.col + 1, mark)));
+        // JUMP-1: a label is bold on the accent's solid color, over everything else of its cell
+        let label = Paint { bold: true, ..now };
+        line.paints.splice(0..0, (g.tone == Tone::Label).then(|| (g.col..g.col + wide(g), label)));
     }
     let lang = m.lang.as_ref().map(|l| fit(l, usize::from(ew)));
     if let Some((lang, w)) = lang.filter(|(_, w)| line.cols + 2 + *w as u16 <= ew) {
@@ -871,6 +870,26 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
         paints.push((gutter..ew, on(band, role)));
     }
     line.paints.extend(paints);
+}
+
+/// UI-6, JUMP-1: the glyphs put in the text of a row, each over the char it stands on (or past its end).
+fn glyphs<'a>(line: &mut Line, gs: impl Iterator<Item = &'a Glyph>) {
+    let mut cs: Vec<char> = line.row.text.chars().collect();
+    for g in gs {
+        if g.idx >= cs.len() {
+            cs.resize(g.idx, ' ');
+            cs.push(g.ch);
+        } else {
+            cs[g.idx] = g.ch;
+        }
+    }
+    line.row.text = cs.into_iter().collect();
+    line.cols = fit(&line.row.text, usize::MAX).1 as u16;
+}
+
+/// JUMP-1: the columns of a label: two for the fullwidth form of a letter put over a wide char.
+fn wide(g: &Glyph) -> u16 {
+    if g.ch.is_ascii() { 1 } else { 2 }
 }
 
 /// MD-1: `line`, a row the core made, as the read view draws it: its text and every range of
@@ -1016,11 +1035,14 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             line.looks.retain(|(r, _)| !m.lie.iter().any(|x| x.start < r.end && r.start < x.end));
             line.row.spans.extend(m.lie.iter().map(|r| (r.clone(), Style::Hidden)));
             // UI-13: a yank is lit as a Visual selection is (SYN-5), in lightness alone: its gray
-            // ahead of the syntax looks, the core's underline where there is none
+            // ahead of the syntax looks, the core's underline where there is none; JUMP-1: so is a label
+            let labels: Vec<&Glyph> = m.glyph.iter().filter(|g| g.tone == Tone::Label).collect();
+            glyphs(&mut line, labels.iter().copied());
+            let lit = m.flash.iter().cloned().chain(labels.iter().map(|g| g.col..g.col + wide(g)));
             if gray {
-                line.looks.splice(0..0, m.flash.iter().map(|r| (r.clone(), Look::Sel)));
+                line.looks.splice(0..0, lit.map(|r| (r, Look::Sel)));
             } else {
-                line.row.underline.extend(m.flash.iter().cloned());
+                line.row.underline.extend(lit);
             }
         }
         // UI-5: the numbers as Neovim's `number` and `relativenumber` draw them: the cursor's line
@@ -1127,12 +1149,16 @@ fn borders(d: &Deck) -> [Line; 2] {
     let own = |panel: bool| panel == d.focus; // whether that box has the focus
     let line = |panel| paint(t.map(|t| box_ink(t, d.guard, own(panel))), false);
     let title = |panel| paint(t.filter(|_| !own(panel)).map(|t| t.dim), true);
-    let words = |room: usize| t.and_then(|t| Some((guard_words(d.guard, room)?, alert_block(t))));
+    let words =
+        |room: usize| t.and_then(|t| Some((guard_words(d.guard, d.hook, room)?, alert_block(t))));
     let s = |text: &str, p| (text.to_string(), p);
     let (pw, ew) = (g.pw + 2, g.ew + g.sign + 2);
     let (mut top, mut bottom) = (Line::default(), Line::default());
-    let mut files = vec![s("files", title(true))];
-    if let Some((w, p)) = words(usize::from(pw).saturating_sub(4 + 5 + 1)).filter(|_| g.pw > 0) {
+    let said = words(usize::from(pw).saturating_sub(4 + 5 + 1)).filter(|_| g.pw > 0);
+    // DIFF-9: the changes view's sums, in what the guard's words leave
+    let room = usize::from(pw).saturating_sub(4 + said.as_ref().map_or(0, |w| w.0.len() + 1));
+    let mut files = vec![s(&fit(d.title.as_deref().unwrap_or("files"), room).0, title(true))];
+    if let Some((w, p)) = said {
         files.extend([s("─", line(true)), (w, p)]); // (GIT-5, where the tree is)
     }
     if g.pw > 0 {
@@ -1234,7 +1260,8 @@ pub fn body(
     };
     if let (Some(c), Some(t), true) = (&d.chrome, t, g.head > 0) {
         let p = (g.pw > 0).then(|| {
-            header_line(g.pw, c.root, c.icons, if g.boxed { Guard::None } else { d.guard }, t)
+            let said = if g.boxed { (Guard::None, false) } else { (d.guard, d.hook) };
+            header_line(g.pw, c.root, c.icons, said, t)
         });
         let end = if g.boxed {
             edge(false)
@@ -1300,6 +1327,8 @@ pub enum Tone {
     Scope,
     /// MD-11: a callout's bar, in the primary gray (a plain quote's is the secondary).
     Call,
+    /// JUMP-1: a label of a jump.
+    Label,
 }
 
 /// A char drawn in the place of a cell of a row: the index of the char it stands for in the row's
@@ -1413,6 +1442,8 @@ pub struct LineUi {
     /// UI-14: the chars of the line that a search matches, and which of them is the current one.
     pub hits: Vec<std::ops::Range<usize>>,
     pub now: Option<usize>,
+    /// JUMP-1: the labels of a jump, each with the char of the line it is drawn over (the one after its match).
+    pub labels: Vec<(usize, char)>,
 }
 
 /// SYN-1: what `colors` finds in an editor frame: the looks of its rows, the first and the last
@@ -1550,11 +1581,8 @@ pub fn colors_with<'a>(
                 cs.iter().position(|&c| c == '|').unwrap_or(0),
                 cs.iter().rposition(|&c| c == '|').unwrap_or(0),
             );
-            plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s));
-            (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
-            call = calls.iter().find(|b| b.lines.contains(&l));
-            head = call.is_some_and(|b| b.lines.start == l);
-            // MD-10: the targets of the links of this line that say another place
+            // MD-10: the targets of the links of this line that say another place; MD-12: a line
+            // with none has its links drawn as their text
             lie = line_marks(
                 l,
                 &cs,
@@ -1563,6 +1591,10 @@ pub fn colors_with<'a>(
                 given.as_ref().map(|m| m.refs),
                 &mut budget,
             );
+            plan = read.as_ref().zip(sp).and_then(|(r, s)| r.plan(l, &cs, s, lie.is_empty()));
+            (lui, hk) = (ui.map_or_else(LineUi::default, |f| f(l)), 0);
+            call = calls.iter().find(|b| b.lines.contains(&l));
+            head = call.is_some_and(|b| b.lines.start == l);
             trail = cs.iter().rposition(|c| !matches!(c, ' ' | '\t')).map_or(0, |i| i + 1);
             badge = sp
                 .filter(|_| ui.is_some() && !lui.bare)
@@ -1645,6 +1677,13 @@ pub fn colors_with<'a>(
                     _ => to.push(cols),
                 }
             }
+            // JUMP-1: a label over the char after a match: the fullwidth form of its letter over a wide char
+            if let Some(&(_, c)) = lui.labels.iter().find(|x| x.0 == ci) {
+                let ch =
+                    char::from_u32(c as u32 + 0xFEE0).filter(|_| w == 2 && n == 1).unwrap_or(c);
+                let col = (gutter + col) as u16;
+                md[i].glyph.push(Glyph { idx: gutter + used, ch, col, tone: Tone::Label });
+            }
             // UI-7: the cells of a TODO badge, merged where they touch.
             if badge.contains(&ci) {
                 let cols = (gutter + col) as u16..(gutter + col + w) as u16;
@@ -1702,6 +1741,12 @@ pub fn colors_with<'a>(
             edited = true;
         }
         md[i].map = (plan.is_some() && edited && used == len).then_some(map);
+        // JUMP-1: and a label after a match at the end of the line, where the row has a cell for it
+        let last = lui.labels.iter().find(|x| x.0 == ci).filter(|_| ended);
+        if let Some(&(_, ch)) = last.filter(|_| gutter + col < usize::from(f.width)) {
+            let col = (gutter + col) as u16;
+            md[i].glyph.push(Glyph { idx: gutter + used, ch, col, tone: Tone::Label });
+        }
         // UI-8: the rule of a thematic break goes on to the pane's edge.
         if rule && ci == cs.len() && (line.is_some() || len > 0) {
             let from = gutter + col;

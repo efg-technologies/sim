@@ -58,7 +58,7 @@ fn plain_1_without_a_file_it_is_the_unnamed_buffer_with_the_intro() {
     assert!(r.app().path.is_none());
     let shown: String =
         r.screen.rows.iter().map(|x| x.text.as_str()).collect::<Vec<_>>().join("\n");
-    assert!(shown.contains(&format!("sim {}", env!("CARGO_PKG_VERSION"))), "{shown}");
+    assert!(shown.contains(&format!("Sim {}", env!("CARGO_PKG_VERSION"))), "{shown}");
     assert_eq!(r.status(), "[no name]  1:1  NORMAL  plain");
 }
 
@@ -149,7 +149,7 @@ fn code_of(path: &str) -> String {
 }
 
 /// The terminal's loop is a front end like any other: it does not decide the rules of plain mode, of the
-/// state directory or of git's hooks, nor build the sim it runs or the shell's config, nor catch the
+/// state directory or of git's hooks, nor build the Sim it runs or the shell's config, nor catch the
 /// signals itself; `shell::begin` does, for it and for a window (GUI-4), and a test of the window's
 /// sources holds the same (`gui/tests/api_seam.rs`).
 #[test]

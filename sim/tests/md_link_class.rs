@@ -194,7 +194,7 @@ fn md_10_a_reference_link_is_judged_in_its_three_forms_and_wherever_its_definiti
             &["[good.com]", "[good.com]"],
         ),
         (
-            "no definition, but a label that sim does not fold",
+            "no definition, but a label that Sim does not fold",
             "[good.com][\u{df}]\n\n[good.com][SS]\n\n[\u{e9}]: /bar",
             &["[good.com]", "[good.com]"],
         ),
@@ -610,7 +610,7 @@ fn md_10_what_the_real_files_showed_is_not_a_lie_and_what_hides_in_them_still_is
             &[],
         ),
         (
-            "a label that goes over lines is a definition that sim did not read",
+            "a label that goes over lines is a definition that Sim did not read",
             "an array [www.example.com] in code\n\n[foo\nbar]: /baz",
             &["[www.example.com]"],
         ),

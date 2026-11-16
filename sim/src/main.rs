@@ -5,7 +5,7 @@
 //! tagged with the id of its file. The file list, git's
 //! status, the history, the highlighter and the searches of file contents each run in the
 //! background. The terminal is asked for its colors (the background at once, the first
-//! frame waiting for it at most 3 ms), and the mouse is reported until sim leaves, by any way.
+//! frame waiting for it at most 3 ms), and the mouse is reported until Sim leaves, by any way.
 #![forbid(unsafe_code)]
 use signal_hook::consts::{SIGHUP, SIGWINCH};
 use sim::color::{self, Input, Syntax};
@@ -26,7 +26,7 @@ use std::{env, thread};
 const DRAIN: Duration = Duration::from_millis(100);
 /// Set by a quit that is waiting for the terminal: the input thread then asks it and reports.
 static QUITTING: AtomicBool = AtomicBool::new(false);
-/// CLI-7: what `--help` prints, and an argument sim cannot use (to stderr, exit 2): `help.txt`, prose
+/// CLI-7: what `--help` prints, and an argument Sim cannot use (to stderr, exit 2): `help.txt`, prose
 /// like the key table, with the version in it.
 fn usage() -> String {
     include_str!("../help.txt").replace("{version}", env!("CARGO_PKG_VERSION"))
@@ -41,7 +41,7 @@ fn e2e_panic() {
 }
 
 fn main() -> ExitCode {
-    // (`env::args` panics on an argument that is not UTF-8; every path in sim is text)
+    // (`env::args` panics on an argument that is not UTF-8; every path in Sim is text)
     let args: Option<Vec<String>> = env::args_os().skip(1).map(|a| a.into_string().ok()).collect();
     let Some(args) = args else {
         eprint!("sim: a file name that is not valid UTF-8 cannot be opened\n\n{}", usage());

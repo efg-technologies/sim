@@ -10,7 +10,7 @@
 #   - an ID is not listed in any `//!` header,
 # or when any test is named after an ID that is not in SPEC.
 # The milestones are three lines of work in one SPEC: M for the core, S for the editor and G for the
-# window, and .milestone holds the current one of each (`M5 S11 G1`).
+# window, and .milestone holds the current one of each (`M5 S12 G1`).
 # POSIX sh + awk only, so it also runs on macOS.
 set -eu
 
@@ -41,7 +41,7 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/sim-trace.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 # Test-name families; IDs look like SAFE-1 and test names like safe_1_...
-families=${TRACE_FAMILIES:-'cli|safe|disk|filt|vis|vi|perf|val|plain|state|tree|buf|find|grep|mark|syn|ptr|look|speed|ui|color|icon|pick|key|git|diff|gui|md|tutor|watch'}
+families=${TRACE_FAMILIES:-'cli|safe|disk|filt|vis|vi|perf|val|plain|state|tree|buf|find|grep|mark|syn|ptr|look|speed|ui|color|icon|pick|key|git|diff|gui|md|tutor|watch|dark|jump|open'}
 
 # 1. IDs and milestones from SPEC.md, in file order. Indented sub-items are skipped.
 awk '

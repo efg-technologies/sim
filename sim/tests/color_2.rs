@@ -140,7 +140,7 @@ fn color_2_terminfo_is_found_by_name_in_the_directories_of_the_system() {
 
 #[test]
 fn color_2_a_screen_without_color_has_no_color_in_it() {
-    for skin in [Skin::Calm, Skin::Flat, Skin::Depth] {
+    for skin in [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark] {
         let mut r = bare("color-2-none", skin);
         let seen = |r: &Rig, what: &str| {
             let bad = colored(&drawn(r));
@@ -168,7 +168,7 @@ fn color_2_a_screen_without_color_has_no_color_in_it() {
 
 #[test]
 fn color_2_markdown_and_the_panel_have_no_color_either() {
-    for skin in [Skin::Calm, Skin::Flat, Skin::Depth] {
+    for skin in [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark] {
         let mut r = bare("color-2-md", skin);
         r.keys("jj<CR>"); // b.md
         let bad = colored(&drawn(&r));

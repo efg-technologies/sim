@@ -1,7 +1,7 @@
 //! GUI-9
-//! Depth: what each of sim's layers stands on. The floor is the window; the boxes of the tree and
-//! of the text are raised from it by one level, and every text lies on the page color sim's palette
-//! is made for (`Palette::bg`) -- so each contrast guarantee sim proves (UI-12, LOOK-9, the fog's
+//! Depth: what each of Sim's layers stands on. The floor is the window; the boxes of the tree and
+//! of the text are raised from it by one level, and every text lies on the page color Sim's palette
+//! is made for (`Palette::bg`) -- so each contrast guarantee Sim proves (UI-12, LOOK-9, the fog's
 //! floors) holds on the pixels as it does in a terminal. What is raised is lit by a soft shadow
 //! under it and a thin rim, and the higher it is the larger and softer the shadow is.
 //!
@@ -133,7 +133,7 @@ mod tests {
         for bg in [DARK, LIGHT] {
             let d = depth(bg);
             assert!(to_lch(d.floor)[0] < to_lch(bg)[0], "{bg:?}");
-            assert_eq!(d.page, bg, "text lies on the page color sim's proofs are made for");
+            assert_eq!(d.page, bg, "text lies on the page color Sim's proofs are made for");
         }
         assert!(!depth(DARK).light && depth(LIGHT).light);
     }

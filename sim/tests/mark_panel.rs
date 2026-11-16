@@ -1,5 +1,5 @@
 //! MARK-1, MARK-2, MARK-3: the marks in the panel (the change color, `~`, `•`) and the narrowed
-//! tree, driven through sim's state.
+//! tree, driven through Sim's state.
 #![allow(clippy::unwrap_used)] // helpers; the tests themselves may unwrap
 mod common;
 use common::*;
@@ -180,7 +180,7 @@ fn mark_1_a_file_that_changed_on_disk_while_sim_runs_is_marked_even_without_git(
     assert_eq!(r.panel()[0], "▾ sub/ ~");
     assert_eq!(changed(&r), ["b.txt"]);
     assert_eq!(r.selected().as_deref(), Some("▾ sub/ ~"));
-    // Saving a file is sim's own write, which is no news (WATCH-2).
+    // Saving a file is Sim's own write, which is no news (WATCH-2).
     let mut r = rig("m1-save", &["a.txt=one\n", "c.txt"], &["a.txt"]);
     r.keys("x:w\n<C-n>");
     assert_eq!(changed(&r), Vec::<String>::new());
