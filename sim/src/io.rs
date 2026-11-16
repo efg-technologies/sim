@@ -776,7 +776,11 @@ impl Watcher {
             k => matches!(k, ErrorKind::PathNotFound),
         };
         let Some(w) = self.w.as_mut() else { return false };
-        match w.watch(at, mode) {
+        // FSEvents (macOS): below the root, its one watch has every directory and refuses none, but tells
+        // nothing of one the user cannot reach (Apple's "File System Event Security"): a directory is opened
+        // instead, and one that cannot be is refused, as inotify refuses it
+        let below = (self.deep && !deep && at.starts_with(&self.root)).then(|| fs::read_dir(at));
+        match below.map_or_else(|| w.watch(at, mode), |d| d.map(drop).map_err(notify::Error::io)) {
             Ok(()) => true,
             Err(e) if gone(&e.kind) => false,
             Err(e) => self.refuse(&e.to_string()),
@@ -799,16 +803,14 @@ impl Watcher {
         let state =
             |d: &PathBuf| self.state.as_ref().is_some_and(|s| self.root.join(d).starts_with(s));
         let want: HashSet<PathBuf> = dirs.into_iter().filter(|d| !state(d)).collect();
-        if !self.deep {
-            for d in self.have.iter().filter(|d| !want.contains(*d)) {
-                drop(self.w.as_mut().map(|w| notify::Watcher::unwatch(w, &self.root.join(d))));
-            }
-            let new: Vec<PathBuf> =
-                want.iter().filter(|d| !self.have.contains(*d)).cloned().collect();
-            for d in new {
-                if self.watch(&self.root.join(&d), false) && self.listed {
-                    self.touch(d);
-                }
+        for d in self.have.iter().filter(|d| !self.deep && !want.contains(*d)) {
+            drop(self.w.as_mut().map(|w| notify::Watcher::unwatch(w, &self.root.join(d))));
+        }
+        // (with FSEvents too: what was written in a new directory was filtered out until the list had it)
+        let new: Vec<PathBuf> = want.iter().filter(|d| !self.have.contains(*d)).cloned().collect();
+        for d in new {
+            if self.watch(&self.root.join(&d), false) && self.listed {
+                self.touch(d);
             }
         }
         (self.have, self.listed) = (want, true);
@@ -908,6 +910,9 @@ pub fn project(
             };
             drop(fs.send(paths));
         });
+        // The root is the real path (`shell::arguments`), as are the paths the system names below it (FSEvents
+        // names no other); the state directory is said by `$HOME`, which may be reached through a link
+        let state = state.map(|s| fs::canonicalize(&s).unwrap_or(s));
         let (deep, gits) = (cfg!(target_os = "macos"), git_dirs(&root));
         let mut w = Watcher {
             w: None,

@@ -343,6 +343,35 @@ fn watch_3_its_own_temporary_files_the_state_directory_and_ignored_directories_m
 }
 
 #[test]
+fn watch_3_in_a_home_reached_through_a_link_the_state_directory_makes_no_event_and_the_rest_does() {
+    // Sim started in a home reached through a link (`/home` to `/var/home`; on macOS every temporary
+    // directory, `/var` to `/private/var`): the root is the real path, as the binary makes it, and the
+    // state directory is said by `$HOME`, through the link. With no repository the walk lists the state's
+    // files, so its directory is among those of the list.
+    let home = temp_dir("w3-home");
+    make(&home.0, &["a.txt", ".local/state/sim/history"]);
+    let link = temp_dir("w3-home-link");
+    fs::remove_dir(&link.0).unwrap();
+    std::os::unix::fs::symlink(&home.0, &link.0).unwrap();
+    let root = sim::shell::arguments(&[], &link.0).unwrap().root;
+    assert_eq!(root, fs::canonicalize(&home.0).unwrap(), "the root is the real path");
+    let state = sim_core::io::journal::state_dir(None, Some(link.0.clone().into())).unwrap();
+    assert!(state.starts_with(&link.0), "{state:?}");
+    let files = io::files(&root);
+    assert!(files.contains(&".local/state/sim/history".into()), "{files:?}");
+    let (tx, rx) = mpsc::channel();
+    let p = io::project(tx, root, Some(state.clone()), io::POLL);
+    p.files(&files);
+    std::thread::sleep(Duration::from_millis(300));
+    while rx.try_recv().is_ok() {}
+    fs::write(state.join("history"), "y\n").unwrap();
+    fs::write(home.0.join(".local/state/sim/positions"), "z\n").unwrap();
+    assert_eq!(named(&batches(&rx, Duration::from_millis(500))), Vec::<(String, bool)>::new());
+    fs::write(link.0.join("a.txt"), "news\n").unwrap();
+    assert_eq!(named(&batches(&rx, Duration::from_millis(400))), [("a.txt".into(), true)]);
+}
+
+#[test]
 fn watch_3_an_idle_project_asks_git_nothing() {
     let d = repository("w3-idle");
     fs::write(d.0.join("a.txt"), "changed, for a diff\n").unwrap();
@@ -400,7 +429,7 @@ fn watch_3_where_a_watch_is_refused_the_project_is_looked_at_every_interval_and_
         }
     }
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices.len(), 1, "{notices:?} ({polls} looks)");
     assert!(
         notices[0].starts_with("the project is looked at every 300ms: cannot watch it"),
         "{notices:?}"
