@@ -170,11 +170,11 @@ impl Sim {
     }
 
     /// GREP-1, FIND-4: Ctrl-f and Ctrl-p. The picker opens with an empty query (one that is open
-    /// becomes this one) and the list of files is read again.
-    pub(super) fn live_start(&mut self, kind: Pick, out: Out) {
+    /// becomes this one) and the list of files is read again; KEY-7: `<Space>ft` opens it with `TODO` typed.
+    pub(super) fn live_start(&mut self, kind: Pick, query: &str, out: Out) {
         self.live_end(out);
         out.push(SimEffect::Files);
-        self.panel.live = Some(Live { kind, done: true, ..Live::default() });
+        self.panel.live = Some(Live { kind, done: true, query: query.into(), ..Live::default() });
         self.live_run(out);
     }
 
@@ -363,7 +363,7 @@ impl Sim {
             Key::Ctrl('w') => return self.live_edit(word, out),
             Key::Esc => return self.live_end(out),
             Key::Enter => return self.live_open(out),
-            Key::Ctrl('f') if l.kind == Pick::Files => return self.live_start(Pick::Grep, out),
+            Key::Ctrl('f') if l.kind == Pick::Files => return self.live_start(Pick::Grep, "", out),
             Key::Down | Key::Ctrl('n' | 'j') => cur + 1,
             Key::Up | Key::Ctrl('p' | 'k') => cur.saturating_sub(1),
             Key::PageDown => cur + page,

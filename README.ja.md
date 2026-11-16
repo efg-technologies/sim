@@ -128,10 +128,14 @@ Rust 1.88 以降が必要です。Linux と macOS の任意の端末で動き、
 | `<Space>bc` | 文字で閉じるタブを選ぶ |
 | `<Space>bk` | `:w!` や `:e!` で退けた側の版の保存先 |
 | `<Space>ge` | HEAD からの変更を表示 |
+| `<Space>gg` | HEAD からの変更を表示(`<Space>ge` と同じ。Diffview のキー) |
 | `]c` / `[c` | 下見の次 / 前の塊 (変更ビューで) |
 | `J` / `K` | 下見をスクロール (変更ビューで) |
 | `f` | FOLLOW の入 / 切 (変更ビューで) |
 | `<Space>gi` | このリポジトリに対して防御が行ったこと |
+| `<Space>ff` / `<Space>fg` | ファイルを探す / ファイルの中身を検索(`Ctrl-p` / `Ctrl-f` と同じ。Telescope のキー) |
+| `<Space>fk` | ヘルプ(`F1` と同じ) |
+| `<Space>ft` | ファイルの中身から `TODO` を検索 |
 | `<Space>um` | Markdown 閲覧ビューのオン・オフ |
 | `F1` | ヘルプ |
 | `:help` | ヘルプ |

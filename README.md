@@ -128,10 +128,14 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `<Space>bc` | pick a tab to close |
 | `<Space>bk` | where the version a save or reload gave up went (`:w!`, `:e!`) |
 | `<Space>ge` | changes from HEAD |
+| `<Space>gg` | changes from HEAD, as `<Space>ge` (Diffview's key) |
 | `]c` / `[c` | next / previous hunk of the preview (in the changes view) |
 | `J` / `K` | scroll the preview (in the changes view) |
 | `f` | FOLLOW on/off (in the changes view) |
 | `<Space>gi` | what the guard did to this repository |
+| `<Space>ff` / `<Space>fg` | find files / search file contents, as `Ctrl-p` / `Ctrl-f` (Telescope's keys) |
+| `<Space>fk` | help, as `F1` |
+| `<Space>ft` | search file contents for `TODO` |
 | `<Space>um` | markdown read view on/off |
 | `F1` | help |
 | `:help` | help |

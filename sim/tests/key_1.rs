@@ -266,6 +266,8 @@ fn key_1_after_a_prefix_the_keys_that_do_something_are_the_table_s() {
         compare(&[prefix]);
     }
     compare(&["<Space>", "b"]);
+    compare(&["<Space>", "f"]);
+    compare(&["<Space>", "g"]);
     compare(&["g", "s"]);
 }
 

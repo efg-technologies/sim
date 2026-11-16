@@ -1362,8 +1362,8 @@ impl Sim {
             _ if self.panel.live.is_some() => return self.live_key(k, out),
             Key::Ctrl('w') if self.leads() => return self.win = true,
             Key::Ctrl('n') => return self.toggle(out),
-            Key::Ctrl('p') => return self.live_start(Pick::Files, out),
-            Key::Ctrl('f') => return self.live_start(Pick::Grep, out),
+            Key::Ctrl('p') => return self.live_start(Pick::Files, "", out),
+            Key::Ctrl('f') => return self.live_start(Pick::Grep, "", out),
             Key::Tab if self.idle() => return self.step(1, out),
             _ if self.panel.open && self.panel.focus => return self.panel_key(k, out),
             _ => {}

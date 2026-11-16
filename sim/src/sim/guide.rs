@@ -1,7 +1,8 @@
-//! KEY-2, KEY-3, KEY-5, KEY-6, MD-5, MD-6, TREE-2, GIT-6
+//! KEY-2, KEY-3, KEY-5, KEY-6, KEY-7, MD-5, MD-6, TREE-2, GIT-6
 //! What guides the user's hands in sim's state (pure): the leader (Space and what follows it), the
 //! prefix that is typed and not complete, the pause after which which-key shows what can come next,
 //! the letters on the tabs, and the hint for Tab.
+use super::live::Pick;
 use super::panel::Out;
 use super::{Sim, SimEffect};
 use crate::keys;
@@ -73,16 +74,19 @@ impl Sim {
     }
 
     /// KEY-2: a key while the leader's sequence is half typed, or the Space that starts one. A key
-    /// that no sequence has, and Esc, end it and do nothing.
+    /// that no sequence has, and Esc, end it and do nothing. KEY-7: `<Space>f` and `<Space>gg` are the
+    /// owner's Telescope and Diffview keys for the picker, the help and the changes view.
     pub(super) fn leader_key(&mut self, k: Key, out: Out) {
         let c = if let Key::Char(c) = k { c } else { '\0' };
         match (self.leader.take().as_deref(), c) {
             (None, ' ') => self.leader = Some(String::new()),
-            (Some(""), 'b') => self.leader = Some("b".into()),
-            (Some(""), 'g') => self.leader = Some("g".into()),
-            (Some(""), 'u') => self.leader = Some("u".into()),
+            (Some(""), 'b' | 'g' | 'u' | 'f') => self.leader = Some(c.into()),
             (Some("u"), 'm') => self.read_key(out),
-            (Some("g"), 'e') => self.changes_key(out),
+            (Some("f"), 'f') => self.live_start(Pick::Files, "", out),
+            (Some("f"), 'g') => self.live_start(Pick::Grep, "", out),
+            (Some("f"), 't') => self.live_start(Pick::Grep, "TODO", out),
+            (Some("f"), 'k') => self.help(String::new(), out),
+            (Some("g"), 'e' | 'g') => self.changes_key(out),
             (Some("g"), 'i') => self.guard_key(),
             (Some("b"), 'p' | 'c') => self.tab_pick(c == 'c', out),
             (Some("b"), 'k') => self.kept_key(),

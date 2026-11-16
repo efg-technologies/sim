@@ -543,6 +543,7 @@ fn diff_6_the_keys_are_in_the_table_so_which_key_and_help_show_them() {
         second,
         [
             ("e".to_string(), "changes from HEAD".to_string()),
+            ("g".to_string(), "changes from HEAD".to_string()), // (KEY-7: Diffview's key)
             ("i".to_string(), "what the guard did".to_string())
         ]
     );
