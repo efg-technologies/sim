@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-16
+
 ### Added
 
 - The whole project is watched (WATCH-1 to WATCH-3): a write, a creation, a deletion or a rename anywhere below the root is taken in within a second with no key typed, where it showed only when the panel was opened. git's letters in the tree, the rows of new and deleted files, the changes view's rows and numbers and the shown file's signs follow the disk; a commit, a checkout or an add made outside asks git again (in a linked worktree too: git's directories come from `git rev-parse --absolute-git-dir --git-common-dir`). A file another process wrote has `↯` after its name in the tree (in every look, with no color too) until it has been looked at, and its row (or the closed folder that hides it) is lit for 400 ms when the write comes. The watcher is a thread of the shell that watches the root, the directories of the list of files and git's directories, never a directory git ignores, the state directory or Sim's own temporary files; it names paths and reads no file. git is asked at most once at a time and no more often than every `max(200 ms, 4 x its last run)`; where the system refuses a watch, the project is looked at every 5 s and the status line says so once. `sim --plain` watches the open file only. `notify`, which the core uses already, is a direct dependency of the editor for it.
@@ -30,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The green row of a file in the tree means "written by another process and not yet looked at": it goes once the file has been shown with no mark of a change on disk left in it, and Sim's own saves no longer make it (it stayed for the whole session, saves included) (WATCH-2).
 - The changes view lists only what git says differs from HEAD: a file that only changed on disk is no row of it.
+- The product's name is written Sim in prose, in every language: the documents, the ten READMEs, the tutor's lessons, the key table's texts, the usage's first line and the intro (CLI-5). The command, the crates, paths and what `sim --version` prints stay lowercase (CLI-7).
 
 ### Fixed
 
@@ -167,7 +170,8 @@ First public release: Sim, the next-generation Vim. It shows even what is hidden
 - The boxes' titles say what the box is, with no number: the panel's says `files`, the editor's says nothing, since the file's name is in its tab (UI-16).
 - `sim --version` prints `sim 0.1.0` and exits 0. `sim --help` prints the usage, with the environment Sim reads (`NO_COLOR`, `SIM_ON_NORMAL`, `XDG_STATE_HOME`), and exits 0. Any other argument that starts with `-` (and is not `--plain` or `--`) prints the same usage to stderr and exits 2. None of them touches the terminal (CLI-7, CLI-1).
 
-[Unreleased]: https://github.com/efg-technologies/sim/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/efg-technologies/sim/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/efg-technologies/sim/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/efg-technologies/sim/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/efg-technologies/sim/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/efg-technologies/sim/releases/tag/v0.1.0

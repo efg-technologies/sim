@@ -1,6 +1,6 @@
 [package]
 name = "sim-editor-core"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.88" # `let` chains
 description = "The core of Sim, the next-generation Vim: the buffer, saves that lose nothing, merges with what other processes write, the terminal. No syntax, no tree, no program of its own."
