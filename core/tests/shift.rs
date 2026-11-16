@@ -73,6 +73,10 @@ const ATOMS: &[&str] = &[
     "o<Esc>",
     ":%d\n",
     ":2,3s/l/L/\n",
+    "gcc",
+    "gcj",
+    "Vjgc",
+    "gcG",
 ];
 
 #[derive(Clone, Debug)]
@@ -123,7 +127,8 @@ fn unique(v: &[String]) -> bool {
 fn setup(n: usize, marks: &[bool]) -> App {
     let src: String =
         (0..n).map(|i| format!("line-{i}-abcdef-{}\n", char::from(b'p' + i as u8))).collect();
-    let mut a = app_with(Some("f"), src.as_bytes(), (80, 12));
+    // (a Rust file, so that `gc` comments: VI-18)
+    let mut a = app_with(Some("f.rs"), src.as_bytes(), (80, 12));
     a.buf.marks = (0..n)
         .filter(|i| marks.get(*i).copied().unwrap_or(true))
         .map(|line| mark(line, '~', vec![line..line + 1]))

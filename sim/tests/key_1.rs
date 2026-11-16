@@ -200,7 +200,8 @@ fn handled(prefix: &[&Typed], names: &[(String, Typed)], setup: &str) -> BTreeSe
 /// The keys that sim takes before the core's parser sees them: with a prefix typed they end it, and are
 /// not keys after it.
 const GLOBAL: [&str; 6] = ["<C-n>", "<C-p>", "<C-f>", "<C-s>", "<F1>", "<S-Tab>"];
-const OPERATORS: [&str; 6] = ["d", "c", "y", "<lt>", ">", "!"];
+/// The operators, as the table writes their keys (`g c` is `gc`, VI-18).
+const OPERATORS: [&str; 7] = ["d", "c", "y", "<lt>", ">", "!", "g c"];
 
 /// The keys the table has after `prefix` in Normal mode (and, after an operator, for `o`), without the
 /// class tokens.
@@ -214,8 +215,11 @@ fn listed(prefix: &[&str]) -> BTreeSet<String> {
         table().iter().flat_map(tokens).filter(|t| t.len() < 2 || !t.starts_with('{')).collect()
     };
     let mut set: BTreeSet<String> = after(prefix, 'n').into_iter().collect();
-    if prefix.first().is_some_and(|p| OPERATORS.contains(p)) {
-        set.extend(after(&prefix[1..], 'o'));
+    // (an operator is the first key of the prefix, or its first two: `g c`)
+    if let Some(n) =
+        (1..=2).find(|&n| n <= prefix.len() && OPERATORS.contains(&&*prefix[..n].join(" ")))
+    {
+        set.extend(after(&prefix[n..], 'o'));
     }
     if !prefix.is_empty() {
         set.retain(|t| !(t.len() == 1 && "123456789".contains(t.as_str())));
@@ -265,7 +269,7 @@ fn key_1_after_ctrl_w_the_keys_that_do_something_are_the_table_s_in_any_pane() {
 #[test]
 fn key_1_after_an_operator_the_motions_and_the_objects_are_the_table_s() {
     for op in OPERATORS {
-        compare(&[op]);
+        compare(&op.split(' ').collect::<Vec<_>>());
     }
     compare(&["d", "i"]);
     compare(&["d", "a"]);

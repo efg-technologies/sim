@@ -4,7 +4,8 @@
 //! searches) or `reg` (VI-15: yanks, deletes and puts with register names, 3-5 commands, compared by
 //! the text and what every register holds afterwards), or `mark` (VI-17: marks set, lines
 //! inserted, deleted, joined and undone, and jumps to the marks; compared by the text, where the marks
-//! are, and the cursor after a jump).
+//! are, and the cursor after a jump), or `comment` (VI-18: `gc` with counts, motions, Visual mode, `.` and
+//! undo on a Rust file, against Neovim's own `gc` with `commentstring` `// %s`).
 //! Every divergence is printed grouped by the first command; the test only fails with
 //! `SIM_ORACLE_STRICT=1`. Not every divergence is a bug: several are SPEC "Decided" items (see the
 //! report), which `known()` filters.
@@ -69,6 +70,7 @@ for line in io.lines(arg[1]) do
   local ln, col, sw = tonumber(f[3]), tonumber(f[4]), tonumber(f[5])
   vim.cmd('silent! enew!')
   vim.bo.shiftwidth = sw
+  vim.bo.commentstring = '// %s'
   vim.bo.tabstop = 8
   -- Setting the lines is not an undoable change of the "file".
   vim.bo.undolevels = -1
@@ -485,9 +487,51 @@ fn mark_command(r: &mut Rng) -> String {
     }
 }
 
+/// One command of the comment mode (VI-18). `.` only after a `gc` of Normal mode: Neovim's `.` would
+/// repeat the case before, and repeats Visual mode's (VI-2 Decided: sim does not).
+fn comment_command(r: &mut Rng, dot: bool) -> String {
+    match r.below(if dot { 10 } else { 9 }) {
+        0..=2 => format!("{}gcc", pick(r, &["", "", "2", "3"])),
+        3..=5 => format!("gc{}", pick(r, &["j", "k", "G", "gg", "2j", "w", "e", "$", "j", "k"])),
+        6 => format!("V{}gc", pick(r, &["", "j", "k", "G"])),
+        7 | 8 => pick(r, &["j", "k", "gg", "G", "w", "jj"]).into(),
+        _ => pick(r, &["u", ".", "<C-r>", "u."]).into(),
+    }
+}
+
+/// A text of the comment mode: lines indented with blanks or a tab, some commented already, some blank.
+fn comment_text(r: &mut Rng) -> String {
+    let line = |r: &mut Rng| {
+        let ind = pick(r, &["", "", "  ", "    ", "\t", "      "]);
+        match r.below(8) {
+            0 => String::new(),
+            1 => ind.into(),
+            k => {
+                let lead = if k < 4 { pick(r, &["// ", "//", "//  "]) } else { "" };
+                format!("{ind}{lead}{}", WORDS[r.below(WORDS.len())])
+            }
+        }
+    };
+    (0..2 + r.below(5)).map(|_| line(r)).collect::<Vec<_>>().join("\n")
+}
+
 fn gen_case(r: &mut Rng, multi: bool) -> Case {
     let indent = r.below(3) == 0;
     let text = gen_text(r, indent);
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "comment") {
+        let text = comment_text(r);
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let mut parts: Vec<String> = vec![];
+        for _ in 0..1 + r.below(3) {
+            let dot =
+                parts.last().is_some_and(|p: &String| p.contains("gc") && !p.starts_with('V'));
+            parts.push(comment_command(r, dot));
+        }
+        let keys = parts.concat() + "<Esc>";
+        return Case { text, line, col, keys, sw: 4, simple: false, parts };
+    }
     if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark") {
         // more lines than the other modes, so that the marks have room to move
         let text = format!("{text}\n{}\n{}", gen_text(r, indent), gen_text(r, false));
@@ -677,8 +721,9 @@ fn blank_step(c: &Case) -> bool {
 
 fn run_si_inner(c: &Case) -> Result<Mine, String> {
     let r = std::panic::catch_unwind(|| {
-        // The file ends with a newline: its text is the lines joined by newlines (as nvim's).
-        let mut a = app_with(None, format!("{}\n", c.text).as_bytes(), (80, 24));
+        // The file ends with a newline: its text is the lines joined by newlines (as nvim's). A Rust file
+        // (VI-18: the comment string is `// %s`).
+        let mut a = app_with(Some("a.rs"), format!("{}\n", c.text).as_bytes(), (80, 24));
         let idx: usize =
             c.text.split('\n').take(c.line).map(|l| l.chars().count() + 1).sum::<usize>() + c.col;
         a.buf.cursor = idx;
@@ -747,6 +792,7 @@ fn vi_1_oracle_against_nvim() {
     let multi = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "seq");
     let reg_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "reg");
     let mark_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark");
+    let comment_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "comment");
     let mut r = Rng(0x9e37_79b9_7f4a_7c15 ^ seed.wrapping_mul(0x2545_f491_4f6c_dd1d));
     let cases: Vec<Case> = (0..n).map(|_| gen_case(&mut r, multi)).collect();
     let dir = temp_dir(&format!("oracle-{seed}-{multi}"));
@@ -768,7 +814,14 @@ fn vi_1_oracle_against_nvim() {
             .arg(&lua)
             .arg(&inp)
             .arg(&outp)
-            .arg(if mark_mode { "xnt" } else { "xn" })
+            // (Neovim's `gc` is a mapping of its defaults: the comment mode remaps)
+            .arg(if mark_mode {
+                "xnt"
+            } else if comment_mode {
+                "xt"
+            } else {
+                "xn"
+            })
             .output()
             .unwrap();
         let part = std::fs::read_to_string(&outp).unwrap_or_default();

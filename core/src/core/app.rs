@@ -128,6 +128,8 @@ pub struct App {
     pub center: bool,
     /// The other end of the Visual selection.
     pub(super) anchor: usize,
+    /// Where the range of the last operator's motion starts (VI-18: `gc` leaves the cursor there).
+    pub(super) from: usize,
     /// The lines of `'<` and `'>`.
     pub(super) marks: (usize, usize),
     /// The registers (VI-15).

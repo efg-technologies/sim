@@ -97,6 +97,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `yy` | yank lines |
 | `"a` | a register: `"ayw` yanks into `a`, `"ap` puts it (`:registers` lists them) |
 | `ma` | set a mark; `'a` goes to its line, `` `a `` to its place; `:marks` lists them |
+| `gcc` | comment or uncomment the line (`gc{motion}` the lines a motion covers, `gc` in Visual mode the selection's) |
 | `]c` | next change from outside |
 | `[c` | previous change from outside |
 | `:s` | substitute |

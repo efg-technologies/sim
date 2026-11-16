@@ -1,9 +1,9 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VIS-12, FILT-1, DISK-6
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VI-18, VIS-12, FILT-1, DISK-6
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
 use super::buffer::{Buffer, PREV, SAVED};
 use super::reg::Regs;
-use super::vi::{Cmd, HALF_DN, HALF_UP, HOME, MOTIONS, Mode, PGUP, VERTICAL, ch};
+use super::vi::{Cmd, GC, HALF_DN, HALF_UP, HOME, MOTIONS, Mode, PGUP, VERTICAL, ch};
 use ropey::Rope;
 use unicode_width::UnicodeWidthChar;
 
@@ -282,6 +282,7 @@ impl App {
         }
         let (t, kind) = self.motion(c.k, c.arg, c.n, op)?;
         self.jumped(c.k);
+        self.from = cur.min(t);
         let b = &self.buf;
         let (s, e) = (cur.min(t), cur.max(t));
         Some(match kind {
@@ -351,6 +352,18 @@ impl App {
                 let range = if vis { "'<,'>".into() } else { format!("{},{}", l1 + 1, l2 + 1) };
                 self.vi.open(&format!(":{range}!"));
             }
+            // (the cursor goes where the range starts, as an operator puts it in vim)
+            // (`{n}gcc` on the last line does nothing: Neovim's is `gc` with the motion `{n}_`, which fails there)
+            GC if c.k == op && c.n > 1 && l1 + 1 == b.lines() => self.failed = true,
+            GC => {
+                let at = match c.k {
+                    k if k == op => b.cursor.min(b.nonblank(l2)),
+                    _ if vis && b.cursor < self.anchor => b.cursor,
+                    k if vis || "ia".contains(k) => a,
+                    _ => self.from,
+                };
+                self.comment(l1, l2, at);
+            }
             _ => {
                 let unit = self.unit();
                 let b = &mut self.buf;
@@ -375,7 +388,7 @@ impl App {
             return self.say(format!("not a register: {r}"));
         }
         let edits = match c.op {
-            Some(o) => "dc<>".contains(o),
+            Some(o) => "dc<>".contains(o) || o == GC,
             None => !vis && "iaIAoOpPJr".contains(c.k),
         };
         // Only the vertical motions keep the wanted column.

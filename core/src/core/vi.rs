@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15, VI-17
+//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15, VI-17, VI-18
 //! Key sequence to Command: counts, operators and prefixes in Normal and Visual mode, and the
 //! editing of the command line.
 use super::app::Key;
@@ -34,6 +34,8 @@ pub const PGDN: char = '\u{e001}';
 pub const PGUP: char = '\u{e002}';
 pub const HALF_DN: char = '\x04';
 pub const HALF_UP: char = '\x15';
+/// `gc` (VI-18), the operator of two keys.
+pub const GC: char = '\u{e003}';
 // `VERTICAL` and `MOTIONS` spell the private chars above (and Ctrl-d, Ctrl-u) out.
 /// The motions that keep the wanted column.
 pub const VERTICAL: &str = "jk\x04\x15\u{e001}\u{e002}";
@@ -85,7 +87,8 @@ impl Parser {
 
     /// The keys of a command that is typed and not complete: its operator, then its prefix (`d`, `g`, `di`).
     pub fn pending(&self) -> String {
-        self.op.into_iter().chain(self.pre).collect()
+        let keys = |c: char| if c == GC { "gc".into() } else { c.to_string() };
+        self.op.into_iter().chain(self.pre).map(keys).collect()
     }
 
     /// The next key is text, not a command: typed in Insert mode or on the command line, or the char
@@ -135,6 +138,7 @@ impl Parser {
                 }
                 (Key::Char('g'), 'g') | (Key::Char('z'), 'z') | (Key::Char('Z' | 'Q'), 'Z')
                 | (Key::Char('c'), '[' | ']') | (Key::Char(_), 'f' | 'F' | 't' | 'T' | 'r' | 'i' | 'a' | 'm' | '\'' | '`') => self.emit(self.op, p, Some(c)),
+                (Key::Char('c'), 'g') => self.operator(GC, vis),
                 _ => self.reset(),
             };
         }
@@ -147,15 +151,8 @@ impl Parser {
             return None;
         }
         if "dcy<>!".contains(c) {
-            return match self.op {
-                _ if vis => self.emit(Some(c), '\0', None),
-                None => {
-                    (self.op, self.n0, self.n) = (Some(c), self.n, 0);
-                    None
-                }
-                Some(o) if o == c => self.emit(Some(c), c, None),
-                Some(_) => self.reset(),
-            };
+            // (`gcc` is `gc` doubled)
+            return self.operator(if c == 'c' && self.op == Some(GC) { GC } else { c }, vis);
         }
         if self.op.is_some() && !(MOTIONS.contains(c) || "ia".contains(c)) {
             return self.reset();
@@ -171,6 +168,20 @@ impl Parser {
             _ => return self.emit(self.op, c, None),
         }
         None
+    }
+
+    /// An operator's key: it waits for a motion, takes whole lines when it is doubled, and takes the
+    /// selection in Visual mode.
+    fn operator(&mut self, o: char, vis: bool) -> Option<Cmd> {
+        match self.op {
+            _ if vis => self.emit(Some(o), '\0', None),
+            None => {
+                (self.op, self.n0, self.n) = (Some(o), self.n, 0);
+                None
+            }
+            Some(p) if p == o => self.emit(Some(o), o, None),
+            Some(_) => self.reset(),
+        }
     }
 
     /// Feeds a key on the command line; returns the line, with its prefix, when it is submitted.

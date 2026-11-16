@@ -49,12 +49,14 @@ y	nv	yank	y{motion} copies the text to the unnamed register and to the system cl
 <lt>	nv	outdent	<{motion} takes one level of indent off the lines the motion covers; << is the current line; in Visual mode < outdents the selection. A level is the file's own: 4 columns, 2, or a tab, as the first indented lines show.
 >	nv	indent	>{motion} puts one level of indent on the lines the motion covers; >> is the current line; in Visual mode > indents the selection.
 !	nv	filter	!{motion} opens the command line with the range of lines, ready for a command: !! is the current line, and :{range}!cmd runs the lines through cmd and replaces them with what it prints, as one undo step. Ctrl-c cancels a filter that runs. Not in plain mode.
+g c	nv	comment toggle	gc{motion} (or the selection) comments the lines, or uncomments them when every line that is not blank is commented, as Neovim's gc does. The comment string comes from the file name: // for Rust, C and TypeScript, # for Python, shell and YAML, -- for Lua, <!-- --> for Markdown and HTML, /* */ for CSS; a file whose string is not known says so, and nothing changes. One toggle is one undo step, . repeats it, and no register is touched.
 d d	n	delete lines	Deletes the current line, or that many lines with a count (3dd).
 c c	n	change lines	Deletes the current line's text, keeping its indent, and starts Insert mode.
 y y	n	yank lines	Yanks the current line, or that many lines with a count (3yy).
 <lt> <lt>	n	outdent line	Takes one level of indent off the current line.
 > >	n	indent line	Puts one level of indent on the current line.
 ! !	n	filter line	Opens the command line with the current line as the range, ready for :{range}!cmd.
+g c c	n	comment line	Comments the line, or uncomments it, as Neovim's gcc does; a count does that many lines.
 D	n	delete to end of line	Deletes from the cursor to the end of the line, as d$.
 C	n	change to end of line	Deletes from the cursor to the end of the line and starts Insert mode, as c$.
 Y	n	yank to end of line	Yanks from the cursor to the end of the line, as y$. In vi Y yanks the whole line (yy does that here).

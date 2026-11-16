@@ -258,6 +258,17 @@ const TOKENS: &[&str] = &[
     "/a<BS>",
     "/a<Esc>",
     "ｙｙｐ",
+    // The comment toggle (VI-18): `f.rs` is commented with `//`, `f.md` with `<!-- -->`.
+    "gcc",
+    "gcj",
+    "gck",
+    "gcG",
+    "3gcc",
+    "Vjgc",
+    "vgc",
+    "gcgc",
+    "gciw",
+    "gc",
 ];
 
 /// Counts that overflow `usize` (20 digits) or are merely huge: no panic, no spin, no giant allocation.
@@ -686,6 +697,11 @@ const COMPLETE: &[&str] = &[
     "o<Esc>",
     "O<Esc>",
     "cwz<Esc>",
+    "gcc",
+    "gcj",
+    "2gcc",
+    "Vjgc",
+    "gcG",
 ];
 
 fn counted() -> impl Strategy<Value = Vec<String>> {
