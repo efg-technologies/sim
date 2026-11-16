@@ -1033,7 +1033,7 @@ fn vi_1_oracle_against_nvim() {
         }
         if surround_mode && surround_failed(c) {
             *known_counts
-                .entry("a gsd or gsr that finds nothing (mini reads the keys after it as commands)")
+                .entry("a gs command that finds nothing (mini reads the keys after it as commands)")
                 .or_default() += 1;
             continue;
         }
