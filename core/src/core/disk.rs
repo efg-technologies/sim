@@ -70,7 +70,7 @@ impl App {
         };
         (self.buf.cursor, self.anchor) = (at(self.buf.cursor), at(self.anchor));
         self.clamp();
-        let n = with.matches('\n').count() + 1;
+        let n = with.trim_end_matches('\n').matches('\n').count() + 1; // (`:r !cmd`'s lines end in a break)
         self.say(format!("{} from the filter · u to undo", plural(n, "line", "lines")));
     }
 

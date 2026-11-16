@@ -108,6 +108,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `[c` | previous change from outside |
 | `:s` | substitute |
 | `:{range}!cmd` | filter |
+| `:r file` / `:r !cmd` | put a file's lines / what a command prints below the line |
 | `:seen` | clear change marks |
 | `Ctrl-n` | toggle the tree |
 | `Ctrl-p` | find files |

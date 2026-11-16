@@ -606,7 +606,7 @@ impl App {
     }
 
     /// Whether a command may add `bytes` of text; says why not (VI-2).
-    fn fits(&mut self, bytes: usize) -> bool {
+    pub(super) fn fits(&mut self, bytes: usize) -> bool {
         if bytes > MAX_ADD {
             self.say("too large: 16 MiB at most");
         }

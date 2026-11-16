@@ -178,6 +178,9 @@ pub struct App {
     /// The buffer version when each `:e` ran, oldest first: a load is refused if the buffer changed
     /// since. An `Opened` nobody asked for is ignored.
     pub(super) opening: VecDeque<u64>,
+    /// `:r {file}` asked for a file (VI-23): the buffer's version then, and the line it goes below. Its
+    /// answer comes before that of an `:e` typed after it.
+    pub(super) reading: Option<(u64, usize)>,
     /// The version whose text the journal holds, and the tick that asked for it.
     snap: Option<(u64, u64)>,
     /// `SIM_ON_NORMAL` (VI-11): the shell reads it, the core does not.
@@ -289,6 +292,7 @@ impl App {
             Event::Disk { bytes, hash, deadline, .. } => self.disk(bytes, hash, deadline),
             Event::Notice(m) => self.say(m),
             Event::Kept(r) => self.kept(r),
+            Event::Opened(path, file, _) if self.reading.is_some() => self.read_in(&path, file),
             Event::Opened(path, file, seq) => {
                 let at = self.copy.take().map_or(String::new(), |c| format!("; yours is in {c}"));
                 match self.opening.pop_front() {
@@ -520,7 +524,7 @@ impl App {
         let kind = |r: &Resume| if matches!(r, Resume::Write(..)) { "a save" } else { "a reload" };
         let asked =
             self.saving.as_ref().map(|_| "a save").or(self.opening.front().map(|_| "a reload"));
-        asked.or(self.resume.as_ref().map(kind))
+        asked.or(self.resume.as_ref().map(kind)).or(self.reading.map(|_| "a read")) // (`:r`, VI-23)
     }
 
     /// The copy of SAFE-7 is made (or could not be): what waited for it goes on, or is given up and

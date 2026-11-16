@@ -189,6 +189,7 @@ f	t	FOLLOW on/off	In the changes view: while FOLLOW is on (the status line says 
 :s	c	substitute	:s/old/new/ replaces the first match in the line, with g every match; :%s/old/new/g does the whole file. A pattern is a regex; & in the replacement is what matched, \1 a group.
 :{n}	c	go to line	:42 moves to line 42; :$ to the last line; :'<,'> is the Visual selection.
 :{range}!cmd	c	filter	Runs the lines of the range through sh -c cmd and replaces them with its output, as one undo step; typing goes on meanwhile and Ctrl-c cancels. :%!sort sorts the file. Not in plain mode.
+:r	c	read a file or a command	:r {file} puts the file's lines below the line (:{n}r below line n, :$r at the end; no name: the file itself), as one undo step; a file that is not text is refused. :r !cmd puts what cmd prints there instead, as a filter that is given no lines (not in plain mode).
 :seen	c	clear change marks	Forgets the marks of the changes that came from the disk, as if they had all been looked at.
 :noh	c	put out the search highlight	Puts the lit matches of the search out and the count with them; n or a new search lights them again.
 :registers|:reg	c	list the registers	:registers shows what each register holds, the unnamed one first, a line break as ⏎, long text cut to fit the line; a register that holds nothing is left out. Nothing is written to the disk: they are gone when sim ends.

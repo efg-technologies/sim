@@ -343,6 +343,10 @@ const TOKENS: &[&str] = &[
     "i<M-j>",
     "d<M-k>",
     ":<M-l>",
+    // `:r` (VI-23), never answered here, and its filter
+    ":r x<CR>",
+    ":r !x<CR>",
+    ":2r!x<CR>",
 ];
 
 /// Counts that overflow `usize` (20 digits) or are merely huge: no panic, no spin, no giant allocation.
