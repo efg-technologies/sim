@@ -28,6 +28,7 @@ n	nvo	next match	Moves to the next match of the last search, wrapping round the 
 N	nvo	previous match	Moves to the previous match of the last search, wrapping round the start of the file.
 *	nvo	search word forward	Searches for the word under the cursor, as a whole word, and moves to its next occurrence.
 #	nvo	search word backward	Searches for the word under the cursor, as a whole word, and moves to its previous occurrence.
+s	nv	jump by label	Jumps by label, as the owner's flash.nvim does on s: type a few characters of where to go (a literal, smart-case: one capital makes it exact) and every match on the screen gets a letter after it; type the letter and the cursor is there. Enter goes to the nearest match, Esc nowhere, and '' comes back. In Visual mode the selection goes with it. Nothing is edited.
 <C-d>	nvo	half page down	Scrolls half a screen down and moves the cursor with it; the line is centered where it can be.
 <C-u>	nvo	half page up	Scrolls half a screen up and moves the cursor with it.
 <PageDown>	nvo	page down	Moves a screen down.

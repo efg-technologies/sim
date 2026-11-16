@@ -19,7 +19,7 @@ const NOTCH: usize = 3;
 /// Puts the cursor on char `at`, as a key that moved it would leave it: a Normal-mode cursor rests
 /// on a char (the App's own `clamp`), the wanted column starts again, and the mark of the line it
 /// enters is seen (DISK-6).
-fn put(app: &mut App, at: usize) {
+pub(super) fn put(app: &mut App, at: usize) {
     let b = &mut app.buf;
     (b.cursor, b.want) = (at.min(b.text.len_chars()), None);
     app.clamp();
@@ -32,6 +32,7 @@ impl Sim {
     /// nothing with them. Only the left button acts; the others, and a pointer that only moves,
     /// are ignored.
     pub(super) fn mouse(&mut self, m: MouseEvent, out: Out) {
+        self.jump = None; // (JUMP-1: the mouse ends a jump)
         let g = self.geo();
         let (x, y) = (m.column, m.row.saturating_sub(g.y0));
         let body = m.row >= g.y0 && y < g.rows;

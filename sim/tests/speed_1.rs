@@ -295,6 +295,16 @@ fn lit(b: &mut Bench) -> Times {
     motions(b)
 }
 
+/// JUMP-1: jumps by label over the big file: `s`, a query typed and taken back, Enter to the nearest match
+/// and a label, then a jump given up; each key finds the matches of the lines on screen again.
+fn jump(b: &mut Bench) -> Times {
+    let mut out = vec![];
+    for _ in 0..150 {
+        out.extend(b.time("slet<BS>t\nksfna<Esc>sx<Esc>"));
+    }
+    out
+}
+
 /// PICK-1 to PICK-5: the picker open over the big file: Ctrl-p's finder typed into, moved in and
 /// cleared, and Ctrl-f's search of contents (over the 300 files and the big one), with the previews
 /// that come, their colors and the batches of results.
@@ -409,7 +419,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
     for skin in [Skin::Calm, Skin::Depth] {
         for size in [(80, 24), (240, 60)] {
             type Kind = fn(&mut Bench) -> Times;
-            let kinds: [(&str, Kind); 11] = [
+            let kinds: [(&str, Kind); 12] = [
                 ("motions", motions),
                 ("insert", inserts),
                 ("delete", deletes),
@@ -421,6 +431,7 @@ fn speed_1_bench_a_key_with_the_panel_open_takes_under_1ms_at_p99() {
                 ("changes", changes),
                 ("lit", lit),
                 ("touched", touched),
+                ("jump", jump),
             ];
             for (name, run) in kinds {
                 // `SPEED_1_ONLY=lit` runs the kinds named, for a look at one of them

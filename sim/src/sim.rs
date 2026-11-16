@@ -1,9 +1,10 @@
-//! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2
+//! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2, JUMP-1
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
 //! are in `panel.rs`, the search of file contents in `live.rs`.
 mod guide;
+mod jump;
 mod lesson;
 mod live;
 mod panel;
@@ -479,6 +480,8 @@ pub struct Sim {
     leader: Option<String>,
     /// TREE-2: Ctrl-w was typed and waits for the key that sends the focus.
     win: bool,
+    /// JUMP-1: `s` was typed and the query of the jump is being typed.
+    jump: Option<String>,
     /// KEY-5: the letters are on the tabs (`Some(false)` to show a file, `Some(true)` to close one).
     tabpick: Option<bool>,
     /// KEY-3: the number of the last pause asked for, and the prefix whose window is open.
@@ -704,7 +707,9 @@ impl Sim {
                 self.arm(&mut out);
             }
             SimEvent::Pause(n) => self.paused(n),
-            SimEvent::Help | SimEvent::BackTab if take(&mut self.win) => {} // (any key ends Ctrl-w's prefix)
+            // (any key ends Ctrl-w's prefix, and a jump: JUMP-1)
+            SimEvent::Help | SimEvent::BackTab
+                if take(&mut self.win) | take(&mut self.jump).is_some() => {}
             SimEvent::Help => self.help(String::new(), &mut out),
             SimEvent::Changes(r) => match r {
                 Ok(counts) if self.changes.is_some() => {
@@ -720,6 +725,7 @@ impl Sim {
                 Err(e) => self.msg = Some(e),
             },
             SimEvent::Shown(path, r) => self.shown(path, r, &mut out),
+            SimEvent::Term(Event::Paste(_)) if self.jump.take().is_some() => {} // (JUMP-1: never edits)
             SimEvent::Term(Event::Paste(s)) if !self.panel.focus && self.panel.live.is_none() => {
                 self.to(self.id(), Event::Paste(s), &mut out)
             }
@@ -884,6 +890,7 @@ impl Sim {
     pub fn wants_text(&self) -> bool {
         match (self.panel.live.is_some(), self.panel.open && self.panel.focus) {
             (true, _) => true,
+            _ if self.jump.is_some() => true, // (JUMP-1: the query)
             (_, true) => self.panel.search.as_ref().is_some_and(|s| s.typing),
             _ => self.bufs.get(self.cur).is_some_and(|b| b.app.vi.text()),
         }
@@ -1339,7 +1346,8 @@ impl Sim {
 
     fn key(&mut self, k: Key, out: &mut Vec<SimEffect>) {
         // VI-22: Alt-h/j/k/l are the text's; where a key is not the text's, an Alt key is Esc and the key
-        let theirs = self.tabpick.is_some() || self.win || self.leader.is_some();
+        let theirs =
+            self.tabpick.is_some() || self.win || self.leader.is_some() || self.jump.is_some();
         let theirs = theirs || self.panel.live.is_some() || (self.panel.open && self.panel.focus);
         if let (Key::Alt(c), true) = (k, theirs) {
             self.key(Key::Esc, out);
@@ -1353,6 +1361,9 @@ impl Sim {
         }
         if take(&mut self.win) {
             return self.win_key(k, out);
+        }
+        if self.jump.is_some() {
+            return self.jump_key(k); // JUMP-1
         }
         if self.leader.is_some() || (k == Key::Char(' ') && self.leads()) {
             return self.leader_key(k, out);
@@ -1371,6 +1382,11 @@ impl Sim {
         let Some(b) = self.bufs.get(self.cur) else {
             return out.extend((k == Key::Char('q')).then_some(SimEffect::Quit(0)));
         };
+        // JUMP-1: `s` jumps by label, in Normal mode with nothing pending and in Visual mode (the core has no `s`)
+        let vi = &b.app.vi;
+        if k == Key::Char('s') && !self.plain && (vi.idle() || vi.mode.visual() && vi.bare()) {
+            return self.jump = Some(String::new());
+        }
         let submit = k == Key::Enter && b.app.vi.mode == Mode::Cmd;
         let (id, line) = (b.id, if submit { b.app.vi.line.clone() } else { String::new() });
         if noh(&line) {
@@ -1565,14 +1581,18 @@ impl Sim {
         let guides = self.ui().then(|| guides_of(b, lit.map(|f| f.chars.clone()), wrote));
         // UI-13: calm has no guides, and a yank is lit there too (the flash alone is asked for)
         let calm = lit.filter(|_| guides.is_none()).map(|f| f.chars.clone());
-        let line_ui = |l: usize| match (&guides, &calm) {
+        let base = |l: usize| match (&guides, &calm) {
             (Some(g), _) => g.of(buf, l),
             (_, Some(r)) => LineUi { flash: flash_in(buf, r, l), bare: true, ..LineUi::default() },
-            _ => LineUi::default(),
+            _ => LineUi { bare: true, ..LineUi::default() },
         };
-        let have = guides.is_some() || calm.is_some();
-        // MD-1: the lines the read view leaves as they are: the cursor's, and the selected ones
-        let read = (self.md && is_markdown(b.app.path.as_deref())).then(|| {
+        // JUMP-1: a jump lights its matches in place of a search's, and has its labels
+        let jump = self.jump.as_ref().map(|q| self.jump_hits(b, q));
+        let line_ui = |l: usize| jump::lights(jump.as_deref(), l, base(l));
+        let have = guides.is_some() || calm.is_some() || jump.is_some();
+        // MD-1: the lines the read view leaves as they are: the cursor's, and the selected ones; every line
+        // while a jump is typed (JUMP-1: no match or label on a char that is not drawn)
+        let read = (self.md && jump.is_none() && is_markdown(b.app.path.as_deref())).then(|| {
             let (cl, last) = (buf.line_of(buf.cursor), |e: usize| buf.line_of(e.saturating_sub(1)));
             b.app
                 .selection()
@@ -1732,7 +1752,8 @@ impl Sim {
             }
         }
         let si_status = status.clone();
-        status = layout::fit(&self.msg.clone().unwrap_or(status), room).0 + &pos;
+        let said = self.jump.as_ref().map(|q| format!("jump: {q}")).or(self.msg.clone()); // (JUMP-1)
+        status = layout::fit(&said.unwrap_or(status), room).0 + &pos;
         let sel = focus.then(|| self.panel.cur - self.panel.top);
         let typing = self.panel.search.as_ref().is_some_and(|s| s.typing);
         if let (Some(i), false) = (sel, typing) {
@@ -1918,7 +1939,7 @@ impl Sim {
     /// and its slash while the panel has the focus.
     fn bar(&self, w: u16, si_status: &str, tree: Option<(&str, &str)>) -> Option<Line> {
         let t = self.tones.as_ref().filter(|_| self.ui())?;
-        if self.msg.is_some() || self.panel.search.is_some() {
+        if self.msg.is_some() || self.panel.search.is_some() || self.jump.is_some() {
             return None;
         }
         let marks = &self.marks;
@@ -2278,7 +2299,7 @@ impl Guides<'_> {
             now,
             guides,
             scope,
-            bare: false,
+            ..LineUi::default()
         }
     }
 }

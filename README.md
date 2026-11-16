@@ -94,6 +94,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `/` | search forward |
 | `n` | next match |
 | `*` | search word forward |
+| `s` | jump by label: type a few chars of where to go, then the letter shown there (`''` comes back) |
 | `yy` | yank lines |
 | `"a` | a register: `"ayw` yanks into `a`, `"ap` puts it (`:registers` lists them) |
 | `ma` | set a mark; `'a` goes to its line, `` `a `` to its place; `:marks` lists them |

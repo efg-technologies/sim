@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, MD-12, UI-19, WATCH-2, DIFF-7, DIFF-9, GIT-6, DARK-1
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, MD-12, UI-19, WATCH-2, DIFF-7, DIFF-9, GIT-6, DARK-1, JUMP-1
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -838,27 +838,20 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     front.extend(m.now.iter().map(|r| (r.clone(), now)));
     front.extend(m.hit.iter().map(|r| (r.clone(), hit)));
     line.paints.splice(0..0, front);
-    if !m.glyph.is_empty() {
-        let mut cs: Vec<char> = line.row.text.chars().collect();
-        for g in &m.glyph {
-            if g.idx >= cs.len() {
-                cs.resize(g.idx, ' ');
-                cs.push(g.ch);
-            } else {
-                cs[g.idx] = g.ch;
-            }
-            let ink = match g.tone {
-                Tone::Plain => None,
-                Tone::Mark => Some(t.focus),
-                Tone::Dim | Tone::Guide => Some(t.line),
-                Tone::Scope => Some(t.focus),
-                Tone::Call => Some(t.primary),
-            };
-            let mark = Paint { fg: ink, ..Paint::default() };
-            paints.extend(ink.map(|_| (g.col..g.col + 1, mark)));
-        }
-        line.row.text = cs.into_iter().collect();
-        line.cols = fit(&line.row.text, usize::MAX).1 as u16;
+    glyphs(line, m.glyph.iter());
+    for g in &m.glyph {
+        let ink = match g.tone {
+            Tone::Plain | Tone::Label => None,
+            Tone::Mark => Some(t.focus),
+            Tone::Dim | Tone::Guide => Some(t.line),
+            Tone::Scope => Some(t.focus),
+            Tone::Call => Some(t.primary),
+        };
+        let mark = Paint { fg: ink, ..Paint::default() };
+        paints.extend(ink.map(|_| (g.col..g.col + 1, mark)));
+        // JUMP-1: a label is bold on the accent's solid color, over everything else of its cell
+        let label = Paint { bold: true, ..now };
+        line.paints.splice(0..0, (g.tone == Tone::Label).then(|| (g.col..g.col + wide(g), label)));
     }
     let lang = m.lang.as_ref().map(|l| fit(l, usize::from(ew)));
     if let Some((lang, w)) = lang.filter(|(_, w)| line.cols + 2 + *w as u16 <= ew) {
@@ -877,6 +870,26 @@ fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
         paints.push((gutter..ew, on(band, role)));
     }
     line.paints.extend(paints);
+}
+
+/// UI-6, JUMP-1: the glyphs put in the text of a row, each over the char it stands on (or past its end).
+fn glyphs<'a>(line: &mut Line, gs: impl Iterator<Item = &'a Glyph>) {
+    let mut cs: Vec<char> = line.row.text.chars().collect();
+    for g in gs {
+        if g.idx >= cs.len() {
+            cs.resize(g.idx, ' ');
+            cs.push(g.ch);
+        } else {
+            cs[g.idx] = g.ch;
+        }
+    }
+    line.row.text = cs.into_iter().collect();
+    line.cols = fit(&line.row.text, usize::MAX).1 as u16;
+}
+
+/// JUMP-1: the columns of a label: two for the fullwidth form of a letter put over a wide char.
+fn wide(g: &Glyph) -> u16 {
+    if g.ch.is_ascii() { 1 } else { 2 }
 }
 
 /// MD-1: `line`, a row the core made, as the read view draws it: its text and every range of
@@ -1022,11 +1035,14 @@ fn editor(g: &Geo, ed: Option<&Ed>, gray: bool, t: Option<&Tones>) -> Vec<Line> 
             line.looks.retain(|(r, _)| !m.lie.iter().any(|x| x.start < r.end && r.start < x.end));
             line.row.spans.extend(m.lie.iter().map(|r| (r.clone(), Style::Hidden)));
             // UI-13: a yank is lit as a Visual selection is (SYN-5), in lightness alone: its gray
-            // ahead of the syntax looks, the core's underline where there is none
+            // ahead of the syntax looks, the core's underline where there is none; JUMP-1: so is a label
+            let labels: Vec<&Glyph> = m.glyph.iter().filter(|g| g.tone == Tone::Label).collect();
+            glyphs(&mut line, labels.iter().copied());
+            let lit = m.flash.iter().cloned().chain(labels.iter().map(|g| g.col..g.col + wide(g)));
             if gray {
-                line.looks.splice(0..0, m.flash.iter().map(|r| (r.clone(), Look::Sel)));
+                line.looks.splice(0..0, lit.map(|r| (r, Look::Sel)));
             } else {
-                line.row.underline.extend(m.flash.iter().cloned());
+                line.row.underline.extend(lit);
             }
         }
         // UI-5: the numbers as Neovim's `number` and `relativenumber` draw them: the cursor's line
@@ -1311,6 +1327,8 @@ pub enum Tone {
     Scope,
     /// MD-11: a callout's bar, in the primary gray (a plain quote's is the secondary).
     Call,
+    /// JUMP-1: a label of a jump.
+    Label,
 }
 
 /// A char drawn in the place of a cell of a row: the index of the char it stands for in the row's
@@ -1424,6 +1442,8 @@ pub struct LineUi {
     /// UI-14: the chars of the line that a search matches, and which of them is the current one.
     pub hits: Vec<std::ops::Range<usize>>,
     pub now: Option<usize>,
+    /// JUMP-1: the labels of a jump, each with the char of the line it is drawn over (the one after its match).
+    pub labels: Vec<(usize, char)>,
 }
 
 /// SYN-1: what `colors` finds in an editor frame: the looks of its rows, the first and the last
@@ -1657,6 +1677,13 @@ pub fn colors_with<'a>(
                     _ => to.push(cols),
                 }
             }
+            // JUMP-1: a label over the char after a match: the fullwidth form of its letter over a wide char
+            if let Some(&(_, c)) = lui.labels.iter().find(|x| x.0 == ci) {
+                let ch =
+                    char::from_u32(c as u32 + 0xFEE0).filter(|_| w == 2 && n == 1).unwrap_or(c);
+                let col = (gutter + col) as u16;
+                md[i].glyph.push(Glyph { idx: gutter + used, ch, col, tone: Tone::Label });
+            }
             // UI-7: the cells of a TODO badge, merged where they touch.
             if badge.contains(&ci) {
                 let cols = (gutter + col) as u16..(gutter + col + w) as u16;
@@ -1714,6 +1741,12 @@ pub fn colors_with<'a>(
             edited = true;
         }
         md[i].map = (plan.is_some() && edited && used == len).then_some(map);
+        // JUMP-1: and a label after a match at the end of the line, where the row has a cell for it
+        let last = lui.labels.iter().find(|x| x.0 == ci).filter(|_| ended);
+        if let Some(&(_, ch)) = last.filter(|_| gutter + col < usize::from(f.width)) {
+            let col = (gutter + col) as u16;
+            md[i].glyph.push(Glyph { idx: gutter + used, ch, col, tone: Tone::Label });
+        }
         // UI-8: the rule of a thematic break goes on to the pane's edge.
         if rule && ci == cs.len() && (line.is_some() || len > 0) {
             let from = gutter + col;

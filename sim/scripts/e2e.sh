@@ -3422,6 +3422,25 @@ grep_7_hidden_characters_in_a_result_are_shown_as_their_forms() {
   fi
 }
 
+# JUMP-1: `s` and two chars light the matches on the screen with a label after each; the label moves the cursor
+# there, `''` comes back, and nothing is written.
+jump_1_s_and_a_label_move_the_cursor_and_nothing_is_edited() {
+  printf 'foo bar\nfox baz\nfob\n' > "$W/a.txt"
+  start a.txt
+  wait_for "a.txt  1:1  NORMAL"
+  typed sfo
+  wait_for "jump: fo"
+  wait_for "foa bar"
+  screen | grep -F -q "fos baz"
+  screen | grep -F -q "fod"
+  typed d
+  wait_for "a.txt  3:1  NORMAL"
+  screen | grep -F -q "fox baz"
+  typed "''"
+  wait_for "a.txt  1:1  NORMAL"
+  [ "$(cat "$W/a.txt")" = "$(printf 'foo bar\nfox baz\nfob')" ]
+}
+
 # A case runs in a process of its own, traced (scripts/e2e-lib.sh says how and why).
 if [ "${1:-}" = "--run-one" ]; then
   run_one "$2"
