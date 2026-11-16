@@ -90,6 +90,9 @@ const ATOMS: &[&str] = &[
     "gsd(",
     "gsd-",
     "gsr-+",
+    "A(<CR>x<Esc>",
+    "I\"<BS><Esc>",
+    "A[<Esc>",
 ];
 
 #[derive(Clone, Debug)]

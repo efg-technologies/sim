@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VI-20, VIS-12, FILT-1, DISK-6
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VI-20, VI-21, VIS-12, FILT-1, DISK-6
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
 use super::buffer::{Buffer, PREV, SAVED, VIS};
@@ -682,7 +682,7 @@ impl App {
         self.clamp();
     }
 
-    fn type_str(&mut self, s: &str) {
+    pub(super) fn type_str(&mut self, s: &str) {
         let b = &mut self.buf;
         b.replace(b.cursor..b.cursor, s);
         b.cursor += s.chars().count();
@@ -712,8 +712,15 @@ impl App {
         let (l, cur, col) = (b.line_of(b.cursor), b.cursor, b.col());
         let (ls, nb) = (b.start(l), b.nonblank(l));
         let to_indent = if cur > nb { nb } else { ls };
+        // VI-21: the chars around the cursor (`\r` at the start of a line, as mini.pairs sees it), and
+        // whether they are a pair
+        let (prev, next) = (if col > 0 { b.ch(cur - 1) } else { '\r' }, b.ch(cur));
+        let pair = matches!(
+            (prev, next),
+            ('(', ')') | ('[', ']') | ('{', '}') | ('"', '"') | ('\'', '\'') | ('`', '`')
+        );
         match k {
-            Key::Char(c) => self.type_str(&c.to_string()),
+            Key::Char(c) => self.typed(c, prev, next),
             Key::Tab => {
                 let unit = self.unit();
                 self.type_str(&unit);
@@ -721,6 +728,14 @@ impl App {
             Key::Enter => {
                 let ind = self.indent_of(l);
                 let ind = &ind[..ind.len().min(col)];
+                // (between the brackets of a pair, mini.pairs' Enter: the closing one on a line of its
+                // own, and the cursor on a line between them, a unit further in)
+                if pair && "([{".contains(prev) {
+                    let unit = self.unit();
+                    self.type_str(&format!("\n{ind}{unit}\n{ind}"));
+                    (self.buf.cursor, self.ai) = (self.buf.cursor - ind.len() - 1, Some(l + 1));
+                    return;
+                }
                 self.type_str(&format!("\n{ind}"));
                 self.ai = (!ind.is_empty()).then_some(l + 1);
             }
@@ -739,7 +754,13 @@ impl App {
                     }
                     _ => cur,
                 };
-                b.replace(from..if k == Key::Delete { cur + 1 } else { cur }, "");
+                // (Backspace between the chars of a pair takes both, as mini.pairs', and `.` deletes the
+                // two as they went)
+                let both = k == Key::Delete || (k == Key::Backspace && pair && !self.replaying);
+                if both && self.rec.last() == Some(&Key::Backspace) {
+                    self.rec.push(Key::Delete);
+                }
+                b.replace(from..if both { cur + 1 } else { cur }, "");
                 b.cursor = from;
             }
             Key::Esc | Key::Ctrl('c') => {

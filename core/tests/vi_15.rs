@@ -211,10 +211,11 @@ fn vi_15_dot_walks_the_numbered_registers() {
     assert_eq!(marked(&a), "e\n|b", "`\"1p` puts d, `u.` puts \"2 (c), `u.` puts \"3 (b)");
     let a = typed("|a\nb\nc\nd\ne", "dddddddd\"1p..");
     assert_eq!(marked(&a), "e\nd\nc\n|b", "without `u` each one goes below the last");
-    // A `"1` that was typed as text is text, not a register.
+    // A `"1` that was typed as text is text, not a register (the `"` is typed in a pair, VI-21, and `.`
+    // types the pair as it was put in).
     let mut a = app("a");
     feed(&mut a, "i\"1<Esc>.");
-    assert_eq!(text(&a), "\"\"11a");
+    assert_eq!(text(&a), "\"\"1\"1\"a");
 }
 
 #[test]

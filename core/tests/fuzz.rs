@@ -317,6 +317,19 @@ const TOKENS: &[&str] = &[
     "gsa",
     "gsr(",
     "gs",
+    // The pairs that typing makes (VI-21): in Insert mode after `i` or `a` above, or in sessions.
+    "[",
+    "]",
+    "{",
+    "}",
+    "`",
+    "i(<BS><Esc>",
+    "a(<CR>x<Esc>",
+    "o{<CR><CR>}<Esc>",
+    "i\"x\"<Esc>",
+    "A'a'<Esc>",
+    "i\\(<Esc>",
+    "i([{\"'`<BS><BS><BS><Esc>",
 ];
 
 /// Counts that overflow `usize` (20 digits) or are merely huge: no panic, no spin, no giant allocation.
@@ -767,6 +780,10 @@ const COMPLETE: &[&str] = &[
     "gsd(",
     "gsdq",
     "gsr)]",
+    "i(x)<Esc>",
+    "a\"<BS><Esc>",
+    "o{<CR>x<Esc>",
+    "i'a'<Esc>",
 ];
 
 fn counted() -> impl Strategy<Value = Vec<String>> {

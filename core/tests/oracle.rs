@@ -7,7 +7,8 @@
 //! are, and the cursor after a jump), or `comment` (VI-18: `gc` with counts, motions, Visual mode, `.` and
 //! undo on a Rust file, against Neovim's own `gc` with `commentstring` `// %s`), or `surround` (VI-20:
 //! `gsa`, `gsd` and `gsr` against mini.surround with its defaults and the owner's mappings; it is looked
-//! for in `SIM_ORACLE_MINI`, else in `~/.local/share/nvim/lazy/mini.nvim`).
+//! for in `SIM_ORACLE_MINI`, else in `~/.local/share/nvim/lazy/mini.nvim`), or `pairs` (VI-21: Insert
+//! mode with brackets, quotes, Backspace, `.` and undo, against mini.pairs with its defaults).
 //! Every divergence is printed grouped by the first command; the test only fails with
 //! `SIM_ORACLE_STRICT=1`. Not every divergence is a bug: several are SPEC "Decided" items (see the
 //! report), which `known()` filters.
@@ -55,6 +56,7 @@ if mini and mini ~= '' then
     mappings = { add = 'gsa', delete = 'gsd', replace = 'gsr', find = 'gsf', find_left = 'gsF', highlight = 'gsh', update_n_lines = 'gsn' },
     silent = true,
   })
+  require('mini.pairs').setup()
 end
 local function unhex(s) return (s:gsub('..', function(h) return string.char(tonumber(h, 16)) end)) end
 local function hex(s) return (s:gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
@@ -555,9 +557,52 @@ fn surround_command(r: &mut Rng, dot: bool) -> String {
     }
 }
 
+/// One command of the pairs mode (VI-21): an insert of brackets, quotes, letters, blanks and Backspace, a
+/// motion, `.` or `u`. Neovim is given an `<Ignore>` after every key (`ignored`): chars fed at once are put
+/// into the line together after mini has looked at it, so mini would see the line before them.
+fn pairs_command(r: &mut Rng, dot: bool) -> String {
+    let chars = ["(", ")", "[", "]", "{", "}", "\"", "'", "`", "a", "b", " ", "<BS>", "x"];
+    match r.below(if dot { 10 } else { 8 }) {
+        0..=5 => {
+            let typed: String = (0..1 + r.below(6)).map(|_| pick(r, &chars)).collect();
+            let how = pick(r, &["i", "a", "A", "I", "o", "cw", "ciw", "O"]);
+            format!("{how}{typed}<Esc>")
+        }
+        6 | 7 => pick(r, &["l", "h", "w", "b", "0", "$", "j"]).into(),
+        _ => pick(r, &[".", "u"]).into(),
+    }
+}
+
+/// The keys with `<Ignore>` after each one, for Neovim in the pairs mode.
+fn ignored(keys: &str) -> String {
+    let (mut out, mut rest) = (String::new(), keys);
+    while let Some(c) = rest.chars().next() {
+        let named = rest
+            .strip_prefix('<')
+            .and_then(|r| r.find('>'))
+            .filter(|&i| !rest[1..=i].contains('<'));
+        let n = named.map_or(c.len_utf8(), |i| i + 2);
+        out += &rest[..n];
+        out += "<Ignore>";
+        rest = &rest[n..];
+    }
+    out
+}
+
 fn gen_case(r: &mut Rng, multi: bool) -> Case {
     let indent = r.below(3) == 0;
     let text = gen_text(r, indent);
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs") {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let mut parts: Vec<String> = vec![];
+        for _ in 0..1 + r.below(3) {
+            parts.push(pairs_command(r, parts.iter().any(|p: &String| p.ends_with("<Esc>"))));
+        }
+        let keys = parts.concat() + "<Esc>";
+        return Case { text, line, col, keys, sw: 4, simple: false, parts };
+    }
     if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "surround") {
         let lines: Vec<&str> = text.split('\n').collect();
         let line = r.below(lines.len());
@@ -835,6 +880,11 @@ fn known(keys: &str) -> Option<&'static str> {
     if k.contains(['v', 'V']) && (k.ends_with('.') || k.contains("<Esc>.")) {
         return Some("Visual op then . (VI-2 Decided)");
     }
+    // (the default mode's Neovim has no mini.pairs: `SIM_ORACLE_MODE=pairs` compares those)
+    let pairs = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs");
+    if !pairs && k.contains("(<Esc>") && !k.contains("r(<Esc>") {
+        return Some("a ( typed in Insert mode (VI-21: sim pairs it)");
+    }
     None
 }
 
@@ -866,6 +916,7 @@ fn vi_1_oracle_against_nvim() {
     let mark_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark");
     let comment_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "comment");
     let surround_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "surround");
+    let pairs_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs");
     let home = std::env::var("HOME").unwrap_or_default();
     let mini = std::env::var("SIM_ORACLE_MINI")
         .unwrap_or_else(|_| format!("{home}/.local/share/nvim/lazy/mini.nvim"));
@@ -881,7 +932,8 @@ fn vi_1_oracle_against_nvim() {
     while from < cases.len() {
         let mut s = String::new();
         for c in &cases[from..] {
-            writeln!(s, "{} {} {} {} {}", hex(&c.text), hex(&c.keys), c.line, c.col, c.sw).unwrap();
+            let keys = if pairs_mode { ignored(&c.keys) } else { c.keys.clone() };
+            writeln!(s, "{} {} {} {} {}", hex(&c.text), hex(&keys), c.line, c.col, c.sw).unwrap();
         }
         std::fs::write(&inp, s).unwrap();
         let _ = std::fs::remove_file(&outp);
@@ -893,12 +945,12 @@ fn vi_1_oracle_against_nvim() {
             // (Neovim's `gc` is a mapping of its defaults, and mini's are mappings: those modes remap)
             .arg(if mark_mode {
                 "xnt"
-            } else if comment_mode || surround_mode {
+            } else if comment_mode || surround_mode || pairs_mode {
                 "xt"
             } else {
                 "xn"
             })
-            .env("SIM_ORACLE_MINI", if surround_mode { mini.as_str() } else { "" })
+            .env("SIM_ORACLE_MINI", if surround_mode || pairs_mode { mini.as_str() } else { "" })
             .output()
             .unwrap();
         let part = std::fs::read_to_string(&outp).unwrap_or_default();

@@ -173,8 +173,10 @@ f	t	FOLLOW on/off	In the changes view: while FOLLOW is on (the status line says 
 <C-w>	p	delete word	Deletes the last word of the query.
 <BS>	p	delete character	Deletes the last character of the query; at an empty query it closes the picker.
 <Tab>	i	indent	Inserts a tab, or the file's own indent.
-<BS>	i	delete before cursor	Deletes the character before the cursor, or joins the line to the one above.
-<CR>	i	new line	Breaks the line, keeping the indent.
+<BS>	i	delete before cursor	Deletes the character before the cursor, or joins the line to the one above; between the two chars of an empty pair, (|) or "|", it deletes both.
+<CR>	i	new line	Breaks the line, keeping the indent; between an empty pair of brackets, (|), it puts the closing one on a line of its own and the cursor on a line between them, one indent further in.
+(|[|{|"|'|`	i	typed in pairs	As mini.pairs types them: ( [ { put their closing char after the cursor too, and " ' ` put two; not after a backslash, and ' not after a letter. A paste is never paired, and . types what was put in.
+)|]|}	i	step over the closing char	A closing char typed where the same char is after the cursor steps over it (" ' ` too), so typing a pair's own closing char does not double it.
 <Left>|<Right>|<Up>|<Down>|<Home>|<End>	i	move	The arrow keys, Home and End move the cursor without leaving Insert mode.
 :w	c	save	:w saves; :w {file} saves under another name (not over a file that exists); :w! writes anyway: over a file without write permission, and over a version on the disk that conflicts with yours after copying that version into the state directory.
 :wq|:x	c	save and quit	Saves, and closes the file when the save is done. :x saves only if there are changes.

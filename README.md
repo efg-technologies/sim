@@ -102,6 +102,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `gv` | select the last selection again |
 | `gU` / `gu` / `~` | upper case / lower case / the other case (`gUiw`, `guu`) |
 | `gsa` / `gsd` / `gsr` | add / delete / replace a surrounding (`gsaiw(`, `gsd"`, `gsr"'`) |
+| `(` `"` … | typed in pairs in Insert mode; the closing char steps over, Backspace takes an empty pair |
 | `]c` | next change from outside |
 | `[c` | previous change from outside |
 | `:s` | substitute |

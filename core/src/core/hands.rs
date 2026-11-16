@@ -1,7 +1,7 @@
-//! VI-18, VI-20
-//! What the hands bring from the owner's Neovim: the comment toggle (`gc`) and the surroundings
-//! (mini.surround's `gsa`, `gsd`, `gsr`).
-use super::app::App;
+//! VI-18, VI-20, VI-21
+//! What the hands bring from the owner's Neovim: the comment toggle (`gc`), the surroundings
+//! (mini.surround's `gsa`, `gsd`, `gsr`) and the pairs that typing makes (mini.pairs').
+use super::app::{App, Key};
 use super::edit::PAIRS;
 use std::ops::Range;
 
@@ -166,6 +166,41 @@ impl App {
             return Some((from + j..from + j + 1 + w1, from + i - w2..from + i + 1));
         }
         None
+    }
+}
+
+impl App {
+    /// VI-21: a char typed in Insert mode, as mini.pairs' defaults type it: `(` `[` `{` put their closing
+    /// char after the cursor too, a closing one steps over the same char after the cursor, and `"` `'`
+    /// `` ` `` step over or put two; nothing is put in pairs after a backslash, nor `'` after a letter.
+    /// What was put in is what `.` types (as vim's redo has mini's keys), so `.` does not pair again.
+    pub(super) fn typed(&mut self, c: char, prev: char, next: char) {
+        let quote = "\"'`".contains(c);
+        let close = match c {
+            '(' => ')',
+            '[' => ']',
+            '{' => '}',
+            c if quote => c,
+            _ => '\0',
+        };
+        let over = next == c && (quote || (")]}".contains(c) && prev != '\\'));
+        let two = close != '\0' && prev != '\\' && !(c == '\'' && prev.is_ascii_alphabetic());
+        let keys = match (self.replaying, over, two) {
+            (true, ..) | (_, false, false) => vec![Key::Char(c)],
+            (_, true, _) => vec![Key::Right],
+            _ => vec![Key::Char(c), Key::Char(close), Key::Left],
+        };
+        if self.rec.last() == Some(&Key::Char(c)) {
+            self.rec.pop();
+            self.rec.extend(&keys);
+        }
+        for k in keys {
+            match k {
+                Key::Char(x) => self.type_str(x.encode_utf8(&mut [0; 4])),
+                Key::Right => self.buf.cursor += 1,
+                _ => self.buf.cursor -= 1,
+            }
+        }
     }
 }
 
