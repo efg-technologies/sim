@@ -115,6 +115,8 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `:{range}!cmd` | filter |
 | `:r file` / `:r !cmd` | put a file's lines / what a command prints below the line |
 | `:seen` | clear change marks |
+| `:bd` | close the file, as `:q`; the last one leaves the tree, not sim |
+| `:xa` / `:wqa` | save every modified file and quit (a file that cannot be saved stays open) |
 | `Ctrl-n` | toggle the tree |
 | `Ctrl-p` | find files |
 | `Ctrl-f` | search file contents |

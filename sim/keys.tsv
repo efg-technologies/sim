@@ -198,6 +198,8 @@ f	t	FOLLOW on/off	In the changes view: while FOLLOW is on (the status line says 
 :cq	c	quit with failure	Quits with exit code 1, which makes git abort a commit whose message is being edited.
 :e	c	open a file	:e {file} opens another file in a tab, or shows it if it is open; :e! reloads this one from the disk, copying yours into the state directory first when they conflict. In plain mode :e replaces the file.
 :qa|:wa	c	quit or save all	:qa quits when no file has changes; :qa! discards them all; :wa saves every modified file and leaves out the ones that conflict with the disk, naming them. Not in plain mode.
+:xa|:wqa	c	save all and quit	:xa and :wqa save every modified file and close each as :x does, so sim ends when the last is closed; a file that conflicts with the disk, or whose save fails, stays open and says why. Not in plain mode.
+:bd	c	close the file	:bd closes the file shown as :q does (a modified one stays; :bd! discards it), and closing the last one leaves sim open with the tree. Not in plain mode.
 :s	c	substitute	:s/old/new/ replaces the first match in the line, with g every match; :%s/old/new/g does the whole file. A pattern is a regex; & in the replacement is what matched, \1 a group.
 :{n}	c	go to line	:42 moves to line 42; :$ to the last line; :'<,'> is the Visual selection.
 :{range}!cmd	c	filter	Runs the lines of the range through sh -c cmd and replaces them with its output, as one undo step; typing goes on meanwhile and Ctrl-c cancels. :%!sort sorts the file. Not in plain mode.

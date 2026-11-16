@@ -13,7 +13,7 @@ use crate::layout::{self, Line as Cells};
 use crate::paint::{Look, Looks};
 use crate::pick::{self, Lit, Pane, SPIN, View, Win};
 use crate::syn::Spans;
-use sim_core::core::app::{App, Event, Key};
+use sim_core::core::app::{App, Key};
 use sim_core::core::view::{self, Frame, Row, Shape, Style};
 use std::collections::HashMap;
 use std::mem::take;
@@ -410,11 +410,7 @@ impl Sim {
         let id = open.map(|b| b.id);
         self.open(at, out);
         match id {
-            Some(id) if self.idle() => {
-                for c in keys.chars() {
-                    self.to(id, Event::Key(if c == '\n' { Key::Enter } else { Key::Char(c) }), out);
-                }
-            }
+            Some(id) if self.idle() => self.typed(id, &keys, out),
             Some(_) => {}
             None => self.keys = keys,
         }

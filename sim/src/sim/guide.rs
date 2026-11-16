@@ -8,7 +8,7 @@ use super::{Sim, SimEffect};
 use crate::keys;
 use crate::layout;
 use crate::tabs;
-use sim_core::core::app::{Event, Key};
+use sim_core::core::app::Key;
 use sim_core::core::vi::Mode;
 
 /// The hint of KEY-6, and how many uses of Tab end it.
@@ -171,9 +171,7 @@ impl Sim {
             return (self.cur, self.panel.focus) = (i, false);
         }
         let id = self.bufs[i].id;
-        for key in [Key::Char(':'), Key::Char('q'), Key::Enter] {
-            self.to(id, Event::Key(key), out);
-        }
+        self.typed(id, ":q\n", out);
         if let Some(j) = self.bufs.iter().position(|b| b.id == id) {
             (self.cur, self.panel.focus) = (j, false); // refused: it is shown, and says why
         }

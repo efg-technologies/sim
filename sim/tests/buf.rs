@@ -782,3 +782,67 @@ fn buf_1_the_seconds_of_a_running_filter_are_counted_on_the_screen_as_the_ticks_
     assert!(fx.iter().all(|e| !matches!(e, SimEffect::Render(_))), "{fx:?}");
     assert_eq!(quiet.log.len(), before);
 }
+
+#[test]
+fn buf_3_bd_closes_the_file_as_q_and_the_last_one_leaves_the_tree_not_sim() {
+    let mut r = two("b3-bd");
+    r.keys("x:bd\n");
+    assert_eq!(r.open_files(), ["a.txt", "b.txt"], "a modified file stays, as with :q");
+    assert_eq!(r.status(), "no write since last change (:q! to override)  2/2");
+    r.keys(":bd!\n");
+    assert_eq!(r.open_files(), ["a.txt"]);
+    assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "B1\nB2\n", "nothing written");
+    r.keys(":bdelete\n");
+    assert!(r.open_files().is_empty());
+    assert!(r.quit.is_none(), "the last one leaves sim open");
+    assert!(r.sim.panel.open && r.sim.panel.focus, "with the tree, as `sim` with no file");
+    r.keys("qq");
+    assert_eq!(r.quit, Some(0));
+}
+
+#[test]
+fn buf_3_xa_and_wqa_save_every_modified_file_and_close_each_so_sim_ends() {
+    for (i, cmd) in [":xa\n", ":wqa\n", ":xall\n", ":wqall\n"].into_iter().enumerate() {
+        let mut r = two(&format!("b3-xa-{i}"));
+        r.keys("x<Tab>ix"); // b.txt, and a.txt left in Insert mode
+        r.keys("<C-n>jj<CR>"); // c.txt: not modified
+        assert_eq!(r.sim.bufs[0].app.vi.mode, sim_core::core::vi::Mode::Insert);
+        r.keys(cmd);
+        assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "xone\ntwo\n", "{cmd:?}");
+        assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "1\nB2\n", "{cmd:?}");
+        assert_eq!(r.quit, Some(0), "{cmd:?}");
+    }
+}
+
+#[test]
+fn buf_3_xa_keeps_sim_open_with_the_files_that_were_not_saved_and_names_a_conflict() {
+    let mut r = conflicted("b3-xa-conflict");
+    r.keys(":xa\n");
+    assert!(r.quit.is_none());
+    assert_eq!(
+        r.open_files(),
+        ["a.txt"],
+        "the one in conflict stays; the other was saved and closed"
+    );
+    assert_eq!(fs::read_to_string(r.cwd.join("b.txt")).unwrap(), "1\nB2\n");
+    assert_eq!(fs::read_to_string(r.cwd.join("a.txt")).unwrap(), "ONE\ntwo\n", "mine was not");
+    assert!(
+        r.status().starts_with("not saved: conflicts with the disk in a.txt"),
+        "{}",
+        r.status()
+    );
+    // a file that is read-only stays too, with its own words
+    let mut ro = rig("b3-xa-ro", &FILES, &["a.txt"]);
+    let mut perm = fs::metadata(ro.cwd.join("a.txt")).unwrap().permissions();
+    perm.set_readonly(true);
+    fs::set_permissions(ro.cwd.join("a.txt"), perm).unwrap();
+    ro.keys("x:xa\n");
+    if ro.quit.is_none() {
+        assert_eq!(ro.open_files(), ["a.txt"]);
+        assert!(ro.status().starts_with("read-only file"), "{}", ro.status());
+    }
+    // with `!` it is written all the same, as `:x!` writes it
+    ro.keys(":xa!\n");
+    assert_eq!(ro.quit, Some(0));
+    assert_eq!(fs::read_to_string(ro.cwd.join("a.txt")).unwrap(), "ne\ntwo\n");
+}

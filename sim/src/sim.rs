@@ -490,6 +490,8 @@ pub struct Sim {
     leader: Option<String>,
     /// TREE-2: Ctrl-w was typed and waits for the key that sends the focus.
     win: bool,
+    /// BUF-3: `:bd` is closing a file: the last one closed leaves the tree, not sim.
+    stay: bool,
     /// JUMP-1: `s` was typed and the query of the jump is being typed.
     jump: Option<String>,
     /// KEY-5: the letters are on the tabs (`Some(false)` to show a file, `Some(true)` to close one).
@@ -630,6 +632,9 @@ fn help_words(line: &str) -> Option<String> {
     matches!(name, "help" | "h").then(|| words.trim().to_string())
 }
 
+/// BUF-3: the commands for all the files, and `:bd`, which take no argument.
+const ALL: [&str; 10] = ["qa", "qall", "wa", "wall", "xa", "xall", "wqa", "wqall", "bd", "bdelete"];
+
 /// The commands for all the files at once, which the core's App does not know (BUF-3), and `:e name`,
 /// which opens another file instead of replacing this one (BUF-1): name, `!`, argument. The core takes
 /// a range before `:e` and ignores it, and would replace this file by the other: `:%e name` is
@@ -639,10 +644,8 @@ fn all(line: &str) -> Option<(&str, bool, &str)> {
         let (name, rest) =
             s.split_at(s.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(s.len()));
         let (bang, arg) = rest.strip_prefix('!').map_or((false, rest), |a| (true, a));
-        let ok = matches!(
-            (name, arg.trim().is_empty()),
-            ("qa" | "qall" | "wa" | "wall", true) | ("e" | "edit", false)
-        );
+        let ok =
+            if arg.trim().is_empty() { ALL.contains(&name) } else { matches!(name, "e" | "edit") };
         ok.then_some((name, bang, arg.trim()))
     }
     let s = line.strip_prefix(':')?.trim();
@@ -1327,8 +1330,10 @@ impl Sim {
             self.holds = b.id;
         }
         self.refocus();
-        if self.bufs.is_empty() {
-            out.push(SimEffect::Quit(0));
+        match (self.bufs.is_empty(), self.stay) {
+            (true, false) => out.push(SimEffect::Quit(0)),
+            (true, true) => self.show(out), // (`:bd` of the last file: the tree, as `sim` with no file)
+            _ => {}
         }
     }
 
@@ -1472,7 +1477,8 @@ impl Sim {
     }
 
     /// BUF-3: `:qa` and `:wa` hold SAFE-7 for each file. `:qa` stays while one is modified;
-    /// `:wa` leaves out the files that have a conflict with the disk, naming them, and saves the rest.
+    /// `:wa` leaves out the files that have a conflict with the disk, naming them, and saves the rest; `:xa`
+    /// and `:wqa` are `:x` in each of the rest, and `:bd` is `:q` in this one, which leaves the tree if it is the last.
     fn run_all(&mut self, (name, bang, arg): (&str, bool, &str), out: &mut Vec<SimEffect>) {
         let (modified, names) = self.named(|b| b.app.buf.dirty());
         match name {
@@ -1487,10 +1493,21 @@ impl Sim {
                 self.msg = Some(format!("no write since last change in {names} (:qa! to discard)"))
             }
             "wa" | "wall" if modified.is_empty() => self.msg = Some("no modified files".into()),
-            "wa" | "wall" => {
+            "bd" | "bdelete" => {
+                self.stay = true;
+                self.typed(self.id(), if bang { ":q!\n" } else { ":q\n" }, out);
+                self.stay = false;
+            }
+            _ if name != "e" && name != "edit" => {
                 let (stuck, stuck_names) = self.named(|b| b.app.diverged());
-                for id in modified.into_iter().filter(|id| !stuck.contains(id)) {
-                    self.to(id, Event::Key(Key::Ctrl('s')), out);
+                let x = !name.starts_with("wa"); // (`:xa`, `:wqa`: every file is closed as `:x` closes it)
+                let ids = if x { self.bufs.iter().map(|b| b.id).collect() } else { modified };
+                for id in ids.into_iter().filter(|id| !stuck.contains(id)) {
+                    match (x, bang) {
+                        (false, _) => self.to(id, Event::Key(Key::Ctrl('s')), out),
+                        (_, false) => self.typed(id, "\x1b:x\n", out),
+                        _ => self.typed(id, "\x1b:x!\n", out),
+                    }
                 }
                 if !stuck.is_empty() {
                     self.msg = Some(format!(
@@ -1499,6 +1516,18 @@ impl Sim {
                 }
             }
             _ => self.open(self.cwd.join(arg), out),
+        }
+    }
+
+    /// Types `keys` into the App of the file `id` (`\n` is Enter, `\x1b` Esc).
+    fn typed(&mut self, id: Id, keys: &str, out: &mut Vec<SimEffect>) {
+        for c in keys.chars() {
+            let k = match c {
+                '\n' => Key::Enter,
+                '\x1b' => Key::Esc,
+                c => Key::Char(c),
+            };
+            self.to(id, Event::Key(k), out);
         }
     }
 
