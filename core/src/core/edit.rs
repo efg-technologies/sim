@@ -1,9 +1,11 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VIS-12, FILT-1, DISK-6
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VI-20, VIS-12, FILT-1, DISK-6
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
 use super::buffer::{Buffer, PREV, SAVED, VIS};
 use super::reg::Regs;
-use super::vi::{Cmd, GC, GV, HALF_DN, HALF_UP, HOME, MOTIONS, Mode, PGUP, VERTICAL, ch};
+use super::vi::{
+    Cmd, GC, GSA, GSD, GSR, GV, HALF_DN, HALF_UP, HOME, MOTIONS, Mode, PGUP, VERTICAL, ch,
+};
 use ropey::Rope;
 use unicode_width::UnicodeWidthChar;
 
@@ -12,7 +14,7 @@ use unicode_width::UnicodeWidthChar;
 #[derive(PartialEq)]
 enum Kind { Excl, Incl, Line }
 
-const PAIRS: [(char, char); 4] = [('(', ')'), ('[', ']'), ('{', '}'), ('<', '>')];
+pub(super) const PAIRS: [(char, char); 4] = [('(', ')'), ('[', ']'), ('{', '}'), ('<', '>')];
 const BLANKS: &str = " \t";
 /// The most text one command may add (bytes): above the 10 MB of PERF-5, and a count typed by
 /// mistake must not make the allocation abort the process (VI-2).
@@ -392,6 +394,7 @@ impl App {
                 let range = if vis { "'<,'>".into() } else { format!("{},{}", l1 + 1, l2 + 1) };
                 self.vi.open(&format!(":{range}!"));
             }
+            GSA => self.surround(a, e, lw, c.to),
             // (`{n}gcc` and `{n}guu` on the last line do nothing: they are the operator and the motion
             // `{n}_`, which fails there; the cursor goes where the range starts, as an operator puts it)
             GC | 'u' | 'U' | '~' if c.k == op && c.n > 1 && l1 + 1 == b.lines() => {
@@ -439,8 +442,8 @@ impl App {
             return self.say(format!("not a register: {r}"));
         }
         let edits = match c.op {
-            Some(o) => "dc<>uU~".contains(o) || o == GC,
-            None => !vis && "iaIAoOpPJr~".contains(c.k),
+            Some(o) => "dc<>uU~".contains(o) || matches!(o, GC | GSA),
+            None => !vis && "iaIAoOpPJr~".contains(c.k) || matches!(c.k, GSD | GSR),
         };
         // Only the vertical motions keep the wanted column.
         self.buf.want =
@@ -488,6 +491,7 @@ impl App {
                     self.vi.mode = if par { Mode::VLine } else { self.vi.mode };
                 }
             }
+            GSD | GSR => self.resurround(c.arg, c.to),
             GV => match (self.buf.vmark[VIS], self.buf.vmark[VIS + 1]) {
                 (Some(a), Some(c)) => {
                     (self.anchor, self.buf.cursor) = (self.buf.pos(a), self.buf.pos(c));

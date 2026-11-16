@@ -5,7 +5,9 @@
 //! the text and what every register holds afterwards), or `mark` (VI-17: marks set, lines
 //! inserted, deleted, joined and undone, and jumps to the marks; compared by the text, where the marks
 //! are, and the cursor after a jump), or `comment` (VI-18: `gc` with counts, motions, Visual mode, `.` and
-//! undo on a Rust file, against Neovim's own `gc` with `commentstring` `// %s`).
+//! undo on a Rust file, against Neovim's own `gc` with `commentstring` `// %s`), or `surround` (VI-20:
+//! `gsa`, `gsd` and `gsr` against mini.surround with its defaults and the owner's mappings; it is looked
+//! for in `SIM_ORACLE_MINI`, else in `~/.local/share/nvim/lazy/mini.nvim`).
 //! Every divergence is printed grouped by the first command; the test only fails with
 //! `SIM_ORACLE_STRICT=1`. Not every divergence is a bug: several are SPEC "Decided" items (see the
 //! report), which `known()` filters.
@@ -23,7 +25,8 @@ fn hex(s: &str) -> String {
 fn unhex(s: &str) -> String {
     let b: Vec<u8> =
         (0..s.len() / 2).map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap()).collect();
-    String::from_utf8(b).unwrap()
+    // (lossy: a register of Neovim's can hold the code of a special key, which is no UTF-8)
+    String::from_utf8_lossy(&b).into_owned()
 }
 
 const LUA: &str = r#"
@@ -44,6 +47,14 @@ local function mdump()
     if p[2] > 0 then out[#out + 1] = n .. ':' .. (p[2] - 1) .. ':' .. (p[3] - 1) end
   end
   return table.concat(out, ' ')
+end
+local mini = os.getenv('SIM_ORACLE_MINI')
+if mini and mini ~= '' then
+  vim.opt.rtp:append(mini)
+  require('mini.surround').setup({
+    mappings = { add = 'gsa', delete = 'gsd', replace = 'gsr', find = 'gsf', find_left = 'gsF', highlight = 'gsh', update_n_lines = 'gsn' },
+    silent = true,
+  })
 end
 local function unhex(s) return (s:gsub('..', function(h) return string.char(tonumber(h, 16)) end)) end
 local function hex(s) return (s:gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
@@ -522,9 +533,43 @@ fn comment_text(r: &mut Rng) -> String {
     (0..2 + r.below(5)).map(|_| line(r)).collect::<Vec<_>>().join("\n")
 }
 
+/// One command of the surround mode (VI-20). `.` only after a change (Neovim's would repeat the case before).
+/// The motions and objects are ones that do not fail: in Neovim a failed one leaves mini's operator half
+/// typed, and the keys after it are typed as text.
+fn surround_command(r: &mut Rng, dot: bool) -> String {
+    let ch = |r: &mut Rng| {
+        let c = ["(", ")", "[", "]", "{", "}", "<lt>", ">", "b", "q", "\"", "'", "`", "*", "_"];
+        pick(r, &c).to_string()
+    };
+    match r.below(if dot { 11 } else { 9 }) {
+        0..=2 => {
+            let m = pick(r, &["iw", "w", "e", "$", "iW", "2w", "i(", "a\"", "ip"]);
+            format!("gsa{m}{}", ch(r))
+        }
+        // (the ones to take away are those the texts have)
+        3 | 4 => format!("gsd{}", pick(r, &["(", ")", "b", "q", "\"", "'", "[", "{", "`"])),
+        5 | 6 => format!("gsr{}{}", pick(r, &["(", ")", "b", "q", "\"", "'", "["]), ch(r)),
+        7 => format!("{}gsa{}", pick(r, &["ve", "vb", "V", "Vj"]), ch(r)),
+        8 => pick(r, &["w", "b", "0", "$", "e", "j", "k"]).into(),
+        _ => pick(r, &[".", "u", "u."]).into(),
+    }
+}
+
 fn gen_case(r: &mut Rng, multi: bool) -> Case {
     let indent = r.below(3) == 0;
     let text = gen_text(r, indent);
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "surround") {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let mut parts: Vec<String> = vec![];
+        for _ in 0..1 + r.below(3) {
+            let dot = parts.iter().any(|p: &String| p.starts_with("gs"));
+            parts.push(surround_command(r, dot));
+        }
+        let keys = parts.concat() + "<Esc>";
+        return Case { text, line, col, keys, sw: 4, simple: false, parts };
+    }
     if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "comment") {
         let text = comment_text(r);
         let lines: Vec<&str> = text.split('\n').collect();
@@ -726,6 +771,25 @@ fn blank_step(c: &Case) -> bool {
     std::panic::catch_unwind(run).unwrap_or(true)
 }
 
+/// Whether a surround case has a `gsd` or `gsr` that finds nothing, or a `gsa` whose motion or object
+/// finds nothing: mini then leaves the chars of the surrounding, and every key after them, to be read as
+/// commands (sim reads the whole command and changes nothing, VI-20), and its cursor is left elsewhere.
+fn surround_failed(c: &Case) -> bool {
+    let run = || {
+        let mut a = app_with(Some("a.rs"), format!("{}\n", c.text).as_bytes(), (80, 24));
+        let idx: usize =
+            c.text.split('\n').take(c.line).map(|l| l.chars().count() + 1).sum::<usize>() + c.col;
+        a.buf.cursor = idx;
+        c.parts.iter().any(|part| {
+            let before = text(&a);
+            feed(&mut a, part);
+            a.msg.as_deref().is_some_and(|m| m.starts_with("no surrounding"))
+                || (part.contains("gsa") && text(&a) == before)
+        })
+    };
+    std::panic::catch_unwind(run).unwrap_or(true)
+}
+
 fn run_si_inner(c: &Case) -> Result<Mine, String> {
     let r = std::panic::catch_unwind(|| {
         // The file ends with a newline: its text is the lines joined by newlines (as nvim's). A Rust file
@@ -801,6 +865,10 @@ fn vi_1_oracle_against_nvim() {
     let reg_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "reg");
     let mark_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "mark");
     let comment_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "comment");
+    let surround_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "surround");
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mini = std::env::var("SIM_ORACLE_MINI")
+        .unwrap_or_else(|_| format!("{home}/.local/share/nvim/lazy/mini.nvim"));
     let mut r = Rng(0x9e37_79b9_7f4a_7c15 ^ seed.wrapping_mul(0x2545_f491_4f6c_dd1d));
     let cases: Vec<Case> = (0..n).map(|_| gen_case(&mut r, multi)).collect();
     let dir = temp_dir(&format!("oracle-{seed}-{multi}"));
@@ -822,14 +890,15 @@ fn vi_1_oracle_against_nvim() {
             .arg(&lua)
             .arg(&inp)
             .arg(&outp)
-            // (Neovim's `gc` is a mapping of its defaults: the comment mode remaps)
+            // (Neovim's `gc` is a mapping of its defaults, and mini's are mappings: those modes remap)
             .arg(if mark_mode {
                 "xnt"
-            } else if comment_mode {
+            } else if comment_mode || surround_mode {
                 "xt"
             } else {
                 "xn"
             })
+            .env("SIM_ORACLE_MINI", if surround_mode { mini.as_str() } else { "" })
             .output()
             .unwrap();
         let part = std::fs::read_to_string(&outp).unwrap_or_default();
@@ -874,6 +943,12 @@ fn vi_1_oracle_against_nvim() {
         if mark_mode && emptied(c) {
             *known_counts
                 .entry("the buffer was emptied (no line is left for a mark)")
+                .or_default() += 1;
+            continue;
+        }
+        if surround_mode && surround_failed(c) {
+            *known_counts
+                .entry("a gsd or gsr that finds nothing (mini reads the keys after it as commands)")
                 .or_default() += 1;
             continue;
         }

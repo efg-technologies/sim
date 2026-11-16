@@ -84,6 +84,12 @@ const ATOMS: &[&str] = &[
     "dip",
     "d}",
     "y}",
+    "gsaiw(",
+    "gsaj)",
+    "Vjgsa\"",
+    "gsd(",
+    "gsd-",
+    "gsr-+",
 ];
 
 #[derive(Clone, Debug)]

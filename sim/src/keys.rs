@@ -30,9 +30,10 @@ pub fn shown(token: &str) -> &str {
     }
 }
 
-/// The operators, as the table writes their keys (`g c` is `gc`, VI-18; `g u` is `gu`, VI-19): what they
-/// are followed by is a motion or a text object.
-const OPERATORS: [&str; 10] = ["d", "c", "y", "<lt>", ">", "!", "g c", "g u", "g U", "g ~"];
+/// The operators, as the table writes their keys (`g c` is `gc`, VI-18; `g u` is `gu`, VI-19; `g s a` is
+/// `gsa`, VI-20): what they are followed by is a motion or a text object.
+const OPERATORS: [&str; 11] =
+    ["d", "c", "y", "<lt>", ">", "!", "g c", "g u", "g U", "g ~", "g s a"];
 
 pub fn table() -> &'static [Entry] {
     static TABLE: OnceLock<Vec<Entry>> = OnceLock::new();
@@ -91,8 +92,8 @@ impl Entry {
 /// they are the entries for `o` that follow what comes after it, and the operator's own key. `mode` is the
 /// one the prefix was typed in: `n`, `v` or `t`.
 pub fn next(prefix: &[String], mode: char) -> Vec<(String, String)> {
-    // (an operator is the first key of the prefix, or its first two: `g c`)
-    let op = (1..=2).find(|&n| n <= prefix.len() && OPERATORS.contains(&&*prefix[..n].join(" ")));
+    // (an operator is the first key of the prefix, or its first two or three: `g c`, `g s a`)
+    let op = (1..=3).find(|&n| n <= prefix.len() && OPERATORS.contains(&&*prefix[..n].join(" ")));
     let rest = &prefix[op.unwrap_or(0)..];
     let mut rows: Vec<(String, String, bool)> = vec![];
     // the keys of the prefix itself first (`dd`), then what an operator takes (motions and objects)

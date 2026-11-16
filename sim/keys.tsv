@@ -57,6 +57,10 @@ g c	nv	comment toggle	gc{motion} (or the selection) comments the lines, or uncom
 g u	nv	lowercase	gu{motion} (or the selection) makes the text lower case; guu does the line. A char whose other case is more than one char stays as it is. . repeats it.
 g U	nv	uppercase	gU{motion} (or the selection) makes the text upper case; gUU does the line. ß becomes ẞ, as in vim. . repeats it.
 g ~	nv	toggle case	g~{motion} (or the selection) turns lower case into upper case and upper into lower; g~~ does the line. . repeats it.
+g s	nv	surround	The surroundings, as mini.surround's with the prefix gs: gsa adds one, gsd takes one away, gsr replaces one.
+g s a	nv	add surrounding	gsa{motion}{char} (or gsa{char} on the selection) puts a surrounding around the text: ( puts ( and ) with a blank inside, ) and b without, q double quotes, any other char itself on both sides; around whole lines from the first char that is not blank to the last. t, f and ? (which ask mini for a name) are not built. One undo step, and . repeats it.
+g s d {char}	n	delete surrounding	Takes away the surrounding the cursor is in: the narrowest pair of {char} on the line, or else within 20 lines; ( takes the blanks inside too, ) and b (any bracket) and q (any quote) only the chars. Says so when there is none.
+g s r {char} {char}	n	replace surrounding	Puts the second surrounding in the place of the first, which is found as gsd finds it: gsr"' turns "x" into 'x'.
 d d	n	delete lines	Deletes the current line, or that many lines with a count (3dd).
 c c	n	change lines	Deletes the current line's text, keeping its indent, and starts Insert mode.
 y y	n	yank lines	Yanks the current line, or that many lines with a count (3yy).

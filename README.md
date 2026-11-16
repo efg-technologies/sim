@@ -101,6 +101,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `{` / `}` | previous / next paragraph (`dap`, `yip`: a paragraph) |
 | `gv` | select the last selection again |
 | `gU` / `gu` / `~` | upper case / lower case / the other case (`gUiw`, `guu`) |
+| `gsa` / `gsd` / `gsr` | add / delete / replace a surrounding (`gsaiw(`, `gsd"`, `gsr"'`) |
 | `]c` | next change from outside |
 | `[c` | previous change from outside |
 | `:s` | substitute |

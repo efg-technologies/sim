@@ -295,6 +295,28 @@ const TOKENS: &[&str] = &[
     "v~",
     "gv",
     "gvd",
+    // The surroundings (VI-20).
+    "gsaiw(",
+    "gsaiw)",
+    "gsaw\"",
+    "gsa$q",
+    "gsaj[",
+    "gsaipb",
+    "vegsa<lt>",
+    "Vjgsa{",
+    "gsd(",
+    "gsd)",
+    "gsdq",
+    "gsdb",
+    "gsd\"",
+    "gsr(]",
+    "gsr\"'",
+    "gsrb{",
+    "gsr)\u{ff08}",
+    "gsat",
+    "gsa",
+    "gsr(",
+    "gs",
 ];
 
 /// Counts that overflow `usize` (20 digits) or are merely huge: no panic, no spin, no giant allocation.
@@ -739,6 +761,12 @@ const COMPLETE: &[&str] = &[
     "g~j",
     "vjU",
     "vjy<Esc>gvd",
+    "gsaiw(",
+    "gsa$]",
+    "Vjgsa\"",
+    "gsd(",
+    "gsdq",
+    "gsr)]",
 ];
 
 fn counted() -> impl Strategy<Value = Vec<String>> {
