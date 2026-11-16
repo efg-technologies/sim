@@ -94,6 +94,8 @@ U	n	redo	Redoes what u undid. In vi U undoes a whole line; here it is the key be
 <C-r>	n	redo	Redoes what u undid.
 .	n	repeat last change	Repeats the last change: its keys, with a new count if you give one (3.). Undo is not a change, so . keeps repeating the last real one.
 g v	n	last selection again	Selects again what the last Visual selection selected, in the same mode; its ends move with the edits as marks do. Says so when there was none.
+g f	n	open the file under the cursor	Opens the file whose name is under the cursor, as :e does: a path with :line or :line:col after it, looked for beside the file first and then in the project; in Markdown the target of the link the cursor is in. A name that is not there says so and nothing opens. Tab goes back.
+g x	n	open the web address under the cursor	Hands the http or https address under the cursor (in Markdown the target of the link the cursor is in) to the system's opener (xdg-open, open), which shows it in the browser. A link that sim marks as lying, or cannot judge, is not opened: the status line says where it goes. Not in plain mode.
 v	nv	visual	Starts Visual mode on the character, or leaves it. Motions extend the selection, an operator works on it, o jumps to its other end, and i and a with an object select it. The selection is underlined, or gray where the terminal has truecolor.
 V	nv	visual line	Starts Visual mode on whole lines, or leaves it.
 o	v	other end of selection	Moves the cursor to the other end of the selection.

@@ -101,6 +101,8 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `gcc` | comment or uncomment the line (`gc{motion}` the lines a motion covers, `gc` in Visual mode the selection's) |
 | `{` / `}` | previous / next paragraph (`dap`, `yip`: a paragraph) |
 | `gv` | select the last selection again |
+| `gf` | open the file named under the cursor (`path:line:col`, a Markdown link's target) |
+| `gx` | open the web address under the cursor in the browser (not a link that lies) |
 | `gU` / `gu` / `~` | upper case / lower case / the other case (`gUiw`, `guu`) |
 | `gsa` / `gsd` / `gsr` | add / delete / replace a surrounding (`gsaiw(`, `gsd"`, `gsr"'`) |
 | `(` `"` … | typed in pairs in Insert mode; the closing char steps over, Backspace takes an empty pair |

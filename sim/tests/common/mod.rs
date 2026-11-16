@@ -487,6 +487,11 @@ impl Rig {
                         self.queue.push_back(io::patch(&self.sim.root, &req));
                         self.log.push(SimEffect::Patch(req));
                     }
+                    SimEffect::Seek(name, at, keys) => {
+                        self.jobs.push("seek");
+                        let found = at.into_iter().find(|p| p.exists());
+                        self.queue.push_back(SimEvent::Sought(name, found, keys));
+                    }
                     SimEffect::Read(dir) if self.defer => self.waiting.push(dir),
                     SimEffect::Read(dir) => {
                         let r = io::read_dir(&dir);

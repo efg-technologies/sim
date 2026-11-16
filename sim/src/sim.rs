@@ -1,4 +1,4 @@
-//! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2, JUMP-1
+//! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2, JUMP-1, OPEN-1, OPEN-2
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -7,6 +7,7 @@ mod guide;
 mod jump;
 mod lesson;
 mod live;
+mod open;
 mod panel;
 mod ptr;
 mod tower;
@@ -166,6 +167,8 @@ pub enum SimEvent {
     Touched(Touched),
     /// DIFF-7: the answer to the request of this number of `SimEffect::Patch`.
     Patched(u64, Patch),
+    /// OPEN-1: the answer to `SimEffect::Seek`: the name, the first place that has it, and the keys to type.
+    Sought(String, Option<PathBuf>, String),
 }
 
 /// WATCH-1: a batch of what the project's watcher saw: the paths below the root that were written, made,
@@ -265,6 +268,10 @@ pub enum SimEffect {
     Patch(PatchReq),
     /// DIFF-9: whether the panel shows the changes view, to remember.
     View(bool),
+    /// OPEN-1: look for the file `name` at these places, in order, and answer with `SimEvent::Sought`.
+    Seek(String, Vec<PathBuf>, String),
+    /// OPEN-2: hand this web address to the system's opener.
+    Browse(String),
     Quit(i32),
 }
 
@@ -448,7 +455,8 @@ pub struct Sim {
     pal: Option<Palette>,
     syn: Syntax,
     hl_off: bool,
-    z: bool,
+    /// SYN-2 and the like: `z` or `g` typed in Normal mode with nothing pending, waiting for its key.
+    z: Option<char>,
     /// LOOK-1: the look, and the colors it adds to the palette (none without a palette or truecolor, LOOK-8).
     pub skin: Skin,
     tones: Option<Tones>,
@@ -841,6 +849,8 @@ impl Sim {
             }
             SimEvent::Touched(t) => self.touched(t, &mut out),
             SimEvent::Patched(n, p) => self.patched(n, p),
+            SimEvent::Sought(_, Some(at), keys) => self.open_at(at, keys, &mut out),
+            SimEvent::Sought(name, None, _) => self.msg = Some(format!("gf: no file {name}")),
             SimEvent::Diff(id, r, lines) => {
                 if let Some(b) = self.bufs.iter_mut().find(|b| b.id == id) {
                     b.diff = r.ok().map(|out| Diff::parse(&out, lines));
@@ -1412,10 +1422,16 @@ impl Sim {
         }
         // SYN-2: `zh` turns the colors off and on. The core's parser takes the `h` after a `z` and
         // does nothing, so the App still gets the key.
-        let (zh, zl) = (self.z && k == Key::Char('h'), self.z && k == Key::Char('l'));
-        let zi = self.z && k == Key::Char('i');
-        self.z = self.idle() && k == Key::Char('z');
+        let after = |p: char, c: char| self.z == Some(p) && k == Key::Char(c);
+        let (zh, zl, zi, gf, gx) =
+            (after('z', 'h'), after('z', 'l'), after('z', 'i'), after('g', 'f'), after('g', 'x'));
+        self.z = if let Key::Char(c @ ('z' | 'g')) = k { self.idle().then_some(c) } else { None };
         self.to(id, Event::Key(k), out);
+        if gf && !self.plain {
+            return self.gf(out); // OPEN-1 (the core does nothing with `gf` and `gx`)
+        } else if gx {
+            return self.gx(out); // OPEN-2
+        }
         if zh {
             self.hl_off = !self.hl_off;
             self.msg = Some(format!("syntax colors {}", if self.hl_off { "off" } else { "on" }));

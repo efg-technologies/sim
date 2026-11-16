@@ -1,4 +1,4 @@
-//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3, DIFF-7, DIFF-9, GIT-6
+//! BUF-1, TREE-5, FIND-3, MARK-1, MARK-2, SYN-3, LOOK-1, GREP-4, GREP-5, GREP-7, GREP-8, UI-2, UI-3, UI-5, PLAIN-1, STATE-1, COLOR-2, ICON-1, MD-5, GIT-1, GIT-2, GIT-3, GIT-4, DIFF-2, DIFF-3, GIT-5, WATCH-1, WATCH-3, DIFF-7, DIFF-9, GIT-6, OPEN-2
 //! The impure helpers: reading files and directories, the threads that save and keep snapshots
 //! and highlight, git, the list of files, the watcher of the project, the history file in sim's state
 //! directory, and the search of the contents of files (the built-in reader and ripgrep) with the
@@ -21,6 +21,7 @@ use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
@@ -1418,10 +1419,37 @@ const PIECE: usize = 128 * 1024;
 /// GREP-8: `rg` in the directories of `path` that are absolute. An empty or relative entry would
 /// find a `rg` in the working directory, which can be the repository's own.
 pub fn which_rg(path: Option<OsString>) -> Option<PathBuf> {
+    which(path, "rg")
+}
+
+/// GREP-8, OPEN-2: the program `name` in the directories of `path` that are absolute.
+pub fn which(path: Option<OsString>, name: &str) -> Option<PathBuf> {
     let (path, runs) =
         (path?, |m: fs::Metadata| m.is_file() && m.permissions().mode() & 0o111 != 0);
     let dirs = env::split_paths(&path).filter(|d| d.is_absolute());
-    dirs.map(|d| d.join("rg")).find(|f| fs::metadata(f).is_ok_and(runs))
+    dirs.map(|d| d.join(name)).find(|f| fs::metadata(f).is_ok_and(runs))
+}
+
+/// OPEN-2: the system's opener of an address, looked for on the `PATH` (`which`).
+pub const OPENER: &str = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+
+/// OPEN-2: hands `url` to the opener (`which`'s, by its full path) as its one argument: no shell, no input,
+/// its output thrown away, in a process group of its own, reaped by a thread. Not where no program may run.
+pub fn browse(opener: Option<&Path>, url: &str) -> Result<(), String> {
+    if !filter::programs_allowed() {
+        return Err(format!("{PLAIN_RUNS_NOTHING}: not opened"));
+    }
+    let opener = opener.ok_or(format!("gx: no {OPENER} on the PATH: not opened"))?;
+    let mut child = Command::new(opener)
+        .arg(url)
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("gx: {OPENER}: {e}"))?;
+    thread::spawn(move || drop(child.wait()));
+    Ok(())
 }
 
 /// GREP-7: which files may be read: regular files, not links, whose directory really lies below

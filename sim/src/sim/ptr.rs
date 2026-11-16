@@ -137,7 +137,7 @@ impl Sim {
         }
         let Some(b) = self.bufs.get(self.cur) else { return };
         let id = b.id;
-        (self.msg, self.drag, self.panel.focus, self.z) = (None, None, false, false); // (a `z` waiting for its `h` is forgotten too)
+        (self.msg, self.drag, self.panel.focus, self.z) = (None, None, false, None); // (a `z` waiting for its `h` is forgotten too)
         self.panel.search.iter_mut().for_each(|s| s.typing = false);
         if b.app.vi.mode == Mode::Cmd {
             return;

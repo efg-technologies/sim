@@ -417,7 +417,13 @@ impl W {
                     | SimEffect::TabUses(_)
                     | SimEffect::Changes(_)
                     | SimEffect::Show(_)
+                    | SimEffect::Browse(_)
                     | SimEffect::Flash(..) => {}
+                    // OPEN-1: the shell looks for the file on the disk
+                    SimEffect::Seek(name, at, keys) => {
+                        let found = at.into_iter().find(|p| p.exists());
+                        local.push(SimEvent::Sought(name, found, keys));
+                    }
                     SimEffect::Files => self.files_req = true,
                     SimEffect::Status => self.status_req = true,
                     SimEffect::History(h) => {

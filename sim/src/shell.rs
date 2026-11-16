@@ -1,4 +1,4 @@
-//! GUI-4, WATCH-1, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6, DIFF-7, DIFF-9
+//! GUI-4, WATCH-1, TREE-5, DISK-1, SAFE-6, PLAIN-1, STATE-1, GIT-1, DIFF-2, DIFF-3, MD-5, MD-6, DIFF-7, DIFF-9, OPEN-1, OPEN-2
 //! The shell: what is done with the Effects `Sim::update` returns, apart from the terminal: read a
 //! directory, open, save and watch a file, ask git, highlight, search, snapshot, run a filter. The
 //! terminal's loop (`main.rs`) and a window's use this one code, so a window cannot do these things
@@ -48,6 +48,8 @@ pub struct Config {
     pub rg: Option<PathBuf>,
     /// WATCH-1: whether the project is watched (not in plain mode, PLAIN-1).
     pub watch: bool,
+    /// OPEN-2: the system's opener of an address (none in plain mode).
+    pub opener: Option<PathBuf>,
 }
 
 /// What the system says about the world a front end starts in (PLAIN-1, SAFE-6, STATE-1): whether it is
@@ -156,7 +158,8 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
     } else {
         world.state.as_deref().iter().for_each(|d| sio::use_no_hooks(d)); // GIT-1: before git is run
     }
-    let rg = sio::which_rg(world.path).filter(|_| !sim.plain);
+    let rg = sio::which_rg(world.path.clone()).filter(|_| !sim.plain);
+    let opener = sio::which(world.path, sio::OPENER).filter(|_| !sim.plain);
     let cfg = Config {
         cwd: cwd.to_path_buf(),
         root: sim.root.clone(),
@@ -164,6 +167,7 @@ pub fn begin(s: Start, cwd: &Path, world: World, front: Front) -> Begun {
         history: world.history,
         rg,
         watch: !sim.plain,
+        opener,
     };
     Begun { sim, fx, cfg, keys, moved: world.moved }
 }
@@ -469,6 +473,17 @@ impl Shell {
             }
             (SimEffect::Hold(..), Work::Inline(_)) => {}
             (SimEffect::App(id, e), _) => self.app_effect(id, e, out),
+            // OPEN-1: the first place that has the file a name names
+            (SimEffect::Seek(name, at, keys), _) => {
+                let found = at.into_iter().find(|p| p.exists());
+                self.local.push(SimEvent::Sought(name, found, keys));
+            }
+            (SimEffect::Browse(url), Work::Threads(_)) => {
+                let opener = self.cfg.opener.as_deref();
+                let said = sio::browse(opener, &url).err().map(SimEvent::Notice);
+                self.local.extend(said);
+            }
+            (SimEffect::Browse(_), Work::Inline(_)) => {} // (a window's tests and renders start no opener)
             (SimEffect::Quit(code), _) => {
                 out.quit = Some(code);
                 return true;

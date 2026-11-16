@@ -3441,6 +3441,23 @@ jump_1_s_and_a_label_move_the_cursor_and_nothing_is_edited() {
   [ "$(cat "$W/a.txt")" = "$(printf 'foo bar\nfox baz\nfob')" ]
 }
 
+# OPEN-1: gf opens the file named under the cursor at its line, as :e does; a name that is not there says so and
+# nothing is made.
+open_1_gf_opens_the_file_under_the_cursor_at_its_line() {
+  printf 'see b.txt:2 and nope.rs\n' > "$W/a.txt"
+  printf 'one\ntwo\nthree\n' > "$W/b.txt"
+  start a.txt
+  wait_for "a.txt  1:1  NORMAL"
+  typed wgf
+  wait_for "b.txt  2:1  NORMAL"
+  screen | grep -F -q "two"
+  keys Tab
+  wait_for "a.txt  1:5  NORMAL"
+  typed '$gf'
+  wait_for "gf: no file nope.rs"
+  [ ! -e "$W/nope.rs" ]
+}
+
 # A case runs in a process of its own, traced (scripts/e2e-lib.sh says how and why).
 if [ "${1:-}" = "--run-one" ]; then
   run_one "$2"
