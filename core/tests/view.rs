@@ -240,8 +240,8 @@ four
     for (keys, cursor_row) in [("", 0), ("j", 1), ("jj", 3), ("gg", 0), ("G", 3)] {
         feed(&mut a, keys);
         let f = screen(&mut a);
-        for r in 0..4 {
-            let number = f.rows[r].spans.contains(&(1..4, Style::Secondary));
+        for (r, row) in f.rows.iter().enumerate().take(4) {
+            let number = row.spans.contains(&(1..4, Style::Secondary));
             assert_eq!(number, r != cursor_row, "{keys:?} row {r}");
         }
     }
