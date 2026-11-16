@@ -778,6 +778,25 @@ vi_17_a_mark_follows_its_line_and_goes_back() {
   printf 'new\none\ntwo\nhree\nfour\n' | cmp - "$CASE_DIR/f"
 }
 
+# VI-22: tmux speaks no kitty protocol, so Alt-j reaches sim as Esc and j: in Normal mode it moves the line,
+# and in Insert mode the same bytes are Esc, then `j`.
+vi_22_alt_j_moves_the_line_and_in_insert_mode_is_esc_then_j() {
+  printf 'one\ntwo\nthree\n' > "$CASE_DIR/f"
+  start f
+  wait_for "f  1:1  NORMAL"
+  keys M-j
+  wait_for "2:1"
+  typed 'ix'
+  wait_for "INSERT"
+  keys M-j
+  wait_for "3:1  NORMAL"
+  typed ':wq'
+  keys Enter
+  wait_exit
+  [ "$(exit_code)" = 0 ]
+  printf 'two\nxone\nthree\n' | cmp - "$CASE_DIR/f"
+}
+
 # The screen no longer contains TEXT.
 gone() { ! screen | grep -F -q -- "$1"; }
 
