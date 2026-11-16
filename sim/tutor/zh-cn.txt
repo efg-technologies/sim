@@ -167,7 +167,7 @@ Ctrl-p 按名称查找文件，Enter 打开结果。Ctrl-f 搜索文件内容。
 仅在文件树有焦点时，Ctrl-n 才关闭它；Esc 返回正文。
 在 Normal 模式或文件树中，先按 Ctrl-w 再按 w 可切换焦点，
 文件树保持打开。
-zl 切换外观（calm、flat、depth）；zi 开关图标（需要 Nerd Font）。
+zl 切换外观（calm、flat、depth、dark）；zi 开关图标（需 Nerd Font）。
 <Space>bk 显示最后保留的版本路径。按 Space 并稍等可查看后续按键菜单。
 
 [ ] 9.1 用 Ctrl-p 打开文件查找器，再用 Esc 关闭。

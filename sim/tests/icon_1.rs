@@ -180,7 +180,7 @@ fn every_row(r: &Rig) -> String {
 
 #[test]
 fn icon_1_with_the_icons_off_no_private_use_code_point_is_drawn_anywhere() {
-    for skin in [Skin::Calm, Skin::Flat, Skin::Depth] {
+    for skin in [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark] {
         let mut r = dressed("icon-1-off", skin, false);
         // the tree, the tabs, the status line, a second tab, a search, the folders opened
         for step in ["", "<Down><Right>", "<CR>", "<C-w>l", "ix<Esc>", "<C-w>h<Down><CR>", "/fn\n"]

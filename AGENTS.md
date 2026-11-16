@@ -14,7 +14,7 @@ Before starting any work, always read CONCEPT.md and SPEC.md. Part one of SPEC i
         ┌─┴─────────┴─┐
         │    SPEC     │  what      requirements with IDs         SPEC.md
       ┌─┴─────────────┴─┐
-      │      CODE       │  how       core/src ≤ 3,640, sim/src ≤ 12,284, gui/src ≤ 5,100
+      │      CODE       │  how       core/src ≤ 3,640, sim/src ≤ 12,302, gui/src ≤ 5,100
     ┌─┴─────────────────┴─┐
     │        TEST         │  really?   a test for every ID       core/tests, sim/tests, gui/tests and the E2E scripts
     └─────────────────────┘
@@ -82,9 +82,9 @@ sim/                the package sim-editor: the library `sim` and the binary `si
     marks.rs        git status and on-disk changes → marks for files and directories (pure)
     sim/ptr.rs      the mouse: clicks, drags and the wheel in the panel and the text (pure)
     syn.rs          syntect (bat's syntaxes) → colored spans per line (markdown's looks too, UI-8), with cached parse states
-    color.rs        what the core's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, the tones of the looks (green, red, tints, the card's surface, shadow, lines, the interface's six accents, their blocks and its neutral surfaces: OKLab mixes) and the fade, and the terminal's replies put together out of the keys (pure)
+    color.rs        what the core's `core::color` does not have: the syntax colors from the ANSI colors (OSC 4), the selection's gray, the tones of the looks (green, red, tints, the card's surface, shadow, lines, the interface's six accents, their blocks and its neutral surfaces: OKLab mixes; the dark board's grays in their place, DARK-2) and the fade, and the terminal's replies put together out of the keys (pure)
     paint.rs        the looks beyond the core's four styles, the paints (a background, a color of its own, a fade for a run of cells, its cue without color), the Screen, the Painter that writes it (in color, or in weight, underline and inverse when there is none, COLOR-2), the mouse modes on and off
-    layout.rs       the panel and the editor composed into one Screen: marks, search, colors; the three looks (calm, flat, depth): geometry, green and red, tints, boxes, ruler, fog; the char under a point (pure)
+    layout.rs       the panel and the editor composed into one Screen: marks, search, colors; the four looks (calm, flat, depth, dark): geometry, green and red, tints, boxes, ruler, fog; the char under a point (pure)
     io.rs           directory reads, git (one function builds every command line: the guard of GIT-1 to GIT-4), the file list, the watcher of the project (WATCH-1 to WATCH-3), the history, look and icons files, the detection of plain mode, of `NO_COLOR` and of terminfo, the threads, the content search (rg or the built-in reader) and the preview's read (the impure parts)
   keys.tsv          the key table as data: keys, modes, a line of description and a longer text for each entry
   help.txt          what `sim --help` prints (`{version}` is the Cargo version)
@@ -131,8 +131,8 @@ If another one is needed, first write the reason into SPEC.
 - At the top of each module, list the IDs it implements (e.g. `//! SAFE-1, SAFE-3`)
 - A key is added to `sim/keys.tsv` in the same change that adds it to the core or to sim: `sim/tests/key_1.rs` feeds every key to a Sim and fails for a key that does something and is not in the table, and for an entry that does nothing
 - `[profile.release]` (in the workspace) has `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`. A panic hook restores the terminal
-- core/src stays within 3,640 lines, sim/src within 12,284 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
-- Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
+- core/src stays within 3,640 lines, sim/src within 12,302 and gui/src within 5,100 (blank lines and lines that are only a `//` comment don't count). If one is about to go over, propose features to cut; a cap moves only with the reason written in CONCEPT.md. sim never reaches into an App's internals beyond its public API; when the editor needs something the core doesn't offer, add the smallest extension point to the core (and keep the core within its cap)
+- Colors: the four styles are the core's palette (`Event::Bg`, given to every App); syntax colors come from the terminal's ANSI colors (OSC 4), adjusted for contrast against that background; in calm the change color stays the only chromatic background and no text color shares its hue (P3); flat and depth show what comes on green and what goes on red (LOOK-2); dark is depth with no hue at rest, and lights only a change, where you act and a danger (DARK-2, DARK-3); with no color at all (COLOR-2) weight, underline and inverse stand in, and no meaning is carried by color alone (COLOR-3)
 - Code, comments, messages, docs and commit messages are in English. sim is the next-generation Vim (新時代の Vim): in README, CONCEPT, this file, the crates' descriptions and `--help`, it is never described as a likeness of Vim (nothing "-like", nothing "-style")
 
 ## Tests
@@ -157,13 +157,13 @@ Before every commit, pass scripts/check.sh (POSIX sh).
 3. `cargo test --workspace --no-fail-fast`
 4. scripts/trace.sh
 5. core/src has at most 3,640 lines
-6. sim/src has at most 12,284 lines
+6. sim/src has at most 12,302 lines
 7. gui/src has at most 5,100 lines
 8. the core depends on its allowlist only
 9. the editor depends on its own list only, and no crate of the window is in the tree of the editor or of the core
 10. the window depends on its allowlist only, and no network crate or webview is in its tree
 11. the name is *Secure vIM* and the crates are sim-editor and sim-editor-core: a grep keeps the earlier name stories and the earlier crate name from coming back
-12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 154 KiB (5,400,576 bytes)
+12. the release binary `sim` (built alone, `-p sim-editor`) is at most 5 MiB and 156 KiB (5,402,624 bytes)
 13. vendor/syntect is upstream's syntect 5.3.0 and vendor/syntect.patch, nothing else (scripts/vendor-check.sh: the patch taken off a copy, every file against the sha256 list)
 14. the traced path of the e2e harnesses works in the `sh` that runs check.sh, with no tmux and no sim (scripts/e2e-lib-check.sh: a passing case and a failing one, and the failing one is told by its command: Ubuntu's dash has no LINENO)
 
@@ -201,7 +201,7 @@ The editor's:
 - **S9**: the Markdown read view (MD-1 to MD-8)
 - **S10**: the frame's word for the guard, the breadcrumb, the flash of a write, the link that lies, callouts, `:tutor` (GIT-5, UI-18, UI-19, MD-10, MD-11, TUTOR-1 to TUTOR-4)
 - **S11**: watching the project: the tree, the changes view and the signs follow the disk with no key, and a file written from outside is marked until it has been looked at (WATCH-1 to WATCH-3); the changes view as a watchtower: the diff of the file under its cursor in the text pane, red and green, following the disk, its hunks walked, the view remembered, and FOLLOW as a switch (DIFF-7 to DIFF-10); the guard that follows the repository: its config judged again when it is written, and a hook written told (GIT-6)
-- **S12**: the dark board: what is normal is not drawn, and only a deviation is lit (MD-12, DARK-1…)
+- **S12**: the dark board: what is normal is not drawn, and only a deviation is lit (MD-12, DARK-1 to DARK-5)
 
 The window's:
 

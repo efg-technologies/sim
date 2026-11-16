@@ -181,7 +181,7 @@ Ctrl-n abre e foca a árvore, ou a foca se já estiver aberta.
 Só na árvore ele a fecha; Esc volta ao texto.
 No modo Normal ou na árvore, Ctrl-w e depois w troca o foco e mantém
 a árvore aberta.
-zl troca a aparência (calm, flat, depth); zi alterna os ícones
+zl troca a aparência (calm, flat, depth, dark); zi alterna os ícones
 (precisam de uma Nerd Font).
 <Space>bk mostra o caminho da última versão guardada. Pressione
 Espaço e espere o menu das próximas teclas.

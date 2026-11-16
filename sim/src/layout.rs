@@ -1,4 +1,4 @@
-//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, MD-12, UI-19, WATCH-2, DIFF-7, DIFF-9, GIT-6
+//! TREE-1, TREE-2, BUF-2, FIND-1, MARK-1, MARK-2, SYN-1, SYN-5, PTR-1, LOOK-1, LOOK-2, LOOK-3, LOOK-4, LOOK-5, LOOK-6, LOOK-7, UI-8, UI-2, UI-3, UI-5, COLOR-1, UI-7, UI-11, UI-13, UI-14, COLOR-2, COLOR-3, UI-15, UI-16, DIFF-2, DIFF-4, MD-1, MD-3, MD-7, GIT-5, MD-10, MD-12, UI-19, WATCH-2, DIFF-7, DIFF-9, GIT-6, DARK-1
 //! The panel and the editor composed into one screen (pure): the panel on the left with its
 //! marks, a column of space, the editor with its colors, and one status line across the whole
 //! width.
@@ -153,25 +153,27 @@ fn cut(r: &tree::Row, name: &str, room: usize) -> String {
 }
 
 /// LOOK-1: how the screen looks. Calm is the core's four styles; flat adds green and red and a tint to
-/// the rows of changes; depth adds boxes, an overview ruler and gradients.
+/// the rows of changes; depth adds boxes, an overview ruler and gradients; dark (DARK-1) is depth with
+/// no hue at rest.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Skin {
     #[default]
     Calm,
     Flat,
     Depth,
+    Dark,
 }
 
-const SKINS: [Skin; 3] = [Skin::Calm, Skin::Flat, Skin::Depth];
+const SKINS: [Skin; 4] = [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark];
 
 impl Skin {
     /// What `zl` goes to.
     pub fn next(self) -> Skin {
-        SKINS[(self as usize + 1) % 3]
+        SKINS[(self as usize + 1) % SKINS.len()]
     }
 
     pub fn name(self) -> &'static str {
-        ["calm", "flat", "depth"][self as usize]
+        ["calm", "flat", "depth", "dark"][self as usize]
     }
 
     /// The word of the state file (the line break after it is allowed).
@@ -211,7 +213,7 @@ impl Geo {
 
     /// `head`: the interface is drawn (a screen under 10 rows has no room for the header).
     pub fn with_head((w, h): (u16, u16), skin: Skin, panel: bool, head: bool) -> Geo {
-        let boxed = skin == Skin::Depth && w >= 40 && h >= 10;
+        let boxed = matches!(skin, Skin::Depth | Skin::Dark) && w >= 40 && h >= 10;
         let (b, pw) = (u16::from(boxed), if panel { (w / 3).min(32) } else { 0 });
         let (pw, head) = (if pw < 4 { 0 } else { pw }, u16::from(head && h >= 10));
         let ex = if pw > 0 { pw + 1 + 2 * b } else { b };
@@ -795,7 +797,7 @@ fn panel_paint(i: usize, m: &Mark, fade: Fade, t: &Tones) -> Paint {
 /// bar in its own cell, and the language a fence names, dim, at the right of its row.
 fn extra_row(line: &mut Line, m: &Extra, t: &Tones, gutter: u16, ew: u16) {
     let on = |bg, role| Paint { bg: Some(bg), role, ..Paint::default() };
-    let link = Paint { fg: Some(t.accent_fg()), ..Paint::default() };
+    let link = Paint { fg: Some(t.here), ..Paint::default() };
     let head = Paint { fg: Some(t.head), ..Paint::default() };
     let mut paints: Paints = line
         .looks

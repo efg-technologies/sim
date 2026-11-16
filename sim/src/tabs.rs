@@ -126,7 +126,7 @@ fn tab(tb: &Tab, icons_on: bool, raised: bool, max: usize, t: Option<&Tones>) ->
     let base = Paint { bg: surface, bold: raised, role, ..Paint::default() };
     // The indicator: a bar at the left of the shown tab, in the accent (`indicator = { icon = '▎' }`).
     if raised {
-        line.put("▎", Paint { fg: t.map(|t| t.accent_fg()), ..base });
+        line.put("▎", Paint { fg: t.map(|t| t.here), ..base });
     } else {
         line.put(" ", base);
     }

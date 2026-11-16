@@ -73,7 +73,7 @@ fn assert_hidden(r: &Rig, skin: Skin, state: &str) {
 
 #[test]
 fn ui_15_a_hidden_char_is_the_alert_s_block_and_the_same_text_typed_is_not() {
-    for skin in [Skin::Flat, Skin::Depth, Skin::Calm] {
+    for skin in [Skin::Flat, Skin::Depth, Skin::Dark, Skin::Calm] {
         let r = shown("hid-plain", skin);
         assert_hidden(&r, skin, "plain");
         // flat and depth took the spans out for the paint, calm keeps them for the Painter
@@ -86,7 +86,7 @@ fn ui_15_a_hidden_char_is_the_alert_s_block_and_the_same_text_typed_is_not() {
 
 #[test]
 fn ui_15_it_holds_in_a_selection_a_search_match_and_on_the_cursor_line() {
-    for skin in [Skin::Flat, Skin::Depth, Skin::Calm] {
+    for skin in [Skin::Flat, Skin::Depth, Skin::Dark, Skin::Calm] {
         // a selection (gray) over the whole line
         let mut r = shown("hid-sel", skin);
         r.keys("v$");
@@ -115,7 +115,7 @@ fn ui_15_it_holds_in_a_selection_a_search_match_and_on_the_cursor_line() {
 
 #[test]
 fn ui_15_it_holds_inside_a_change_from_outside_and_in_the_fog_of_a_far_row() {
-    for skin in [Skin::Flat, Skin::Depth, Skin::Calm] {
+    for skin in [Skin::Flat, Skin::Depth, Skin::Dark, Skin::Calm] {
         // someone else writes the overrides into a word of the file: the Trojan Source case
         let mut r = sized("hid-change", skin, &["h.txt=one\ntwo plain words\nthree\n"], (60, 10));
         let id = r.sim.bufs[0].id;
@@ -143,7 +143,7 @@ fn ui_15_it_holds_inside_a_change_from_outside_and_in_the_fog_of_a_far_row() {
 
 #[test]
 fn ui_15_it_holds_in_a_heading_band_and_in_a_code_fence() {
-    for skin in [Skin::Flat, Skin::Depth, Skin::Calm] {
+    for skin in [Skin::Flat, Skin::Depth, Skin::Dark, Skin::Calm] {
         let h1 = "# a\u{1b}b \u{202e}c <U+202E> end\n";
         let r = sized("hid-h1", skin, &[&format!("README.md={h1}")], (60, 10));
         assert_hidden(&r, skin, "in a first-level heading, on its band");

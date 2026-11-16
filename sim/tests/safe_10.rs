@@ -53,7 +53,7 @@ fn assert_shows(r: &Rig, what: &str, form: &str) {
     assert!(bytes.contains(form), "{what}: {form:?} is not in the bytes {bytes:?}");
 }
 
-const LOOKS: [Skin; 3] = [Skin::Calm, Skin::Flat, Skin::Depth];
+const LOOKS: [Skin; 4] = [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark];
 
 /// A rig in `skin`, with the interface (the tab bar, the bar, the breadcrumb), started on `open`.
 fn looked(name: &str, skin: Skin, files: &[&str], open: &[&str], size: (u16, u16)) -> Rig {

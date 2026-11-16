@@ -94,13 +94,15 @@ fn row_of(r: &Rig, what: &str) -> usize {
 // ---- LOOK-1 ----
 
 #[test]
-fn look_1_zl_cycles_calm_flat_depth_and_the_status_line_says_which() {
+fn look_1_zl_cycles_calm_flat_depth_dark_and_the_status_line_says_which() {
     let mut r =
         rig_env("l1-cycle", &["a.txt=one\n"], &["a.txt"], (80, 24), |e| e.skin = Skin::Calm);
     r.keys("zl");
     assert_eq!((r.sim.skin, r.status()), (Skin::Flat, "look: flat"));
     r.keys("zl");
     assert_eq!((r.sim.skin, r.status()), (Skin::Depth, "look: depth"));
+    r.keys("zl");
+    assert_eq!((r.sim.skin, r.status()), (Skin::Dark, "look: dark")); // (DARK-1)
     r.keys("zl");
     assert_eq!((r.sim.skin, r.status()), (Skin::Calm, "look: calm"));
     r.keys("j");
@@ -111,7 +113,7 @@ fn look_1_zl_cycles_calm_flat_depth_and_the_status_line_says_which() {
         .iter()
         .filter_map(|e| if let SimEffect::Look(s) = e { Some(*s) } else { None })
         .collect();
-    assert_eq!(asked, [Skin::Flat, Skin::Depth, Skin::Calm]);
+    assert_eq!(asked, [Skin::Flat, Skin::Depth, Skin::Dark, Skin::Calm]);
     // The App got both keys: nothing was typed, nothing moved (its parser drops `zl`).
     assert_eq!((r.text(), r.app().buf.cursor), ("one".into(), 0));
 }
@@ -504,7 +506,7 @@ fn look_3_the_mouse_lands_where_things_are_drawn_in_the_boxes() {
 #[test]
 fn look_3_every_look_at_every_size_draws_a_whole_screen_within_its_columns() {
     let mut painter = sim::paint::Painter::new(Vec::<u8>::new());
-    for skin in [Skin::Calm, Skin::Flat, Skin::Depth] {
+    for skin in [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark] {
         // (the edges of the boxes' limits, 40 columns and 10 rows, and of nothing at all)
         for (w, h) in [1, 3, 8, 20, 39, 40, 41, 62]
             .into_iter()

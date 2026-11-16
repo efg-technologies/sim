@@ -101,7 +101,7 @@ z z	n	center cursor line	Scrolls so that the cursor's line is in the middle of t
 <C-f>	nip	search file contents	Opens the search of the contents of the files (ripgrep if it is on the PATH): results grouped by file with a preview, the match bold; Enter opens the file at the match. Not in plain mode.
 <F1>	nitcp	help	Opens this table of keys and commands as a picker, filtered as you type; the longer text of the entry under the cursor is in the preview. Enter and Esc close it, and it runs nothing. :help does the same.
 z h	n	syntax colors on/off	Turns the syntax colors of the text on or off, for every file; the message says which.
-z l	n	next look	Goes round the looks (calm, flat, depth); the choice is remembered. In plain mode the look stays calm.
+z l	n	next look	Goes round the looks (calm, flat, depth, dark); the choice is remembered. In plain mode the look stays calm.
 z i	n	icons on/off	Turns the icons of the tree, the tabs and the status line on or off; the choice is remembered. They need a Nerd Font, which a terminal does not announce.
 <Space>	nt	leader	Space starts a sequence, as the leader of the author's Neovim does: <Space>bp and <Space>bc. Space followed by a key that has no sequence does nothing; where Space is text it is the character.
 <Space> b	nt	buffers	The files that are open, as tabs: pick one by its letter, or pick one to close; <Space>bk says where the version a save or a reload gave up went.

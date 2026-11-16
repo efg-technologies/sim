@@ -1,4 +1,4 @@
-//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6
+//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -855,10 +855,12 @@ impl Sim {
         ids.into_iter().for_each(|id| self.to(id, Event::Bg(rgb), out));
     }
 
-    /// UI-1: the tones of the looks, made of the palette and of the colors the terminal has told.
+    /// UI-1: the tones of the looks, made of the palette and of the colors the terminal has told; in
+    /// dark the dark board's (DARK-2).
     fn retone(&mut self) {
         let colors = self.syn.truecolor || self.syn.mono;
         self.tones = self.pal.filter(|_| colors).map(|p| Tones::with(&p, &self.syn));
+        self.tones.iter_mut().for_each(|t| t.dark(self.skin == Skin::Dark));
     }
 
     /// Whether the terminal may still be answering what was asked of it (VIS-4): the quit then
@@ -1407,6 +1409,7 @@ impl Sim {
             self.msg = Some("plain mode: the look is calm".into());
         } else if zl {
             self.skin = self.skin.next();
+            self.tones.iter_mut().for_each(|t| t.dark(self.skin == Skin::Dark)); // (DARK-2)
             self.msg = Some(format!("look: {}", self.skin.name()));
             out.push(SimEffect::Look(self.skin));
         }
@@ -1861,8 +1864,9 @@ impl Sim {
             }
         }
         let frame = Frame { width: w, height: h, rows, cursor, shape, pal: self.pal };
-        let layers = self.layers(ui, sel, floats);
-        Screen { frame, looks, paints, syn: self.syn, layers }
+        let (layers, mut syn) = (self.layers(ui, sel, floats), self.syn);
+        syn.dark = tones.is_some_and(|t| t.dark);
+        Screen { frame, looks, paints, syn, layers }
     }
 
     /// GUI-1: what a window draws as surfaces, from the lowest to the highest: the boxes of the panel

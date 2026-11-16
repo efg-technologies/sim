@@ -53,7 +53,7 @@
 #   markdown WORD      make the read view of Markdown the next `start` begins with (on, off, or none for no choice
 #                      yet, whose first run is on: MD-5); a case that does not say gets off, so that the cases
 #                      that show a Markdown file are written for its raw text
-#   look WORD          make the look the next `start` begins with (calm, flat, depth, or none for no file:
+#   look WORD          make the look the next `start` begins with (calm, flat, depth, dark, or none for no file:
 #                      LOOK-1); a case that does not say gets calm, so that the looks of the other cases stay what they were written for
 set -eu
 
@@ -1566,6 +1566,8 @@ look_1_zl_cycles_the_looks_and_the_choice_is_the_next_runs() {
   screen | grep -F -q "╰"
   screen | grep -F -q "   1 one"
   typed zl
+  wait_for "look: dark" # (DARK-1)
+  typed zl
   wait_for "look: calm"
   gone "╭"
   typed zl
@@ -1591,6 +1593,40 @@ look_1_zl_cycles_the_looks_and_the_choice_is_the_next_runs() {
   look nonsense
   start a.txt
   wait_for "╭─"
+}
+
+# DARK-1: `zl` goes from depth to dark, which keeps depth's boxes and whose bar says no NORMAL (DARK-5),
+# and the next run begins in it.
+dark_1_zl_reaches_dark_and_the_next_run_begins_in_it() {
+  printf 'one\ntwo\n' > "$W/a.txt"
+  look depth
+  CT=truecolor
+  start a.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_last "NORMAL" # depth's bar: the gray block of Normal mode
+  typed zl
+  wait_for "look: dark"
+  wait_for "╭─" # depth's boxes
+  typed j
+  wait_last "2:1"
+  wait_gone "NORMAL" # no word for what is usual (DARK-5)
+  typed i
+  wait_last "INSERT" # a mode that is not Normal is a block, as ever
+  keys Escape
+  wait_gone "INSERT"
+  typed ":q"
+  keys Enter
+  wait_exit
+  wait_content "$XDG_STATE_HOME/sim/look" dark
+  restart
+  start a.txt
+  reply '11;rgb:1e1e/1e1e/1e1e'
+  wait_for "╭─"
+  wait_last "2:1" # (where the cursor was left, CLI-6)
+  wait_gone "NORMAL" # the bar of dark, once the palette is in
+  typed zl
+  wait_for "look: calm" # the one after dark: dark was the look this run began with
+  gone "╭"
 }
 
 look_3_the_border_badges_a_conflict_with_the_disk() {
@@ -1636,6 +1672,8 @@ look_6_the_text_fades_with_its_distance_from_the_cursor() {
   [ -n "$near" ] && [ -n "$far" ] && [ "$near" != "$far" ] # the far row is dimmer
   # Calm has no gradient: the same text, the same colors.
   typed zl
+  wait_for "look: dark" # (DARK-1)
+  typed zl
   wait_for "look: calm"
   [ "$(color_of 'line 2$')" = "$(color_of 'line 20$')" ]
 }
@@ -1661,6 +1699,8 @@ ui_8_markdown_is_colored_and_every_char_of_the_file_is_on_the_screen() {
   # Calm draws no surface and no bar: the file's own chars, colored like syntax.
   typed zl
   wait_for "look: depth"
+  typed zl
+  wait_for "look: dark" # (DARK-1)
   typed zl
   wait_for "look: calm"
   screen | grep -F -q '> quoted'
@@ -2063,6 +2103,8 @@ ui_15_a_hidden_char_is_the_alert_s_and_the_same_text_typed_is_not() {
   # calm: reverse video, no hue
   typed zl
   wait_for "look: depth"
+  typed zl
+  wait_for "look: dark" # (DARK-1)
   typed zl
   wait_for "look: calm"
   screen_esc | grep -a 'end' | grep -aq '[;[]7[;m][^m]*m*^\['

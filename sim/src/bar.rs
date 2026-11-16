@@ -1,4 +1,4 @@
-//! UI-10, COLOR-1, COLOR-2, UI-17
+//! UI-10, COLOR-1, COLOR-2, UI-17, DARK-5
 //! The status line of the interface (pure): one bar across the width, lualine's sections with
 //! powerline separators when icons are on: the mode in a block of its color, the branch and the
 //! changes against HEAD, the core's state words (and the file with its icon and a dot when modified,
@@ -90,21 +90,23 @@ fn seg(text: impl Into<String>, fg: Option<Rgb>, bold: bool) -> Seg {
 /// The sections of the left and of the right side for what is kept, the path as long as `room`.
 fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) {
     let p = t.primary;
-    let (back, on) = match b.block {
-        Block::Gray => (t.gray, t.gray_on),
-        Block::Accent => t.accent_block(),
+    // DARK-5: dark's Normal mode is no block: its cells are the bar's (nothing after them moves when
+    // the mode changes), the position and the branch are the secondary gray
+    let rest = t.dark && b.block == Block::Gray;
+    let ((back, on), chip) = match b.block {
+        _ if rest => ((t.bar, t.focus), Role::Bar),
+        Block::Gray => ((t.gray, t.gray_on), Role::Chip),
+        Block::Accent => (t.accent_block(), Role::Chip),
     };
+    let mode = if rest { " ".repeat(fit(b.mode, usize::MAX).1) } else { b.mode.to_string() };
     // A: the mode.
-    let mut left = vec![Sect {
-        bg: back,
-        role: Role::Chip,
-        segs: vec![seg(format!(" {} ", b.mode), Some(on), true)],
-    }];
+    let mut left =
+        vec![Sect { bg: back, role: chip, segs: vec![seg(format!(" {mode} "), Some(on), !rest)] }];
     // B: the branch and the changes.
     let mut parts = vec![];
     if let (true, Some(name)) = (k.branch, b.branch) {
         let icon = if b.icons { format!("{BRANCH} ") } else { String::new() };
-        parts.push(seg(format!(" {icon}{name}"), Some(p), false));
+        parts.push(seg(format!(" {icon}{name}"), Some(if t.dark { t.focus } else { p }), false));
     }
     if let (true, Some((a, c, d))) = (k.counts, b.counts) {
         let mut put = |n: usize, mark: &str, chg: Chg| {
@@ -175,8 +177,8 @@ fn sections(b: &Bar, t: &Tones, k: Keep, room: usize) -> (Vec<Sect>, Vec<Sect>) 
     }
     right.push(Sect {
         bg: back,
-        role: Role::Chip,
-        segs: vec![seg(format!(" {} ", b.pos), Some(on), true)],
+        role: chip,
+        segs: vec![seg(format!(" {} ", b.pos), Some(on), !rest)],
     });
     (left, right)
 }

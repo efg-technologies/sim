@@ -323,7 +323,7 @@ fn walk(r: &Rig, what: &str, normal: bool, alert: bool, lit: bool) {
 
 #[test]
 fn color_1_on_the_screen_a_hue_is_only_where_its_meaning_is() {
-    for skin in [Skin::Flat, Skin::Depth] {
+    for skin in [Skin::Flat, Skin::Depth, Skin::Dark] {
         let mut r = rig(skin);
         check(&r, &format!("{skin:?} the text"), true, false);
         // The tree, with every status: names, letters and dots are changes.
@@ -375,7 +375,7 @@ fn color_1_a_git_that_was_not_run_for_safety_says_so_in_the_alert_s_color() {
 
 #[test]
 fn color_1_the_picker_and_a_lit_search_use_only_neutral_surfaces_and_the_accent() {
-    for skin in [Skin::Flat, Skin::Depth] {
+    for skin in [Skin::Flat, Skin::Depth, Skin::Dark] {
         // the search of contents: a markdown file and a file of code in the preview
         let mut r = rig_named(&format!("budget-pick-{skin:?}"), skin);
         r.keys("<C-f>item");
@@ -441,7 +441,7 @@ fn color_1_no_look_of_the_text_is_magenta_the_alert_s_hue() {
 
 #[test]
 fn color_1_the_hidden_chars_of_a_file_are_the_only_alert_in_the_text() {
-    for skin in [Skin::Flat, Skin::Depth] {
+    for skin in [Skin::Flat, Skin::Depth, Skin::Dark] {
         let file = "h.txt=a\u{1b}b \u{202e}c <U+202E> ^[ end\nsecond\n";
         let mut r = rig_env(&format!("budget-hid-{skin:?}"), &[file], &["h.txt"], (100, 20), |e| {
             e.skin = skin;

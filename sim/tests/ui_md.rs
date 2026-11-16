@@ -322,7 +322,7 @@ fn ui_8_no_sgr_sequence_is_longer_than_tmux_takes() {
     // tmux 3.7c drops a whole sequence of more than 20 parameters: the colors of the fenced block's
     // code were gone in the owner's tmux, while every other terminal drew them.
     let text = "# T\n\n`c` [l](u) **b**\n\n```bash\nparu -S x # c\n```\n\n> q\n\n- b\n";
-    for skin in [Skin::Calm, Skin::Flat, Skin::Depth] {
+    for skin in [Skin::Calm, Skin::Flat, Skin::Depth, Skin::Dark] {
         let mut r = shown("md-tmux", skin, text);
         r.keys("G"); // the cursor far from the block: the fog fades it
         let out = draw(r.shot.clone());

@@ -1,4 +1,4 @@
-//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8, COLOR-1, COLOR-2, GUI-1, GUI-2, GUI-3
+//! SYN-1, SYN-5, FIND-1, LOOK-2, LOOK-3, LOOK-5, LOOK-6, LOOK-7, UI-8, COLOR-1, COLOR-2, GUI-1, GUI-2, GUI-3, DARK-2
 //! What sim draws beyond the core's four styles: the looks a char can have, the Screen that carries
 //! them with the core's Frame, and the Painter that writes a Screen to the terminal, row by row. The
 //! four styles are the core's own (`term::sgr` with the Frame's palette, VIS-4); the looks go on top.
@@ -391,12 +391,13 @@ pub fn resolve(
     let (attr, kin, dim) = look.map_or(("", None, false), |l| made_of(l, pal.is_some()));
     attrs += attr;
     attrs += [";1", ""][usize::from(!paint.bold)];
-    // The look's color: the secondary gray, or the syntax hue (SGR 31-36 where there is none).
+    // The look's color: the secondary gray, or the syntax hue (SGR 31-36 where there is none); in
+    // dark none, the weight says it (DARK-2).
     let mut ansi = None;
     if let (false, Some(p)) = (change, pal) {
         if dim {
             fg = Some(p.secondary);
-        } else if let Some(k) = kin {
+        } else if let Some(k) = kin.filter(|_| !syn.dark) {
             (fg, ansi) = (syn.hue(k), syn.hue(k).map_or(ansi_of(k), |_| None));
         }
     } else if let (false, None, Some(k)) = (change, pal, kin) {

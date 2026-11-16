@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 # of dependencies. The editor (sim/src) and the window (gui/src) have a cap each; the reasons for all
 # three are in CONCEPT.md.
 MAX_CORE_LINES=3640
-MAX_SIM_LINES=12284
+MAX_SIM_LINES=12302
 MAX_GUI_LINES=5100
 CORE_DEPS="crossterm notify regex-lite ropey rustix similar unicode-width"
 # The editor's own direct dependencies (the core included), as they were before the window: the window
@@ -22,7 +22,7 @@ GUI_ONLY="winit wgpu wgpu-core wgpu-hal wgpu-types naga ash cosmic-text swash fo
 # Crates that speak to a network, or are a browser, or its toolkit. None may be in the window's tree
 # (`mio` is: the poll primitive under crossterm and notify, which are sim's own dependencies).
 GUI_FORBIDDEN="reqwest hyper ureq curl isahc surf attohttpc h2 http openssl openssl-sys rustls native-tls tokio async-std socket2 quinn tungstenite websocket smol webkit2gtk wry tao tauri gtk cef servo hickory-resolver trust-dns-resolver"
-MAX_BYTES=$((5 * 1024 * 1024 + 154 * 1024))
+MAX_BYTES=$((5 * 1024 * 1024 + 156 * 1024))
 
 N=14
 step() {

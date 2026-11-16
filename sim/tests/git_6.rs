@@ -139,7 +139,7 @@ fn git_6_a_narrow_panel_gives_the_guard_s_words_up_before_the_hook_s() {
     let top = r.screen.rows[0].text.clone();
     assert!(top.contains(" hook"), "{top}");
     // calm has no frame: the status line said it
-    r.keys("zlzl"); // depth, calm
+    r.keys("zlzlzl"); // depth, dark, calm
     assert!(!r.screen.rows.iter().take(2).any(|l| l.text.contains(" hook ")));
 }
 

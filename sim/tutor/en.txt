@@ -174,8 +174,8 @@ Ctrl-n opens and focuses the tree, or focuses it if already open.
 Only in the tree does Ctrl-n close it; Esc returns to the text.
 In Normal mode or the tree, Ctrl-w then w switches focus and keeps
 the tree open.
-zl changes the look (calm, flat, depth); zi toggles icons (a Nerd Font
-is needed).
+zl changes the look (calm, flat, depth, dark); zi toggles icons
+(a Nerd Font is needed).
 <Space>bk shows the last kept version's path. Press Space and wait
 for a menu of the next keys.
 

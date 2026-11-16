@@ -167,7 +167,7 @@ Ctrl-p 依名稱尋找檔案，Enter 開啟結果。Ctrl-f 搜尋檔案內容。
 僅在檔案樹有焦點時，Ctrl-n 才關閉它；Esc 返回本文。
 在 Normal 模式或檔案樹中，先按 Ctrl-w 再按 w 可切換焦點，
 檔案樹保持開啟。
-zl 切換外觀（calm、flat、depth）；zi 開關圖示（需要 Nerd Font）。
+zl 切換外觀（calm、flat、depth、dark）；zi 開關圖示（需 Nerd Font）。
 <Space>bk 顯示最後保留的版本路徑。按 Space 並稍等可查看後續按鍵選單。
 
 [ ] 9.1 用 Ctrl-p 開啟檔案尋找器，再用 Esc 關閉。
