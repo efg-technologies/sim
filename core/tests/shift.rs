@@ -93,6 +93,8 @@ const ATOMS: &[&str] = &[
     "A(<CR>x<Esc>",
     "I\"<BS><Esc>",
     "A[<Esc>",
+    "<M-l>",
+    "<M-h>",
 ];
 
 #[derive(Clone, Debug)]

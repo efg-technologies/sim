@@ -1,9 +1,11 @@
-//! VI-18, VI-20, VI-21
+//! VI-18, VI-20, VI-21, VI-22
 //! What the hands bring from the owner's Neovim: the comment toggle (`gc`), the surroundings
-//! (mini.surround's `gsa`, `gsd`, `gsr`) and the pairs that typing makes (mini.pairs').
+//! (mini.surround's `gsa`, `gsd`, `gsr`), the pairs that typing makes (mini.pairs') and the lines that
+//! Alt-h/j/k/l move (mini.move's).
 use super::app::{App, Key};
 use super::edit::PAIRS;
 use std::ops::Range;
+use std::sync::Arc;
 
 /// The comment strings of Neovim's ftplugins (`'commentstring'`, Neovim 0.12), by the extension of the
 /// file's name or by the whole name.
@@ -201,6 +203,59 @@ impl App {
                 _ => self.buf.cursor -= 1,
             }
         }
+    }
+}
+
+impl App {
+    /// VI-22: Alt-j and Alt-k move the line, or the lines of the selection, `n` lines down or up (as far as
+    /// there are), and Alt-l and Alt-h shift them `n` units in or out. The marks go with their lines,
+    /// and the cursor (and the selection's other end) with its char.
+    pub(super) fn move_lines(&mut self, dir: Option<char>, n: usize) {
+        let b = &self.buf;
+        // (the last char a selection takes; V-LINE's ends at the line break of its last line, an empty one too)
+        let line = self.vi.mode == super::vi::Mode::VLine;
+        let sel =
+            self.selection().map(|(s, e)| (s, if line { e } else { e.saturating_sub(1).max(s) }));
+        let (s, e) = sel.unwrap_or((b.cursor, b.cursor));
+        let (l1, l2, down) = (b.line_of(s), b.line_of(e), dir == Some('j'));
+        let anchor = if sel.is_some() { self.anchor } else { b.cursor }; // (out of Visual mode, stale)
+        let ends = [anchor, b.cursor].map(|i| (b.line_of(i), i - b.start(b.line_of(i))));
+        let (lens, size) = (ends.map(|(l, _)| b.line_len(l)), l2 - l1 + 1);
+        let d = if down {
+            n.min(b.lines() - 1 - l2)
+        } else {
+            n.min(l1) * usize::from(dir == Some('k'))
+        };
+        // (where a line goes: the lines from `lo` to `hi` turn round, the moved ones by `d`)
+        let ((lo, hi), turn) = if down { ((l1, l2 + d), d) } else { ((l1 - d, l2), size) };
+        let go = |l: usize| if l < lo || l > hi { l } else { lo + (l - lo + turn) % (hi - lo + 1) };
+        match dir {
+            Some('h' | 'l') => self.shift(l1, l2, dir == Some('l'), n),
+            _ if d == 0 => return,
+            _ => {
+                let text = |a: usize, z: usize| b.text.slice(b.start(a)..b.end(z)).to_string();
+                let (block, by) =
+                    (text(l1, l2), if down { text(l2 + 1, hi) } else { text(lo, l1 - 1) });
+                let new = if down { format!("{by}\n{block}") } else { format!("{block}\n{by}") };
+                let (vm, mut dm) = (b.vmark, b.marks.to_vec());
+                // (the marks stay in the order of their lines: the block's and the passed ones swap)
+                let (i, j) =
+                    (dm.partition_point(|m| m.line < lo), dm.partition_point(|m| m.line <= hi));
+                let k = dm[i..j].partition_point(|m| m.line < if down { l2 + 1 } else { l1 });
+                dm[i..j].rotate_left(k);
+                dm.iter_mut().for_each(|m| m.line = go(m.line));
+                let b = &mut self.buf;
+                b.replace(b.start(lo)..b.end(hi), &new);
+                (b.vmark, b.marks) = (vm.map(|m| m.map(|(l, c)| (go(l), c))), Arc::new(dm));
+            }
+        }
+        // (a shift moves the columns by what each line gained or lost)
+        let shifted = matches!(dir, Some('h' | 'l'));
+        let [a, c] = [0, 1].map(|i| {
+            let ((l, c), b) = (ends[i], &self.buf);
+            b.pos((go(l), if shifted { (c + b.line_len(l)).saturating_sub(lens[i]) } else { c }))
+        });
+        (self.anchor, self.buf.cursor) = (a, c);
     }
 }
 

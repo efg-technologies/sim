@@ -330,6 +330,19 @@ const TOKENS: &[&str] = &[
     "A'a'<Esc>",
     "i\\(<Esc>",
     "i([{\"'`<BS><BS><BS><Esc>",
+    // Lines moved with Alt (VI-22), and Alt keys where they are Esc and the key.
+    "<M-j>",
+    "<M-k>",
+    "<M-h>",
+    "<M-l>",
+    "3<M-j>",
+    "9<M-k>",
+    "Vj<M-j>",
+    "vj<M-l>",
+    "Vk<M-h>",
+    "i<M-j>",
+    "d<M-k>",
+    ":<M-l>",
 ];
 
 /// Counts that overflow `usize` (20 digits) or are merely huge: no panic, no spin, no giant allocation.
@@ -784,6 +797,12 @@ const COMPLETE: &[&str] = &[
     "a\"<BS><Esc>",
     "o{<CR>x<Esc>",
     "i'a'<Esc>",
+    "<M-j>",
+    "<M-k>",
+    "2<M-j>",
+    "<M-l>",
+    "<M-h>",
+    "Vj<M-j><Esc>",
 ];
 
 fn counted() -> impl Strategy<Value = Vec<String>> {

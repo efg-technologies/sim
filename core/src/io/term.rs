@@ -1,4 +1,4 @@
-//! PERF-3, VIS-4, VIS-7, VIS-10, CLI-4, VI-8, VI-9, VI-12
+//! PERF-3, VIS-4, VIS-7, VIS-10, CLI-4, VI-8, VI-9, VI-12, VI-22
 //! crossterm: diffed Frame output, OSC 11 / 52, cursor shape.
 use crate::core::app::{Event, Key};
 use crate::core::color::{Palette, Rgb, parse_osc11};
@@ -66,9 +66,16 @@ pub fn convert(ev: Ev) -> Option<Event> {
 }
 
 /// `convert` for the event loop. Without the kitty protocol Alt+x is sent as ESC x, which is also
-/// Esc followed at once by x (a fast typist, tmux send-keys, a slow link that batches bytes). sim
-/// has no Alt commands: it is Esc, then the key (VI-9).
+/// Esc followed at once by x (a fast typist, tmux send-keys, a slow link that batches bytes). Alt-h/j/k/l
+/// are keys of their own (VI-22: App reads them as Esc and the key where they move nothing); every other
+/// Alt key is Esc, then the key (VI-9).
 pub fn convert_all(ev: Ev) -> Vec<Event> {
+    if let Ev::Key(k) = ev
+        && k.modifiers == KeyModifiers::ALT
+        && let KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) = k.code
+    {
+        return vec![Event::Key(Key::Alt(c))];
+    }
     if let Ev::Key(k) = ev
         && k.modifiers.contains(KeyModifiers::ALT)
         && matches!(k.code, KeyCode::Char(_) | KeyCode::Enter | KeyCode::Backspace | KeyCode::Tab)

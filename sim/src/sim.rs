@@ -1,4 +1,4 @@
-//! VI-15, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2
+//! VI-15, VI-22, WATCH-1, WATCH-2, TREE-1, TREE-2, TREE-4, TREE-5, BUF-1, BUF-2, BUF-3, FIND-3, MARK-1, MARK-2, SYN-1, SYN-2, SYN-3, SYN-5, LOOK-1, LOOK-8, UI-2, UI-3, UI-9, UI-5, UI-10, UI-4, UI-6, COLOR-1, UI-11, UI-13, UI-14, PLAIN-1, COLOR-2, ICON-1, SAFE-7, UI-17, GIT-3, DIFF-1, DIFF-3, DIFF-4, GIT-5, UI-19, DIFF-9, GIT-6, DARK-1, DARK-2
 //! sim's state (pure): the open files (each one a core App), the panel, and what each event does.
 //! `Sim::update` takes an event and returns what the shell is to do; it reads no clock, no file
 //! and no terminal, so the tests drive it without threads. The panel's keys, search and focus
@@ -1338,6 +1338,13 @@ impl Sim {
     }
 
     fn key(&mut self, k: Key, out: &mut Vec<SimEffect>) {
+        // VI-22: Alt-h/j/k/l are the text's; where a key is not the text's, an Alt key is Esc and the key
+        let theirs = self.tabpick.is_some() || self.win || self.leader.is_some();
+        let theirs = theirs || self.panel.live.is_some() || (self.panel.open && self.panel.focus);
+        if let (Key::Alt(c), true) = (k, theirs) {
+            self.key(Key::Esc, out);
+            return self.key(Key::Char(c), out);
+        }
         self.msg = None;
         // KEY-5, KEY-2: the letters of the tabs are waiting for a key; a leader's sequence is half typed
         // or starts with this Space: the keys are the guide's until it is done

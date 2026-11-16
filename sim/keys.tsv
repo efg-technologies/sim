@@ -86,6 +86,8 @@ P	n	paste before	Like p, before the cursor or above the line.
 J	n	join lines	Joins the next line to this one with a single blank; with a count, that many lines.
 r {char}	n	replace character	Replaces the character under the cursor with the one you type; with a count, that many characters.
 ~	nv	toggle case	Turns the case of the character under the cursor around and moves right; with a count, that many characters of the line. In Visual mode, the case of the selection.
+<M-j>|<M-k>	nv	move line down/up	Moves the line (in Visual mode the selected lines, which stay selected) down or up, as mini.move does; with a count, that many lines, as far as there are. The marks go with their lines. One undo step for each, and . repeats it. Where a key is not the text's (Insert mode, a prefix half typed, the tree), Alt and a key are Esc and the key.
+<M-h>|<M-l>	nv	indent out/in	Shifts the line (in Visual mode the selected lines, which stay selected) one indent unit out or in, as mini.move does; with a count, that many units. The cursor stays on its char.
 u	n	undo	Undoes the last change, one step at a time. A change that came from the disk and was merged in is a step too.
 U	n	redo	Redoes what u undid. In vi U undoes a whole line; here it is the key beside u and does what Ctrl-r does.
 <C-r>	n	redo	Redoes what u undid.

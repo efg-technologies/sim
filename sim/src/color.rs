@@ -598,7 +598,7 @@ impl Input {
 
     /// GUI-7: what a terminal event is to sim when no reply of a terminal is waited for (a window has
     /// none): the mouse, Shift-Tab and F1, which the core's `Key` does not have (KEY-4), and the rest
-    /// as the core's `convert_all` makes it (Alt-x is Esc, then x). The path the keys of a terminal
+    /// as the core's `convert_all` makes it (Alt-x is Esc, then x, but Alt-h/j/k/l: VI-22). The path the keys of a terminal
     /// take after `feed` has held back what could be a reply.
     pub fn event(ev: Ev) -> Vec<SimEvent> {
         match &ev {

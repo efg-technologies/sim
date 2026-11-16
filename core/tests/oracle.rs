@@ -8,7 +8,9 @@
 //! undo on a Rust file, against Neovim's own `gc` with `commentstring` `// %s`), or `surround` (VI-20:
 //! `gsa`, `gsd` and `gsr` against mini.surround with its defaults and the owner's mappings; it is looked
 //! for in `SIM_ORACLE_MINI`, else in `~/.local/share/nvim/lazy/mini.nvim`), or `pairs` (VI-21: Insert
-//! mode with brackets, quotes, Backspace, `.` and undo, against mini.pairs with its defaults).
+//! mode with brackets, quotes, Backspace, `.` and undo, against mini.pairs with its defaults), or `move`
+//! (VI-22: Alt-h/j/k/l with counts, in Normal and V-LINE mode, against mini.move with its defaults but
+//! `reindent_linewise`, which sim does not do).
 //! Every divergence is printed grouped by the first command; the test only fails with
 //! `SIM_ORACLE_STRICT=1`. Not every divergence is a bug: several are SPEC "Decided" items (see the
 //! report), which `known()` filters.
@@ -57,6 +59,8 @@ if mini and mini ~= '' then
     silent = true,
   })
   require('mini.pairs').setup()
+  -- (mini.move re-indents the lines it moves with `=`, which sim does not: VI-22, NOTES)
+  require('mini.move').setup({ options = { reindent_linewise = false } })
 end
 local function unhex(s) return (s:gsub('..', function(h) return string.char(tonumber(h, 16)) end)) end
 local function hex(s) return (s:gsub('.', function(c) return string.format('%02x', c:byte()) end)) end
@@ -573,6 +577,19 @@ fn pairs_command(r: &mut Rng, dot: bool) -> String {
     }
 }
 
+/// One command of the move mode (VI-22): Alt-h/j/k/l with or without a count, the same in V-LINE mode, or
+/// a motion. (No undo: mini.move makes consecutive moves one undo step, sim one each, as VI-22 has it.)
+fn move_command(r: &mut Rng) -> String {
+    let alt = |r: &mut Rng| {
+        format!("{}<M-{}>", pick(r, &["", "", "2", "3"]), pick(r, &["j", "k", "h", "l"]))
+    };
+    match r.below(6) {
+        0..=2 => alt(r),
+        3 => format!("{}{}<Esc>", pick(r, &["V", "Vj", "Vk"]), alt(r)),
+        _ => pick(r, &["j", "k", "w", "0", "$", "gg", "G"]).into(),
+    }
+}
+
 /// The keys with `<Ignore>` after each one, for Neovim in the pairs mode.
 fn ignored(keys: &str) -> String {
     let (mut out, mut rest) = (String::new(), keys);
@@ -592,6 +609,18 @@ fn ignored(keys: &str) -> String {
 fn gen_case(r: &mut Rng, multi: bool) -> Case {
     let indent = r.below(3) == 0;
     let text = gen_text(r, indent);
+    if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "move") {
+        let lines: Vec<&str> = text.split('\n').collect();
+        let line = r.below(lines.len());
+        let col = if lines[line].is_empty() { 0 } else { r.below(lines[line].len()) };
+        let parts: Vec<String> = (0..1 + r.below(3)).map(|_| move_command(r)).collect();
+        let keys = parts.concat() + "<Esc>";
+        let sw = lines
+            .iter()
+            .find(|l| l.starts_with(' ') && l.chars().any(|c| c != ' '))
+            .map_or(4, |l| l.chars().take_while(|&c| c == ' ').count());
+        return Case { text, line, col, keys, sw, simple: false, parts };
+    }
     if std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs") {
         let lines: Vec<&str> = text.split('\n').collect();
         let line = r.below(lines.len());
@@ -917,6 +946,7 @@ fn vi_1_oracle_against_nvim() {
     let comment_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "comment");
     let surround_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "surround");
     let pairs_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "pairs");
+    let move_mode = std::env::var("SIM_ORACLE_MODE").is_ok_and(|m| m == "move");
     let home = std::env::var("HOME").unwrap_or_default();
     let mini = std::env::var("SIM_ORACLE_MINI")
         .unwrap_or_else(|_| format!("{home}/.local/share/nvim/lazy/mini.nvim"));
@@ -945,12 +975,15 @@ fn vi_1_oracle_against_nvim() {
             // (Neovim's `gc` is a mapping of its defaults, and mini's are mappings: those modes remap)
             .arg(if mark_mode {
                 "xnt"
-            } else if comment_mode || surround_mode || pairs_mode {
+            } else if comment_mode || surround_mode || pairs_mode || move_mode {
                 "xt"
             } else {
                 "xn"
             })
-            .env("SIM_ORACLE_MINI", if surround_mode || pairs_mode { mini.as_str() } else { "" })
+            .env(
+                "SIM_ORACLE_MINI",
+                if surround_mode || pairs_mode || move_mode { &mini } else { "" },
+            )
             .output()
             .unwrap();
         let part = std::fs::read_to_string(&outp).unwrap_or_default();

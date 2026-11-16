@@ -1,4 +1,4 @@
-//! VI-15, CLI-1, CLI-3, CLI-6, VIS-4, SAFE-1, SAFE-4, SAFE-5, SAFE-6, SAFE-7, DISK-1, DISK-6, FILT-1, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14, PLAIN-1
+//! VI-15, VI-22, CLI-1, CLI-3, CLI-6, VIS-4, SAFE-1, SAFE-4, SAFE-5, SAFE-6, SAFE-7, DISK-1, DISK-6, FILT-1, VI-2, VI-7, VI-9, VI-10, VI-11, VI-12, VI-13, VI-14, PLAIN-1
 //! `App::update(&mut self, Event) -> Vec<Effect>`: the state, and what each Event does to it.
 use super::buffer::{ABSENT, Buffer, Format, hash};
 use super::color::{Palette, Rgb, palette};
@@ -15,7 +15,8 @@ use std::time::Instant;
 #[rustfmt::skip]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Key {
-    Char(char), Ctrl(char), Esc, Enter, Backspace, Tab, Delete,
+    // (`Alt` is Alt-h/j/k/l, VI-22: every other Alt key reaches App as Esc and the key, VI-9)
+    Char(char), Ctrl(char), Alt(char), Esc, Enter, Backspace, Tab, Delete,
     Up, Down, Left, Right, Home, End, PageUp, PageDown, // the cursor keys, in this order
 }
 
@@ -432,6 +433,16 @@ impl App {
         }
         if k == Key::Ctrl('s') {
             return self.ex("w");
+        }
+        // VI-22: Alt-h/j/k/l move lines in Normal and Visual mode when nothing but a count is typed; in any
+        // other state an Alt key is Esc and the key, as it always was (VI-9)
+        if let Key::Alt(c) = k
+            && (matches!(self.vi.mode, Mode::Insert | Mode::Cmd)
+                || !self.vi.bare()
+                || !"hjkl".contains(c))
+        {
+            self.key(Key::Esc);
+            return self.key(Key::Char(c));
         }
         let (mode, version) = (self.vi.mode, self.buf.version());
         let typing = matches!(mode, Mode::Normal | Mode::Insert);

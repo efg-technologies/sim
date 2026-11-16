@@ -1,10 +1,10 @@
-//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VI-20, VI-21, VIS-12, FILT-1, DISK-6
+//! VI-1, VI-2, VI-3, VI-5, VI-6, VI-8, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VI-20, VI-21, VI-22, VIS-12, FILT-1, DISK-6
 //! Motions, text objects, operators, and what each Normal, Visual and Insert mode key does.
 use super::app::{App, Effect, Key, plural};
 use super::buffer::{Buffer, PREV, SAVED, VIS};
 use super::reg::Regs;
 use super::vi::{
-    Cmd, GC, GSA, GSD, GSR, GV, HALF_DN, HALF_UP, HOME, MOTIONS, Mode, PGUP, VERTICAL, ch,
+    Cmd, GC, GSA, GSD, GSR, GV, HALF_DN, HALF_UP, HOME, MOTIONS, MOVE, Mode, PGUP, VERTICAL, ch,
 };
 use ropey::Rope;
 use unicode_width::UnicodeWidthChar;
@@ -419,16 +419,8 @@ impl App {
                 }
             }
             _ => {
-                let unit = self.unit();
-                let b = &mut self.buf;
-                for l in l1..=l2 {
-                    let (w, s) = (if unit == "\t" { 4 } else { unit.len() }, b.start(l));
-                    let spaces = (0..w).take_while(|&i| b.ch(s + i) == ' ').count();
-                    let cut = if op == '>' { 0 } else { spaces.max(usize::from(b.ch(s) == '\t')) };
-                    let add = if op == '>' && b.line_len(l) > 0 { unit.as_str() } else { "" };
-                    b.replace(s..s + cut, add);
-                }
-                b.cursor = b.nonblank(l1);
+                self.shift(l1, l2, op == '>', 1);
+                self.buf.cursor = self.buf.nonblank(l1);
             }
         }
     }
@@ -443,7 +435,7 @@ impl App {
         }
         let edits = match c.op {
             Some(o) => "dc<>uU~".contains(o) || matches!(o, GC | GSA),
-            None => !vis && "iaIAoOpPJr~".contains(c.k) || matches!(c.k, GSD | GSR),
+            None => !vis && "iaIAoOpPJr~".contains(c.k) || matches!(c.k, GSD | GSR | MOVE),
         };
         // Only the vertical motions keep the wanted column.
         self.buf.want =
@@ -461,7 +453,7 @@ impl App {
         }
         match c.k {
             // In Visual mode only motions, selection keys and `:` work.
-            k if vis && !MOTIONS.contains(k) && !"\x1b\x03vVoia:m".contains(k) => {}
+            k if vis && !MOTIONS.contains(k) && !"\x1b\x03vVoia:m".contains(k) && k != MOVE => {}
             k if MOTIONS.contains(k) => self.go(k, c.arg, c.n),
             '\x1b' | '\x03' if vis => self.leave_visual(),
             '\x03' => match self.filter.as_mut() {
@@ -492,6 +484,7 @@ impl App {
                 }
             }
             GSD | GSR => self.resurround(c.arg, c.to),
+            MOVE => self.move_lines(c.arg, n1),
             GV => match (self.buf.vmark[VIS], self.buf.vmark[VIS + 1]) {
                 (Some(a), Some(c)) => {
                     (self.anchor, self.buf.cursor) = (self.buf.pos(a), self.buf.pos(c));
@@ -538,6 +531,29 @@ impl App {
             _ => {}
         }
         self.clamp();
+    }
+
+    /// `>` and `<` (VI-2), and Alt-l and Alt-h `n` times (VI-22): each line shifted by `n` indent units, in
+    /// (an empty line stays empty) or out (a unit of blanks, or a tab, each time, as far as there are).
+    pub(super) fn shift(&mut self, l1: usize, l2: usize, inward: bool, n: usize) {
+        let unit = self.unit();
+        if inward && !self.fits(unit.len().saturating_mul(n).saturating_mul(l2 - l1 + 1)) {
+            return;
+        }
+        let (w, add) = (if unit == "\t" { 4 } else { unit.len() }, unit.repeat(n));
+        let b = &mut self.buf;
+        for l in l1..=l2 {
+            let (s, mut cut) = (b.start(l), 0);
+            for _ in 0..if inward { 0 } else { n } {
+                let spaces = (0..w).take_while(|&i| b.ch(s + cut + i) == ' ').count();
+                let c = spaces.max(usize::from(b.ch(s + cut) == '\t'));
+                if c == 0 {
+                    break;
+                }
+                cut += c;
+            }
+            b.replace(s..s + cut, if inward && b.line_len(l) > 0 { &add } else { "" });
+        }
     }
 
     /// `gu`, `gU`, `g~` and `~` (VI-19): the chars of `a..e` in lower case, upper case, or the other case,

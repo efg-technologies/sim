@@ -161,12 +161,15 @@ fn alt(code: KeyCode) -> Vec<String> {
 }
 
 /// Without the kitty protocol Esc and the next key can arrive together, which looks like
-/// Alt+key. si has no Alt commands: it is Esc, then the key.
+/// Alt+key. sim has no Alt commands but Alt-h/j/k/l (VI-22, which App reads as Esc and the key where
+/// they move nothing): any other is Esc, then the key.
 #[test]
 fn vi_9_alt_plus_a_key_is_esc_then_the_key() {
+    assert_eq!(alt(KeyCode::Char('j')), ["Key(Alt('j'))"]);
     for (code, then) in [
         (KeyCode::Char(':'), "Key(Char(':'))"),
-        (KeyCode::Char('j'), "Key(Char('j'))"),
+        (KeyCode::Char('x'), "Key(Char('x'))"),
+        (KeyCode::Char('J'), "Key(Char('J'))"),
         (KeyCode::Char('Z'), "Key(Char('Z'))"),
         (KeyCode::Enter, "Key(Enter)"),
         (KeyCode::Backspace, "Key(Backspace)"),

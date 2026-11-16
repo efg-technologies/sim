@@ -1,4 +1,4 @@
-//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VI-20
+//! VI-1, VI-2, VI-3, VI-10, VI-12, VI-13, VI-15, VI-17, VI-18, VI-19, VI-20, VI-22
 //! Key sequence to Command: counts, operators and prefixes in Normal and Visual mode, and the
 //! editing of the command line.
 use super::app::Key;
@@ -43,6 +43,8 @@ pub const GS: char = '\u{e005}';
 pub const GSA: char = '\u{e006}';
 pub const GSD: char = '\u{e007}';
 pub const GSR: char = '\u{e008}';
+/// Alt-h/j/k/l (VI-22), with the letter.
+pub const MOVE: char = '\u{e009}';
 // `VERTICAL` and `MOTIONS` spell the private chars above (and Ctrl-d, Ctrl-u) out.
 /// The motions that keep the wanted column.
 pub const VERTICAL: &str = "jk\x04\x15\u{e001}\u{e002}";
@@ -84,10 +86,12 @@ pub struct Parser {
 impl Parser {
     /// Normal mode with nothing half typed.
     pub fn idle(&self) -> bool {
-        self.mode == Mode::Normal
-            && self.n + self.n0 == 0
-            && self.op.or(self.pre).or(self.reg).is_none()
-            && self.wait.is_none()
+        self.mode == Mode::Normal && self.n + self.n0 == 0 && self.bare()
+    }
+
+    /// Nothing is half typed but a count (an Alt key moves lines then, VI-22).
+    pub fn bare(&self) -> bool {
+        self.op.or(self.pre).or(self.reg).is_none() && self.wait.is_none()
     }
 
     /// A prefix key (the `]` of `]c`) waits for the key that completes it.
@@ -152,6 +156,9 @@ impl Parser {
     /// Feeds a key in Normal or Visual mode.
     pub fn key(&mut self, k: Key) -> Option<Cmd> {
         let (c, vis) = (ch(k), self.mode.visual());
+        if let Key::Alt(a) = k {
+            return self.emit(None, MOVE, Some(a));
+        }
         if let Some(mut w) = self.wait.take() {
             let Key::Char(c) = k else { return None }; // (any other key gives it up)
             w.to = Some(c);

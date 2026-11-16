@@ -103,6 +103,7 @@ Needs Rust 1.88 or later. Runs on Linux and macOS in any terminal; colors, the k
 | `gU` / `gu` / `~` | upper case / lower case / the other case (`gUiw`, `guu`) |
 | `gsa` / `gsd` / `gsr` | add / delete / replace a surrounding (`gsaiw(`, `gsd"`, `gsr"'`) |
 | `(` `"` … | typed in pairs in Insert mode; the closing char steps over, Backspace takes an empty pair |
+| `Alt-j` / `Alt-k` | move the line (the selected lines) down / up; `Alt-h` / `Alt-l` indent out / in |
 | `]c` | next change from outside |
 | `[c` | previous change from outside |
 | `:s` | substitute |

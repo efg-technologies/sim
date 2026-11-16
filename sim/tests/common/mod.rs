@@ -295,6 +295,7 @@ pub fn keys(s: &str) -> Vec<Key> {
                     "PageDown" => Key::PageDown,
                     "lt" => Key::Char('<'),
                     n if n.len() == 3 && n.starts_with("C-") => Key::Ctrl(n.chars().nth(2)?),
+                    n if n.len() == 3 && n.starts_with("M-") => Key::Alt(n.chars().nth(2)?),
                     _ => return None,
                 };
                 Some((k, tail))
